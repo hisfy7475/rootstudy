@@ -22,11 +22,9 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const password = formData.get('password') as string;
   const name = formData.get('name') as string;
   const phone = formData.get('phone') as string;
-  const seatNumber = formData.get('seatNumber') as string;
-  const birthday = formData.get('birthday') as string;
   const branchId = formData.get('branchId') as string;
 
-  if (!email || !password || !name || !birthday || !branchId) {
+  if (!email || !password || !name || !branchId) {
     return { success: false, error: '필수 항목을 모두 입력해주세요.' };
   }
 
@@ -71,9 +69,7 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   // 4. student_profiles 테이블에 학생 정보 저장
   const { error: studentError } = await supabase.from('student_profiles').insert({
     id: userId,
-    seat_number: seatNumber ? parseInt(seatNumber, 10) : null,
     parent_code: parentCode,
-    birthday: birthday,
   });
 
   if (studentError) {

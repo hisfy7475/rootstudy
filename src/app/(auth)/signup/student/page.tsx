@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Mail, Lock, User, Phone, Hash, ArrowLeft, Copy, Check, UserPlus, Calendar, Building2 } from 'lucide-react';
+import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -185,17 +185,6 @@ export default function StudentSignupPage() {
               />
             </div>
             <div className="relative">
-              <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="date"
-                name="birthday"
-                placeholder="생년월일"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
               <Building2 className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
               <select
                 name="branchId"
@@ -208,16 +197,6 @@ export default function StudentSignupPage() {
                   <option key={branch.id} value={branch.id}>{branch.name}</option>
                 ))}
               </select>
-            </div>
-            <div className="relative">
-              <Hash className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="number"
-                name="seatNumber"
-                placeholder="좌석번호 (선택)"
-                className="pl-12"
-                disabled={isLoading}
-              />
             </div>
 
             {error && (
