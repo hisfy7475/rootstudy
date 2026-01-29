@@ -40,8 +40,23 @@ export default function DateTypesClient({
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [typeName, setTypeName] = useState('');
   const [typeStartTime, setTypeStartTime] = useState('07:30');
-  const [typeEndTime, setTypeEndTime] = useState('22:00');
+  const [typeEndTime, setTypeEndTime] = useState('01:30');
   const [typeColor, setTypeColor] = useState('#7C9FF5');
+
+  // 종료 시간이 시작 시간보다 이르면 익일로 판단
+  const isNextDay = (startTime: string, endTime: string) => {
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+    return endMinutes < startMinutes;
+  };
+
+  // 시간 표시 포맷 (익일 여부 포함)
+  const formatTimeDisplay = (startTime: string, endTime: string) => {
+    const nextDay = isNextDay(startTime, endTime);
+    return `${startTime} ~ ${nextDay ? '익일 ' : ''}${endTime}`;
+  };
 
   // 캘린더 선택
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -127,7 +142,7 @@ export default function DateTypesClient({
     setEditingTypeId(null);
     setTypeName('');
     setTypeStartTime('07:30');
-    setTypeEndTime('22:00');
+    setTypeEndTime('01:30');
     setTypeColor('#7C9FF5');
   };
 
@@ -244,7 +259,9 @@ export default function DateTypesClient({
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs text-gray-500">종료</label>
+                  <label className="text-xs text-gray-500">
+                    종료 {isNextDay(typeStartTime, typeEndTime) && <span className="text-primary font-medium">(익일)</span>}
+                  </label>
                   <Input
                     type="time"
                     value={typeEndTime}
@@ -291,7 +308,7 @@ export default function DateTypesClient({
                   <div>
                     <div className="font-medium text-gray-800">{type.name}</div>
                     <div className="text-xs text-gray-500">
-                      {type.default_start_time} ~ {type.default_end_time}
+                      {formatTimeDisplay(type.default_start_time, type.default_end_time)}
                     </div>
                   </div>
                 </div>
@@ -454,24 +471,30 @@ export default function DateTypesClient({
               const dayOfWeek = new Date(item.date).getDay();
               const typeColor = item.assignment?.date_type?.color;
               const typeName = item.assignment?.date_type?.name;
+              const isToday = item.date === new Date().toISOString().split('T')[0];
 
               return (
                 <div
                   key={item.date}
                   onClick={() => handleDateClick(item.date)}
                   className={`h-16 p-1 rounded-lg cursor-pointer border-2 transition-all ${
-                    selectedDate === item.date
-                      ? 'border-primary'
-                      : 'border-transparent hover:border-gray-200'
+                    isToday
+                      ? 'border-primary ring-2 ring-primary/30'
+                      : selectedDate === item.date
+                        ? 'border-primary'
+                        : 'border-transparent hover:border-gray-200'
                   }`}
                   style={typeColor ? { backgroundColor: `${typeColor}30` } : {}}
                 >
                   <div
-                    className={`text-sm font-medium ${
+                    className={`text-sm font-medium flex items-center gap-1 ${
                       dayOfWeek === 0 ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : 'text-gray-800'
                     }`}
                   >
                     {dayNum}
+                    {isToday && (
+                      <span className="text-xs bg-primary text-white px-1.5 py-0.5 rounded-full">오늘</span>
+                    )}
                   </div>
                   {typeName && (
                     <div

@@ -122,6 +122,21 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
         ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
         : null;
 
+      // 오늘 상벌점
+      const { data: todayPoints } = await supabase
+        .from('points')
+        .select('type, amount')
+        .eq('student_id', student.id)
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', todayEnd.toISOString());
+
+      const todayReward = (todayPoints || [])
+        .filter(p => p.type === 'reward')
+        .reduce((sum, p) => sum + p.amount, 0);
+      const todayPenalty = (todayPoints || [])
+        .filter(p => p.type === 'penalty')
+        .reduce((sum, p) => sum + p.amount, 0);
+
       return {
         id: student.id,
         seatNumber: student.seat_number,
@@ -133,6 +148,8 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
         totalStudySeconds,
         currentSubject: currentSubject?.subject_name || null,
         avgFocus,
+        todayReward,
+        todayPenalty,
       };
     })
   );
@@ -179,7 +196,12 @@ export async function setStudentSubject(studentId: string, subjectName: string) 
 // ============================================
 
 // 몰입도 점수 입력
-export async function recordFocusScore(studentId: string, score: number, note?: string) {
+export async function recordFocusScore(
+  studentId: string, 
+  score: number, 
+  note?: string,
+  periodId?: string
+) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -192,6 +214,7 @@ export async function recordFocusScore(studentId: string, score: number, note?: 
       admin_id: user.id,
       score,
       note,
+      period_id: periodId || null,
     });
 
   if (error) {
@@ -859,4 +882,591 @@ export async function getPendingSchedules() {
       studentSeatNumber: s.student?.seat_number || null,
     };
   });
+}
+
+// ============================================
+// 관리자 관리 관련
+// ============================================
+
+// 전체 관리자 목록 조회 (지점 정보 포함)
+export async function getAllAdmins() {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(`
+      *,
+      branch:branch_id (
+        id,
+        name
+      )
+    `)
+    .eq('user_type', 'admin')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching admins:', error);
+    return [];
+  }
+
+  return (data || []).map(admin => ({
+    id: admin.id,
+    email: admin.email,
+    name: admin.name,
+    phone: admin.phone,
+    branch_id: admin.branch_id,
+    branch_name: admin.branch?.name || null,
+    created_at: admin.created_at,
+  }));
+}
+
+// 관리자 지점 변경
+export async function updateAdminBranch(adminId: string, branchId: string | null) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ branch_id: branchId })
+    .eq('id', adminId)
+    .eq('user_type', 'admin');
+
+  if (error) {
+    console.error('Error updating admin branch:', error);
+    return { error: '지점 변경에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+// ============================================
+// 몰입도 점수 프리셋 관련
+// ============================================
+
+export interface FocusScorePreset {
+  id: string;
+  branch_id: string;
+  score: number;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+// 몰입도 점수 프리셋 조회
+export async function getFocusScorePresets(branchId: string): Promise<FocusScorePreset[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('focus_score_presets')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching focus score presets:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+// 몰입도 점수 프리셋 생성
+export async function createFocusScorePreset(
+  branchId: string,
+  score: number,
+  label: string,
+  color: string = 'bg-primary'
+) {
+  const supabase = await createClient();
+
+  // 최대 sort_order 조회
+  const { data: maxOrder } = await supabase
+    .from('focus_score_presets')
+    .select('sort_order')
+    .eq('branch_id', branchId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .single();
+
+  const sortOrder = (maxOrder?.sort_order || 0) + 1;
+
+  const { data, error } = await supabase
+    .from('focus_score_presets')
+    .insert({
+      branch_id: branchId,
+      score,
+      label,
+      color,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating focus score preset:', error);
+    if (error.code === '23505') {
+      return { error: '이미 해당 점수의 프리셋이 존재합니다.' };
+    }
+    return { error: '프리셋 생성에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  return { success: true, data };
+}
+
+// 몰입도 점수 프리셋 수정
+export async function updateFocusScorePreset(
+  id: string,
+  data: { score?: number; label?: string; color?: string; sort_order?: number }
+) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('focus_score_presets')
+    .update(data)
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error updating focus score preset:', error);
+    if (error.code === '23505') {
+      return { error: '이미 해당 점수의 프리셋이 존재합니다.' };
+    }
+    return { error: '프리셋 수정에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  return { success: true };
+}
+
+// 몰입도 점수 프리셋 삭제 (비활성화)
+export async function deleteFocusScorePreset(id: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('focus_score_presets')
+    .update({ is_active: false })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting focus score preset:', error);
+    return { error: '프리셋 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  return { success: true };
+}
+
+// ============================================
+// 벌점 프리셋 관련
+// ============================================
+
+export interface PenaltyPreset {
+  id: string;
+  branch_id: string;
+  amount: number;
+  reason: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+// 벌점 프리셋 조회
+export async function getPenaltyPresets(branchId: string): Promise<PenaltyPreset[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('penalty_presets')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+
+  if (error) {
+    // 테이블이 없으면 빈 배열 반환 (기본 프리셋 사용)
+    console.error('Error fetching penalty presets:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+// 벌점 프리셋 생성
+export async function createPenaltyPreset(
+  branchId: string,
+  amount: number,
+  reason: string,
+  color: string = 'bg-red-500'
+) {
+  const supabase = await createClient();
+
+  // 최대 sort_order 조회
+  const { data: maxOrder } = await supabase
+    .from('penalty_presets')
+    .select('sort_order')
+    .eq('branch_id', branchId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .single();
+
+  const sortOrder = (maxOrder?.sort_order || 0) + 1;
+
+  const { data, error } = await supabase
+    .from('penalty_presets')
+    .insert({
+      branch_id: branchId,
+      amount,
+      reason,
+      color,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating penalty preset:', error);
+    return { error: '프리셋 생성에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  return { success: true, data };
+}
+
+// 벌점 프리셋 삭제 (비활성화)
+export async function deletePenaltyPreset(id: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('penalty_presets')
+    .update({ is_active: false })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting penalty preset:', error);
+    return { error: '프리셋 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  revalidatePath('/admin/points');
+  return { success: true };
+}
+
+// ============================================
+// 상점 프리셋 관련
+// ============================================
+
+export interface RewardPreset {
+  id: string;
+  branch_id: string;
+  amount: number;
+  reason: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+// 상점 프리셋 조회
+export async function getRewardPresets(branchId: string): Promise<RewardPreset[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('reward_presets')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching reward presets:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+// 상점 프리셋 생성
+export async function createRewardPreset(
+  branchId: string,
+  amount: number,
+  reason: string,
+  color: string = 'bg-green-500'
+) {
+  const supabase = await createClient();
+
+  // 최대 sort_order 조회
+  const { data: maxOrder } = await supabase
+    .from('reward_presets')
+    .select('sort_order')
+    .eq('branch_id', branchId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .single();
+
+  const sortOrder = (maxOrder?.sort_order || 0) + 1;
+
+  const { data, error } = await supabase
+    .from('reward_presets')
+    .insert({
+      branch_id: branchId,
+      amount,
+      reason,
+      color,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating reward preset:', error);
+    return { error: '프리셋 생성에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/points');
+  return { success: true, data };
+}
+
+// 상점 프리셋 삭제 (비활성화)
+export async function deleteRewardPreset(id: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('reward_presets')
+    .update({ is_active: false })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting reward preset:', error);
+    return { error: '프리셋 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/points');
+  return { success: true };
+}
+
+// ============================================
+// 출석부 관련
+// ============================================
+
+// 출석부 데이터 조회 (학생별 상태, 부재 스케줄, 미등원 시간, 몰입도)
+export async function getAttendanceBoard() {
+  const supabase = await createClient();
+
+  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  const studyDate = getStudyDate();
+  const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
+  const todayStr = studyDate.toISOString().split('T')[0];
+  const todayDayOfWeek = studyDate.getDay();
+
+  // 학생 프로필 조회
+  const { data: students, error } = await supabase
+    .from('student_profiles')
+    .select(`
+      id,
+      seat_number,
+      profiles!inner (
+        id,
+        name,
+        email,
+        phone
+      )
+    `)
+    .order('seat_number', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching students:', error);
+    return [];
+  }
+
+  // 각 학생의 출석부 데이터 생성
+  const attendanceData = await Promise.all(
+    (students || []).map(async (student) => {
+      const profile = Array.isArray(student.profiles) 
+        ? student.profiles[0] 
+        : student.profiles;
+
+      // 학습일 기준 출석 기록
+      const { data: attendance } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('student_id', student.id)
+        .gte('timestamp', todayStart.toISOString())
+        .lte('timestamp', todayEnd.toISOString())
+        .order('timestamp', { ascending: true });
+
+      // 현재 상태 계산
+      let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
+      let firstCheckInTime: string | null = null;
+      let lastCheckOutTime: string | null = null;
+
+      if (attendance && attendance.length > 0) {
+        // 첫 입실 시간 찾기
+        const firstCheckIn = attendance.find(a => a.type === 'check_in');
+        if (firstCheckIn) {
+          firstCheckInTime = firstCheckIn.timestamp;
+        }
+
+        // 마지막 상태 계산
+        const lastRecord = attendance[attendance.length - 1];
+        if (lastRecord.type === 'check_in') status = 'checked_in';
+        else if (lastRecord.type === 'check_out') {
+          status = 'checked_out';
+          lastCheckOutTime = lastRecord.timestamp;
+        }
+        else if (lastRecord.type === 'break_start') status = 'on_break';
+        else if (lastRecord.type === 'break_end') status = 'checked_in';
+      }
+
+      // 오늘 해당하는 부재 스케줄 조회
+      const { data: absenceSchedules } = await supabase
+        .from('student_absence_schedules')
+        .select('*')
+        .eq('student_id', student.id)
+        .eq('is_active', true);
+
+      // 오늘 적용되는 부재 스케줄 필터링
+      const todayAbsenceSchedules = (absenceSchedules || []).filter(schedule => {
+        // 유효 기간 체크
+        if (schedule.valid_from && todayStr < schedule.valid_from) return false;
+        if (schedule.valid_until && todayStr > schedule.valid_until) return false;
+
+        // 일회성 스케줄
+        if (!schedule.is_recurring) {
+          return schedule.specific_date === todayStr;
+        }
+
+        // 반복 스케줄: 요일 체크
+        if (schedule.day_of_week && !schedule.day_of_week.includes(todayDayOfWeek)) {
+          return false;
+        }
+
+        return true;
+      });
+
+      // 학습일 기준 몰입도 점수
+      const { data: focusScores } = await supabase
+        .from('focus_scores')
+        .select('score')
+        .eq('student_id', student.id)
+        .gte('recorded_at', todayStart.toISOString())
+        .lte('recorded_at', todayEnd.toISOString());
+
+      const avgFocus = focusScores && focusScores.length > 0
+        ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
+        : null;
+
+      // 오늘 벌점
+      const { data: todayPoints } = await supabase
+        .from('points')
+        .select('type, amount, reason')
+        .eq('student_id', student.id)
+        .eq('type', 'penalty')
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', todayEnd.toISOString());
+
+      const todayPenalty = (todayPoints || []).reduce((sum, p) => sum + p.amount, 0);
+
+      return {
+        id: student.id,
+        seatNumber: student.seat_number,
+        name: profile?.name || '이름 없음',
+        status,
+        firstCheckInTime,
+        lastCheckOutTime,
+        absenceSchedules: todayAbsenceSchedules.map(s => ({
+          id: s.id,
+          title: s.title,
+          startTime: s.start_time?.slice(0, 5),
+          endTime: s.end_time?.slice(0, 5),
+        })),
+        avgFocus,
+        todayPenalty,
+        focusCount: focusScores?.length || 0,
+      };
+    })
+  );
+
+  return attendanceData;
+}
+
+// 일괄 몰입도 점수 입력
+export async function recordFocusScoreBatch(
+  studentIds: string[],
+  score: number,
+  periodId?: string,
+  note?: string
+) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const inserts = studentIds.map(studentId => ({
+    student_id: studentId,
+    admin_id: user.id,
+    score,
+    note,
+    period_id: periodId || null,
+  }));
+
+  const { error } = await supabase
+    .from('focus_scores')
+    .insert(inserts);
+
+  if (error) {
+    console.error('Error recording batch focus:', error);
+    return { error: '일괄 몰입도 기록에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/focus');
+  return { success: true, count: studentIds.length };
+}
+
+// 일괄 벌점 부여
+export async function givePointsBatch(
+  studentIds: string[],
+  type: 'reward' | 'penalty',
+  amount: number,
+  reason: string
+) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const inserts = studentIds.map(studentId => ({
+    student_id: studentId,
+    admin_id: user.id,
+    type,
+    amount,
+    reason,
+    is_auto: false,
+  }));
+
+  const { error } = await supabase
+    .from('points')
+    .insert(inserts);
+
+  if (error) {
+    console.error('Error giving batch points:', error);
+    return { error: '일괄 상벌점 부여에 실패했습니다.' };
+  }
+
+  // 알림 발송 (비동기로 처리)
+  const { createStudentNotification } = await import('./notification');
+  for (const studentId of studentIds) {
+    createStudentNotification({
+      studentId,
+      type: 'point',
+      title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
+      message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
+      link: '/student/points',
+    }).catch(console.error);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  revalidatePath('/admin/focus');
+  return { success: true, count: studentIds.length };
 }

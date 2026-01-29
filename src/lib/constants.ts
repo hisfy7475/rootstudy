@@ -129,3 +129,14 @@ export const PENALTY_RULES = {
   lateCheckIn: { amount: 1, reason: '지각' },
   earlyCheckOut: { amount: 1, reason: '조기퇴실' },
 } as const;
+
+// 부재 사유
+export const ABSENCE_REASONS = [
+  { value: 'academy', label: '학원 또는 과외 참석' },
+  { value: 'school_program', label: '학교 프로그램 참석' },
+  { value: 'hospital', label: '병원 방문 (건강검진 또는 치료)' },
+  { value: 'family', label: '가족 모임 (생일, 결혼식, 제사 등)' },
+  { value: 'other', label: '기타 사유' },
+] as const;
+
+export type AbsenceReasonValue = typeof ABSENCE_REASONS[number]['value'];

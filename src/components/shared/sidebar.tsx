@@ -18,6 +18,7 @@ import {
   GraduationCap,
   CalendarClock,
   Clock,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -29,6 +30,7 @@ interface NavItem {
 
 const adminNavItems: NavItem[] = [
   { href: '', label: '대시보드', icon: LayoutDashboard },
+  { href: '/attendance', label: '출석부', icon: ClipboardList },
   { href: '/focus', label: '몰입도 관리', icon: Brain },
   { href: '/points', label: '상벌점 관리', icon: Award },
   { href: '/members', label: '회원 관리', icon: Users },

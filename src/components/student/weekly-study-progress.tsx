@@ -1,13 +1,19 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { Clock, Target } from 'lucide-react';
+import { Target, Check, X } from 'lucide-react';
+
+interface DayProgress {
+  date: Date;
+  achieved: boolean | null;
+}
 
 interface WeeklyStudyProgressProps {
   goalHours: number;
   actualMinutes: number;
   progressPercent: number;
   studentTypeName: string | null;
+  weekDays?: DayProgress[];
   className?: string;
 }
 
@@ -21,11 +27,14 @@ function formatTime(minutes: number): string {
   return `${mins}분`;
 }
 
+const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
 export function WeeklyStudyProgress({
   goalHours,
   actualMinutes,
   progressPercent,
   studentTypeName,
+  weekDays = [],
   className,
 }: WeeklyStudyProgressProps) {
   // 달성률에 따른 색상
@@ -36,15 +45,18 @@ export function WeeklyStudyProgress({
     return 'from-error to-warning';
   };
 
-  const goalMinutes = goalHours * 60;
-  const remainingMinutes = Math.max(0, goalMinutes - actualMinutes);
+  // 요일별 달성 통계
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const achievedCount = weekDays.filter(d => d.achieved === true).length;
+  const totalDaysWithGoal = weekDays.filter(d => d.achieved !== null).length;
 
   return (
     <div className={cn('bg-card rounded-3xl p-5 shadow-sm', className)}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Target className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold text-text">주간 학습 목표</h3>
+          <h3 className="font-semibold text-text">주간 학습 현황</h3>
         </div>
         {studentTypeName && (
           <span className="text-xs text-text-muted bg-gray-100 px-2 py-1 rounded-lg">
@@ -56,21 +68,15 @@ export function WeeklyStudyProgress({
       {/* 목표 정보 */}
       {goalHours > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs text-text-muted mb-1">목표</p>
-              <p className="font-bold text-text">{goalHours}시간</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs text-text-muted mb-1">현재</p>
-              <p className="font-bold text-primary">{formatTime(actualMinutes)}</p>
-            </div>
-          </div>
-
           {/* 프로그레스 바 */}
-          <div className="mb-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-text-muted">달성률</span>
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text-muted">달성률</span>
+                <span className="text-xs text-text-muted">
+                  {formatTime(actualMinutes)} / {goalHours}시간
+                </span>
+              </div>
               <span className={cn(
                 'text-sm font-bold',
                 progressPercent >= 100 ? 'text-success' : 'text-primary'
@@ -87,20 +93,53 @@ export function WeeklyStudyProgress({
                 style={{ width: `${Math.min(100, progressPercent)}%` }}
               />
             </div>
+            {progressPercent >= 100 && (
+              <p className="text-xs text-success mt-1.5">🎉 이번 주 목표 달성!</p>
+            )}
           </div>
 
-          {/* 남은 시간 */}
-          {progressPercent < 100 && (
-            <div className="flex items-center gap-2 text-sm text-text-muted">
-              <Clock className="w-4 h-4" />
-              <span>목표까지 {formatTime(remainingMinutes)} 남음</span>
-            </div>
-          )}
+          {/* 요일별 달성 현황 */}
+          {weekDays.length > 0 && (
+            <>
+              <div className="border-t border-gray-100 pt-4 mt-2">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs text-text-muted">일별 출석</span>
+                  <span className="text-xs text-text-muted">{achievedCount}/{totalDaysWithGoal}일</span>
+                </div>
+                <div className="flex justify-between gap-1">
+                  {weekDays.map((day, index) => {
+                    const isToday = day.date.getTime() === today.getTime();
+                    const dayOfWeek = day.date.getDay();
 
-          {progressPercent >= 100 && (
-            <div className="flex items-center gap-2 text-sm text-success">
-              <span>🎉 이번 주 목표 달성!</span>
-            </div>
+                    return (
+                      <div key={index} className="flex flex-col items-center gap-1.5">
+                        <span className={cn(
+                          'text-xs',
+                          isToday ? 'text-primary font-semibold' : 'text-text-muted'
+                        )}>
+                          {dayLabels[dayOfWeek]}
+                        </span>
+                        <div
+                          className={cn(
+                            'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+                            isToday && 'ring-2 ring-primary ring-offset-1',
+                            day.achieved === true && 'bg-success/20',
+                            day.achieved === false && 'bg-error/20',
+                            day.achieved === null && 'bg-gray-100'
+                          )}
+                        >
+                          {day.achieved === true && <Check className="w-4 h-4 text-green-600" />}
+                          {day.achieved === false && <X className="w-4 h-4 text-red-500" />}
+                          {day.achieved === null && (
+                            <span className="text-xs text-text-muted">{day.date.getDate()}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           )}
         </>
       ) : (

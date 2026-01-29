@@ -192,25 +192,49 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
 
+  // #region agent log
+  const logUrl = 'http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3';
+  await fetch(logUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'actions.ts:signIn:start',message:'signIn called',data:{email},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+
   if (!email || !password) {
     return { success: false, error: '이메일과 비밀번호를 입력해주세요.' };
   }
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  // #region agent log
+  await fetch(logUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'actions.ts:signIn:beforeAuth',message:'About to call signInWithPassword',data:{email},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
 
-  if (error) {
-    if (error.message.includes('Invalid login credentials')) {
-      return { success: false, error: '이메일 또는 비밀번호가 올바르지 않습니다.' };
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    // #region agent log
+    await fetch(logUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'actions.ts:signIn:afterAuth',message:'signInWithPassword result',data:{hasError:!!error,errorMsg:error?.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) {
+        return { success: false, error: '이메일 또는 비밀번호가 올바르지 않습니다.' };
+      }
+      return { success: false, error: error.message };
     }
-    return { success: false, error: error.message };
-  }
 
-  return { success: true };
+    // #region agent log
+    await fetch(logUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'actions.ts:signIn:success',message:'Returning success',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+
+    return { success: true };
+  } catch (e) {
+    // #region agent log
+    await fetch(logUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'actions.ts:signIn:catch',message:'Exception caught',data:{error:String(e)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    return { success: false, error: '로그인 중 오류가 발생했습니다.' };
+  }
 }
 
 /**

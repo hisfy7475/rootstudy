@@ -1,9 +1,15 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { getMyChatRoom, getChatMessages } from '@/lib/actions/chat';
+import { getLinkedStudents } from '@/lib/actions/parent';
 import { ParentChatClient } from './chat-client';
 
-export default async function ParentChatPage() {
+interface PageProps {
+  searchParams: Promise<{ childId?: string }>;
+}
+
+export default async function ParentChatPage({ searchParams }: PageProps) {
+  const { childId } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -11,23 +17,10 @@ export default async function ParentChatPage() {
     redirect('/login');
   }
 
-  // 연결된 학생 정보 조회
-  const { data: link } = await supabase
-    .from('parent_student_links')
-    .select(`
-      student_id,
-      student_profiles!inner (
-        id,
-        seat_number,
-        profiles!inner (
-          name
-        )
-      )
-    `)
-    .eq('parent_id', user.id)
-    .single();
+  // 연결된 자녀 목록 조회
+  const linkedStudents = await getLinkedStudents();
 
-  if (!link) {
+  if (linkedStudents.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center text-text-muted">
@@ -38,12 +31,13 @@ export default async function ParentChatPage() {
     );
   }
 
-  const studentProfile = Array.isArray(link.student_profiles)
-    ? link.student_profiles[0]
-    : link.student_profiles;
-  const profile = studentProfile?.profiles;
-  const profileData = Array.isArray(profile) ? profile[0] : profile;
-  const studentName = profileData?.name || '알 수 없음';
+  // 선택된 자녀 ID 결정 (URL 파라미터 또는 첫 번째 자녀)
+  const selectedChildId = (childId && linkedStudents.some(s => s.id === childId))
+    ? childId
+    : linkedStudents[0].id;
+
+  const selectedStudent = linkedStudents.find(s => s.id === selectedChildId);
+  const studentName = selectedStudent?.name || '알 수 없음';
 
   // 학부모 본인 이름 조회
   const { data: parentProfile } = await supabase
@@ -52,8 +46,8 @@ export default async function ParentChatPage() {
     .eq('id', user.id)
     .single();
 
-  // 채팅방 조회/생성
-  const roomResult = await getMyChatRoom();
+  // 선택된 자녀의 채팅방 조회/생성
+  const roomResult = await getMyChatRoom(selectedChildId);
 
   if (roomResult.error || !roomResult.data) {
     return (

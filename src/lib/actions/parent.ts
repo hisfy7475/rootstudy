@@ -210,119 +210,15 @@ export async function getStudentTodayFocus(studentId: string) {
   return { scores: data, average };
 }
 
-// 스케줄 목록 조회 (모든 자녀의 스케줄 통합)
-export async function getSchedules(filter?: 'pending' | 'approved' | 'rejected' | 'all') {
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  // 연결된 모든 학생 ID 조회
-  const { data: links } = await supabase
-    .from('parent_student_links')
-    .select('student_id')
-    .eq('parent_id', user.id);
-
-  if (!links || links.length === 0) return [];
-
-  const studentIds = links.map(link => link.student_id);
-
-  // 학생 이름 정보도 함께 조회
-  let query = supabase
-    .from('schedules')
-    .select(`
-      *,
-      student_profiles!inner (
-        id,
-        profiles!inner (
-          name
-        )
-      )
-    `)
-    .in('student_id', studentIds)
-    .order('scheduled_date', { ascending: true });
-
-  if (filter && filter !== 'all') {
-    query = query.eq('status', filter);
-  }
-
-  const { data } = await query;
-  
-  // 학생 이름 추가하여 반환
-  return (data || []).map(schedule => {
-    const studentProfile = schedule.student_profiles as unknown as {
-      id: string;
-      profiles: { name: string };
-    };
-    return {
-      ...schedule,
-      studentName: studentProfile?.profiles?.name || '알 수 없음',
-      student_profiles: undefined, // 불필요한 중첩 제거
-    };
-  });
-}
-
-// 스케줄 승인
-export async function approveSchedule(scheduleId: string) {
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const { error } = await supabase
-    .from('schedules')
-    .update({ 
-      status: 'approved',
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', scheduleId);
-
-  if (error) {
-    console.error('Error approving schedule:', error);
-    return { error: '스케줄 승인에 실패했습니다.' };
-  }
-
-  revalidatePath('/parent');
-  revalidatePath('/parent/schedule');
-  return { success: true };
-}
-
-// 스케줄 거부
-export async function rejectSchedule(scheduleId: string) {
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const { error } = await supabase
-    .from('schedules')
-    .update({ 
-      status: 'rejected',
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', scheduleId);
-
-  if (error) {
-    console.error('Error rejecting schedule:', error);
-    return { error: '스케줄 거부에 실패했습니다.' };
-  }
-
-  revalidatePath('/parent');
-  revalidatePath('/parent/schedule');
-  return { success: true };
-}
-
 // 학부모 대시보드용 통합 데이터 조회 (모든 자녀)
 export async function getParentDashboardData(): Promise<{
   students: StudentDashboardData[];
-  totalPendingSchedules: number;
 }> {
   const linkedStudents = await getLinkedStudents();
   
   if (linkedStudents.length === 0) {
     return {
       students: [],
-      totalPendingSchedules: 0,
     };
   }
 
@@ -344,18 +240,49 @@ export async function getParentDashboardData(): Promise<{
         studyTime: studyTime.totalSeconds,
         currentSubject,
         todayFocus: todayFocus.average,
-        pendingSchedules: 0, // 개별 학생의 pending은 별도로 계산하지 않음
+        pendingSchedules: 0,
       };
     })
   );
 
-  // 전체 pending 스케줄 수 조회
-  const schedules = await getSchedules('pending');
-  const totalPendingSchedules = schedules.length;
-
   return {
     students: studentsData,
-    totalPendingSchedules,
+  };
+}
+
+// 학부모 대시보드용 단일 자녀 데이터 조회
+export async function getParentDashboardDataForStudent(studentId: string): Promise<{
+  student: StudentDashboardData | null;
+}> {
+  const linkedStudents = await getLinkedStudents();
+  const student = linkedStudents.find(s => s.id === studentId);
+  
+  if (!student) {
+    return {
+      student: null,
+    };
+  }
+
+  // 학부모 뷰에서는 외출 상태를 퇴실로 표시
+  const [status, studyTime, currentSubject, todayFocus] = await Promise.all([
+    getStudentStatus(student.id, { forParentView: true }),
+    getStudentStudyTime(student.id),
+    getStudentCurrentSubject(student.id),
+    getStudentTodayFocus(student.id),
+  ]);
+
+  const studentData: StudentDashboardData = {
+    student,
+    status: status.status,
+    lastUpdate: status.lastUpdate,
+    studyTime: studyTime.totalSeconds,
+    currentSubject,
+    todayFocus: todayFocus.average,
+    pendingSchedules: 0,
+  };
+
+  return {
+    student: studentData,
   };
 }
 

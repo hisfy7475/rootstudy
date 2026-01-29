@@ -12,6 +12,7 @@ export interface ChatMessageData {
   sender_name: string;
   sender_type: string;
   content: string;
+  image_url?: string | null;
   is_read_by_student: boolean;
   is_read_by_parent: boolean;
   is_read_by_admin: boolean;
@@ -78,6 +79,7 @@ export function ChatMessageList({ messages, currentUserId }: ChatMessageListProp
             <ChatMessageItem
               id={message.id}
               content={message.content}
+              imageUrl={message.image_url}
               senderName={message.sender_name}
               senderType={message.sender_type}
               createdAt={message.created_at}

@@ -180,6 +180,125 @@ interface CreateNotificationParams {
   link?: string;
 }
 
+// ============================================
+// 범용 알림 (user_notifications 테이블 사용)
+// ============================================
+
+interface CreateUserNotificationParams {
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string;
+}
+
+// 범용 알림 생성 (앱 내 + 선택적 웹 푸시)
+export async function createUserNotification(params: CreateUserNotificationParams) {
+  const supabase = await createClient();
+
+  // 앱 내 알림 저장
+  const { error } = await supabase
+    .from('user_notifications')
+    .insert({
+      user_id: params.userId,
+      type: params.type,
+      title: params.title,
+      message: params.message,
+      link: params.link,
+    });
+
+  if (error) {
+    console.error('Error creating user notification:', error);
+    return { error: '알림 생성에 실패했습니다.' };
+  }
+
+  // 웹 푸시 발송 시도 (환경변수가 설정된 경우에만)
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    await sendWebPushToUser(params.userId, {
+      title: params.title,
+      body: params.message,
+      data: { url: params.link || '/notifications' },
+    });
+  }
+
+  return { success: true };
+}
+
+// 범용 알림 목록 조회
+export async function getUserNotifications(limit: number = 50) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from('user_notifications')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  return data || [];
+}
+
+// 범용 읽지 않은 알림 수 조회
+export async function getUnreadUserNotificationCount() {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+
+  const { count } = await supabase
+    .from('user_notifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('is_read', false);
+
+  return count || 0;
+}
+
+// 범용 알림 읽음 처리 (단일)
+export async function markUserNotificationAsRead(notificationId: string) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { error } = await supabase
+    .from('user_notifications')
+    .update({ is_read: true })
+    .eq('id', notificationId)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('Error marking user notification as read:', error);
+    return { error: '알림 처리에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+
+// 범용 모든 알림 읽음 처리
+export async function markAllUserNotificationsAsRead() {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { error } = await supabase
+    .from('user_notifications')
+    .update({ is_read: true })
+    .eq('user_id', user.id)
+    .eq('is_read', false);
+
+  if (error) {
+    console.error('Error marking all user notifications as read:', error);
+    return { error: '알림 처리에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+
 // 학생 알림 생성 (앱 내 + 선택적 웹 푸시)
 export async function createStudentNotification(params: CreateNotificationParams) {
   const supabase = await createClient();
@@ -266,15 +385,15 @@ interface PushPayload {
   requireInteraction?: boolean;
 }
 
-// 특정 학생에게 웹 푸시 발송
-async function sendWebPushToStudent(studentId: string, payload: PushPayload) {
+// 특정 사용자에게 웹 푸시 발송 (범용)
+async function sendWebPushToUser(userId: string, payload: PushPayload) {
   const supabase = await createClient();
 
-  // 학생의 활성 푸시 구독 조회
+  // 사용자의 활성 푸시 구독 조회
   const { data: subscriptions } = await supabase
     .from('push_subscriptions')
     .select('*')
-    .eq('user_id', studentId)
+    .eq('user_id', userId)
     .eq('is_active', true);
 
   if (!subscriptions || subscriptions.length === 0) {
@@ -298,11 +417,16 @@ async function sendWebPushToStudent(studentId: string, payload: PushPayload) {
     await supabase
       .from('push_subscriptions')
       .update({ is_active: false })
-      .eq('user_id', studentId)
+      .eq('user_id', userId)
       .in('endpoint', failedEndpoints);
   }
 
   return { success: true, sent: subscriptions.length - failedEndpoints.length };
+}
+
+// 특정 학생에게 웹 푸시 발송 (하위 호환성 유지)
+async function sendWebPushToStudent(studentId: string, payload: PushPayload) {
+  return sendWebPushToUser(studentId, payload);
 }
 
 // 웹 푸시 발송 (단일 구독)

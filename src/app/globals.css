@@ -80,3 +80,22 @@ html {
 * {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* 모달 애니메이션 */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Safe area padding (노치 기기 대응) */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}

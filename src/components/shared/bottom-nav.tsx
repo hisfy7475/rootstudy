@@ -5,13 +5,12 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   Home,
-  Target,
-  BookOpen,
-  Brain,
   Award,
   MessageCircle,
   Calendar,
   CalendarClock,
+  BarChart3,
+  Settings,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,11 +23,11 @@ interface NavItem {
 // 학생용 네비게이션 아이템
 const studentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
-  { href: '/goal', label: '목표', icon: Target },
-  { href: '/subject', label: '과목', icon: BookOpen },
+  { href: '/stats', label: '통계', icon: BarChart3 },
   { href: '/schedule', label: '부재', icon: CalendarClock },
   { href: '/points', label: '상벌점', icon: Award },
   { href: '/chat', label: '채팅', icon: MessageCircle },
+  { href: '/settings', label: '설정', icon: Settings },
 ];
 
 // 학부모용 네비게이션 아이템

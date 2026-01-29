@@ -18,11 +18,28 @@ export default function LoginPage() {
     setIsLoading(true);
     setError(null);
 
+    // #region agent log
+    fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'login/page.tsx:handleSubmit:start',message:'Login form submitted',data:{email:formData.get('email')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+
     const result = await signIn(formData);
 
+    // #region agent log
+    fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'login/page.tsx:handleSubmit:afterSignIn',message:'signIn result received',data:{success:result.success,error:result.error},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+
     if (result.success) {
+      // #region agent log
+      fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'login/page.tsx:handleSubmit:beforePush',message:'About to router.push(/)',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       router.push('/');
+      // #region agent log
+      fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'login/page.tsx:handleSubmit:afterPush',message:'After router.push, before refresh',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       router.refresh();
+      // #region agent log
+      fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'login/page.tsx:handleSubmit:afterRefresh',message:'After router.refresh',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
     } else {
       setError(result.error || '로그인에 실패했습니다.');
       setIsLoading(false);

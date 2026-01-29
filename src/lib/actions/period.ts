@@ -204,6 +204,62 @@ export async function bulkCreatePeriodDefinitions(
   return { success: true };
 }
 
+// 오늘 날짜의 교시 목록 조회 (관리자용 - 날짜 타입 자동 감지)
+export async function getTodayPeriods(branchId: string): Promise<{
+  periods: PeriodDefinition[];
+  dateTypeName: string | null;
+  dateTypeId: string | null;
+}> {
+  const supabase = await createClient();
+
+  // 오늘 날짜 (YYYY-MM-DD)
+  const today = new Date().toISOString().split('T')[0];
+
+  // 오늘의 날짜 타입 조회
+  const { data: assignment, error: assignmentError } = await supabase
+    .from('date_assignments')
+    .select(`
+      date_type_id,
+      date_type:date_type_id (
+        id,
+        name
+      )
+    `)
+    .eq('branch_id', branchId)
+    .eq('date', today)
+    .single();
+
+  if (assignmentError && assignmentError.code !== 'PGRST116') {
+    console.error('Error fetching date assignment:', assignmentError);
+  }
+
+  // 날짜 타입이 지정되지 않은 경우
+  if (!assignment || !assignment.date_type_id) {
+    return { periods: [], dateTypeName: null, dateTypeId: null };
+  }
+
+  const dateType = assignment.date_type as unknown as { id: string; name: string };
+
+  // 해당 날짜 타입의 교시 목록 조회
+  const { data: periods, error: periodsError } = await supabase
+    .from('period_definitions')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('date_type_id', assignment.date_type_id)
+    .order('period_number', { ascending: true });
+
+  if (periodsError) {
+    console.error('Error fetching periods:', periodsError);
+    return { periods: [], dateTypeName: dateType?.name || null, dateTypeId: assignment.date_type_id };
+  }
+
+  return {
+    periods: periods || [],
+    dateTypeName: dateType?.name || null,
+    dateTypeId: assignment.date_type_id,
+  };
+}
+
 // 날짜 타입별 교시 복사
 export async function copyPeriodsToDateType(
   branchId: string,

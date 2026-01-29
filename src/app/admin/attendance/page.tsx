@@ -1,9 +1,9 @@
-import { getAllStudents, getWeeklyFocusReport, getPenaltyPresets } from '@/lib/actions/admin';
+import { getAttendanceBoard } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { createClient } from '@/lib/supabase/server';
-import { FocusClient } from './focus-client';
+import { AttendanceClient } from './attendance-client';
 
-export default async function FocusManagementPage() {
+export default async function AttendancePage() {
   const supabase = await createClient();
   
   // 현재 로그인한 관리자의 branch_id 조회
@@ -34,22 +34,17 @@ export default async function FocusManagementPage() {
   // 오늘 날짜
   const today = new Date().toISOString().split('T')[0];
 
-  const [students, report, todayPeriodsData, penaltyPresets] = await Promise.all([
-    getAllStudents('checked_in'),
-    getWeeklyFocusReport(),
+  const [attendanceData, todayPeriodsData] = await Promise.all([
+    getAttendanceBoard(),
     branchId ? getTodayPeriods(branchId) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
-    branchId ? getPenaltyPresets(branchId) : Promise.resolve([]),
   ]);
 
   return (
-    <FocusClient 
-      initialStudents={students} 
-      initialReport={report}
+    <AttendanceClient 
+      initialData={attendanceData}
       todayPeriods={todayPeriodsData.periods}
       dateTypeName={todayPeriodsData.dateTypeName}
       todayDate={today}
-      branchId={branchId}
-      initialPenaltyPresets={penaltyPresets}
     />
   );
 }

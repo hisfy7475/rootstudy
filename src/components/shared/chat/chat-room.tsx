@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatMessageList, ChatMessageData } from './chat-message-list';
 import { ChatInput } from './chat-input';
-import { sendMessage, markAsRead } from '@/lib/actions/chat';
+import { sendMessage, markAsRead, uploadChatImage } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft } from 'lucide-react';
 
@@ -40,6 +40,11 @@ export function ChatRoom({
   const [isSending, setIsSending] = useState(false);
   const pendingMessageIds = useRef<Set<string>>(new Set());
 
+  // initialMessages가 변경되면 state 동기화 (관리자가 다른 채팅방 선택 시)
+  useEffect(() => {
+    setMessages(initialMessages);
+  }, [initialMessages]);
+
   // Realtime 구독
   useEffect(() => {
     const supabase = createClient();
@@ -75,6 +80,7 @@ export function ChatRoom({
             sender_name: senderProfile?.name || '알 수 없음',
             sender_type: senderProfile?.user_type || 'unknown',
             content: payload.new.content,
+            image_url: payload.new.image_url,
             is_read_by_student: payload.new.is_read_by_student,
             is_read_by_parent: payload.new.is_read_by_parent,
             is_read_by_admin: payload.new.is_read_by_admin,
@@ -104,8 +110,30 @@ export function ChatRoom({
 
   // 메시지 전송
   const handleSend = useCallback(
-    async (content: string) => {
+    async (content: string, imageFile?: File | null) => {
       setIsSending(true);
+      
+      let imageUrl: string | null = null;
+      let tempImagePreview: string | null = null;
+
+      // 이미지가 있으면 먼저 업로드
+      if (imageFile) {
+        // 임시 미리보기 URL 생성
+        tempImagePreview = URL.createObjectURL(imageFile);
+
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        
+        const uploadResult = await uploadChatImage(roomId, formData);
+        if (uploadResult.error) {
+          console.error('Image upload error:', uploadResult.error);
+          alert(uploadResult.error);
+          setIsSending(false);
+          if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
+          return;
+        }
+        imageUrl = uploadResult.data?.url || null;
+      }
       
       // 낙관적 업데이트: 즉시 메시지를 로컬에 추가
       const tempId = `temp-${Date.now()}`;
@@ -116,6 +144,7 @@ export function ChatRoom({
         sender_name: currentUserName,
         sender_type: currentUserType,
         content: content,
+        image_url: imageUrl || tempImagePreview,
         is_read_by_student: currentUserType === 'student',
         is_read_by_parent: currentUserType === 'parent',
         is_read_by_admin: currentUserType === 'admin',
@@ -125,7 +154,7 @@ export function ChatRoom({
       setMessages((prev) => [...prev, optimisticMessage]);
 
       try {
-        const result = await sendMessage(roomId, content);
+        const result = await sendMessage(roomId, content, imageUrl);
         if (result.error) {
           // 실패 시 낙관적 메시지 제거
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -137,7 +166,12 @@ export function ChatRoom({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
-                ? { ...m, id: result.data!.id, created_at: result.data!.created_at }
+                ? { 
+                    ...m, 
+                    id: result.data!.id, 
+                    created_at: result.data!.created_at,
+                    image_url: result.data!.image_url 
+                  }
                 : m
             )
           );
@@ -149,6 +183,7 @@ export function ChatRoom({
         alert('메시지 전송에 실패했습니다.');
       } finally {
         setIsSending(false);
+        if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
       }
     },
     [roomId, currentUserId, currentUserName, currentUserType]

@@ -17,16 +17,18 @@ export function StudentChatClient({
   currentUserName,
 }: StudentChatClientProps) {
   return (
-    <div className="fixed inset-0 top-16 bottom-20 bg-white">
-      <ChatRoom
-        roomId={roomId}
-        initialMessages={initialMessages}
-        currentUserId={currentUserId}
-        currentUserType="student"
-        currentUserName={currentUserName}
-        title="학부모 · 관리자 채팅"
-        subtitle="학부모와 관리자 선생님과 대화할 수 있어요"
-      />
+    <div className="fixed inset-x-0 top-16 bottom-20 flex justify-center bg-background">
+      <div className="w-full max-w-lg bg-white">
+        <ChatRoom
+          roomId={roomId}
+          initialMessages={initialMessages}
+          currentUserId={currentUserId}
+          currentUserType="student"
+          currentUserName={currentUserName}
+          title="학부모 · 관리자 채팅"
+          subtitle="학부모와 관리자 선생님과 대화할 수 있어요"
+        />
+      </div>
     </div>
   );
 }

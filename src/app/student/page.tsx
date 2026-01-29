@@ -1,13 +1,19 @@
 import { getTodayAttendance, getTodayStudyTime, getWeeklyGoals, getCurrentSubject, getWeeklyProgress } from '@/lib/actions/student';
+import { getSubjectsForStudent } from '@/lib/actions/student-type';
+import { createClient } from '@/lib/supabase/server';
 import { StudentDashboardClient } from './dashboard-client';
 
 export default async function StudentDashboard() {
-  const [attendanceData, studyTimeData, weeklyGoals, currentSubject, weeklyProgress] = await Promise.all([
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const [attendanceData, studyTimeData, weeklyGoals, currentSubject, weeklyProgress, typeSubjects] = await Promise.all([
     getTodayAttendance(),
     getTodayStudyTime(),
     getWeeklyGoals(),
     getCurrentSubject(),
     getWeeklyProgress(),
+    user ? getSubjectsForStudent(user.id) : [],
   ]);
 
   return (
@@ -18,6 +24,7 @@ export default async function StudentDashboard() {
       weeklyGoals={weeklyGoals}
       currentSubject={currentSubject?.subject_name || null}
       weeklyProgress={weeklyProgress}
+      availableSubjects={typeSubjects.length > 0 ? typeSubjects : null}
     />
   );
 }

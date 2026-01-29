@@ -76,6 +76,8 @@ export interface Database {
           branch_id: string | null;
           name: string;
           weekly_goal_hours: number;
+          vacation_weekly_hours: number;
+          semester_weekly_hours: number;
           created_at: string;
         };
         Insert: {
@@ -83,6 +85,8 @@ export interface Database {
           branch_id?: string | null;
           name: string;
           weekly_goal_hours: number;
+          vacation_weekly_hours?: number;
+          semester_weekly_hours?: number;
           created_at?: string;
         };
         Update: {
@@ -90,6 +94,8 @@ export interface Database {
           branch_id?: string | null;
           name?: string;
           weekly_goal_hours?: number;
+          vacation_weekly_hours?: number;
+          semester_weekly_hours?: number;
           created_at?: string;
         };
       };
@@ -130,6 +136,10 @@ export interface Database {
           specific_date: string | null;
           buffer_minutes: number;
           is_active: boolean;
+          status: 'pending' | 'approved';
+          created_by: string | null;
+          approved_by: string | null;
+          approved_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -149,6 +159,10 @@ export interface Database {
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
+          status?: 'pending' | 'approved';
+          created_by?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -168,6 +182,10 @@ export interface Database {
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
+          status?: 'pending' | 'approved';
+          created_by?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -402,6 +420,7 @@ export interface Database {
           id: string;
           student_id: string;
           admin_id: string | null;
+          period_id: string | null;
           score: number;
           note: string | null;
           recorded_at: string;
@@ -410,6 +429,7 @@ export interface Database {
           id?: string;
           student_id: string;
           admin_id?: string | null;
+          period_id?: string | null;
           score: number;
           note?: string | null;
           recorded_at?: string;
@@ -418,6 +438,7 @@ export interface Database {
           id?: string;
           student_id?: string;
           admin_id?: string | null;
+          period_id?: string | null;
           score?: number;
           note?: string | null;
           recorded_at?: string;
@@ -510,6 +531,7 @@ export interface Database {
           room_id: string;
           sender_id: string;
           content: string;
+          image_url: string | null;
           is_read_by_student: boolean;
           is_read_by_parent: boolean;
           is_read_by_admin: boolean;
@@ -520,6 +542,7 @@ export interface Database {
           room_id: string;
           sender_id: string;
           content: string;
+          image_url?: string | null;
           is_read_by_student?: boolean;
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
@@ -530,6 +553,7 @@ export interface Database {
           room_id?: string;
           sender_id?: string;
           content?: string;
+          image_url?: string | null;
           is_read_by_student?: boolean;
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
@@ -664,6 +688,134 @@ export interface Database {
           created_at?: string;
         };
       };
+      user_notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title: string;
+          message: string;
+          link: string | null;
+          is_read: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title: string;
+          message: string;
+          link?: string | null;
+          is_read?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title?: string;
+          message?: string;
+          link?: string | null;
+          is_read?: boolean;
+          created_at?: string;
+        };
+      };
+      focus_score_presets: {
+        Row: {
+          id: string;
+          branch_id: string;
+          score: number;
+          label: string;
+          color: string;
+          sort_order: number;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          score: number;
+          label: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          score?: number;
+          label?: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+      };
+      penalty_presets: {
+        Row: {
+          id: string;
+          branch_id: string;
+          amount: number;
+          reason: string;
+          color: string;
+          sort_order: number;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          amount: number;
+          reason: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          amount?: number;
+          reason?: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+      };
+      reward_presets: {
+        Row: {
+          id: string;
+          branch_id: string;
+          amount: number;
+          reason: string;
+          color: string;
+          sort_order: number;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          amount: number;
+          reason: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          amount?: number;
+          reason?: string;
+          color?: string;
+          sort_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -693,5 +845,6 @@ export type StudentType = Database['public']['Tables']['student_types']['Row'];
 export type StudentTypeSubject = Database['public']['Tables']['student_type_subjects']['Row'];
 export type StudentAbsenceSchedule = Database['public']['Tables']['student_absence_schedules']['Row'];
 export type StudentNotification = Database['public']['Tables']['student_notifications']['Row'];
+export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
 export type PushSubscription = Database['public']['Tables']['push_subscriptions']['Row'];
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];

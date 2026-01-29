@@ -43,7 +43,8 @@ export async function getOrCreateChatRoom(studentId: string) {
 }
 
 // 현재 사용자의 채팅방 조회 (학생/학부모용)
-export async function getMyChatRoom() {
+// 학부모의 경우 studentId를 지정하면 해당 자녀의 채팅방을 조회
+export async function getMyChatRoom(studentId?: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -66,18 +67,27 @@ export async function getMyChatRoom() {
     // 학생: 본인의 채팅방
     return getOrCreateChatRoom(user.id);
   } else if (profile.user_type === 'parent') {
-    // 학부모: 연결된 학생의 채팅방
-    const { data: link } = await supabase
+    // 학부모: 연결된 학생의 채팅방 (studentId가 지정되면 해당 학생, 아니면 첫 번째 학생)
+    const { data: links } = await supabase
       .from('parent_student_links')
       .select('student_id')
-      .eq('parent_id', user.id)
-      .single();
+      .eq('parent_id', user.id);
 
-    if (!link) {
+    if (!links || links.length === 0) {
       return { error: '연결된 학생이 없습니다.' };
     }
 
-    return getOrCreateChatRoom(link.student_id);
+    // 특정 학생이 지정된 경우 연결 확인
+    if (studentId) {
+      const isLinked = links.some(link => link.student_id === studentId);
+      if (!isLinked) {
+        return { error: '연결되지 않은 학생입니다.' };
+      }
+      return getOrCreateChatRoom(studentId);
+    }
+
+    // 기본값: 첫 번째 연결된 학생
+    return getOrCreateChatRoom(links[0].student_id);
   }
 
   return { error: '권한이 없습니다.' };
@@ -212,6 +222,7 @@ export async function getChatMessages(roomId: string) {
       sender_name: senderProfile?.name || '알 수 없음',
       sender_type: senderProfile?.user_type || 'unknown',
       content: msg.content,
+      image_url: msg.image_url,
       is_read_by_student: msg.is_read_by_student,
       is_read_by_parent: msg.is_read_by_parent,
       is_read_by_admin: msg.is_read_by_admin,
@@ -222,8 +233,8 @@ export async function getChatMessages(roomId: string) {
   return { data: formattedMessages };
 }
 
-// 메시지 전송
-export async function sendMessage(roomId: string, content: string) {
+// 이미지 업로드
+export async function uploadChatImage(roomId: string, formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -231,7 +242,56 @@ export async function sendMessage(roomId: string, content: string) {
     return { error: '로그인이 필요합니다.' };
   }
 
-  if (!content.trim()) {
+  const file = formData.get('file') as File;
+  if (!file) {
+    return { error: '파일이 없습니다.' };
+  }
+
+  // 파일 타입 검증
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return { error: '지원하지 않는 이미지 형식입니다.' };
+  }
+
+  // 파일 크기 검증 (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    return { error: '이미지 크기는 5MB 이하여야 합니다.' };
+  }
+
+  // 파일명 생성 (user_id/roomId/timestamp.ext)
+  const ext = file.name.split('.').pop() || 'jpg';
+  const fileName = `${user.id}/${roomId}/${Date.now()}.${ext}`;
+
+  const { data, error } = await supabase.storage
+    .from('chat-images')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Error uploading image:', error);
+    return { error: '이미지 업로드에 실패했습니다.' };
+  }
+
+  // public URL 생성
+  const { data: { publicUrl } } = supabase.storage
+    .from('chat-images')
+    .getPublicUrl(data.path);
+
+  return { data: { url: publicUrl } };
+}
+
+// 메시지 전송
+export async function sendMessage(roomId: string, content: string, imageUrl?: string | null) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: '로그인이 필요합니다.' };
+  }
+
+  if (!content.trim() && !imageUrl) {
     return { error: '메시지 내용을 입력해주세요.' };
   }
 
@@ -253,6 +313,7 @@ export async function sendMessage(roomId: string, content: string) {
       room_id: roomId,
       sender_id: user.id,
       content: content.trim(),
+      image_url: imageUrl || null,
       is_read_by_student: profile.user_type === 'student',
       is_read_by_parent: profile.user_type === 'parent',
       is_read_by_admin: profile.user_type === 'admin',
@@ -265,29 +326,131 @@ export async function sendMessage(roomId: string, content: string) {
     return { error: '메시지 전송에 실패했습니다.' };
   }
 
-  // 학생에게 채팅 알림 발송 (발신자가 학생이 아닌 경우)
-  if (profile.user_type !== 'student') {
-    // 채팅방의 학생 ID 조회
-    const { data: room } = await supabase
-      .from('chat_rooms')
-      .select('student_id')
-      .eq('id', roomId)
-      .single();
+  // 채팅 알림 발송 (발신자를 제외한 모든 참여자에게)
+  await sendChatNotifications({
+    roomId,
+    senderId: user.id,
+    senderType: profile.user_type,
+    senderName: profile.name,
+    content: content.trim(),
+    imageUrl: imageUrl || null,
+  }).catch(console.error);
 
-    if (room?.student_id) {
-      const { createStudentNotification } = await import('./notification');
-      const senderLabel = profile.user_type === 'admin' ? '선생님' : '학부모님';
-      await createStudentNotification({
+  return { data: message };
+}
+
+// 채팅 알림 발송 헬퍼 함수
+async function sendChatNotifications(params: {
+  roomId: string;
+  senderId: string;
+  senderType: string;
+  senderName: string;
+  content: string;
+  imageUrl: string | null;
+}) {
+  const supabase = await createClient();
+  const { createStudentNotification, createUserNotification } = await import('./notification');
+
+  // 알림 메시지 생성
+  const notificationMessage = params.imageUrl 
+    ? (params.content ? `📷 ${params.content.slice(0, 40)}...` : '📷 이미지를 보냈습니다')
+    : params.content.slice(0, 50) + (params.content.length > 50 ? '...' : '');
+
+  // 채팅방의 학생 ID 조회
+  const { data: room } = await supabase
+    .from('chat_rooms')
+    .select('student_id')
+    .eq('id', params.roomId)
+    .single();
+
+  if (!room?.student_id) return;
+
+  // 연결된 학부모 조회
+  const { data: parentLinks } = await supabase
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', room.student_id);
+
+  const parentIds = (parentLinks || []).map(link => link.parent_id);
+
+  // 관리자 목록 조회 (같은 지점)
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('branch_id')
+    .eq('id', room.student_id)
+    .single();
+
+  const { data: admins } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_type', 'admin')
+    .eq('branch_id', studentProfile?.branch_id || '');
+
+  const adminIds = (admins || []).map(admin => admin.id);
+
+  // 발신자 라벨 설정
+  const getSenderLabel = () => {
+    switch (params.senderType) {
+      case 'student': return '학생';
+      case 'parent': return '학부모님';
+      case 'admin': return '선생님';
+      default: return params.senderName;
+    }
+  };
+  const senderLabel = getSenderLabel();
+
+  // 발신자 유형에 따라 알림 발송 대상 결정
+  const notificationPromises: Promise<unknown>[] = [];
+
+  // 학생에게 알림 (발신자가 학생이 아닌 경우)
+  if (params.senderType !== 'student') {
+    notificationPromises.push(
+      createStudentNotification({
         studentId: room.student_id,
         type: 'chat',
         title: `${senderLabel}의 새 메시지`,
-        message: content.trim().slice(0, 50) + (content.trim().length > 50 ? '...' : ''),
+        message: notificationMessage,
         link: '/student/chat',
-      }).catch(console.error);
+      })
+    );
+  }
+
+  // 학부모에게 알림 (발신자가 학부모가 아닌 경우)
+  if (params.senderType !== 'parent') {
+    for (const parentId of parentIds) {
+      if (parentId !== params.senderId) {
+        notificationPromises.push(
+          createUserNotification({
+            userId: parentId,
+            type: 'chat',
+            title: `${senderLabel}의 새 메시지`,
+            message: notificationMessage,
+            link: '/parent/chat',
+          })
+        );
+      }
     }
   }
 
-  return { data: message };
+  // 관리자에게 알림 (발신자가 관리자가 아닌 경우)
+  if (params.senderType !== 'admin') {
+    for (const adminId of adminIds) {
+      if (adminId !== params.senderId) {
+        notificationPromises.push(
+          createUserNotification({
+            userId: adminId,
+            type: 'chat',
+            title: `${senderLabel}의 새 메시지`,
+            message: notificationMessage,
+            link: '/admin/chat',
+          })
+        );
+      }
+    }
+  }
+
+  // 모든 알림 발송
+  await Promise.allSettled(notificationPromises);
 }
 
 // 읽음 표시 업데이트

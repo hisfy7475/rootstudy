@@ -302,6 +302,13 @@ export async function checkOut() {
   // 조기퇴실 체크 및 자동 벌점 (비동기로 실행, 퇴실 처리에는 영향 없음)
   checkEarlyDeparture(user.id).catch(console.error);
 
+  // 현재 학습 중인 과목 자동 종료
+  await supabase
+    .from('subjects')
+    .update({ is_current: false, ended_at: new Date().toISOString() })
+    .eq('student_id', user.id)
+    .eq('is_current', true);
+
   const { error } = await supabase
     .from('attendance')
     .insert({
@@ -316,6 +323,7 @@ export async function checkOut() {
   }
 
   revalidatePath('/student');
+  revalidatePath('/student/stats');
   return { success: true };
 }
 
@@ -376,6 +384,13 @@ export async function endBreak() {
     
     // 15분 초과 시: 퇴실-재입실 처리
     if (elapsedMinutes > ATTENDANCE_CONFIG.gracePeriodMinutes) {
+      // 현재 학습 중인 과목 종료 (break_start 시점으로)
+      await supabase
+        .from('subjects')
+        .update({ is_current: false, ended_at: breakStartRecord.timestamp })
+        .eq('student_id', user.id)
+        .eq('is_current', true);
+
       // 1. break_start 시점에 check_out 추가
       const { error: checkOutError } = await supabase
         .from('attendance')
@@ -406,6 +421,7 @@ export async function endBreak() {
       }
 
       revalidatePath('/student');
+      revalidatePath('/student/stats');
       return { success: true, wasLongBreak: true };
     }
   }
@@ -426,58 +442,6 @@ export async function endBreak() {
 
   revalidatePath('/student');
   return { success: true, wasLongBreak: false };
-}
-
-// 등원 목표 설정
-export async function setStudyGoal(targetTime: string, date?: string) {
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  // 학습일 기준으로 날짜 계산
-  const studyDate = getStudyDate();
-  const goalDate = date || studyDate.toISOString().split('T')[0];
-
-  const { error } = await supabase
-    .from('study_goals')
-    .upsert({
-      student_id: user.id,
-      target_time: targetTime,
-      date: goalDate,
-    }, {
-      onConflict: 'student_id,date',
-    });
-
-  if (error) {
-    console.error('Error setting goal:', error);
-    return { error: '목표 설정에 실패했습니다.' };
-  }
-
-  revalidatePath('/student');
-  revalidatePath('/student/goal');
-  return { success: true };
-}
-
-// 오늘(학습일 기준)의 목표 조회
-export async function getTodayGoal() {
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // 학습일 기준으로 날짜 계산
-  const studyDate = getStudyDate();
-  const today = studyDate.toISOString().split('T')[0];
-
-  const { data } = await supabase
-    .from('study_goals')
-    .select('*')
-    .eq('student_id', user.id)
-    .eq('date', today)
-    .single();
-
-  return data;
 }
 
 // 현재 학습 과목 조회
@@ -756,4 +720,706 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
     progressPercent,
     studentTypeName,
   };
+}
+
+// ============================================
+// 학습 통계 관련 함수들
+// ============================================
+
+export type StudyPeriod = 'daily' | 'weekly' | 'monthly';
+
+interface StudySession {
+  startTime: Date;
+  endTime: Date;
+  durationSeconds: number;
+}
+
+interface SubjectStudyRecord {
+  subjectName: string;
+  startTime: Date;
+  endTime: Date;
+  durationSeconds: number;
+}
+
+interface UnclassifiedSegment {
+  id: string;
+  startTime: string;
+  endTime: string;
+  durationSeconds: number;
+}
+
+// 월의 시작일 반환
+function getMonthStart(date: Date = new Date()): Date {
+  const studyDate = getStudyDate(date);
+  const monthStart = new Date(studyDate);
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  return monthStart;
+}
+
+// 기간별 날짜 범위 계산
+function getPeriodBounds(period: StudyPeriod, baseDate: Date = new Date()): { start: Date; end: Date } {
+  const studyDate = getStudyDate(baseDate);
+  
+  switch (period) {
+    case 'daily':
+      return getStudyDayBounds(studyDate);
+    case 'weekly': {
+      const weekStart = getWeekStart(baseDate);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      return { start: weekStart, end: weekEnd };
+    }
+    case 'monthly': {
+      const monthStart = getMonthStart(baseDate);
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      return { start: monthStart, end: monthEnd };
+    }
+  }
+}
+
+// 출석 기록에서 학습 세션 추출
+function extractStudySessions(
+  attendance: Array<{ type: string; timestamp: string }>,
+  periodEnd: Date
+): StudySession[] {
+  const sessions: StudySession[] = [];
+  let checkInTime: Date | null = null;
+
+  for (const record of attendance) {
+    const timestamp = new Date(record.timestamp);
+    
+    switch (record.type) {
+      case 'check_in':
+        checkInTime = timestamp;
+        break;
+      case 'check_out':
+        if (checkInTime) {
+          sessions.push({
+            startTime: checkInTime,
+            endTime: timestamp,
+            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
+          });
+          checkInTime = null;
+        }
+        break;
+      case 'break_start':
+        if (checkInTime) {
+          sessions.push({
+            startTime: checkInTime,
+            endTime: timestamp,
+            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
+          });
+          checkInTime = null;
+        }
+        break;
+      case 'break_end':
+        checkInTime = timestamp;
+        break;
+    }
+  }
+
+  // 현재 입실 중이면 현재까지 세션 추가
+  if (checkInTime) {
+    const now = new Date();
+    const endTime = now < periodEnd ? now : periodEnd;
+    sessions.push({
+      startTime: checkInTime,
+      endTime,
+      durationSeconds: Math.floor((endTime.getTime() - checkInTime.getTime()) / 1000),
+    });
+  }
+
+  return sessions;
+}
+
+// 기간별 학습 통계 조회
+export async function getStudyStatsByPeriod(
+  period: StudyPeriod,
+  baseDate?: Date
+): Promise<{
+  totalSeconds: number;
+  sessions: StudySession[];
+  periodStart: string;
+  periodEnd: string;
+}> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { totalSeconds: 0, sessions: [], periodStart: '', periodEnd: '' };
+
+  const { start, end } = getPeriodBounds(period, baseDate);
+
+  const { data: attendance } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('student_id', user.id)
+    .gte('timestamp', start.toISOString())
+    .lt('timestamp', end.toISOString())
+    .order('timestamp', { ascending: true });
+
+  const sessions = extractStudySessions(attendance || [], end);
+  const totalSeconds = sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+
+  return {
+    totalSeconds,
+    sessions,
+    periodStart: start.toISOString(),
+    periodEnd: end.toISOString(),
+  };
+}
+
+// 기간별 과목별 학습시간 조회
+export async function getSubjectStudyTime(
+  period: StudyPeriod,
+  baseDate?: Date
+): Promise<{
+  subjectTimes: Record<string, number>;
+  subjectRecords: SubjectStudyRecord[];
+  unclassifiedSeconds: number;
+  unclassifiedSegments: UnclassifiedSegment[];
+}> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { 
+      subjectTimes: {}, 
+      subjectRecords: [], 
+      unclassifiedSeconds: 0, 
+      unclassifiedSegments: [] 
+    };
+  }
+
+  const { start, end } = getPeriodBounds(period, baseDate);
+
+  // 과목 기록 조회
+  const { data: subjects } = await supabase
+    .from('subjects')
+    .select('*')
+    .eq('student_id', user.id)
+    .gte('started_at', start.toISOString())
+    .lt('started_at', end.toISOString())
+    .order('started_at', { ascending: true });
+
+  // 출석 기록 조회 (총 학습 시간 계산용)
+  const { data: attendance } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('student_id', user.id)
+    .gte('timestamp', start.toISOString())
+    .lt('timestamp', end.toISOString())
+    .order('timestamp', { ascending: true });
+
+  // 학습 세션 추출
+  const studySessions = extractStudySessions(attendance || [], end);
+  const totalStudySeconds = studySessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+
+  // 과목별 시간 계산
+  const subjectTimes: Record<string, number> = {};
+  const subjectRecords: SubjectStudyRecord[] = [];
+
+  for (const subject of subjects || []) {
+    const subjectStart = new Date(subject.started_at);
+    const subjectEnd = subject.ended_at 
+      ? new Date(subject.ended_at) 
+      : subject.is_current 
+        ? new Date() 
+        : subjectStart;
+
+    const durationSeconds = Math.floor((subjectEnd.getTime() - subjectStart.getTime()) / 1000);
+    
+    subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + durationSeconds;
+    subjectRecords.push({
+      subjectName: subject.subject_name,
+      startTime: subjectStart,
+      endTime: subjectEnd,
+      durationSeconds,
+    });
+  }
+
+  const classifiedSeconds = Object.values(subjectTimes).reduce((sum, s) => sum + s, 0);
+  const unclassifiedSeconds = Math.max(0, totalStudySeconds - classifiedSeconds);
+
+  // 미분류 구간 계산
+  const unclassifiedSegments = calculateUnclassifiedSegments(studySessions, subjectRecords);
+
+  return {
+    subjectTimes,
+    subjectRecords,
+    unclassifiedSeconds,
+    unclassifiedSegments,
+  };
+}
+
+// 미분류 구간 계산
+function calculateUnclassifiedSegments(
+  studySessions: StudySession[],
+  subjectRecords: SubjectStudyRecord[]
+): UnclassifiedSegment[] {
+  const segments: UnclassifiedSegment[] = [];
+  
+  for (const session of studySessions) {
+    // 이 세션과 겹치는 과목 기록 찾기
+    const overlappingSubjects = subjectRecords.filter(sr => 
+      sr.startTime < session.endTime && sr.endTime > session.startTime
+    );
+
+    if (overlappingSubjects.length === 0) {
+      // 전체 세션이 미분류
+      segments.push({
+        id: `${session.startTime.getTime()}`,
+        startTime: session.startTime.toISOString(),
+        endTime: session.endTime.toISOString(),
+        durationSeconds: session.durationSeconds,
+      });
+    } else {
+      // 세션 내 미분류 구간 찾기
+      const covered: Array<{ start: number; end: number }> = [];
+      
+      for (const sr of overlappingSubjects) {
+        const overlapStart = Math.max(session.startTime.getTime(), sr.startTime.getTime());
+        const overlapEnd = Math.min(session.endTime.getTime(), sr.endTime.getTime());
+        if (overlapEnd > overlapStart) {
+          covered.push({ start: overlapStart, end: overlapEnd });
+        }
+      }
+
+      // 커버된 구간 병합
+      covered.sort((a, b) => a.start - b.start);
+      const merged: Array<{ start: number; end: number }> = [];
+      for (const c of covered) {
+        if (merged.length === 0 || merged[merged.length - 1].end < c.start) {
+          merged.push(c);
+        } else {
+          merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, c.end);
+        }
+      }
+
+      // 미분류 구간 추출
+      let currentStart = session.startTime.getTime();
+      for (const m of merged) {
+        if (m.start > currentStart) {
+          const duration = Math.floor((m.start - currentStart) / 1000);
+          if (duration > 0) {
+            segments.push({
+              id: `${currentStart}`,
+              startTime: new Date(currentStart).toISOString(),
+              endTime: new Date(m.start).toISOString(),
+              durationSeconds: duration,
+            });
+          }
+        }
+        currentStart = m.end;
+      }
+
+      // 마지막 구간
+      if (currentStart < session.endTime.getTime()) {
+        const duration = Math.floor((session.endTime.getTime() - currentStart) / 1000);
+        if (duration > 0) {
+          segments.push({
+            id: `${currentStart}`,
+            startTime: new Date(currentStart).toISOString(),
+            endTime: session.endTime.toISOString(),
+            durationSeconds: duration,
+          });
+        }
+      }
+    }
+  }
+
+  return segments;
+}
+
+// 일별 학습 시간 추이 (주간/월간 용)
+export async function getDailyStudyTrend(
+  period: 'weekly' | 'monthly',
+  baseDate?: Date
+): Promise<Array<{ date: string; totalSeconds: number; subjectTimes: Record<string, number> }>> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { start, end } = getPeriodBounds(period, baseDate);
+  
+  // 전체 기간의 출석 기록
+  const { data: attendance } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('student_id', user.id)
+    .gte('timestamp', start.toISOString())
+    .lt('timestamp', end.toISOString())
+    .order('timestamp', { ascending: true });
+
+  // 전체 기간의 과목 기록
+  const { data: subjects } = await supabase
+    .from('subjects')
+    .select('*')
+    .eq('student_id', user.id)
+    .gte('started_at', start.toISOString())
+    .lt('started_at', end.toISOString())
+    .order('started_at', { ascending: true });
+
+  // 일별로 데이터 그룹화
+  const dailyData: Map<string, { 
+    attendance: typeof attendance;
+    subjects: typeof subjects;
+  }> = new Map();
+
+  // 기간 내 모든 날짜 초기화
+  const current = new Date(start);
+  while (current < end) {
+    const dateStr = current.toISOString().split('T')[0];
+    dailyData.set(dateStr, { attendance: [], subjects: [] });
+    current.setDate(current.getDate() + 1);
+  }
+
+  // 출석 기록 분류
+  for (const a of attendance || []) {
+    const dateStr = getStudyDate(new Date(a.timestamp)).toISOString().split('T')[0];
+    const day = dailyData.get(dateStr);
+    if (day) {
+      day.attendance = [...(day.attendance || []), a];
+    }
+  }
+
+  // 과목 기록 분류
+  for (const s of subjects || []) {
+    const dateStr = getStudyDate(new Date(s.started_at)).toISOString().split('T')[0];
+    const day = dailyData.get(dateStr);
+    if (day) {
+      day.subjects = [...(day.subjects || []), s];
+    }
+  }
+
+  // 일별 통계 계산
+  const result: Array<{ date: string; totalSeconds: number; subjectTimes: Record<string, number> }> = [];
+  
+  for (const [dateStr, data] of dailyData) {
+    const dayBounds = getStudyDayBounds(new Date(dateStr));
+    const sessions = extractStudySessions(data.attendance || [], dayBounds.end);
+    const totalSeconds = sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+
+    const subjectTimes: Record<string, number> = {};
+    for (const subject of data.subjects || []) {
+      const subjectStart = new Date(subject.started_at);
+      const subjectEnd = subject.ended_at 
+        ? new Date(subject.ended_at) 
+        : subject.is_current 
+          ? new Date() 
+          : subjectStart;
+      const durationSeconds = Math.floor((subjectEnd.getTime() - subjectStart.getTime()) / 1000);
+      subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + durationSeconds;
+    }
+
+    result.push({ date: dateStr, totalSeconds, subjectTimes });
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// 이전 기간 대비 비교
+export async function getStudyComparison(
+  period: StudyPeriod,
+  baseDate?: Date
+): Promise<{
+  currentSeconds: number;
+  previousSeconds: number;
+  changePercent: number;
+  changeDirection: 'up' | 'down' | 'same';
+}> {
+  const date = baseDate || new Date();
+  
+  // 현재 기간 통계
+  const currentStats = await getStudyStatsByPeriod(period, date);
+  
+  // 이전 기간 날짜 계산
+  let previousDate: Date;
+  switch (period) {
+    case 'daily':
+      previousDate = new Date(date);
+      previousDate.setDate(previousDate.getDate() - 1);
+      break;
+    case 'weekly':
+      previousDate = new Date(date);
+      previousDate.setDate(previousDate.getDate() - 7);
+      break;
+    case 'monthly':
+      previousDate = new Date(date);
+      previousDate.setMonth(previousDate.getMonth() - 1);
+      break;
+  }
+
+  // 이전 기간 통계
+  const previousStats = await getStudyStatsByPeriod(period, previousDate);
+
+  const changePercent = previousStats.totalSeconds > 0
+    ? Math.round(((currentStats.totalSeconds - previousStats.totalSeconds) / previousStats.totalSeconds) * 100)
+    : currentStats.totalSeconds > 0 ? 100 : 0;
+
+  const changeDirection = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'same';
+
+  return {
+    currentSeconds: currentStats.totalSeconds,
+    previousSeconds: previousStats.totalSeconds,
+    changePercent: Math.abs(changePercent),
+    changeDirection,
+  };
+}
+
+// 미분류 시간을 과목에 할당
+export async function assignUnclassifiedTime(
+  startTime: string,
+  endTime: string,
+  subjectName: string
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  if (end <= start) {
+    return { error: '종료 시간이 시작 시간보다 커야 합니다.' };
+  }
+
+  // 해당 시간대에 이미 과목 기록이 있는지 확인
+  const { data: existingSubjects } = await supabase
+    .from('subjects')
+    .select('*')
+    .eq('student_id', user.id)
+    .lt('started_at', end.toISOString())
+    .or(`ended_at.gt.${start.toISOString()},ended_at.is.null`);
+
+  // 겹치는 구간이 있으면 에러
+  for (const existing of existingSubjects || []) {
+    const existingStart = new Date(existing.started_at);
+    const existingEnd = existing.ended_at ? new Date(existing.ended_at) : new Date();
+    
+    if (existingStart < end && existingEnd > start) {
+      return { error: '이미 과목이 할당된 시간대와 겹칩니다.' };
+    }
+  }
+
+  // 새 과목 기록 삽입
+  const { error } = await supabase
+    .from('subjects')
+    .insert({
+      student_id: user.id,
+      subject_name: subjectName,
+      started_at: start.toISOString(),
+      ended_at: end.toISOString(),
+      is_current: false,
+    });
+
+  if (error) {
+    console.error('Error assigning subject:', error);
+    return { error: '과목 할당에 실패했습니다.' };
+  }
+
+  revalidatePath('/student/stats');
+  revalidatePath('/student/subject');
+  return { success: true };
+}
+
+// ============================================
+// 학생 설정 관련 함수들
+// ============================================
+
+// 학생 프로필 정보 타입
+export interface StudentProfileInfo {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  birthday: string | null;
+  seatNumber: number | null;
+  parentCode: string;
+  branchName: string | null;
+  studentTypeName: string | null;
+}
+
+// 연결된 학부모 정보 타입
+export interface LinkedParent {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+}
+
+// 학생 본인 프로필 조회 (parent_code 포함)
+export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  // profiles 조회
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select(`
+      id,
+      email,
+      name,
+      phone,
+      branch_id,
+      branches (
+        name
+      )
+    `)
+    .eq('id', user.id)
+    .single();
+
+  if (!profile) return null;
+
+  // student_profiles 조회
+  const { data: studentProfile } = await supabase
+    .from('student_profiles')
+    .select(`
+      seat_number,
+      parent_code,
+      birthday,
+      student_type_id,
+      student_types (
+        name
+      )
+    `)
+    .eq('id', user.id)
+    .single();
+
+  if (!studentProfile) return null;
+
+  const branch = profile.branches as unknown as { name: string } | null;
+  const studentType = studentProfile.student_types as unknown as { name: string } | null;
+
+  return {
+    id: profile.id,
+    email: profile.email,
+    name: profile.name,
+    phone: profile.phone,
+    birthday: studentProfile.birthday,
+    seatNumber: studentProfile.seat_number,
+    parentCode: studentProfile.parent_code,
+    branchName: branch?.name || null,
+    studentTypeName: studentType?.name || null,
+  };
+}
+
+// 학생 프로필 정보 수정 (이름, 전화번호)
+export async function updateStudentProfile(data: {
+  name?: string;
+  phone?: string;
+}): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const updateData: { name?: string; phone?: string | null } = {};
+  
+  if (data.name !== undefined) {
+    if (!data.name.trim()) {
+      return { error: '이름을 입력해주세요.' };
+    }
+    updateData.name = data.name.trim();
+  }
+  
+  if (data.phone !== undefined) {
+    updateData.phone = data.phone.trim() || null;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return { error: '수정할 항목이 없습니다.' };
+  }
+
+  const { error } = await supabase
+    .from('profiles')
+    .update(updateData)
+    .eq('id', user.id);
+
+  if (error) {
+    console.error('Error updating profile:', error);
+    return { error: '프로필 수정에 실패했습니다.' };
+  }
+
+  revalidatePath('/student/settings');
+  return { success: true };
+}
+
+// 연결된 학부모 목록 조회
+export async function getLinkedParents(): Promise<LinkedParent[]> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // parent_student_links에서 연결된 학부모 ID 목록 조회
+  const { data: links } = await supabase
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', user.id);
+
+  if (!links || links.length === 0) return [];
+
+  const parentIds = links.map(link => link.parent_id);
+
+  // 학부모 정보 조회
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, name, email, phone')
+    .in('id', parentIds);
+
+  if (!profiles) return [];
+
+  return profiles.map(p => ({
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+  }));
+}
+
+// 비밀번호 변경
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !user.email) return { error: '로그인이 필요합니다.' };
+
+  if (!currentPassword || !newPassword) {
+    return { error: '현재 비밀번호와 새 비밀번호를 모두 입력해주세요.' };
+  }
+
+  if (newPassword.length < 6) {
+    return { error: '새 비밀번호는 6자 이상이어야 합니다.' };
+  }
+
+  // 현재 비밀번호 확인 (재로그인 시도)
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+
+  if (signInError) {
+    return { error: '현재 비밀번호가 올바르지 않습니다.' };
+  }
+
+  // 비밀번호 변경
+  const { error: updateError } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (updateError) {
+    console.error('Error changing password:', updateError);
+    return { error: '비밀번호 변경에 실패했습니다.' };
+  }
+
+  return { success: true };
 }

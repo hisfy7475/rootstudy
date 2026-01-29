@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch } from '@/lib/actions/admin';
 import {
   Users,
   User,
@@ -20,6 +20,8 @@ import {
   Award,
   Brain,
   BookOpen,
+  Shield,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +32,21 @@ interface Member {
   phone: string | null;
   user_type: string;
   created_at: string;
+}
+
+interface Admin {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  branch_id: string | null;
+  branch_name: string | null;
+  created_at: string;
+}
+
+interface Branch {
+  id: string;
+  name: string;
 }
 
 interface StudentDetail {
@@ -57,13 +74,16 @@ interface StudentDetail {
 interface MembersClientProps {
   initialStudents: Member[];
   initialParents: Member[];
+  initialAdmins: Admin[];
+  branches: Branch[];
 }
 
-type Tab = 'students' | 'parents';
+type Tab = 'students' | 'parents' | 'admins';
 
-export function MembersClient({ initialStudents, initialParents }: MembersClientProps) {
+export function MembersClient({ initialStudents, initialParents, initialAdmins, branches }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<Member[]>(initialParents);
+  const [admins, setAdmins] = useState<Admin[]>(initialAdmins);
   const [activeTab, setActiveTab] = useState<Tab>('students');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
@@ -71,11 +91,34 @@ export function MembersClient({ initialStudents, initialParents }: MembersClient
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const filteredMembers = (activeTab === 'students' ? students : parents).filter(
+  const filteredMembers = (activeTab === 'students' ? students : activeTab === 'parents' ? parents : []).filter(
     (m) =>
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const filteredAdmins = admins.filter(
+    (a) =>
+      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // 관리자 지점 변경
+  const handleBranchChange = async (adminId: string, branchId: string) => {
+    setLoading(true);
+    try {
+      const result = await updateAdminBranch(adminId, branchId || null);
+      if (result.success) {
+        // 관리자 목록 새로고침
+        const updatedAdmins = await getAllAdmins();
+        setAdmins(updatedAdmins);
+      }
+    } catch (error) {
+      console.error('Failed to update branch:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleViewDetail = async (studentId: string) => {
     setLoading(true);
@@ -139,28 +182,35 @@ export function MembersClient({ initialStudents, initialParents }: MembersClient
       {/* 헤더 */}
       <div>
         <h1 className="text-2xl font-bold">회원 관리</h1>
-        <p className="text-text-muted mt-1">학생 및 학부모 회원을 관리하세요</p>
+        <p className="text-text-muted mt-1">학생, 학부모, 관리자 회원을 관리하세요</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* 왼쪽: 회원 목록 */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className={cn("space-y-4", activeTab === 'admins' ? 'lg:col-span-3' : 'lg:col-span-2')}>
           {/* 탭 및 검색 */}
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 variant={activeTab === 'students' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('students')}
+                onClick={() => { setActiveTab('students'); setSelectedStudent(null); }}
               >
                 <User className="w-4 h-4 mr-2" />
                 학생 ({students.length})
               </Button>
               <Button
                 variant={activeTab === 'parents' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('parents')}
+                onClick={() => { setActiveTab('parents'); setSelectedStudent(null); }}
               >
                 <UserCheck className="w-4 h-4 mr-2" />
                 학부모 ({parents.length})
+              </Button>
+              <Button
+                variant={activeTab === 'admins' ? 'default' : 'outline'}
+                onClick={() => { setActiveTab('admins'); setSelectedStudent(null); }}
+              >
+                <Shield className="w-4 h-4 mr-2" />
+                관리자 ({admins.length})
               </Button>
             </div>
             <div className="flex-1 relative">
@@ -174,66 +224,131 @@ export function MembersClient({ initialStudents, initialParents }: MembersClient
             </div>
           </div>
 
-          {/* 회원 목록 테이블 */}
-          <Card className="overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredMembers.length === 0 ? (
+          {/* 관리자 목록 테이블 */}
+          {activeTab === 'admins' ? (
+            <Card className="overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
-                      회원이 없습니다.
-                    </td>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">소속 지점</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
                   </tr>
-                ) : (
-                  filteredMembers.map((member) => (
-                    <tr key={member.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            {activeTab === 'students' ? (
-                              <User className="w-4 h-4 text-primary" />
-                            ) : (
-                              <UserCheck className="w-4 h-4 text-secondary" />
-                            )}
-                          </div>
-                          <span className="font-medium">{member.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">{member.email}</td>
-                      <td className="px-4 py-3 text-sm">{member.phone || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-text-muted">
-                        {formatDate(member.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {activeTab === 'students' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleViewDetail(member.id)}
-                            disabled={loading}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        )}
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredAdmins.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
+                        관리자가 없습니다.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </Card>
+                  ) : (
+                    filteredAdmins.map((admin) => (
+                      <tr key={admin.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                              <Shield className="w-4 h-4 text-purple-600" />
+                            </div>
+                            <span className="font-medium">{admin.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-text-muted">{admin.email}</td>
+                        <td className="px-4 py-3 text-sm">{admin.phone || '-'}</td>
+                        <td className="px-4 py-3">
+                          <select
+                            value={admin.branch_id || ''}
+                            onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+                            disabled={loading}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50",
+                              !admin.branch_id 
+                                ? "border-yellow-300 bg-yellow-50 text-yellow-700" 
+                                : "border-gray-200 bg-white"
+                            )}
+                          >
+                            <option value="">지점 미지정</option>
+                            {branches.map((branch) => (
+                              <option key={branch.id} value={branch.id}>
+                                {branch.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-text-muted">
+                          {formatDate(admin.created_at)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </Card>
+          ) : (
+            /* 학생/학부모 목록 테이블 */
+            <Card className="overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
+                        회원이 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMembers.map((member) => (
+                      <tr key={member.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              {activeTab === 'students' ? (
+                                <User className="w-4 h-4 text-primary" />
+                              ) : (
+                                <UserCheck className="w-4 h-4 text-secondary" />
+                              )}
+                            </div>
+                            <span className="font-medium">{member.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-text-muted">{member.email}</td>
+                        <td className="px-4 py-3 text-sm">{member.phone || '-'}</td>
+                        <td className="px-4 py-3 text-sm text-text-muted">
+                          {formatDate(member.created_at)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {activeTab === 'students' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleViewDetail(member.id)}
+                              disabled={loading}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </Card>
+          )}
         </div>
 
-        {/* 오른쪽: 학생 상세 정보 */}
+        {/* 오른쪽: 학생 상세 정보 (관리자 탭이 아닐 때만 표시) */}
+        {activeTab !== 'admins' && (
         <div>
           {selectedStudent ? (
             <Card className="p-6 sticky top-6">
@@ -421,6 +536,7 @@ export function MembersClient({ initialStudents, initialParents }: MembersClient
             </Card>
           )}
         </div>
+        )}
       </div>
     </div>
   );
