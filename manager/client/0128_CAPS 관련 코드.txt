@@ -1,0 +1,150 @@
+    //caps mssql 연결
+    //$server = '112.217.210.82'; //개발서버
+    $server = '116.120.67.70';//rootstudy caps pc public ip
+    $port = '20202';
+    $db = 'ACSDB';
+    $user = 'fdmsusr';
+    $pass = '*******';
+    $mssql = new DB('', $server, $user, $pass, $db, $port, 'mssql');
+    //print_r($mssql);
+
+    //사용자 목록
+    $mems = [];
+    function get_mem($id) {
+        global $mssql, $mems;
+        if (array_key_exists($id, $mems)) return $mems[$id];
+        $sql = "SELECT id, name FROM tuser WHERE id=:id";
+        if ($row = $mssql->query($sql, ['id'=>$id], true)) {
+            $mems[$id] = [
+                'id' => $row['id'],
+                'name'=> $row['name'],
+            ];
+            return $mems[$id];
+        }
+        return null;
+    }
+
+    //출석 체크
+    function attendance_check($cdate, $f, $mem, $enter_time) {
+        global $_cfg, $pushSend;
+        $mb_idx = intval($mem['mb_idx']??0);
+        $etm = strtotime($enter_time);
+        //print_r($f);
+        //echo "mb_idx:$mb_idx, etm:$etm\n";
+        $sql = "select at_idx from rb_attendance where mb_idx='".$mb_idx."' and at_date='".$cdate."'";
+        $at_idx = intval(sql_result($sql));
+        $tardy = Schedule::share()->tardy($mb_idx, date('Y-m-d', $etm), date('H:i', $etm));
+        $_f = [
+            'at_in_tm'  => date('H:i', $etm),
+            'at_status' => 'I',
+            'at_in_chktm'  => $tardy['bin'],
+            'at_tardy'  => $tardy['tardy'],
+        ];
+        //print_R($_f);
+        //echo "at_idx:$at_idx\n";
+        //return;
+        if ($at_idx == 0) {
+            $_f['mb_idx'] = $mb_idx;
+            $_f['at_date'] = $cdate;
+            //print_R($_f);
+            sql_insert('rb_attendance', $_f);
+        }else{
+            sql_update('rb_attendance', $_f, "at_idx='".$at_idx."'");
+        }
+        //부모한테 푸시
+        $_p = [
+            'st_name' => $mem['mb_name'],
+            'tm' => date('H시 i분', $etm),
+        ];
+        $sql = "select * from rb_member where mb_idx in(".$mem['mb_child_idx'].") and mb_status='1' and mb_level='2'";
+        foreach(sql_list($sql) as $parent){
+            if ($pushSend) sendPush('m1', $parent['mb_id'], $_p);
+        }
+    }
+
+ //출입문 목록
+    $sql = "SELECT * FROM tgate";
+    $gates = [];
+    foreach($mssql->queryAll($sql) as $v){
+        $gates[$v['id']] = [
+            'id'=>$v['id'],
+            'name'=>$v['name'],
+        ];
+    }
+
+    $now_hour = date('H:i');
+    //오늘 출입기간
+    $chk_tm_in = date('Y-m-d').' '.$_cfg['member']['day_cut'].':00';
+    if ($now_hour<$_cfg['member']['day_cut']){
+        $chk_tm_in = date('Y-m-d', strtotime('-1 day', strtotime($chk_tm_in))).' '.$_cfg['member']['day_cut'].':00';
+    }
+    $chk_tm_out = date('Y-m-d H:i:s', strtotime($chk_tm_in. ' +1 day'));
+
+    //echo "now_hour:$now_hour\n";
+    //echo "chk_tm_in:$chk_tm_in\n";
+    //echo "chk_tm_out:$chk_tm_out\n";
+    //exit;
+
+    //1분동안 유지
+    $minute = date('i');
+    while(true){
+        if ($minute != date('i')) break;
+        //30초 전꺼 부터 가져오기
+        $stm = strtotime('-130 second');
+        $sdate = date('YmdHis', $stm);
+        $stime = date('His', $stm);
+
+        
+        $sql = "SELECT e_date, e_time, g_id, e_id, e_idno, e_name FROM tenter WHERE CONCAT(e_date, e_time) >= :sdate and e_id>0 and e_idno!=''order by e_date, e_time";
+        //echo $sql."\n";
+        //echo "sdate:".$sdate."\n";
+        foreach($mssql->queryAll($sql, ['sdate'=>$sdate]) as $v){
+            //print_r($v);
+            $stno = $v['e_idno'];
+            $enter_time = date('Y-m-d H:i:s', strtotime($v['e_date'].''.$v['e_time']));
+
+            $sql = "select re_idx FROM rb_enter where mb_stno='".$stno."' and re_time='".$enter_time."'";
+            $re_idx = 0;
+            if ($row = sql_fetch($sql)) {
+                $re_idx = intval($row['re_idx']??'');
+            }
+            if ($re_idx == 0) {
+                $_f = [
+                    'mb_stno'=>$stno,
+                    're_time'=>$enter_time,
+                    'gid'=>$gates[$v['g_id']]['id']??'',
+                    'gname'=>$gates[$v['g_id']]['name']??'',
+                ];
+                //print_r($_f);
+                //exit;
+                sql_insert('rb_enter', $_f);
+                //푸시 발송
+                $sql = "select * from rb_member where mb_stno='".$stno."' and mb_status='1' and mb_level='1'";
+                if ($mem = sql_fetch($sql)) {
+                    //본인에게 푸시 발송
+                    if ($pushSend) sendPush('m14', $mem['mb_id'], ['st_name'=>$mem['mb_name'], '출입문'=>$_f['gname']]);
+                    //부모 목록
+                    if ($mem['mb_child_idx'] != '') {
+                        $sql = "select * from rb_member where mb_idx in(".$mem['mb_child_idx'].") and mb_status='1' and mb_level='2'";
+                        foreach(sql_list($sql) as $parent){
+                            //부모에게 푸시 발송
+                            if ($pushSend) sendPush('m14', $parent['mb_id'], ['st_name'=>$mem['mb_name'], '출입문'=>$_f['gname']]);
+                        }
+                    }
+                    //오늘 첫 출입인가?
+                    $cdate = date('Y-m-d', strtotime($chk_tm_in));
+                    $sql = "select at_idx from rb_attendance where mb_idx='".$mem{'mb_idx'}."' and at_date='".$cdate."'";
+                    //echo "sql:$sql\n";
+                    $new_idx = intval(sql_result($sql));
+                    //echo "new_idx:$new_idx\n";
+                    //exit;
+                    plog("new_idx:$new_idx/".$sql);
+                    if ($new_idx==0) {
+                        attendance_check($cdate, $_f, $mem, $enter_time);
+                    }
+                }
+
+            }
+        }
+        sleep(1);
+    }
