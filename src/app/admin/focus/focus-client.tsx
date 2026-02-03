@@ -29,6 +29,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FOCUS_PRESETS } from '@/lib/constants';
 
 interface Student {
   id: string;
@@ -150,8 +151,9 @@ export function FocusClient({
   const checkedInStudents = students.filter(s => s.status === 'checked_in');
 
   // 사용할 벌점 프리셋 (DB에 있으면 DB것, 없으면 기본값)
+  // 영구퇴실 사유(amount >= 999)는 빠른 벌점에서 제외
   const activePenaltyPresets = penaltyPresets.length > 0 
-    ? penaltyPresets 
+    ? penaltyPresets.filter(p => p.amount < 999)
     : defaultPenaltyPresets.map((p, i) => ({ ...p, id: `default-${i}`, branch_id: '', sort_order: i, is_active: true }));
 
   // 전체 선택/해제
@@ -175,7 +177,7 @@ export function FocusClient({
   };
 
   // 몰입도 일괄 입력
-  const handleBatchFocusScore = async (score: number) => {
+  const handleBatchFocusScore = async (score: number, activityNote?: string) => {
     if (selectedStudents.size === 0) {
       alert('학생을 선택해주세요.');
       return;
@@ -190,11 +192,13 @@ export function FocusClient({
       const result = await recordFocusScoreBatch(
         Array.from(selectedStudents),
         score,
-        selectedPeriodId
+        selectedPeriodId,
+        activityNote
       );
       if (result.success) {
         const periodName = selectedPeriod?.name || `${selectedPeriod?.period_number}교시`;
-        showSuccess(`${result.count}명에게 ${periodName} ${score}점 기록 완료`);
+        const activityText = activityNote ? ` (${activityNote})` : '';
+        showSuccess(`${result.count}명에게 ${periodName} ${score}점${activityText} 기록 완료`);
         setSelectedStudents(new Set());
         await refreshData();
       } else {
@@ -482,11 +486,35 @@ export function FocusClient({
             </div>
           )}
 
-          {/* 몰입도 점수 버튼 (1~10) */}
+          {/* 몰입도 퀵버튼 */}
+          <div>
+            <p className="text-xs text-gray-500 mb-2">빠른 몰입도 입력</p>
+            <div className="flex flex-wrap gap-2">
+              {FOCUS_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm',
+                    'hover:opacity-90 active:scale-95 transition-all',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                    preset.score >= 9 ? 'bg-emerald-600' :
+                    preset.score >= 7 ? 'bg-blue-500' :
+                    'bg-amber-500'
+                  )}
+                  onClick={() => handleBatchFocusScore(preset.score, preset.activityLabel)}
+                  disabled={loading || selectedStudents.size === 0 || !selectedPeriodId}
+                >
+                  {preset.label} ({preset.score}점)
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 몰입도 점수 버튼 (6~10) */}
           <div>
             <p className="text-xs text-gray-500 mb-2">몰입도 점수</p>
             <div className="flex gap-1">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
+              {[6, 7, 8, 9, 10].map((score) => (
                 <button
                   key={score}
                   className={cn(
@@ -495,9 +523,7 @@ export function FocusClient({
                     'disabled:opacity-50 disabled:cursor-not-allowed',
                     score >= 9 ? 'bg-emerald-600 text-white' :
                     score >= 7 ? 'bg-blue-500 text-white' :
-                    score >= 5 ? 'bg-amber-500 text-white' :
-                    score >= 3 ? 'bg-orange-500 text-white' :
-                    'bg-red-500 text-white'
+                    'bg-amber-500 text-white'
                   )}
                   onClick={() => handleBatchFocusScore(score)}
                   disabled={loading || selectedStudents.size === 0 || !selectedPeriodId}

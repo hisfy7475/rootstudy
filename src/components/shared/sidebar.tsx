@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { signOut } from '@/app/(auth)/actions';
@@ -19,6 +20,7 @@ import {
   CalendarClock,
   Clock,
   ClipboardList,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,6 +42,7 @@ const adminNavItems: NavItem[] = [
   { href: '/date-types', label: '날짜 타입', icon: Calendar },
   { href: '/periods', label: '교시 관리', icon: Clock },
   { href: '/notifications', label: '알림 관리', icon: Bell },
+  { href: '/announcements', label: '공지사항 관리', icon: Megaphone },
   { href: '/download', label: '데이터 다운로드', icon: Download },
   { href: '/chat', label: '채팅 관리', icon: MessageCircle },
 ];
@@ -54,9 +57,17 @@ export function Sidebar({ basePath = '' }: SidebarProps) {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-card border-r border-gray-100 shadow-sm flex flex-col">
       {/* 로고/타이틀 */}
-      <div className="p-6 border-b border-gray-100">
-        <h1 className="text-xl font-bold text-primary">학습관리 시스템</h1>
-        <p className="text-sm text-text-muted mt-1">관리자</p>
+      <div className="p-4 border-b border-gray-100">
+        <Link href="/admin" className="block">
+          <Image
+            src="/logo.png"
+            alt="WHEVER STUDY route 관리형 독서실"
+            width={160}
+            height={64}
+            className="object-contain"
+          />
+        </Link>
+        <p className="text-sm text-text-muted mt-2">관리자</p>
       </div>
 
       {/* 네비게이션 */}

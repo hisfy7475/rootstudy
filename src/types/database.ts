@@ -816,6 +816,61 @@ export interface Database {
           created_at?: string;
         };
       };
+      announcements: {
+        Row: {
+          id: string;
+          branch_id: string | null;
+          title: string;
+          content: string;
+          is_important: boolean;
+          target_audience: 'all' | 'student' | 'parent';
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id?: string | null;
+          title: string;
+          content: string;
+          is_important?: boolean;
+          target_audience?: 'all' | 'student' | 'parent';
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string | null;
+          title?: string;
+          content?: string;
+          is_important?: boolean;
+          target_audience?: 'all' | 'student' | 'parent';
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      announcement_reads: {
+        Row: {
+          id: string;
+          announcement_id: string;
+          user_id: string;
+          read_at: string;
+        };
+        Insert: {
+          id?: string;
+          announcement_id: string;
+          user_id: string;
+          read_at?: string;
+        };
+        Update: {
+          id?: string;
+          announcement_id?: string;
+          user_id?: string;
+          read_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -848,3 +903,5 @@ export type StudentNotification = Database['public']['Tables']['student_notifica
 export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
 export type PushSubscription = Database['public']['Tables']['push_subscriptions']['Row'];
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
+export type Announcement = Database['public']['Tables']['announcements']['Row'];
+export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];

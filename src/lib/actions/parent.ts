@@ -20,6 +20,7 @@ export interface StudentDashboardData {
   studyTime: number;
   currentSubject: string | null;
   todayFocus: number | null;
+  latestActivity: string | null;  // 최근 학습 상태 (인강 수강 중, 수면 중 등)
   pendingSchedules: number;
 }
 
@@ -200,14 +201,17 @@ export async function getStudentTodayFocus(studentId: string) {
     .order('recorded_at', { ascending: false });
 
   if (!data || data.length === 0) {
-    return { scores: [], average: null };
+    return { scores: [], average: null, latestActivity: null };
   }
 
   const average = Math.round(
     data.reduce((sum, s) => sum + s.score, 0) / data.length
   );
 
-  return { scores: data, average };
+  // 가장 최근 기록의 활동 상태 (note 필드)
+  const latestActivity = data[0]?.note || null;
+
+  return { scores: data, average, latestActivity };
 }
 
 // 학부모 대시보드용 통합 데이터 조회 (모든 자녀)
@@ -240,6 +244,7 @@ export async function getParentDashboardData(): Promise<{
         studyTime: studyTime.totalSeconds,
         currentSubject,
         todayFocus: todayFocus.average,
+        latestActivity: todayFocus.latestActivity,
         pendingSchedules: 0,
       };
     })
@@ -278,6 +283,7 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     studyTime: studyTime.totalSeconds,
     currentSubject,
     todayFocus: todayFocus.average,
+    latestActivity: todayFocus.latestActivity,
     pendingSchedules: 0,
   };
 

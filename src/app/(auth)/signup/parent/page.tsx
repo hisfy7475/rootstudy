@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Mail, Lock, User, Phone, Key, ArrowLeft, Check, UserPlus, CheckCircle, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -149,8 +150,15 @@ export default function ParentSignupPage() {
           >
             <ArrowLeft className="w-5 h-5 text-text-muted" />
           </Link>
-          <div className="mx-auto mb-4 w-16 h-16 bg-secondary/10 rounded-full flex items-center justify-center">
-            <UserPlus className="w-8 h-8 text-secondary" />
+          <div className="mx-auto mb-4">
+            <Image
+              src="/logo.png"
+              alt="WHEVER STUDY route 관리형 독서실"
+              width={180}
+              height={72}
+              className="object-contain"
+              priority
+            />
           </div>
           <CardTitle className="text-2xl">학부모 회원가입</CardTitle>
           <CardDescription>

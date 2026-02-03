@@ -11,6 +11,7 @@ interface StudentStatusCardProps {
   studyTimeSeconds: number;
   currentSubject: string | null;
   focusScore: number | null;
+  latestActivity?: string | null;  // 최근 학습 상태 (인강 수강 중, 수면 중 등)
   lastUpdate?: string | null;
 }
 
@@ -62,6 +63,7 @@ export function StudentStatusCard({
   studyTimeSeconds,
   currentSubject,
   focusScore,
+  latestActivity,
   lastUpdate,
 }: StudentStatusCardProps) {
   const config = statusConfig[status];
@@ -134,6 +136,11 @@ export function StudentStatusCard({
             <p className="font-bold text-text text-sm">
               {focusScore !== null ? `${focusScore}점` : '-'}
             </p>
+            {latestActivity && (
+              <p className="text-xs text-primary mt-1 truncate w-full">
+                {latestActivity}
+              </p>
+            )}
           </div>
         </Card>
       </div>

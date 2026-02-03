@@ -44,12 +44,12 @@ export const NOTIFICATION_TYPES = {
 
 export type NotificationType = typeof NOTIFICATION_TYPES[keyof typeof NOTIFICATION_TYPES];
 
-// 몰입도 빠른 입력 프리셋
+// 몰입도 빠른 입력 프리셋 (퀵버튼)
 export const FOCUS_PRESETS = [
-  { label: '완전몰입', score: 10 },
-  { label: '인강', score: 8 },
-  { label: '졸음', score: 5 },
-  { label: '집중저하', score: 3 },
+  { label: '인강', score: 8, activityLabel: '인강 수강 중' },
+  { label: '수면', score: 5, activityLabel: '수면 중' },
+  { label: '라운지', score: 7, activityLabel: '라운지 이용 중' },
+  { label: '클리닉/멘토링', score: 10, activityLabel: '클리닉/멘토링 중' },
 ] as const;
 
 // 기본 과목 목록

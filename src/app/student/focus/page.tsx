@@ -55,12 +55,18 @@ export default async function FocusPage() {
     recordedAt: f.recorded_at,
   }));
 
+  // 가장 최근 기록의 활동 상태
+  const latestActivity = todayFocusData.length > 0
+    ? todayFocusData[todayFocusData.length - 1]?.note || null
+    : null;
+
   return (
     <FocusPageClient
       todayScore={todayAvg}
       previousScore={yesterdayAvg}
       weeklyData={weeklyData}
       todayDetails={todayDetails}
+      latestActivity={latestActivity}
     />
   );
 }

@@ -43,6 +43,7 @@ interface StudentData {
   studyTime: number;
   currentSubject: string | null;
   todayFocus: number | null;
+  latestActivity: string | null;
   pendingSchedules: number;
 }
 
@@ -231,6 +232,7 @@ export function ParentDashboardClient({
             studyTimeSeconds={data.studyTime}
             currentSubject={data.currentSubject}
             focusScore={data.todayFocus}
+            latestActivity={data.latestActivity}
             lastUpdate={data.lastUpdate}
           />
         </div>

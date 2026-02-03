@@ -2,55 +2,84 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { User, Settings, LogOut, ChevronDown, Bell } from 'lucide-react';
+import Image from 'next/image';
+import { User, Settings, LogOut, ChevronDown, Bell, Megaphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { signOut } from '@/app/(auth)/actions';
 import { getUnreadNotificationCount } from '@/lib/actions/notification';
+import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 
 interface StudentHeaderProps {
   userName?: string;
   seatNumber?: number;
   initialUnreadCount?: number;
+  initialUnreadAnnouncementCount?: number;
 }
 
-export function StudentHeader({ userName, seatNumber, initialUnreadCount = 0 }: StudentHeaderProps) {
+export function StudentHeader({ 
+  userName, 
+  seatNumber, 
+  initialUnreadCount = 0,
+  initialUnreadAnnouncementCount = 0,
+}: StudentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(initialUnreadAnnouncementCount);
 
-  // 주기적으로 읽지 않은 알림 수 갱신 (30초마다)
+  // 주기적으로 읽지 않은 알림/공지 수 갱신 (30초마다)
   useEffect(() => {
-    const fetchUnreadCount = async () => {
+    const fetchUnreadCounts = async () => {
       try {
-        const count = await getUnreadNotificationCount();
-        setUnreadCount(count);
+        const [notificationCount, announcementCount] = await Promise.all([
+          getUnreadNotificationCount(),
+          getUnreadAnnouncementCount(),
+        ]);
+        setUnreadCount(notificationCount);
+        setUnreadAnnouncementCount(announcementCount);
       } catch (error) {
-        console.error('Failed to fetch unread count:', error);
+        console.error('Failed to fetch unread counts:', error);
       }
     };
 
     // 초기 로드
-    if (initialUnreadCount === 0) {
-      fetchUnreadCount();
+    if (initialUnreadCount === 0 || initialUnreadAnnouncementCount === 0) {
+      fetchUnreadCounts();
     }
 
     // 주기적 갱신
-    const interval = setInterval(fetchUnreadCount, 30000);
+    const interval = setInterval(fetchUnreadCounts, 30000);
     return () => clearInterval(interval);
-  }, [initialUnreadCount]);
+  }, [initialUnreadCount, initialUnreadAnnouncementCount]);
 
   return (
     <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100">
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
         {/* 로고/타이틀 */}
-        <Link href="/student" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <span className="text-white font-bold text-sm">S</span>
-          </div>
-          <span className="font-bold text-text">Study Cafe</span>
+        <Link href="/student" className="flex items-center">
+          <Image
+            src="/logo.png"
+            alt="WHEVER STUDY route"
+            width={120}
+            height={48}
+            className="object-contain"
+          />
         </Link>
 
-        {/* 알림 아이콘 & 프로필 드롭다운 */}
+        {/* 공지/알림 아이콘 & 프로필 드롭다운 */}
         <div className="flex items-center gap-2">
+          {/* 공지사항 아이콘 */}
+          <Link
+            href="/student/announcements"
+            className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
+          >
+            <Megaphone className="w-5 h-5 text-text-muted" />
+            {unreadAnnouncementCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-primary text-white text-xs font-bold rounded-full px-1">
+                {unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount}
+              </span>
+            )}
+          </Link>
+
           {/* 알림 아이콘 */}
           <Link
             href="/student/notifications"
@@ -80,9 +109,6 @@ export function StudentHeader({ userName, seatNumber, initialUnreadCount = 0 }: 
             {userName && (
               <div className="text-left hidden sm:block">
                 <p className="text-sm font-medium text-text">{userName}</p>
-                {seatNumber && (
-                  <p className="text-xs text-text-muted">{seatNumber}번 좌석</p>
-                )}
               </div>
             )}
             <ChevronDown className={cn(
@@ -104,9 +130,6 @@ export function StudentHeader({ userName, seatNumber, initialUnreadCount = 0 }: 
               <div className="absolute right-0 top-full mt-2 w-48 bg-card rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
                 <div className="px-4 py-2 border-b border-gray-100 sm:hidden">
                   <p className="font-medium text-text">{userName || '사용자'}</p>
-                  {seatNumber && (
-                    <p className="text-xs text-text-muted">{seatNumber}번 좌석</p>
-                  )}
                 </div>
                 
                 <Link

@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { User, Settings, LogOut, ChevronDown, Users } from 'lucide-react';
+import { User, Settings, LogOut, ChevronDown, Users, Megaphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { signOut } from '@/app/(auth)/actions';
+import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 
 interface Child {
   id: string;
@@ -15,14 +17,41 @@ interface Child {
 interface ParentHeaderProps {
   userName?: string;
   children?: Child[];
+  initialUnreadAnnouncementCount?: number;
 }
 
-export function ParentHeader({ userName, children = [] }: ParentHeaderProps) {
+export function ParentHeader({ 
+  userName, 
+  children = [],
+  initialUnreadAnnouncementCount = 0,
+}: ParentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
+  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(initialUnreadAnnouncementCount);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // 주기적으로 읽지 않은 공지 수 갱신 (30초마다)
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const count = await getUnreadAnnouncementCount();
+        setUnreadAnnouncementCount(count);
+      } catch (error) {
+        console.error('Failed to fetch unread count:', error);
+      }
+    };
+
+    // 초기 로드
+    if (initialUnreadAnnouncementCount === 0) {
+      fetchUnreadCount();
+    }
+
+    // 주기적 갱신
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [initialUnreadAnnouncementCount]);
 
   // URL에서 childId를 읽어서 선택된 자녀 결정 (없으면 첫 번째 자녀)
   const childIdFromUrl = searchParams.get('childId');
@@ -44,14 +73,30 @@ export function ParentHeader({ userName, children = [] }: ParentHeaderProps) {
     <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100">
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
         {/* 로고/타이틀 */}
-        <Link href="/parent" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-secondary to-primary flex items-center justify-center">
-            <span className="text-white font-bold text-sm">P</span>
-          </div>
-          <span className="font-bold text-text">Study Cafe</span>
+        <Link href="/parent" className="flex items-center">
+          <Image
+            src="/logo.png"
+            alt="WHEVER STUDY route"
+            width={120}
+            height={48}
+            className="object-contain"
+          />
         </Link>
 
         <div className="flex items-center gap-2">
+          {/* 공지사항 아이콘 */}
+          <Link
+            href="/parent/announcements"
+            className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
+          >
+            <Megaphone className="w-5 h-5 text-text-muted" />
+            {unreadAnnouncementCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-primary text-white text-xs font-bold rounded-full px-1">
+                {unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount}
+              </span>
+            )}
+          </Link>
+
           {/* 자녀 선택 드롭다운 */}
           {children.length > 0 && (
             <div className="relative">

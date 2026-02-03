@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Mail, Lock, LogIn, User, Users } from 'lucide-react';
+import Image from 'next/image';
+import { Mail, Lock, User, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -50,8 +51,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-            <LogIn className="w-8 h-8 text-primary" />
+          <div className="mx-auto mb-4">
+            <Image
+              src="/logo.png"
+              alt="WHEVER STUDY route 관리형 독서실"
+              width={200}
+              height={80}
+              className="object-contain"
+              priority
+            />
           </div>
           <CardTitle className="text-2xl">로그인</CardTitle>
           <CardDescription>
