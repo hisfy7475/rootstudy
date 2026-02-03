@@ -6,6 +6,13 @@
     "headers": {
       "Authorization": "Bearer sbp_3471645a0c0b11e44b2cc8e987d7630686f74a22"
         }
+    },
+    "supabase2": {
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp?project_ref=ficqpjkulkqpglsvrnuw",
+    "headers": {
+      "Authorization": "Bearer sbp_bb69b39192ca3821564d7e53d923ba59c9f93583"
+        }
     }
     }
 }

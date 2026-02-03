@@ -5,6 +5,16 @@ export const metadata: Metadata = {
   title: "독서실 학습관리 시스템",
   description: "실시간 학습시간 관리, 몰입도 측정, 등원 목표 관리 시스템",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
