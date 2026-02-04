@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,5 +26,17 @@ export async function createClient(): Promise<ReturnType<typeof createServerClie
         },
       },
     }
+  );
+}
+
+/**
+ * Service Role 클라이언트 생성 (RLS 우회)
+ * 회원가입 등 인증 전 DB 작업에 사용
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAdminClient(): ReturnType<typeof createSupabaseClient<any>> {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 }

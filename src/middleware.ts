@@ -36,10 +36,6 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // #region agent log
-  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:afterGetUser',message:'Middleware check',data:{pathname,hasUser:!!user,userId:user?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
-
   // 인증이 필요없는 경로
   const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
@@ -66,10 +62,6 @@ export async function middleware(request: NextRequest) {
       .select('user_type')
       .eq('id', user.id)
       .single();
-
-    // #region agent log
-    fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'middleware.ts:afterProfileFetch',message:'Profile fetch result',data:{hasProfile:!!profile,userType:profile?.user_type,profileError:profileError?.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
 
     const userType = profile?.user_type as string | undefined;
     const correctPath = userType ? userTypeRoutes[userType] : null;

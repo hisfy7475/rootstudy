@@ -1,4 +1,5 @@
 import { getStudentProfile, getLinkedParents } from '@/lib/actions/student';
+import { getStudentTypes } from '@/lib/actions/student-type';
 import { SettingsClient } from './settings-client';
 
 export default async function StudentSettingsPage() {
@@ -15,5 +16,16 @@ export default async function StudentSettingsPage() {
     );
   }
 
-  return <SettingsClient profile={profile} linkedParents={linkedParents} />;
+  // 해당 지점의 학생 타입 목록 조회
+  const studentTypes = profile.branchId 
+    ? await getStudentTypes(profile.branchId) 
+    : [];
+
+  return (
+    <SettingsClient 
+      profile={profile} 
+      linkedParents={linkedParents} 
+      studentTypes={studentTypes}
+    />
+  );
 }

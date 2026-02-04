@@ -3,12 +3,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2 } from 'lucide-react';
+import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { signUpStudent } from '../../actions';
 import { getAllBranches, type Branch } from '@/lib/actions/branch';
+import { getStudentTypes } from '@/lib/actions/student-type';
+import type { StudentType } from '@/types/database';
 
 export default function StudentSignupPage() {
   const [error, setError] = useState<string | null>(null);
@@ -16,11 +18,22 @@ export default function StudentSignupPage() {
   const [parentCode, setParentCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
 
   useEffect(() => {
     // 지점 목록 로드
     getAllBranches().then(setBranches);
   }, []);
+
+  // 지점 변경 시 학생 타입 목록 갱신
+  useEffect(() => {
+    if (selectedBranchId) {
+      getStudentTypes(selectedBranchId).then(setStudentTypes);
+    } else {
+      setStudentTypes([]);
+    }
+  }, [selectedBranchId]);
 
   async function handleSubmit(formData: FormData) {
     const password = formData.get('password') as string;
@@ -198,6 +211,8 @@ export default function StudentSignupPage() {
                 name="branchId"
                 required
                 disabled={isLoading}
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
               >
                 <option value="">지점 선택 *</option>
@@ -206,6 +221,23 @@ export default function StudentSignupPage() {
                 ))}
               </select>
             </div>
+
+            {/* 학생 타입 선택 (지점 선택 후 표시) */}
+            {selectedBranchId && studentTypes.length > 0 && (
+              <div className="relative">
+                <GraduationCap className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <select
+                  name="studentTypeId"
+                  disabled={isLoading}
+                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
+                >
+                  <option value="">학생 유형 선택 (선택사항)</option>
+                  {studentTypes.map(type => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {error && (
               <div className="p-3 rounded-xl bg-error/10 text-error text-sm text-center">

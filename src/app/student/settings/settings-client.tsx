@@ -30,13 +30,15 @@ import {
   type LinkedParent,
 } from '@/lib/actions/student';
 import { signOut } from '@/app/(auth)/actions';
+import type { StudentType } from '@/types/database';
 
 interface SettingsClientProps {
   profile: StudentProfileInfo;
   linkedParents: LinkedParent[];
+  studentTypes: StudentType[];
 }
 
-export function SettingsClient({ profile, linkedParents }: SettingsClientProps) {
+export function SettingsClient({ profile, linkedParents, studentTypes }: SettingsClientProps) {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -47,6 +49,7 @@ export function SettingsClient({ profile, linkedParents }: SettingsClientProps) 
   // 프로필 수정 폼 상태
   const [editName, setEditName] = useState(profile.name);
   const [editPhone, setEditPhone] = useState(profile.phone || '');
+  const [editStudentTypeId, setEditStudentTypeId] = useState(profile.studentTypeId || '');
 
   // 비밀번호 변경 폼 상태
   const [currentPassword, setCurrentPassword] = useState('');
@@ -63,6 +66,7 @@ export function SettingsClient({ profile, linkedParents }: SettingsClientProps) 
     setIsEditing(false);
     setEditName(profile.name);
     setEditPhone(profile.phone || '');
+    setEditStudentTypeId(profile.studentTypeId || '');
     setError(null);
   }
 
@@ -74,6 +78,7 @@ export function SettingsClient({ profile, linkedParents }: SettingsClientProps) 
       const result = await updateStudentProfile({
         name: editName,
         phone: editPhone,
+        studentTypeId: editStudentTypeId || null,
       });
 
       if (result.success) {
@@ -308,17 +313,31 @@ export function SettingsClient({ profile, linkedParents }: SettingsClientProps) 
             </div>
           </div>
 
-          {/* 학생 유형 (읽기 전용) */}
-          {profile.studentTypeName && (
+          {/* 학생 유형 */}
+          {(studentTypes.length > 0 || profile.studentTypeName) && (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
                 <GraduationCap className="w-4 h-4 text-text-muted" />
               </div>
               <div className="flex-1">
                 <p className="text-xs text-text-muted">학생 유형</p>
-                <p className="text-sm font-medium text-text">
-                  {profile.studentTypeName}
-                </p>
+                {isEditing && studentTypes.length > 0 ? (
+                  <select
+                    value={editStudentTypeId}
+                    onChange={(e) => setEditStudentTypeId(e.target.value)}
+                    disabled={isPending}
+                    className="w-full mt-1 px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-sm text-gray-800 bg-white"
+                  >
+                    <option value="">미지정</option>
+                    {studentTypes.map(type => (
+                      <option key={type.id} value={type.id}>{type.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-text">
+                    {profile.studentTypeName || '-'}
+                  </p>
+                )}
               </div>
             </div>
           )}

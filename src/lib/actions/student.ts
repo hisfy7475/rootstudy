@@ -1239,7 +1239,9 @@ export interface StudentProfileInfo {
   birthday: string | null;
   seatNumber: number | null;
   parentCode: string;
+  branchId: string | null;
   branchName: string | null;
+  studentTypeId: string | null;
   studentTypeName: string | null;
 }
 
@@ -1304,46 +1306,61 @@ export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
     birthday: studentProfile.birthday,
     seatNumber: studentProfile.seat_number,
     parentCode: studentProfile.parent_code,
+    branchId: profile.branch_id,
     branchName: branch?.name || null,
+    studentTypeId: studentProfile.student_type_id,
     studentTypeName: studentType?.name || null,
   };
 }
 
-// 학생 프로필 정보 수정 (이름, 전화번호)
+// 학생 프로필 정보 수정 (이름, 전화번호, 학생 유형)
 export async function updateStudentProfile(data: {
   name?: string;
   phone?: string;
+  studentTypeId?: string | null;
 }): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const updateData: { name?: string; phone?: string | null } = {};
+  const profileUpdateData: { name?: string; phone?: string | null } = {};
   
   if (data.name !== undefined) {
     if (!data.name.trim()) {
       return { error: '이름을 입력해주세요.' };
     }
-    updateData.name = data.name.trim();
+    profileUpdateData.name = data.name.trim();
   }
   
   if (data.phone !== undefined) {
-    updateData.phone = data.phone.trim() || null;
+    profileUpdateData.phone = data.phone.trim() || null;
   }
 
-  if (Object.keys(updateData).length === 0) {
-    return { error: '수정할 항목이 없습니다.' };
+  // profiles 테이블 업데이트 (이름, 전화번호)
+  if (Object.keys(profileUpdateData).length > 0) {
+    const { error } = await supabase
+      .from('profiles')
+      .update(profileUpdateData)
+      .eq('id', user.id);
+
+    if (error) {
+      console.error('Error updating profile:', error);
+      return { error: '프로필 수정에 실패했습니다.' };
+    }
   }
 
-  const { error } = await supabase
-    .from('profiles')
-    .update(updateData)
-    .eq('id', user.id);
+  // student_profiles 테이블 업데이트 (학생 유형)
+  if (data.studentTypeId !== undefined) {
+    const { error } = await supabase
+      .from('student_profiles')
+      .update({ student_type_id: data.studentTypeId || null })
+      .eq('id', user.id);
 
-  if (error) {
-    console.error('Error updating profile:', error);
-    return { error: '프로필 수정에 실패했습니다.' };
+    if (error) {
+      console.error('Error updating student type:', error);
+      return { error: '학생 유형 수정에 실패했습니다.' };
+    }
   }
 
   revalidatePath('/student/settings');
