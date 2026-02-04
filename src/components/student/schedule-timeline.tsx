@@ -264,9 +264,9 @@ export default function ScheduleTimeline({
     
     const top = startIndex * SLOT_HEIGHT;
     const height = (endIndex - startIndex) * SLOT_HEIGHT;
-    const dayWidth = 100 / 7;
-    const left = `calc(48px + ${dayIndex * dayWidth}%)`;
-    const width = `calc(${dayWidth}% - 4px)`;
+    // 시간 라벨 영역(48px)을 제외한 나머지 영역에서 요일별 위치 계산
+    const left = `calc(48px + (100% - 48px) * ${dayIndex} / 7)`;
+    const width = `calc((100% - 48px) / 7 - 4px)`;
     
     return { top, height, left, width };
   };
@@ -334,8 +334,8 @@ export default function ScheduleTimeline({
             style={{
               top: dragSelection.startSlot * SLOT_HEIGHT,
               height: (dragSelection.endSlot - dragSelection.startSlot + 1) * SLOT_HEIGHT,
-              left: `calc(48px + ${(dragSelection.dayOfWeek * 100) / 7}%)`,
-              width: `calc(${100 / 7}% - 4px)`,
+              left: `calc(48px + (100% - 48px) * ${dragSelection.dayOfWeek} / 7)`,
+              width: `calc((100% - 48px) / 7 - 4px)`,
             }}
           >
             {/* 선택 시간 표시 */}

@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://studycafe.vercel.app";
+
 export const metadata: Metadata = {
-  title: "독서실 학습관리 시스템",
+  metadataBase: new URL(siteUrl),
+  title: "루트스터디 - 관리형 독서실",
   description: "실시간 학습시간 관리, 몰입도 측정, 등원 목표 관리 시스템",
   manifest: "/manifest.json",
   icons: {
@@ -18,7 +21,29 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "학습관리",
+    title: "루트스터디",
+  },
+  openGraph: {
+    title: "루트스터디 - 관리형 독서실",
+    description: "실시간 학습시간 관리, 몰입도 측정, 등원 목표 관리 시스템",
+    url: siteUrl,
+    siteName: "루트스터디",
+    images: [
+      {
+        url: "/image.png",
+        width: 1200,
+        height: 630,
+        alt: "루트스터디 - WHEVER STUDY route 관리형 독서실",
+      },
+    ],
+    locale: "ko_KR",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "루트스터디 - 관리형 독서실",
+    description: "실시간 학습시간 관리, 몰입도 측정, 등원 목표 관리 시스템",
+    images: ["/image.png"],
   },
 };
 

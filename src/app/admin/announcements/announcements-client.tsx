@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,10 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
 } from '@/lib/actions/announcement';
+import {
+  sendKakaoAlimtalkToParents,
+  getAlimtalkConfig,
+} from '@/lib/actions/notification';
 import {
   Megaphone,
   Plus,
@@ -22,6 +26,7 @@ import {
   Edit,
   X,
   Eye,
+  MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +46,7 @@ interface Announcement {
 
 interface AnnouncementsClientProps {
   initialAnnouncements: Announcement[];
+  alimtalkConfigured?: boolean;
 }
 
 const audienceConfig = {
@@ -66,19 +72,42 @@ const audienceConfig = {
 
 type FilterType = 'all' | 'student' | 'parent';
 
-export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClientProps) {
+export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: initialAlimtalkConfigured }: AnnouncementsClientProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>(initialAnnouncements);
   const [filter, setFilter] = useState<FilterType | 'show_all'>('show_all');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
+  const [alimtalkResult, setAlimtalkResult] = useState<{
+    show: boolean;
+    success: boolean;
+    sentCount: number;
+    failedCount: number;
+    noPhoneCount: number;
+  } | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     isImportant: false,
     targetAudience: 'all' as 'all' | 'student' | 'parent',
     sendNotification: true,
+    sendKakaoAlimtalk: false,
   });
+
+  // 알림톡 설정 상태 확인
+  useEffect(() => {
+    const checkAlimtalkConfig = async () => {
+      const config = await getAlimtalkConfig();
+      setAlimtalkConfigured(config.isConfigured);
+    };
+    if (initialAlimtalkConfigured === undefined) {
+      checkAlimtalkConfig();
+    }
+  }, [initialAlimtalkConfigured]);
+
+  // 대상이 학생 전용일 때 카카오 알림톡 비활성화
+  const canSendKakaoAlimtalk = alimtalkConfigured && formData.targetAudience !== 'student';
 
   const filteredAnnouncements = filter === 'show_all'
     ? announcements
@@ -136,7 +165,9 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
       isImportant: false,
       targetAudience: 'all',
       sendNotification: true,
+      sendKakaoAlimtalk: false,
     });
+    setAlimtalkResult(null);
     setShowModal(true);
   };
 
@@ -148,7 +179,9 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
       isImportant: announcement.is_important,
       targetAudience: announcement.target_audience,
       sendNotification: false,
+      sendKakaoAlimtalk: false,
     });
+    setAlimtalkResult(null);
     setShowModal(true);
   };
 
@@ -159,6 +192,8 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
     }
 
     setLoading(true);
+    setAlimtalkResult(null);
+    
     try {
       if (editingId) {
         const result = await updateAnnouncement(editingId, {
@@ -184,6 +219,27 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
           return;
         }
       }
+
+      // 카카오 알림톡 발송 (새 공지 생성 시에만)
+      if (!editingId && formData.sendKakaoAlimtalk && canSendKakaoAlimtalk) {
+        const alimtalkMessage = `[${formData.title}]\n\n${formData.content}`;
+        const alimtalkRes = await sendKakaoAlimtalkToParents({
+          message: alimtalkMessage,
+        });
+        
+        setAlimtalkResult({
+          show: true,
+          success: alimtalkRes.success,
+          sentCount: alimtalkRes.sentCount,
+          failedCount: alimtalkRes.failedCount,
+          noPhoneCount: alimtalkRes.noPhoneCount,
+        });
+
+        // 결과 표시 후 모달 닫지 않음 (사용자가 결과 확인 후 닫기)
+        await refreshData();
+        return;
+      }
+
       setShowModal(false);
       await refreshData();
     } catch (error) {
@@ -430,7 +486,7 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="space-y-3">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -442,26 +498,75 @@ export function AnnouncementsClient({ initialAnnouncements }: AnnouncementsClien
                 </label>
 
                 {!editingId && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.sendNotification}
-                      onChange={(e) => setFormData({ ...formData, sendNotification: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                    />
-                    <span className="text-sm">알림 발송</span>
-                  </label>
+                  <>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.sendNotification}
+                        onChange={(e) => setFormData({ ...formData, sendNotification: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                      />
+                      <span className="text-sm">앱 내 알림 발송</span>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2",
+                      canSendKakaoAlimtalk ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
+                    )}>
+                      <input
+                        type="checkbox"
+                        checked={formData.sendKakaoAlimtalk}
+                        onChange={(e) => setFormData({ ...formData, sendKakaoAlimtalk: e.target.checked })}
+                        disabled={!canSendKakaoAlimtalk}
+                        className="w-4 h-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500"
+                      />
+                      <span className="text-sm flex items-center gap-1">
+                        <MessageCircle className="w-4 h-4 text-yellow-500" />
+                        카카오톡 알림톡 발송
+                        {formData.targetAudience === 'student' && (
+                          <span className="text-xs text-text-muted">(학부모 대상만)</span>
+                        )}
+                        {!alimtalkConfigured && (
+                          <span className="text-xs text-text-muted">(설정 필요)</span>
+                        )}
+                      </span>
+                    </label>
+                  </>
                 )}
               </div>
+
+              {/* 알림톡 발송 결과 */}
+              {alimtalkResult?.show && (
+                <div className={cn(
+                  "p-3 rounded-lg text-sm",
+                  alimtalkResult.success ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"
+                )}>
+                  <div className="flex items-center gap-2 font-medium mb-1">
+                    <MessageCircle className="w-4 h-4" />
+                    카카오톡 알림톡 발송 결과
+                  </div>
+                  <div className="space-y-1">
+                    <p>발송 성공: {alimtalkResult.sentCount}건</p>
+                    {alimtalkResult.failedCount > 0 && (
+                      <p>발송 실패: {alimtalkResult.failedCount}건</p>
+                    )}
+                    {alimtalkResult.noPhoneCount > 0 && (
+                      <p className="text-text-muted">전화번호 미등록: {alimtalkResult.noPhoneCount}명</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
               <Button variant="outline" onClick={() => setShowModal(false)}>
-                취소
+                {alimtalkResult?.show ? '닫기' : '취소'}
               </Button>
-              <Button onClick={handleSubmit} disabled={loading}>
-                {loading ? '저장 중...' : editingId ? '수정' : '등록'}
-              </Button>
+              {!alimtalkResult?.show && (
+                <Button onClick={handleSubmit} disabled={loading}>
+                  {loading ? '저장 중...' : editingId ? '수정' : '등록'}
+                </Button>
+              )}
             </div>
           </Card>
         </div>

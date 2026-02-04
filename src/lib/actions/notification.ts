@@ -520,6 +520,264 @@ export async function sendNotificationToAll(params: SendNotificationParams) {
 }
 
 // ============================================
+// 카카오 알림톡 발송 (학부모 대상)
+// ============================================
+
+import {
+  sendBulkAlimtalk,
+  analyzeAlimtalkResult,
+  isAlimtalkConfigured,
+  getAlimtalkConfig,
+} from '@/lib/ncloud/alimtalk';
+
+export { isAlimtalkConfigured, getAlimtalkConfig };
+
+interface SendKakaoAlimtalkParams {
+  message: string;
+  parentIds?: string[];  // 특정 학부모 지정 (없으면 전체)
+  branchId?: string;     // 지점 필터링
+}
+
+interface AlimtalkSendResult {
+  success: boolean;
+  sentCount: number;
+  failedCount: number;
+  totalTargetCount: number;
+  noPhoneCount: number;
+  error?: string;
+}
+
+// 학부모들에게 카카오 알림톡 발송
+export async function sendKakaoAlimtalkToParents(
+  params: SendKakaoAlimtalkParams
+): Promise<AlimtalkSendResult> {
+  const supabase = await createClient();
+
+  // 환경변수 검증
+  if (!isAlimtalkConfigured()) {
+    return {
+      success: false,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: 0,
+      noPhoneCount: 0,
+      error: '알림톡 설정이 완료되지 않았습니다. 환경변수를 확인해주세요.',
+    };
+  }
+
+  // 관리자 권한 확인
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      success: false,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: 0,
+      noPhoneCount: 0,
+      error: '로그인이 필요합니다.',
+    };
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.user_type !== 'admin') {
+    return {
+      success: false,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: 0,
+      noPhoneCount: 0,
+      error: '관리자 권한이 필요합니다.',
+    };
+  }
+
+  // 대상 학부모 조회
+  let parentQuery = supabase
+    .from('profiles')
+    .select('id, name, phone')
+    .eq('user_type', 'parent');
+
+  // 특정 학부모 지정 시
+  if (params.parentIds && params.parentIds.length > 0) {
+    parentQuery = parentQuery.in('id', params.parentIds);
+  }
+
+  // 지점 필터링은 학부모와 연결된 학생의 지점으로 필터링
+  if (params.branchId) {
+    // 해당 지점 학생과 연결된 학부모만 조회
+    const { data: studentLinks } = await supabase
+      .from('parent_student_links')
+      .select(`
+        parent_id,
+        student_profiles!inner(
+          profiles!inner(branch_id)
+        )
+      `)
+      .eq('student_profiles.profiles.branch_id', params.branchId);
+
+    if (studentLinks && studentLinks.length > 0) {
+      const parentIdsInBranch = [...new Set(studentLinks.map(link => link.parent_id))];
+      parentQuery = parentQuery.in('id', parentIdsInBranch);
+    } else {
+      return {
+        success: true,
+        sentCount: 0,
+        failedCount: 0,
+        totalTargetCount: 0,
+        noPhoneCount: 0,
+        error: '해당 지점에 연결된 학부모가 없습니다.',
+      };
+    }
+  }
+
+  const { data: parents, error: parentsError } = await parentQuery;
+
+  if (parentsError) {
+    console.error('Error fetching parents:', parentsError);
+    return {
+      success: false,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: 0,
+      noPhoneCount: 0,
+      error: '학부모 정보 조회에 실패했습니다.',
+    };
+  }
+
+  if (!parents || parents.length === 0) {
+    return {
+      success: true,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: 0,
+      noPhoneCount: 0,
+      error: '발송 대상 학부모가 없습니다.',
+    };
+  }
+
+  // 전화번호가 있는 학부모만 필터링
+  const parentsWithPhone = parents.filter(p => p.phone && p.phone.trim() !== '');
+  const noPhoneCount = parents.length - parentsWithPhone.length;
+
+  if (parentsWithPhone.length === 0) {
+    return {
+      success: true,
+      sentCount: 0,
+      failedCount: 0,
+      totalTargetCount: parents.length,
+      noPhoneCount,
+      error: '전화번호가 등록된 학부모가 없습니다.',
+    };
+  }
+
+  // 알림톡 메시지 생성 (최대 100건씩 분할)
+  const messages = parentsWithPhone.map(parent => ({
+    to: parent.phone!,
+    content: params.message,
+  }));
+
+  // 100건씩 분할 발송
+  const batchSize = 100;
+  let totalSent = 0;
+  let totalFailed = 0;
+
+  for (let i = 0; i < messages.length; i += batchSize) {
+    const batch = messages.slice(i, i + batchSize);
+    const response = await sendBulkAlimtalk({ messages: batch });
+    const result = analyzeAlimtalkResult(response);
+
+    totalSent += result.successCount;
+    totalFailed += result.failedCount;
+
+    // 발송 기록 저장
+    const batchParents = parentsWithPhone.slice(i, i + batchSize);
+    const notificationRecords = batchParents.map((parent, idx) => ({
+      parent_id: parent.id,
+      student_id: null,
+      type: 'system' as const,
+      message: params.message,
+      sent_via: 'kakao' as const,
+      is_sent: !result.failedNumbers.includes(batch[idx].to),
+    }));
+
+    await supabase.from('notifications').insert(notificationRecords);
+  }
+
+  return {
+    success: totalFailed === 0,
+    sentCount: totalSent,
+    failedCount: totalFailed,
+    totalTargetCount: parents.length,
+    noPhoneCount,
+  };
+}
+
+// 특정 학부모에게 알림톡 발송 (단일)
+export async function sendKakaoAlimtalkToParent(params: {
+  parentId: string;
+  studentId?: string;
+  message: string;
+  type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  // 환경변수 검증
+  if (!isAlimtalkConfigured()) {
+    return {
+      success: false,
+      error: '알림톡 설정이 완료되지 않았습니다.',
+    };
+  }
+
+  // 학부모 전화번호 조회
+  const { data: parent, error: parentError } = await supabase
+    .from('profiles')
+    .select('phone, name')
+    .eq('id', params.parentId)
+    .single();
+
+  if (parentError || !parent) {
+    return {
+      success: false,
+      error: '학부모 정보를 찾을 수 없습니다.',
+    };
+  }
+
+  if (!parent.phone || parent.phone.trim() === '') {
+    return {
+      success: false,
+      error: '학부모 전화번호가 등록되지 않았습니다.',
+    };
+  }
+
+  // 알림톡 발송
+  const response = await sendBulkAlimtalk({
+    messages: [{ to: parent.phone, content: params.message }],
+  });
+
+  const result = analyzeAlimtalkResult(response);
+
+  // 발송 기록 저장
+  await supabase.from('notifications').insert({
+    parent_id: params.parentId,
+    student_id: params.studentId || null,
+    type: params.type || 'system',
+    message: params.message,
+    sent_via: 'kakao',
+    is_sent: result.success,
+  });
+
+  return {
+    success: result.success,
+    error: result.success ? undefined : response.error,
+  };
+}
+
+// ============================================
 // VAPID 키 조회 (클라이언트용)
 // ============================================
 
