@@ -614,9 +614,12 @@ export async function getStudentDetail(studentId: string) {
 export async function updateStudentCapsId(studentId: string, capsId: string | null) {
   const supabase = await createClient();
 
+  // CAPS ID 앞의 0 제거 (예: "0004" -> "4")
+  const normalizedCapsId = capsId ? String(parseInt(capsId, 10)) : null;
+
   const { error } = await supabase
     .from('student_profiles')
-    .update({ caps_id: capsId || null })
+    .update({ caps_id: normalizedCapsId })
     .eq('id', studentId);
 
   if (error) {
