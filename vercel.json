@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/caps-sync",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/weekly-points",
+      "schedule": "0 0 * * 1"
     }
   ]
 }

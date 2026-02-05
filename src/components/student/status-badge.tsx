@@ -19,9 +19,9 @@ const statusConfig = {
   checked_out: {
     label: '퇴실',
     icon: LogOut,
-    bgColor: 'bg-gray-100',
+    bgColor: 'bg-red-100',
     textColor: 'text-gray-600',
-    dotColor: 'bg-gray-400',
+    dotColor: 'bg-red-500',
   },
   on_break: {
     label: '외출중',

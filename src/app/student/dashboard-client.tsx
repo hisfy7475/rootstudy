@@ -88,11 +88,11 @@ export function StudentDashboardClient({
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            disabled={isPending}
+            disabled={isPending || status !== 'checked_in'}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-full transition-all',
               'bg-primary/10 hover:bg-primary/20',
-              isPending && 'opacity-50 cursor-not-allowed'
+              (isPending || status !== 'checked_in') && 'opacity-50 cursor-not-allowed'
             )}
           >
             <BookOpen className="w-4 h-4 text-primary" />

@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // 인증이 필요없는 경로
-  const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password'];
+  const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password', '/api/cron'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   // 사용자 타입별 경로 매핑
@@ -57,7 +57,7 @@ export async function middleware(request: NextRequest) {
   // 인증된 사용자 처리
   if (user) {
     // 프로필 정보 가져오기
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile } = await supabase
       .from('profiles')
       .select('user_type')
       .eq('id', user.id)

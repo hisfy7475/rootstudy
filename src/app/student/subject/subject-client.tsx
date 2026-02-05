@@ -21,6 +21,7 @@ interface SubjectPageClientProps {
   subjectHistory: SubjectHistory[];
   subjectTimes: Record<string, number>;
   availableSubjects: string[] | null; // null이면 모든 과목 표시
+  isCheckedIn: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -37,7 +38,8 @@ export function SubjectPageClient({
   currentSubject, 
   subjectHistory, 
   subjectTimes,
-  availableSubjects
+  availableSubjects,
+  isCheckedIn
 }: SubjectPageClientProps) {
   const [selected, setSelected] = useState<string | null>(currentSubject);
   const [isPending, startTransition] = useTransition();
@@ -86,10 +88,15 @@ export function SubjectPageClient({
       {/* 과목 선택 */}
       <div>
         <h2 className="text-sm font-semibold text-text-muted mb-3">과목 선택</h2>
+        {!isCheckedIn && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <p className="text-sm text-amber-700">입실 상태에서만 과목을 변경할 수 있습니다.</p>
+          </div>
+        )}
         <SubjectSelector
           selected={selected}
           onSelect={handleSelect}
-          disabled={isPending}
+          disabled={isPending || !isCheckedIn}
           availableSubjects={availableSubjects}
         />
       </div>

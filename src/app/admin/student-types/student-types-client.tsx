@@ -13,16 +13,21 @@ import {
   Clock,
   BookOpen,
   X,
-  Check
+  Check,
+  Target
 } from 'lucide-react';
 import { 
   createStudentType, 
   updateStudentType, 
   deleteStudentType,
   getStudentTypeSubjects,
-  setStudentTypeSubjects 
+  setStudentTypeSubjects,
+  getWeeklyGoalSettings,
+  getDateTypesForStudentType,
+  saveWeeklyGoalSettingsBatch,
+  type WeeklyGoalSettingWithDateType
 } from '@/lib/actions/student-type';
-import type { StudentType, Branch } from '@/types/database';
+import type { StudentType, Branch, DateTypeDefinition } from '@/types/database';
 import { DEFAULT_SUBJECTS } from '@/lib/constants';
 
 interface StudentTypeWithCount extends StudentType {
@@ -59,6 +64,16 @@ export default function StudentTypesClient({
   // 과목 설정
   const [typeSubjects, setTypeSubjects] = useState<string[]>([]);
   const [newSubject, setNewSubject] = useState('');
+
+  // 주간 목표 설정
+  const [goalEditingId, setGoalEditingId] = useState<string | null>(null);
+  const [goalEditingName, setGoalEditingName] = useState('');
+  const [dateTypes, setDateTypes] = useState<DateTypeDefinition[]>([]);
+  const [goalSettings, setGoalSettings] = useState<Record<string, {
+    weekly_goal_hours: number;
+    reward_points: number;
+    penalty_points: number;
+  }>>({});
 
   const handleAdd = async () => {
     if (!newName.trim()) return;
@@ -157,6 +172,87 @@ export default function StudentTypesClient({
       setTypeSubjects([]);
     }
     setIsLoading(false);
+  };
+
+  // 주간 목표 설정 모달 열기
+  const handleOpenGoalEdit = async (type: StudentTypeWithCount) => {
+    setIsLoading(true);
+    
+    // 해당 학생 타입의 지점 날짜 타입들 조회
+    const dateTypeList = await getDateTypesForStudentType(type.id);
+    setDateTypes(dateTypeList);
+    
+    // 기존 설정 조회
+    const existingSettings = await getWeeklyGoalSettings(type.id);
+    
+    // 설정을 객체로 변환
+    const settingsMap: Record<string, {
+      weekly_goal_hours: number;
+      reward_points: number;
+      penalty_points: number;
+    }> = {};
+    
+    // 모든 날짜 타입에 대해 기본값 설정
+    dateTypeList.forEach(dt => {
+      settingsMap[dt.id] = {
+        weekly_goal_hours: type.weekly_goal_hours, // 기본값으로 학생타입의 주간목표 사용
+        reward_points: 1,
+        penalty_points: 1,
+      };
+    });
+    
+    // 기존 설정으로 덮어쓰기
+    existingSettings.forEach(s => {
+      settingsMap[s.date_type_id] = {
+        weekly_goal_hours: s.weekly_goal_hours,
+        reward_points: s.reward_points,
+        penalty_points: s.penalty_points,
+      };
+    });
+    
+    setGoalSettings(settingsMap);
+    setGoalEditingId(type.id);
+    setGoalEditingName(type.name);
+    setIsLoading(false);
+  };
+
+  // 주간 목표 설정 저장
+  const handleSaveGoalSettings = async () => {
+    if (!goalEditingId) return;
+
+    setIsLoading(true);
+    
+    const settings = Object.entries(goalSettings).map(([dateTypeId, setting]) => ({
+      date_type_id: dateTypeId,
+      weekly_goal_hours: setting.weekly_goal_hours,
+      reward_points: setting.reward_points,
+      penalty_points: setting.penalty_points,
+    }));
+    
+    const result = await saveWeeklyGoalSettingsBatch(goalEditingId, settings);
+
+    if (result.success) {
+      setGoalEditingId(null);
+      setGoalEditingName('');
+      setDateTypes([]);
+      setGoalSettings({});
+    }
+    setIsLoading(false);
+  };
+
+  // 목표 설정 값 변경
+  const handleGoalSettingChange = (
+    dateTypeId: string,
+    field: 'weekly_goal_hours' | 'reward_points' | 'penalty_points',
+    value: number
+  ) => {
+    setGoalSettings(prev => ({
+      ...prev,
+      [dateTypeId]: {
+        ...prev[dateTypeId],
+        [field]: value,
+      },
+    }));
   };
 
   const getBranchName = (branchId: string | null) => {
@@ -375,6 +471,136 @@ export default function StudentTypesClient({
         </div>
       )}
 
+      {/* 주간 목표 설정 모달 */}
+      {goalEditingId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">주간 목표 설정</h3>
+                <p className="text-sm text-gray-500">{goalEditingName} - 날짜 타입별 목표시간/상벌점</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setGoalEditingId(null);
+                  setGoalEditingName('');
+                  setDateTypes([]);
+                  setGoalSettings({});
+                }}
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {dateTypes.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <p>이 학생 타입에 해당하는 지점의 날짜 타입이 없습니다.</p>
+                <p className="text-sm mt-1">먼저 날짜 타입 관리에서 날짜 타입을 추가해주세요.</p>
+              </div>
+            ) : (
+              <>
+                {/* 테이블 헤더 */}
+                <div className="grid grid-cols-4 gap-4 mb-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium text-gray-600">
+                  <div>날짜 타입</div>
+                  <div className="text-center">주간 목표 (시간)</div>
+                  <div className="text-center">달성 상점</div>
+                  <div className="text-center">미달 벌점</div>
+                </div>
+
+                {/* 설정 행 */}
+                <div className="space-y-2">
+                  {dateTypes.map(dt => (
+                    <div
+                      key={dt.id}
+                      className="grid grid-cols-4 gap-4 items-center px-3 py-3 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: dt.color }}
+                        />
+                        <span className="font-medium text-gray-800">{dt.name}</span>
+                      </div>
+                      <div>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="168"
+                          value={goalSettings[dt.id]?.weekly_goal_hours ?? 40}
+                          onChange={(e) => handleGoalSettingChange(
+                            dt.id,
+                            'weekly_goal_hours',
+                            parseInt(e.target.value) || 0
+                          )}
+                          className="text-center"
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={goalSettings[dt.id]?.reward_points ?? 1}
+                          onChange={(e) => handleGoalSettingChange(
+                            dt.id,
+                            'reward_points',
+                            parseInt(e.target.value) || 0
+                          )}
+                          className="text-center"
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={goalSettings[dt.id]?.penalty_points ?? 1}
+                          onChange={(e) => handleGoalSettingChange(
+                            dt.id,
+                            'penalty_points',
+                            parseInt(e.target.value) || 0
+                          )}
+                          className="text-center"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+                  <p><strong>안내:</strong> 매주 일요일 자정에 주간 목표 달성 여부를 체크합니다.</p>
+                  <p className="mt-1">• 목표 달성 시 → 상점 부여</p>
+                  <p>• 목표 미달 시 → 벌점 부여</p>
+                </div>
+              </>
+            )}
+
+            {/* 저장 버튼 */}
+            <div className="flex justify-end gap-2 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setGoalEditingId(null);
+                  setGoalEditingName('');
+                  setDateTypes([]);
+                  setGoalSettings({});
+                }}
+              >
+                취소
+              </Button>
+              <Button
+                onClick={handleSaveGoalSettings}
+                disabled={isLoading || dateTypes.length === 0}
+              >
+                저장
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* 타입 목록 */}
       <div>
         <h2 className="text-lg font-semibold text-gray-800 mb-3">학생 타입 목록</h2>
@@ -454,6 +680,14 @@ export default function StudentTypesClient({
                         <span>{type.studentCount}명</span>
                       </div>
                       <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenGoalEdit(type)}
+                          title="목표 설정"
+                        >
+                          <Target className="w-4 h-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

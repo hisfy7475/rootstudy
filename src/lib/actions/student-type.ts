@@ -2,7 +2,12 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import type { StudentType, StudentTypeSubject } from '@/types/database';
+import type { StudentType, StudentTypeSubject, WeeklyGoalSetting, DateTypeDefinition } from '@/types/database';
+
+// 주간 목표 설정 타입
+export interface WeeklyGoalSettingWithDateType extends WeeklyGoalSetting {
+  date_type?: DateTypeDefinition;
+}
 
 // 학생 타입 목록 조회
 export async function getStudentTypes(branchId?: string): Promise<StudentType[]> {
@@ -244,4 +249,166 @@ export async function getStudentTypeStudentCounts(): Promise<Record<string, numb
   });
   
   return counts;
+}
+
+// ============================================
+// 주간 목표 설정 관련 함수
+// ============================================
+
+// 학생 타입의 주간 목표 설정 목록 조회
+export async function getWeeklyGoalSettings(
+  studentTypeId: string
+): Promise<WeeklyGoalSettingWithDateType[]> {
+  const supabase = await createClient();
+  
+  const { data, error } = await supabase
+    .from('weekly_goal_settings')
+    .select(`
+      *,
+      date_type:date_type_definitions(*)
+    `)
+    .eq('student_type_id', studentTypeId);
+  
+  if (error) {
+    console.error('Error fetching weekly goal settings:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+// 학생 타입의 지점에 해당하는 날짜 타입 목록 조회
+export async function getDateTypesForStudentType(
+  studentTypeId: string
+): Promise<DateTypeDefinition[]> {
+  const supabase = await createClient();
+  
+  // 학생 타입의 지점 조회
+  const { data: studentType, error: typeError } = await supabase
+    .from('student_types')
+    .select('branch_id')
+    .eq('id', studentTypeId)
+    .single();
+  
+  if (typeError || !studentType?.branch_id) {
+    console.error('Error fetching student type branch:', typeError);
+    return [];
+  }
+  
+  // 해당 지점의 날짜 타입 목록 조회
+  const { data: dateTypes, error: dateError } = await supabase
+    .from('date_type_definitions')
+    .select('*')
+    .eq('branch_id', studentType.branch_id)
+    .order('name');
+  
+  if (dateError) {
+    console.error('Error fetching date types:', dateError);
+    return [];
+  }
+  
+  return dateTypes || [];
+}
+
+// 주간 목표 설정 저장 (upsert)
+export async function saveWeeklyGoalSetting(data: {
+  student_type_id: string;
+  date_type_id: string;
+  weekly_goal_hours: number;
+  reward_points: number;
+  penalty_points: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  const { error } = await supabase
+    .from('weekly_goal_settings')
+    .upsert(
+      {
+        student_type_id: data.student_type_id,
+        date_type_id: data.date_type_id,
+        weekly_goal_hours: data.weekly_goal_hours,
+        reward_points: data.reward_points,
+        penalty_points: data.penalty_points,
+      },
+      {
+        onConflict: 'student_type_id,date_type_id',
+      }
+    );
+  
+  if (error) {
+    console.error('Error saving weekly goal setting:', error);
+    return { success: false, error: error.message };
+  }
+  
+  revalidatePath('/admin/student-types');
+  return { success: true };
+}
+
+// 주간 목표 설정 일괄 저장
+export async function saveWeeklyGoalSettingsBatch(
+  studentTypeId: string,
+  settings: Array<{
+    date_type_id: string;
+    weekly_goal_hours: number;
+    reward_points: number;
+    penalty_points: number;
+  }>
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  // 기존 설정 삭제
+  const { error: deleteError } = await supabase
+    .from('weekly_goal_settings')
+    .delete()
+    .eq('student_type_id', studentTypeId);
+  
+  if (deleteError) {
+    console.error('Error deleting existing settings:', deleteError);
+    return { success: false, error: deleteError.message };
+  }
+  
+  // 새 설정 추가
+  if (settings.length > 0) {
+    const insertData = settings.map(s => ({
+      student_type_id: studentTypeId,
+      date_type_id: s.date_type_id,
+      weekly_goal_hours: s.weekly_goal_hours,
+      reward_points: s.reward_points,
+      penalty_points: s.penalty_points,
+    }));
+    
+    const { error: insertError } = await supabase
+      .from('weekly_goal_settings')
+      .insert(insertData);
+    
+    if (insertError) {
+      console.error('Error inserting settings:', insertError);
+      return { success: false, error: insertError.message };
+    }
+  }
+  
+  revalidatePath('/admin/student-types');
+  return { success: true };
+}
+
+// 주간 목표 설정 삭제
+export async function deleteWeeklyGoalSetting(
+  studentTypeId: string,
+  dateTypeId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  
+  const { error } = await supabase
+    .from('weekly_goal_settings')
+    .delete()
+    .eq('student_type_id', studentTypeId)
+    .eq('date_type_id', dateTypeId);
+  
+  if (error) {
+    console.error('Error deleting weekly goal setting:', error);
+    return { success: false, error: error.message };
+  }
+  
+  revalidatePath('/admin/student-types');
+  return { success: true };
 }

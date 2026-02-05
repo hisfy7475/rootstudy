@@ -13,7 +13,7 @@ interface ScheduleBlockProps {
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit?: (schedule: StudentAbsenceSchedule) => void;
-  variant?: 'active' | 'inactive' | 'pending';
+  variant?: 'active' | 'inactive' | 'pending' | 'rejected';
 }
 
 export default function ScheduleBlock({
@@ -35,32 +35,38 @@ export default function ScheduleBlock({
   const isActive = variant === 'active';
   const isPending = variant === 'pending';
   const isInactive = variant === 'inactive';
+  const isRejected = variant === 'rejected';
 
   const getCardStyle = () => {
+    if (isRejected) return 'bg-red-50 border-red-200';
     if (isPending) return 'bg-amber-50 border-amber-200';
     if (isInactive) return 'bg-gray-50 opacity-60';
     return '';
   };
 
   const getIconBgStyle = () => {
+    if (isRejected) return 'bg-red-100';
     if (isPending) return 'bg-amber-100';
     if (isInactive) return 'bg-gray-200';
     return schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100';
   };
 
   const getIconColor = () => {
+    if (isRejected) return 'text-red-600';
     if (isPending) return 'text-amber-600';
     if (isInactive) return 'text-gray-400';
     return schedule.is_recurring ? 'text-primary' : 'text-amber-600';
   };
 
   const getTextColor = () => {
+    if (isRejected) return 'text-red-800';
     if (isPending) return 'text-amber-800';
     if (isInactive) return 'text-gray-500';
     return 'text-gray-800';
   };
 
   const getSubTextColor = () => {
+    if (isRejected) return 'text-red-600';
     if (isPending) return 'text-amber-600';
     if (isInactive) return 'text-gray-400';
     return 'text-gray-500';
@@ -87,6 +93,11 @@ export default function ScheduleBlock({
                   승인 대기
                 </span>
               )}
+              {isRejected && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-red-200 text-red-800 rounded-full">
+                  거부됨
+                </span>
+              )}
             </div>
             <div className={`flex items-center gap-2 text-sm mt-1 ${getSubTextColor()}`}>
               <Clock className="w-3.5 h-3.5" />
@@ -109,14 +120,14 @@ export default function ScheduleBlock({
               </div>
             )}
             {schedule.description && (
-              <p className={`text-xs mt-1.5 ${isPending ? 'text-amber-500' : isActive ? 'text-gray-400' : 'text-gray-300'}`}>
+              <p className={`text-xs mt-1.5 ${isRejected ? 'text-red-500' : isPending ? 'text-amber-500' : isActive ? 'text-gray-400' : 'text-gray-300'}`}>
                 {schedule.description}
               </p>
             )}
           </div>
         </div>
         <div className="flex gap-1">
-          {onEdit && !isPending && (
+          {onEdit && !isPending && !isRejected && (
             <Button
               variant="ghost"
               size="sm"
@@ -126,7 +137,7 @@ export default function ScheduleBlock({
               <Edit className={`w-4 h-4 ${isActive ? 'text-gray-500' : 'text-gray-400'}`} />
             </Button>
           )}
-          {!isPending && (
+          {!isPending && !isRejected && (
             <Button
               variant="ghost"
               size="sm"
@@ -144,7 +155,7 @@ export default function ScheduleBlock({
             variant="ghost"
             size="sm"
             onClick={() => onDelete(schedule.id)}
-            className={isPending ? 'text-amber-600' : isActive ? 'text-red-500' : 'text-red-400'}
+            className={isRejected ? 'text-red-600' : isPending ? 'text-amber-600' : isActive ? 'text-red-500' : 'text-red-400'}
             title="삭제"
           >
             <Trash2 className="w-4 h-4" />

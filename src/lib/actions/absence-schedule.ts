@@ -283,7 +283,7 @@ export async function approveAbsenceSchedule(scheduleId: string): Promise<{ succ
   return { success: true };
 }
 
-// 부재 스케줄 거부 (삭제)
+// 부재 스케줄 거부 (상태 변경)
 export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   
@@ -292,12 +292,19 @@ export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ succe
     return { success: false, error: '로그인이 필요합니다.' };
   }
 
-  // 대기 중인 스케줄만 삭제 가능
-  const { error } = await supabase
-    .from('student_absence_schedules')
-    .delete()
-    .eq('id', scheduleId)
-    .eq('status', 'pending');
+  // #region agent log
+  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'absence-schedule.ts:rejectAbsenceSchedule',message:'Function called',data:{scheduleId,userId:user.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+
+  // 대기 중인 스케줄만 거부 가능 (raw SQL로 스키마 캐시 우회)
+  const { error } = await supabase.rpc('reject_absence_schedule', {
+    p_schedule_id: scheduleId,
+    p_rejected_by: user.id
+  });
+
+  // #region agent log
+  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'absence-schedule.ts:afterRpc',message:'RPC result',data:{error:error?.message||null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
 
   if (error) {
     console.error('Error rejecting absence schedule:', error);

@@ -468,6 +468,18 @@ export async function changeSubject(subjectName: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
+  // 입실 상태 확인
+  const { data: currentSession } = await supabase
+    .from('attendance_records')
+    .select('id')
+    .eq('student_id', user.id)
+    .is('checked_out_at', null)
+    .single();
+    
+  if (!currentSession) {
+    return { error: '입실 상태에서만 과목을 변경할 수 있습니다.' };
+  }
+
   // 현재 과목 종료
   await supabase
     .from('subjects')
@@ -663,7 +675,7 @@ export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
   return Math.floor(totalMinutes);
 }
 
-// 주간 목표 달성도 조회
+// 주간 목표 달성도 조회 (날짜 타입별 가중 평균 적용)
 export async function getWeeklyProgress(studentId?: string): Promise<{
   goalHours: number;
   actualMinutes: number;
@@ -680,7 +692,7 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
     targetStudentId = user.id;
   }
 
-  // 학생의 타입 정보 조회
+  // 학생의 타입 정보와 지점 정보 조회
   const { data: studentProfile } = await supabase
     .from('student_profiles')
     .select(`
@@ -695,14 +707,27 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
 
   let goalHours = 0;
   let studentTypeName: string | null = null;
+  let studentTypeId: string | null = null;
+  let defaultGoalHours = 0;
 
   if (studentProfile?.student_types) {
     const studentType = studentProfile.student_types as unknown as {
       name: string;
       weekly_goal_hours: number;
     };
-    goalHours = studentType.weekly_goal_hours;
+    defaultGoalHours = studentType.weekly_goal_hours;
     studentTypeName = studentType.name;
+    studentTypeId = studentProfile.student_type_id;
+  }
+
+  // 학생의 지점 ID 조회
+  const branchId = await getStudentBranchId(targetStudentId);
+
+  // 날짜 타입별 목표시간 계산
+  if (studentTypeId && branchId) {
+    goalHours = await calculateWeeklyGoalHours(studentTypeId, branchId, defaultGoalHours);
+  } else {
+    goalHours = defaultGoalHours;
   }
 
   // 주간 학습 시간 조회
@@ -720,6 +745,76 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
     progressPercent,
     studentTypeName,
   };
+}
+
+// 날짜 타입별 가중 평균 주간 목표시간 계산
+async function calculateWeeklyGoalHours(
+  studentTypeId: string,
+  branchId: string,
+  defaultGoalHours: number
+): Promise<number> {
+  const supabase = await createClient();
+  
+  // 이번 주의 시작일(일요일)과 종료일(토요일) 계산
+  const weekStart = getWeekStart(new Date());
+  const weekDates: string[] = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(weekStart);
+    date.setDate(date.getDate() + i);
+    weekDates.push(date.toISOString().split('T')[0]);
+  }
+  
+  // 해당 주의 날짜별 date_type 조회
+  const { data: dateAssignments } = await supabase
+    .from('date_assignments')
+    .select('date, date_type_id')
+    .eq('branch_id', branchId)
+    .in('date', weekDates);
+  
+  // 날짜별 date_type_id 맵 생성
+  const dateTypeMap = new Map<string, string>();
+  dateAssignments?.forEach(da => {
+    dateTypeMap.set(da.date, da.date_type_id);
+  });
+  
+  // 학생 타입의 날짜 타입별 목표 설정 조회
+  const { data: goalSettings } = await supabase
+    .from('weekly_goal_settings')
+    .select('date_type_id, weekly_goal_hours')
+    .eq('student_type_id', studentTypeId);
+  
+  // 날짜 타입별 목표시간 맵 생성
+  const goalMap = new Map<string, number>();
+  goalSettings?.forEach(gs => {
+    goalMap.set(gs.date_type_id, gs.weekly_goal_hours);
+  });
+  
+  // 날짜 타입별 일수 카운트 및 목표시간 합산
+  let totalGoalHours = 0;
+  let assignedDays = 0;
+  
+  for (const date of weekDates) {
+    const dateTypeId = dateTypeMap.get(date);
+    if (dateTypeId && goalMap.has(dateTypeId)) {
+      // 해당 날짜 타입의 목표시간을 7로 나눈 값 (일일 목표)
+      totalGoalHours += goalMap.get(dateTypeId)! / 7;
+      assignedDays++;
+    }
+  }
+  
+  // 모든 날짜에 설정이 있으면 계산된 값 사용, 아니면 기본값으로 채움
+  if (assignedDays === 7) {
+    return Math.round(totalGoalHours);
+  } else if (assignedDays > 0) {
+    // 일부만 설정된 경우: 설정된 날은 설정값, 나머지는 기본값의 일일 비율로 계산
+    const unassignedDays = 7 - assignedDays;
+    const dailyDefault = defaultGoalHours / 7;
+    return Math.round(totalGoalHours + (dailyDefault * unassignedDays));
+  } else {
+    // 설정이 없으면 기본값 사용
+    return defaultGoalHours;
+  }
 }
 
 // ============================================

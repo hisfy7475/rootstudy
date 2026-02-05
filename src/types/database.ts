@@ -136,10 +136,12 @@ export interface Database {
           specific_date: string | null;
           buffer_minutes: number;
           is_active: boolean;
-          status: 'pending' | 'approved';
+          status: 'pending' | 'approved' | 'rejected';
           created_by: string | null;
           approved_by: string | null;
           approved_at: string | null;
+          rejected_by: string | null;
+          rejected_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -159,10 +161,12 @@ export interface Database {
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
-          status?: 'pending' | 'approved';
+          status?: 'pending' | 'approved' | 'rejected';
           created_by?: string | null;
           approved_by?: string | null;
           approved_at?: string | null;
+          rejected_by?: string | null;
+          rejected_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -182,10 +186,12 @@ export interface Database {
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
-          status?: 'pending' | 'approved';
+          status?: 'pending' | 'approved' | 'rejected';
           created_by?: string | null;
           approved_by?: string | null;
           approved_at?: string | null;
+          rejected_by?: string | null;
+          rejected_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -871,6 +877,67 @@ export interface Database {
           read_at?: string;
         };
       };
+      weekly_goal_settings: {
+        Row: {
+          id: string;
+          student_type_id: string;
+          date_type_id: string;
+          weekly_goal_hours: number;
+          reward_points: number;
+          penalty_points: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_type_id: string;
+          date_type_id: string;
+          weekly_goal_hours?: number;
+          reward_points?: number;
+          penalty_points?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_type_id?: string;
+          date_type_id?: string;
+          weekly_goal_hours?: number;
+          reward_points?: number;
+          penalty_points?: number;
+          created_at?: string;
+        };
+      };
+      weekly_point_history: {
+        Row: {
+          id: string;
+          student_id: string;
+          week_start: string;
+          total_study_minutes: number;
+          goal_minutes: number;
+          is_achieved: boolean;
+          point_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          week_start: string;
+          total_study_minutes: number;
+          goal_minutes: number;
+          is_achieved: boolean;
+          point_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          week_start?: string;
+          total_study_minutes?: number;
+          goal_minutes?: number;
+          is_achieved?: boolean;
+          point_id?: string | null;
+          created_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -905,3 +972,5 @@ export type PushSubscription = Database['public']['Tables']['push_subscriptions'
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
 export type Announcement = Database['public']['Tables']['announcements']['Row'];
 export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];
+export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
+export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];

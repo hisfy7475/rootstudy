@@ -22,13 +22,21 @@ interface ScheduleTimelineProps {
   onScheduleClick: (schedule: StudentAbsenceSchedule) => void;
 }
 
-// 시간 슬롯 생성 (07:30 ~ 25:30, 30분 단위)
+// 타임라인 전용 설정 (화면에 보여줄 시간 범위)
+const TIMELINE_CONFIG = {
+  startHour: DAY_CONFIG.startHour,
+  startMinute: DAY_CONFIG.startMinute,
+  endHour: 22, // 밤 10시까지만 표시
+  endMinute: 0,
+};
+
+// 시간 슬롯 생성 (07:30 ~ 22:00, 30분 단위)
 function generateTimeSlots(): TimeSlot[] {
   const slots: TimeSlot[] = [];
-  let hour: number = DAY_CONFIG.startHour;
-  let minute: number = DAY_CONFIG.startMinute;
-  const endHour: number = DAY_CONFIG.endHour;
-  const endMinute: number = DAY_CONFIG.endMinute;
+  let hour: number = TIMELINE_CONFIG.startHour;
+  let minute: number = TIMELINE_CONFIG.startMinute;
+  const endHour: number = TIMELINE_CONFIG.endHour;
+  const endMinute: number = TIMELINE_CONFIG.endMinute;
   
   while (hour < endHour || (hour === endHour && minute <= endMinute)) {
     const displayHour = hour >= 24 ? hour - 24 : hour;
@@ -48,11 +56,11 @@ function generateTimeSlots(): TimeSlot[] {
 // 시간 문자열을 슬롯 인덱스로 변환
 function timeToSlotIndex(timeStr: string, slots: TimeSlot[]): number {
   const [h, m] = timeStr.split(':').map(Number);
-  // 00:00 ~ 01:30은 24:00 ~ 25:30으로 변환
-  const adjustedHour = h < DAY_CONFIG.startHour ? h + 24 : h;
+  // 타임라인 범위(22:00까지) 밖의 시간은 -1 반환
+  if (h >= TIMELINE_CONFIG.endHour) return -1;
   
   return slots.findIndex(slot => 
-    slot.hour === adjustedHour && slot.minute === (m >= 30 ? 30 : 0)
+    slot.hour === h && slot.minute === (m >= 30 ? 30 : 0)
   );
 }
 
@@ -65,7 +73,7 @@ function slotIndexToTime(index: number, slots: TimeSlot[]): string {
 }
 
 const TIME_SLOTS = generateTimeSlots();
-const SLOT_HEIGHT = 28; // 각 슬롯 높이 (px) - 모바일에서 터치하기 좋은 크기
+const SLOT_HEIGHT = 20; // 각 슬롯 높이 (px) - 촘촘하게 표시
 const LONG_PRESS_DELAY = 300; // 롱프레스 감지 시간 (ms)
 
 export default function ScheduleTimeline({
@@ -294,7 +302,7 @@ export default function ScheduleTimeline({
       <div
         ref={gridRef}
         className={`relative overflow-y-auto select-none ${isDragging ? 'touch-none' : ''}`}
-        style={{ height: '400px' }}
+        style={{ height: '480px' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

@@ -20,7 +20,7 @@ import {
   toggleAbsenceSchedule
 } from '@/lib/actions/absence-schedule';
 import type { StudentAbsenceSchedule } from '@/types/database';
-import { DAY_NAMES, SCHEDULE_DATE_TYPES, ABSENCE_REASONS } from '@/lib/constants';
+import { DAY_NAMES, ABSENCE_REASONS } from '@/lib/constants';
 import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import ScheduleTimeline from '@/components/student/schedule-timeline';
@@ -48,8 +48,10 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     dayOfWeek: [] as number[],
     startTime: '09:00',
     endTime: '10:00',
-    dateType: 'all' as 'semester' | 'vacation' | 'all',
     specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    // 매주 반복 시 기간 설정
+    recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
+    recurringEndDate: '', // 종료일 (비워두면 무기한)
   });
 
   const resetForm = () => {
@@ -61,8 +63,9 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       dayOfWeek: [],
       startTime: '09:00',
       endTime: '10:00',
-      dateType: 'all',
       specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
+      recurringEndDate: '',
     });
   };
 
@@ -96,6 +99,14 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       alert('반복 요일을 선택해주세요.');
       return;
     }
+    if (formData.isRecurring && !formData.recurringStartDate) {
+      alert('시작일을 선택해주세요.');
+      return;
+    }
+    if (formData.isRecurring && formData.recurringEndDate && formData.recurringStartDate > formData.recurringEndDate) {
+      alert('종료일은 시작일 이후여야 합니다.');
+      return;
+    }
     if (formData.startTime >= formData.endTime) {
       alert('종료 시간은 시작 시간 이후여야 합니다.');
       return;
@@ -116,7 +127,9 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       day_of_week: formData.isRecurring ? formData.dayOfWeek : undefined,
       start_time: formData.startTime + ':00',
       end_time: formData.endTime + ':00',
-      date_type: formData.dateType,
+      date_type: 'all', // 기간 유형은 항상 'all'로 고정
+      valid_from: formData.isRecurring ? formData.recurringStartDate : undefined,
+      valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
       specific_date: !formData.isRecurring ? formData.specificDate : undefined,
     });
 
@@ -162,8 +175,9 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       dayOfWeek: [dayOfWeek],
       startTime,
       endTime,
-      dateType: 'all',
       specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
+      recurringEndDate: '',
     });
     setShowAddForm(true);
   };
@@ -173,8 +187,9 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     setSelectedSchedule(schedule);
   };
 
-  // 승인 대기 vs 승인됨 분류
+  // 승인 대기 vs 승인됨 vs 거부됨 분류
   const pendingSchedules = schedules.filter(s => s.status === 'pending');
+  const rejectedSchedules = schedules.filter(s => s.status === 'rejected');
   const approvedSchedules = schedules.filter(s => s.status === 'approved');
   const activeSchedules = approvedSchedules.filter(s => s.is_active);
   const inactiveSchedules = approvedSchedules.filter(s => !s.is_active);
@@ -241,6 +256,29 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
         </div>
       )}
 
+      {/* 거부된 일정 */}
+      {rejectedSchedules.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <X className="w-4 h-4 text-red-500" />
+            <h2 className="font-semibold text-red-600">
+              거부됨 ({rejectedSchedules.length})
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {rejectedSchedules.map(schedule => (
+              <ScheduleBlock
+                key={schedule.id}
+                schedule={schedule}
+                variant="rejected"
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 타임라인 뷰 */}
       {viewMode === 'timeline' && !showAddForm && (
         <ScheduleTimeline
@@ -281,62 +319,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
             </div>
 
             <div className="space-y-4">
-              {/* 부재 사유 선택 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  부재 사유 *
-                </label>
-                <div className="space-y-2">
-                  {ABSENCE_REASONS.map((reason) => (
-                    <label
-                      key={reason.value}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                        formData.reasonType === reason.value
-                          ? 'border-primary bg-primary/5'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="absenceReason"
-                        value={reason.value}
-                        checked={formData.reasonType === reason.value}
-                        onChange={(e) => setFormData({ ...formData, reasonType: e.target.value, customReason: '' })}
-                        className="w-4 h-4 text-primary"
-                      />
-                      <span className="text-sm text-gray-700">{reason.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* 기타 사유 입력 (기타 선택 시에만 표시) */}
-              {formData.reasonType === 'other' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    기타 사유 입력 *
-                  </label>
-                  <Input
-                    value={formData.customReason}
-                    onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
-                    placeholder="부재 사유를 입력해주세요"
-                  />
-                </div>
-              )}
-
-              {/* 설명 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  추가 설명 (선택)
-                </label>
-                <Input
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="추가 설명이 필요하면 입력하세요"
-                />
-              </div>
-
-              {/* 반복 여부 */}
+              {/* 일정 유형 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   일정 유형
@@ -424,27 +407,96 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                 </div>
               </div>
 
-              {/* 날짜 타입 */}
+              {/* 매주 반복 기간 설정 */}
               {formData.isRecurring && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     적용 기간
                   </label>
-                  <div className="flex gap-2">
-                    {Object.entries(SCHEDULE_DATE_TYPES).map(([key, value]) => (
-                      <Button
-                        key={key}
-                        variant={formData.dateType === value ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFormData({ ...formData, dateType: value as any })}
-                        className="flex-1"
-                      >
-                        {value === 'semester' ? '학기중' : value === 'vacation' ? '방학' : '항상'}
-                      </Button>
-                    ))}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        시작일 *
+                      </label>
+                      <Input
+                        type="date"
+                        value={formData.recurringStartDate}
+                        onChange={(e) => setFormData({ ...formData, recurringStartDate: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        종료일 (선택)
+                      </label>
+                      <Input
+                        type="date"
+                        value={formData.recurringEndDate}
+                        onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
+                        min={formData.recurringStartDate}
+                        placeholder="무기한"
+                      />
+                    </div>
                   </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    종료일을 비워두면 무기한 적용됩니다
+                  </p>
                 </div>
               )}
+
+              {/* 부재 사유 선택 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  부재 사유 *
+                </label>
+                <div className="space-y-2">
+                  {ABSENCE_REASONS.map((reason) => (
+                    <label
+                      key={reason.value}
+                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        formData.reasonType === reason.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="absenceReason"
+                        value={reason.value}
+                        checked={formData.reasonType === reason.value}
+                        onChange={(e) => setFormData({ ...formData, reasonType: e.target.value, customReason: '' })}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <span className="text-sm text-gray-700">{reason.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 기타 사유 입력 (기타 선택 시에만 표시) */}
+              {formData.reasonType === 'other' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    기타 사유 입력 *
+                  </label>
+                  <Input
+                    value={formData.customReason}
+                    onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
+                    placeholder="부재 사유를 입력해주세요"
+                  />
+                </div>
+              )}
+
+              {/* 추가 설명 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  추가 설명 (선택)
+                </label>
+                <Input
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="추가 설명이 필요하면 입력하세요"
+                />
+              </div>
 
               {/* 저장 버튼 */}
               <div className="flex gap-2 pt-2">

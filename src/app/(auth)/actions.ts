@@ -25,7 +25,7 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const branchId = formData.get('branchId') as string;
   const studentTypeId = formData.get('studentTypeId') as string;
 
-  if (!email || !password || !name || !branchId) {
+  if (!email || !password || !name || !phone || !branchId) {
     return { success: false, error: '필수 항목을 모두 입력해주세요.' };
   }
 

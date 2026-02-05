@@ -7,11 +7,21 @@ export default async function SubjectPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   
-  const [currentSubject, todaySubjects, typeSubjects] = await Promise.all([
+  const [currentSubject, todaySubjects, typeSubjects, currentSession] = await Promise.all([
     getCurrentSubject(),
     getTodaySubjects(),
     user ? getSubjectsForStudent(user.id) : [],
+    // 입실 상태 확인
+    user ? supabase
+      .from('attendance_records')
+      .select('id')
+      .eq('student_id', user.id)
+      .is('checked_out_at', null)
+      .single()
+      .then(res => res.data) : null,
   ]);
+  
+  const isCheckedIn = !!currentSession;
 
   // 과목별 학습시간 계산
   const subjectTimes: Record<string, number> = {};
@@ -39,6 +49,7 @@ export default async function SubjectPage() {
       }))}
       subjectTimes={subjectTimes}
       availableSubjects={typeSubjects.length > 0 ? typeSubjects : null}
+      isCheckedIn={isCheckedIn}
     />
   );
 }
