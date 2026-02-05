@@ -81,8 +81,9 @@ export async function GET(request: Request) {
       });
     }
 
-    // 5. caps_id로 학생 매칭을 위한 학생 목록 조회
-    const capsIds = [...new Set(enterRecords.map((r) => r.e_idno))];
+    // 5. caps_id(사용자ID)로 학생 매칭을 위한 학생 목록 조회
+    // CAPS의 e_id(사용자ID)를 사용하여 매칭 (e_idno는 사원번호)
+    const capsIds = [...new Set(enterRecords.map((r) => String(r.e_id)))];
     const { data: students } = await supabase
       .from('student_profiles')
       .select('id, caps_id')
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
     }[] = [];
 
     for (const record of enterRecords) {
-      const studentId = studentMap.get(record.e_idno);
+      const studentId = studentMap.get(String(record.e_id));
       if (!studentId) {
         // 매칭되는 학생 없음 - 스킵
         continue;

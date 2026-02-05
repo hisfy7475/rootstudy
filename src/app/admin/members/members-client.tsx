@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType } from '@/lib/actions/admin';
+import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
   User,
@@ -49,11 +50,20 @@ interface Branch {
   name: string;
 }
 
+interface StudentType {
+  id: string;
+  name: string;
+  weeklyGoalHours: number;
+}
+
 interface StudentDetail {
   id: string;
   seatNumber: number | null;
   parentCode: string;
   capsId: string | null;
+  studentTypeId: string | null;
+  studentType: StudentType | null;
+  branchId: string | null;
   name: string;
   email: string;
   phone: string;
@@ -80,6 +90,11 @@ interface MembersClientProps {
 
 type Tab = 'students' | 'parents' | 'admins';
 
+interface StudentTypeOption {
+  id: string;
+  name: string;
+}
+
 export function MembersClient({ initialStudents, initialParents, initialAdmins, branches }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<Member[]>(initialParents);
@@ -87,6 +102,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [activeTab, setActiveTab] = useState<Tab>('students');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
+  const [studentTypes, setStudentTypes] = useState<StudentTypeOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -125,6 +141,12 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     try {
       const detail = await getStudentDetail(studentId);
       setSelectedStudent(detail);
+      
+      // 학생의 지점에 해당하는 학생 타입 목록 로드
+      if (detail?.branchId) {
+        const types = await getStudentTypes(detail.branchId);
+        setStudentTypes(types.map(t => ({ id: t.id, name: t.name })));
+      }
     } catch (error) {
       console.error('Failed to fetch student detail:', error);
     } finally {
@@ -146,6 +168,8 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         await updateStudentSeat(editMode.id, editValue ? parseInt(editValue) : null);
       } else if (editMode.field === 'capsId') {
         await updateStudentCapsId(editMode.id, editValue || null);
+      } else if (editMode.field === 'studentTypeId') {
+        await updateStudentType(editMode.id, editValue || null);
       } else {
         await updateMember(editMode.id, { [editMode.field]: editValue });
       }
@@ -417,7 +441,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                           type="text"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
-                          placeholder="학번 입력"
+                          placeholder="CAPS ID 입력"
                           className="w-24 h-8 text-sm"
                         />
                         <button onClick={handleSaveEdit} className="text-success">
@@ -437,6 +461,46 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                         </code>
                         <button
                           onClick={() => handleEdit(selectedStudent.id, 'capsId', selectedStudent.capsId)}
+                          className="text-text-muted hover:text-primary"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 학년(학생 타입) */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-text-muted">학년</span>
+                    {editMode?.id === selectedStudent.id && editMode.field === 'studentTypeId' ? (
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          className="h-8 px-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        >
+                          <option value="">미지정</option>
+                          {studentTypes.map(type => (
+                            <option key={type.id} value={type.id}>{type.name}</option>
+                          ))}
+                        </select>
+                        <button onClick={handleSaveEdit} className="text-success">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditMode(null)} className="text-error">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "text-sm px-2 py-0.5 rounded",
+                          selectedStudent.studentType ? "bg-secondary/10 text-secondary font-medium" : "bg-gray-100 text-text-muted"
+                        )}>
+                          {selectedStudent.studentType?.name || '미지정'}
+                        </span>
+                        <button
+                          onClick={() => handleEdit(selectedStudent.id, 'studentTypeId', selectedStudent.studentTypeId)}
                           className="text-text-muted hover:text-primary"
                         >
                           <Edit3 className="w-4 h-4" />

@@ -25,8 +25,8 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const branchId = formData.get('branchId') as string;
   const studentTypeId = formData.get('studentTypeId') as string;
 
-  if (!email || !password || !name || !phone || !branchId) {
-    return { success: false, error: '필수 항목을 모두 입력해주세요.' };
+  if (!email || !password || !name || !phone || !branchId || !studentTypeId) {
+    return { success: false, error: '필수 항목을 모두 입력해주세요. (이메일, 비밀번호, 이름, 전화번호, 지점, 학년)' };
   }
 
   const supabaseAdmin = createAdminClient();
@@ -72,7 +72,7 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const { error: studentError } = await supabaseAdmin.from('student_profiles').insert({
     id: userId,
     parent_code: parentCode,
-    student_type_id: studentTypeId || null,
+    student_type_id: studentTypeId,
   });
 
   if (studentError) {

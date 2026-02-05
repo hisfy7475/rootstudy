@@ -223,20 +223,26 @@ export default function StudentSignupPage() {
               </select>
             </div>
 
-            {/* 학생 타입 선택 (지점 선택 후 표시) */}
-            {selectedBranchId && studentTypes.length > 0 && (
+            {/* 학생 타입(학년) 선택 - 필수 (지점 선택 후 표시) */}
+            {selectedBranchId && (
               <div className="relative">
                 <GraduationCap className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <select
                   name="studentTypeId"
-                  disabled={isLoading}
+                  required
+                  disabled={isLoading || studentTypes.length === 0}
                   className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
                 >
-                  <option value="">학생 유형 선택 (선택사항)</option>
+                  <option value="">학년 선택 *</option>
                   {studentTypes.map(type => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </select>
+                {studentTypes.length === 0 && (
+                  <p className="text-xs text-text-muted mt-1 ml-1">
+                    해당 지점에 등록된 학년이 없습니다. 관리자에게 문의하세요.
+                  </p>
+                )}
               </div>
             )}
 

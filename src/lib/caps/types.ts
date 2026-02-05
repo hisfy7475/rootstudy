@@ -5,8 +5,8 @@ export interface CapsEnterRecord {
   e_date: string;      // 날짜 (YYYYMMDD)
   e_time: string;      // 시간 (HHmmss)
   g_id: number;        // 게이트 ID
-  e_id: number;        // 사용자 ID
-  e_idno: string;      // 학번 (CAPS ID)
+  e_id: number;        // 사용자 ID (caps_id로 매칭에 사용)
+  e_idno: string;      // 사원번호
   e_name: string;      // 이름
 }
 

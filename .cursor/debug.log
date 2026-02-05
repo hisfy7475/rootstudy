@@ -1,2 +1,0 @@
-{"location":"absence-schedule.ts:rejectAbsenceSchedule","message":"Function called","data":{"scheduleId":"95855ae9-3384-42e9-a3f9-489776377917","userId":"4b88b9c4-ce76-4970-8059-99b2d235ea69"},"timestamp":1770261673620,"sessionId":"debug-session","hypothesisId":"A"}
-{"location":"absence-schedule.ts:afterRpc","message":"RPC result","data":{"error":null},"timestamp":1770261673653,"sessionId":"debug-session","hypothesisId":"B"}

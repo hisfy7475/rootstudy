@@ -465,7 +465,12 @@ export async function getStudentDetail(studentId: string) {
     .from('student_profiles')
     .select(`
       *,
-      profiles!inner (*)
+      profiles!inner (*),
+      student_type:student_type_id (
+        id,
+        name,
+        weekly_goal_hours
+      )
     `)
     .eq('id', studentId)
     .single();
@@ -515,10 +520,17 @@ export async function getStudentDetail(studentId: string) {
     seatNumber: student.seat_number,
     parentCode: student.parent_code,
     capsId: student.caps_id,
+    studentTypeId: student.student_type_id,
+    studentType: student.student_type ? {
+      id: student.student_type.id,
+      name: student.student_type.name,
+      weeklyGoalHours: student.student_type.weekly_goal_hours,
+    } : null,
     name: profile?.name || '',
     email: profile?.email || '',
     phone: profile?.phone || '',
     createdAt: profile?.created_at || '',
+    branchId: profile?.branch_id || null,
     parent: parentProfile ? {
       name: parentProfile.name,
       email: parentProfile.email,
@@ -590,6 +602,25 @@ export async function updateStudentSeat(studentId: string, seatNumber: number | 
   if (error) {
     console.error('Error updating seat:', error);
     return { error: '좌석 번호 수정에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+// 학생 타입(학년) 수정
+export async function updateStudentType(studentId: string, studentTypeId: string | null) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('student_profiles')
+    .update({ student_type_id: studentTypeId || null })
+    .eq('id', studentId);
+
+  if (error) {
+    console.error('Error updating student type:', error);
+    return { error: '학생 타입 수정에 실패했습니다.' };
   }
 
   revalidatePath('/admin');
