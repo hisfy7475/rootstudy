@@ -30,6 +30,12 @@ function getAttendanceType(gateName: string): 'check_in' | 'check_out' | null {
   return 'check_in';
 }
 
+// #region debug helper
+async function debugLog(supabase: ReturnType<typeof getSupabaseAdmin>, step: string, data: unknown) {
+  await supabase.from('caps_debug_log').insert({ step, data });
+}
+// #endregion
+
 export async function GET(request: Request) {
   // 1. Cron secret 검증
   const authHeader = request.headers.get('authorization');
@@ -56,13 +62,28 @@ export async function GET(request: Request) {
 
     const afterDatetime = lastSync?.last_caps_datetime || null;
 
+    // #region debug log - hypothesis 1,3
+    await debugLog(supabase, '1_afterDatetime', { afterDatetime });
+    // #endregion
+
     // 3. 출입문 목록 조회 (캐싱용)
     const gates = await getGates();
     const gateMap = new Map<number, CapsGate>();
     gates.forEach((gate) => gateMap.set(gate.id, gate));
 
+    // #region debug log - hypothesis 1
+    await debugLog(supabase, '2_gates', { gateCount: gates.length, gates: gates.slice(0, 5) });
+    // #endregion
+
     // 4. CAPS DB에서 새 출입 기록 조회
     const enterRecords = await getEnterRecordsAfter(afterDatetime);
+
+    // #region debug log - hypothesis 1,2,3
+    await debugLog(supabase, '3_enterRecords', { 
+      count: enterRecords.length, 
+      records: enterRecords.slice(0, 10).map(r => ({ e_id: r.e_id, e_idno: r.e_idno, e_date: r.e_date, e_time: r.e_time, e_id_type: typeof r.e_id }))
+    });
+    // #endregion
 
     if (enterRecords.length === 0) {
       // 새 기록 없음
@@ -84,10 +105,19 @@ export async function GET(request: Request) {
     // 5. caps_id(사용자ID)로 학생 매칭을 위한 학생 목록 조회
     // CAPS의 e_id(사용자ID)를 사용하여 매칭 (e_idno는 사원번호)
     const capsIds = [...new Set(enterRecords.map((r) => String(r.e_id)))];
+
+    // #region debug log - hypothesis 2,4
+    await debugLog(supabase, '4_capsIds_from_records', { capsIds });
+    // #endregion
+
     const { data: students } = await supabase
       .from('student_profiles')
       .select('id, caps_id')
       .in('caps_id', capsIds);
+
+    // #region debug log - hypothesis 4
+    await debugLog(supabase, '5_matched_students', { students });
+    // #endregion
 
     const studentMap = new Map<string, string>();
     students?.forEach((s) => {

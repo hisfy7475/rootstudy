@@ -413,7 +413,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     적용 기간
                   </label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">
                         시작일 *
@@ -435,11 +435,11 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                         min={formData.recurringStartDate}
                         placeholder="무기한"
                       />
+                      <p className="text-xs text-gray-400 mt-1">
+                        종료일을 비워두면 무기한 적용됩니다
+                      </p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    종료일을 비워두면 무기한 적용됩니다
-                  </p>
                 </div>
               )}
 

@@ -35,6 +35,20 @@ interface Member {
   created_at: string;
 }
 
+interface ParentMember {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  user_type: string;
+  created_at: string;
+  students: {
+    id: string;
+    name: string;
+    seatNumber: number | null;
+  }[];
+}
+
 interface Admin {
   id: string;
   email: string;
@@ -83,7 +97,7 @@ interface StudentDetail {
 
 interface MembersClientProps {
   initialStudents: Member[];
-  initialParents: Member[];
+  initialParents: ParentMember[];
   initialAdmins: Admin[];
   branches: Branch[];
 }
@@ -97,7 +111,7 @@ interface StudentTypeOption {
 
 export function MembersClient({ initialStudents, initialParents, initialAdmins, branches }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
-  const [parents, setParents] = useState<Member[]>(initialParents);
+  const [parents, setParents] = useState<ParentMember[]>(initialParents);
   const [admins, setAdmins] = useState<Admin[]>(initialAdmins);
   const [activeTab, setActiveTab] = useState<Tab>('students');
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,10 +121,17 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const filteredMembers = (activeTab === 'students' ? students : activeTab === 'parents' ? parents : []).filter(
+  const filteredStudents = students.filter(
     (m) =>
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredParents = parents.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.students.some(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const filteredAdmins = admins.filter(
@@ -310,8 +331,8 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                 </tbody>
               </table>
             </Card>
-          ) : (
-            /* 학생/학부모 목록 테이블 */
+          ) : activeTab === 'students' ? (
+            /* 학생 목록 테이블 */
             <Card className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
@@ -324,23 +345,19 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filteredMembers.length === 0 ? (
+                  {filteredStudents.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
-                        회원이 없습니다.
+                        학생이 없습니다.
                       </td>
                     </tr>
                   ) : (
-                    filteredMembers.map((member) => (
+                    filteredStudents.map((member) => (
                       <tr key={member.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              {activeTab === 'students' ? (
-                                <User className="w-4 h-4 text-primary" />
-                              ) : (
-                                <UserCheck className="w-4 h-4 text-secondary" />
-                              )}
+                              <User className="w-4 h-4 text-primary" />
                             </div>
                             <span className="font-medium">{member.name}</span>
                           </div>
@@ -351,16 +368,76 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                           {formatDate(member.created_at)}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          {activeTab === 'students' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleViewDetail(member.id)}
-                              disabled={loading}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleViewDetail(member.id)}
+                            disabled={loading}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </Card>
+          ) : (
+            /* 학부모 목록 테이블 */
+            <Card className="overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">연결된 학생</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredParents.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
+                        학부모가 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredParents.map((parent) => (
+                      <tr key={parent.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center">
+                              <UserCheck className="w-4 h-4 text-secondary" />
+                            </div>
+                            <span className="font-medium">{parent.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {parent.students.length === 0 ? (
+                            <span className="text-sm text-text-muted">미연결</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {parent.students.map((student) => (
+                                <span
+                                  key={student.id}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-sm rounded-full"
+                                >
+                                  <User className="w-3 h-3" />
+                                  {student.seatNumber && (
+                                    <span className="text-xs text-primary/70">{student.seatNumber}번</span>
+                                  )}
+                                  {student.name}
+                                </span>
+                              ))}
+                            </div>
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-text-muted">{parent.email}</td>
+                        <td className="px-4 py-3 text-sm">{parent.phone || '-'}</td>
+                        <td className="px-4 py-3 text-sm text-text-muted">
+                          {formatDate(parent.created_at)}
                         </td>
                       </tr>
                     ))

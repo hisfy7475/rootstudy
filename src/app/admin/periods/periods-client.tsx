@@ -48,7 +48,9 @@ export default function PeriodsClient({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copyTargetBranchId, setCopyTargetBranchId] = useState('');
   const [copyTargetDateTypeId, setCopyTargetDateTypeId] = useState('');
+  const [copyTargetDateTypes, setCopyTargetDateTypes] = useState<DateTypeDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // 새 교시 추가 폼
@@ -76,6 +78,21 @@ export default function PeriodsClient({
       loadPeriods();
     }
   }, [selectedDateTypeId]);
+
+  // 복사 모달에서 지점 변경 시 해당 지점의 날짜 타입 불러오기
+  useEffect(() => {
+    const loadCopyTargetDateTypes = async () => {
+      if (copyTargetBranchId) {
+        const types = await getDateTypeDefinitions(copyTargetBranchId);
+        setCopyTargetDateTypes(types);
+        setCopyTargetDateTypeId('');
+      } else {
+        setCopyTargetDateTypes([]);
+        setCopyTargetDateTypeId('');
+      }
+    };
+    loadCopyTargetDateTypes();
+  }, [copyTargetBranchId]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -171,13 +188,13 @@ export default function PeriodsClient({
   };
 
   const handleCopy = async () => {
-    if (!selectedDateTypeId || !copyTargetDateTypeId) {
-      alert('복사할 날짜 타입을 선택해주세요.');
+    if (!selectedDateTypeId || !copyTargetBranchId || !copyTargetDateTypeId) {
+      alert('복사할 지점과 날짜 타입을 선택해주세요.');
       return;
     }
 
-    if (selectedDateTypeId === copyTargetDateTypeId) {
-      alert('다른 날짜 타입을 선택해주세요.');
+    if (selectedBranchId === copyTargetBranchId && selectedDateTypeId === copyTargetDateTypeId) {
+      alert('다른 지점 또는 날짜 타입을 선택해주세요.');
       return;
     }
 
@@ -185,12 +202,14 @@ export default function PeriodsClient({
     const result = await copyPeriodsToDateType(
       selectedBranchId,
       selectedDateTypeId,
+      copyTargetBranchId,
       copyTargetDateTypeId
     );
 
     if (result.success) {
       alert(`${result.count}개의 교시가 복사되었습니다.`);
       setShowCopyModal(false);
+      setCopyTargetBranchId('');
       setCopyTargetDateTypeId('');
     } else if (result.error) {
       alert(result.error);
@@ -530,9 +549,29 @@ export default function PeriodsClient({
           <Card className="p-6 w-full max-w-md mx-4">
             <h3 className="font-bold text-lg mb-4">교시 복사</h3>
             <p className="text-text-muted mb-4">
-              현재 선택된 날짜 타입의 교시를 다른 날짜 타입으로 복사합니다.
+              현재 선택된 날짜 타입의 교시를 다른 지점/날짜 타입으로 복사합니다.
             </p>
             
+            {/* 지점 선택 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-text mb-1">
+                복사할 대상 지점
+              </label>
+              <select
+                value={copyTargetBranchId}
+                onChange={(e) => setCopyTargetBranchId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="">선택하세요</option>
+                {branches.map(branch => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 날짜 타입 선택 */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-text mb-1">
                 복사할 대상 날짜 타입
@@ -541,16 +580,22 @@ export default function PeriodsClient({
                 value={copyTargetDateTypeId}
                 onChange={(e) => setCopyTargetDateTypeId(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                disabled={!copyTargetBranchId}
               >
                 <option value="">선택하세요</option>
-                {dateTypes
-                  .filter(dt => dt.id !== selectedDateTypeId)
+                {copyTargetDateTypes
+                  .filter(dt => !(copyTargetBranchId === selectedBranchId && dt.id === selectedDateTypeId))
                   .map(dt => (
                     <option key={dt.id} value={dt.id}>
                       {dt.name}
                     </option>
                   ))}
               </select>
+              {copyTargetBranchId && copyTargetDateTypes.length === 0 && (
+                <p className="text-sm text-text-muted mt-1">
+                  해당 지점에 날짜 타입이 없습니다.
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -558,6 +603,7 @@ export default function PeriodsClient({
                 variant="outline" 
                 onClick={() => {
                   setShowCopyModal(false);
+                  setCopyTargetBranchId('');
                   setCopyTargetDateTypeId('');
                 }}
               >
@@ -565,7 +611,7 @@ export default function PeriodsClient({
               </Button>
               <Button 
                 onClick={handleCopy}
-                disabled={!copyTargetDateTypeId || isLoading}
+                disabled={!copyTargetBranchId || !copyTargetDateTypeId || isLoading}
               >
                 복사
               </Button>

@@ -22,8 +22,14 @@ export default function StudentSignupPage() {
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
 
   useEffect(() => {
-    // 지점 목록 로드
-    getAllBranches().then(setBranches);
+    // 지점 목록 로드 (display_order 순으로 정렬됨)
+    getAllBranches().then((data) => {
+      setBranches(data);
+      // 첫 번째 지점을 기본값으로 설정
+      if (data.length > 0 && !selectedBranchId) {
+        setSelectedBranchId(data[0].id);
+      }
+    });
   }, []);
 
   // 지점 변경 시 학생 타입 목록 갱신

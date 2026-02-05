@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Building2, Plus, Pencil, ToggleLeft, ToggleRight, Users } from 'lucide-react';
-import { createBranch, updateBranch, activateBranch, deactivateBranch, type Branch } from '@/lib/actions/branch';
+import { Building2, Plus, Pencil, ToggleLeft, ToggleRight, Users, ChevronUp, ChevronDown } from 'lucide-react';
+import { createBranch, updateBranch, activateBranch, deactivateBranch, moveBranchUp, moveBranchDown, type Branch } from '@/lib/actions/branch';
 
 interface BranchWithCount extends Branch {
   studentCount: number;
@@ -80,8 +80,48 @@ export default function BranchesClient({ initialBranches }: BranchesClientProps)
     setIsLoading(false);
   };
 
-  const activeBranches = branches.filter(b => b.is_active);
-  const inactiveBranches = branches.filter(b => !b.is_active);
+  const handleMoveUp = async (id: string) => {
+    setIsLoading(true);
+    const result = await moveBranchUp(id);
+    
+    if (result.success) {
+      // 현재 지점과 위 지점의 순서를 교환
+      const currentIndex = branches.findIndex(b => b.id === id);
+      if (currentIndex > 0) {
+        const newBranches = [...branches];
+        const temp = newBranches[currentIndex].display_order;
+        newBranches[currentIndex].display_order = newBranches[currentIndex - 1].display_order;
+        newBranches[currentIndex - 1].display_order = temp;
+        // display_order로 다시 정렬
+        newBranches.sort((a, b) => a.display_order - b.display_order);
+        setBranches(newBranches);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  const handleMoveDown = async (id: string) => {
+    setIsLoading(true);
+    const result = await moveBranchDown(id);
+    
+    if (result.success) {
+      // 현재 지점과 아래 지점의 순서를 교환
+      const currentIndex = branches.findIndex(b => b.id === id);
+      if (currentIndex < branches.length - 1) {
+        const newBranches = [...branches];
+        const temp = newBranches[currentIndex].display_order;
+        newBranches[currentIndex].display_order = newBranches[currentIndex + 1].display_order;
+        newBranches[currentIndex + 1].display_order = temp;
+        // display_order로 다시 정렬
+        newBranches.sort((a, b) => a.display_order - b.display_order);
+        setBranches(newBranches);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  const activeBranches = branches.filter(b => b.is_active).sort((a, b) => a.display_order - b.display_order);
+  const inactiveBranches = branches.filter(b => !b.is_active).sort((a, b) => a.display_order - b.display_order);
 
   return (
     <div className="p-6 space-y-6">
@@ -204,6 +244,29 @@ export default function BranchesClient({ initialBranches }: BranchesClientProps)
                 ) : (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
+                      {/* 순서 변경 버튼 */}
+                      <div className="flex flex-col gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleMoveUp(branch.id)}
+                          disabled={isLoading || activeBranches.indexOf(branch) === 0}
+                          className="h-6 w-6 p-0"
+                          title="위로 이동"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleMoveDown(branch.id)}
+                          disabled={isLoading || activeBranches.indexOf(branch) === activeBranches.length - 1}
+                          className="h-6 w-6 p-0"
+                          title="아래로 이동"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </Button>
+                      </div>
                       <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Building2 className="w-6 h-6 text-primary" />
                       </div>

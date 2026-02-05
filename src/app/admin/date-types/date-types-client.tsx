@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,13 +69,10 @@ export default function DateTypesClient({
   const [bulkTypeId, setBulkTypeId] = useState('');
   const [bulkDaysOfWeek, setBulkDaysOfWeek] = useState<number[]>([]);
 
-  // 지점 변경 시 데이터 로드
-  useEffect(() => {
+  // 데이터 로드 함수
+  const loadData = useCallback(async () => {
     if (!selectedBranchId) return;
-    loadData();
-  }, [selectedBranchId, currentMonth]);
-
-  const loadData = async () => {
+    
     setIsLoading(true);
     const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
     const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
@@ -92,7 +89,12 @@ export default function DateTypesClient({
     setDateTypes(types);
     setAssignments(assigns);
     setIsLoading(false);
-  };
+  }, [selectedBranchId, currentMonth]);
+
+  // 지점 또는 월 변경 시 데이터 로드
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // 날짜 타입 추가/수정
   const handleSaveType = async () => {
@@ -374,7 +376,13 @@ export default function DateTypesClient({
             <Button
               size="sm"
               variant={bulkMode ? 'default' : 'outline'}
-              onClick={() => setBulkMode(!bulkMode)}
+              onClick={() => {
+                if (!bulkMode && selectedTypeId) {
+                  // 일괄지정 모드를 열 때 현재 선택된 타입을 자동으로 설정
+                  setBulkTypeId(selectedTypeId);
+                }
+                setBulkMode(!bulkMode);
+              }}
             >
               <Calendar className="w-4 h-4 mr-1" />
               일괄 지정

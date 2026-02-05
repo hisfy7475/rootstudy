@@ -260,10 +260,11 @@ export async function getTodayPeriods(branchId: string): Promise<{
   };
 }
 
-// 날짜 타입별 교시 복사
+// 날짜 타입별 교시 복사 (다른 지점으로도 복사 가능)
 export async function copyPeriodsToDateType(
-  branchId: string,
+  sourceBranchId: string,
   sourceDateTypeId: string,
+  targetBranchId: string,
   targetDateTypeId: string
 ) {
   const supabase = await createClient();
@@ -272,16 +273,16 @@ export async function copyPeriodsToDateType(
   const { data: sourcePeriods, error: fetchError } = await supabase
     .from('period_definitions')
     .select('*')
-    .eq('branch_id', branchId)
+    .eq('branch_id', sourceBranchId)
     .eq('date_type_id', sourceDateTypeId);
 
   if (fetchError || !sourcePeriods || sourcePeriods.length === 0) {
     return { error: '복사할 교시가 없습니다.' };
   }
 
-  // 대상 날짜 타입에 복사
+  // 대상 지점/날짜 타입에 복사
   const insertData = sourcePeriods.map(p => ({
-    branch_id: branchId,
+    branch_id: targetBranchId,
     date_type_id: targetDateTypeId,
     period_number: p.period_number,
     name: p.name,

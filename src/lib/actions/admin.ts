@@ -457,6 +457,65 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
   return data || [];
 }
 
+// 학부모 목록 조회 (연결된 학생 정보 포함)
+export async function getAllParentsWithStudents() {
+  const supabase = await createClient();
+
+  // 학부모 프로필 조회
+  const { data: parents, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('user_type', 'parent')
+    .order('created_at', { ascending: false });
+
+  if (error || !parents) {
+    console.error('Error fetching parents:', error);
+    return [];
+  }
+
+  // 각 학부모의 연결된 학생 정보 조회
+  const parentsWithStudents = await Promise.all(
+    parents.map(async (parent) => {
+      // parent_student_links 테이블을 통해 연결된 학생들 조회
+      const { data: links } = await supabase
+        .from('parent_student_links')
+        .select(`
+          student:student_id (
+            id,
+            seat_number,
+            profiles!inner (
+              name
+            )
+          )
+        `)
+        .eq('parent_id', parent.id);
+
+      const students = (links || []).map((link: any) => {
+        const studentProfile = link.student 
+          ? (Array.isArray(link.student.profiles) ? link.student.profiles[0] : link.student.profiles)
+          : null;
+        return {
+          id: link.student?.id || '',
+          name: studentProfile?.name || '이름 없음',
+          seatNumber: link.student?.seat_number || null,
+        };
+      });
+
+      return {
+        id: parent.id,
+        email: parent.email,
+        name: parent.name,
+        phone: parent.phone,
+        user_type: parent.user_type,
+        created_at: parent.created_at,
+        students,
+      };
+    })
+  );
+
+  return parentsWithStudents;
+}
+
 // 학생 상세 정보 조회
 export async function getStudentDetail(studentId: string) {
   const supabase = await createClient();
