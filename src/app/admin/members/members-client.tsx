@@ -234,12 +234,27 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const handleOpenApproval = async (student: Member) => {
     setApprovalModal({ student });
     setApprovalForm({ capsId: '', seatNumber: '', studentTypeId: '' });
-    // 학생 타입 목록 로드
+    setLoading(true);
     try {
-      const types = await getStudentTypes();
+      // 학생 상세 정보 + 학생 타입 목록을 병렬 로드
+      const [detail, types] = await Promise.all([
+        getStudentDetail(student.id),
+        getStudentTypes(),
+      ]);
       setApprovalStudentTypes(types.map(t => ({ id: t.id, name: t.name })));
+      // 학생이 가입 시 선택한 학생타입을 미리 채움
+      if (detail) {
+        setApprovalForm(prev => ({
+          ...prev,
+          studentTypeId: detail.studentTypeId || '',
+          seatNumber: detail.seatNumber ? String(detail.seatNumber) : '',
+          capsId: detail.capsId || '',
+        }));
+      }
     } catch (error) {
-      console.error('Failed to load student types:', error);
+      console.error('Failed to load approval data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -824,7 +839,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
             </div>
 
             {/* 학생 정보 */}
-            <div className="bg-gray-50 rounded-xl p-4">
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
                   <User className="w-5 h-5 text-yellow-600" />
@@ -833,6 +848,10 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   <p className="font-medium">{approvalModal.student.name}</p>
                   <p className="text-sm text-text-muted">{approvalModal.student.email}</p>
                 </div>
+              </div>
+              <div className="flex items-center gap-2 text-sm pl-[52px]">
+                <Phone className="w-3.5 h-3.5 text-text-muted" />
+                <span>{approvalModal.student.phone || '-'}</span>
               </div>
             </div>
 
