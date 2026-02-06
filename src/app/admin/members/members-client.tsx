@@ -303,9 +303,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         <p className="text-text-muted mt-1">학생, 학부모, 관리자 회원을 관리하세요</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 왼쪽: 회원 목록 */}
-        <div className={cn("space-y-4", activeTab === 'admins' ? 'lg:col-span-3' : 'lg:col-span-2')}>
+      <div className="space-y-4">
           {/* 탭 및 검색 */}
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex gap-2 flex-wrap">
@@ -590,239 +588,231 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
               </table>
             </Card>
           )}
-        </div>
-
-        {/* 오른쪽: 학생 상세 정보 (관리자 탭이 아닐 때만 표시) */}
-        {activeTab !== 'admins' && (
-        <div>
-          {selectedStudent ? (
-            <Card className="p-6 sticky top-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">학생 상세 정보</h2>
-                <button
-                  onClick={() => setSelectedStudent(null)}
-                  className="text-text-muted hover:text-text"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* 기본 정보 */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                    <User className="w-8 h-8 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold">{selectedStudent.name}</h3>
-                    <p className="text-text-muted">
-                      좌석 {selectedStudent.seatNumber || '미배정'}번
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-4 border-t">
-                  {/* 좌석 번호 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted">좌석 번호</span>
-                    {editMode?.id === selectedStudent.id && editMode.field === 'seatNumber' ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          className="w-20 h-8 text-sm"
-                        />
-                        <button onClick={handleSaveEdit} className="text-success">
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditMode(null)} className="text-error">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{selectedStudent.seatNumber || '-'}</span>
-                        <button
-                          onClick={() => handleEdit(selectedStudent.id, 'seatNumber', selectedStudent.seatNumber)}
-                          className="text-text-muted hover:text-primary"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* CAPS ID (출입관리 학번) */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted">CAPS ID</span>
-                    {editMode?.id === selectedStudent.id && editMode.field === 'capsId' ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="text"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          placeholder="CAPS ID 입력"
-                          className="w-24 h-8 text-sm"
-                        />
-                        <button onClick={handleSaveEdit} className="text-success">
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditMode(null)} className="text-error">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <code className={cn(
-                          "text-sm px-2 py-0.5 rounded",
-                          selectedStudent.capsId ? "bg-primary/10 text-primary" : "bg-gray-100 text-text-muted"
-                        )}>
-                          {selectedStudent.capsId || '미설정'}
-                        </code>
-                        <button
-                          onClick={() => handleEdit(selectedStudent.id, 'capsId', selectedStudent.capsId)}
-                          className="text-text-muted hover:text-primary"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 학생 타입 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted">학생 타입</span>
-                    {editMode?.id === selectedStudent.id && editMode.field === 'studentTypeId' ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          className="h-8 px-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        >
-                          <option value="">미지정</option>
-                          {studentTypes.map(type => (
-                            <option key={type.id} value={type.id}>{type.name}</option>
-                          ))}
-                        </select>
-                        <button onClick={handleSaveEdit} className="text-success">
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditMode(null)} className="text-error">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "text-sm px-2 py-0.5 rounded",
-                          selectedStudent.studentType ? "bg-secondary/10 text-secondary font-medium" : "bg-gray-100 text-text-muted"
-                        )}>
-                          {selectedStudent.studentType?.name || '미지정'}
-                        </span>
-                        <button
-                          onClick={() => handleEdit(selectedStudent.id, 'studentTypeId', selectedStudent.studentTypeId)}
-                          className="text-text-muted hover:text-primary"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 이메일 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted flex items-center gap-1">
-                      <Mail className="w-4 h-4" /> 이메일
-                    </span>
-                    <span className="text-sm">{selectedStudent.email}</span>
-                  </div>
-
-                  {/* 전화번호 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted flex items-center gap-1">
-                      <Phone className="w-4 h-4" /> 전화번호
-                    </span>
-                    <span className="text-sm">{selectedStudent.phone || '-'}</span>
-                  </div>
-
-                  {/* 가입일 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted flex items-center gap-1">
-                      <Calendar className="w-4 h-4" /> 가입일
-                    </span>
-                    <span className="text-sm">{formatDate(selectedStudent.createdAt)}</span>
-                  </div>
-
-                  {/* 학부모 연결 코드 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted">연결 코드</span>
-                    <code className="text-sm bg-gray-100 px-2 py-1 rounded">
-                      {selectedStudent.parentCode}
-                    </code>
-                  </div>
-                </div>
-
-                {/* 연결된 학부모 */}
-                {selectedStudent.parent && (
-                  <div className="pt-4 border-t">
-                    <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
-                      <UserCheck className="w-4 h-4 text-secondary" />
-                      연결된 학부모
-                    </h4>
-                    <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-                      <p className="font-medium">{selectedStudent.parent.name}</p>
-                      <p className="text-sm text-text-muted">{selectedStudent.parent.email}</p>
-                      <p className="text-sm text-text-muted">{selectedStudent.parent.phone || '-'}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* 학습 통계 (최근 30일) */}
-                <div className="pt-4 border-t">
-                  <h4 className="text-sm font-medium mb-3">최근 30일 통계</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-primary/10 rounded-xl p-3 text-center">
-                      <BookOpen className="w-5 h-5 text-primary mx-auto mb-1" />
-                      <p className="text-2xl font-bold text-primary">
-                        {selectedStudent.stats.attendanceDays}
-                      </p>
-                      <p className="text-xs text-text-muted">출석일</p>
-                    </div>
-                    <div className="bg-secondary/10 rounded-xl p-3 text-center">
-                      <Brain className="w-5 h-5 text-secondary mx-auto mb-1" />
-                      <p className="text-2xl font-bold text-secondary">
-                        {selectedStudent.stats.avgFocus ?? '-'}
-                      </p>
-                      <p className="text-xs text-text-muted">평균 몰입도</p>
-                    </div>
-                    <div className="bg-success/20 rounded-xl p-3 text-center">
-                      <Award className="w-5 h-5 text-green-600 mx-auto mb-1" />
-                      <p className="text-2xl font-bold text-green-600">
-                        +{selectedStudent.stats.totalReward}
-                      </p>
-                      <p className="text-xs text-text-muted">상점</p>
-                    </div>
-                    <div className="bg-error/20 rounded-xl p-3 text-center">
-                      <Award className="w-5 h-5 text-red-500 mx-auto mb-1" />
-                      <p className="text-2xl font-bold text-red-500">
-                        -{selectedStudent.stats.totalPenalty}
-                      </p>
-                      <p className="text-xs text-text-muted">벌점</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-6 text-center text-text-muted">
-              <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>학생을 선택하면 상세 정보를 확인할 수 있습니다.</p>
-            </Card>
-          )}
-        </div>
-        )}
       </div>
+
+      {/* 학생 상세 정보 모달 */}
+      {selectedStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">학생 상세 정보</h2>
+              <button
+                onClick={() => setSelectedStudent(null)}
+                className="text-text-muted hover:text-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 기본 정보 */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <User className="w-8 h-8 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">{selectedStudent.name}</h3>
+                  <p className="text-text-muted">
+                    좌석 {selectedStudent.seatNumber || '미배정'}번
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-4 border-t">
+                {/* 좌석 번호 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted">좌석 번호</span>
+                  {editMode?.id === selectedStudent.id && editMode.field === 'seatNumber' ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        className="w-20 h-8 text-sm"
+                      />
+                      <button onClick={handleSaveEdit} className="text-success">
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setEditMode(null)} className="text-error">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{selectedStudent.seatNumber || '-'}</span>
+                      <button
+                        onClick={() => handleEdit(selectedStudent.id, 'seatNumber', selectedStudent.seatNumber)}
+                        className="text-text-muted hover:text-primary"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* CAPS ID (출입관리 학번) */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted">CAPS ID</span>
+                  {editMode?.id === selectedStudent.id && editMode.field === 'capsId' ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        placeholder="CAPS ID 입력"
+                        className="w-24 h-8 text-sm"
+                      />
+                      <button onClick={handleSaveEdit} className="text-success">
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setEditMode(null)} className="text-error">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <code className={cn(
+                        "text-sm px-2 py-0.5 rounded",
+                        selectedStudent.capsId ? "bg-primary/10 text-primary" : "bg-gray-100 text-text-muted"
+                      )}>
+                        {selectedStudent.capsId || '미설정'}
+                      </code>
+                      <button
+                        onClick={() => handleEdit(selectedStudent.id, 'capsId', selectedStudent.capsId)}
+                        className="text-text-muted hover:text-primary"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 학생 타입 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted">학생 타입</span>
+                  {editMode?.id === selectedStudent.id && editMode.field === 'studentTypeId' ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        className="h-8 px-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      >
+                        <option value="">미지정</option>
+                        {studentTypes.map(type => (
+                          <option key={type.id} value={type.id}>{type.name}</option>
+                        ))}
+                      </select>
+                      <button onClick={handleSaveEdit} className="text-success">
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setEditMode(null)} className="text-error">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-sm px-2 py-0.5 rounded",
+                        selectedStudent.studentType ? "bg-secondary/10 text-secondary font-medium" : "bg-gray-100 text-text-muted"
+                      )}>
+                        {selectedStudent.studentType?.name || '미지정'}
+                      </span>
+                      <button
+                        onClick={() => handleEdit(selectedStudent.id, 'studentTypeId', selectedStudent.studentTypeId)}
+                        className="text-text-muted hover:text-primary"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 이메일 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted flex items-center gap-1">
+                    <Mail className="w-4 h-4" /> 이메일
+                  </span>
+                  <span className="text-sm">{selectedStudent.email}</span>
+                </div>
+
+                {/* 전화번호 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted flex items-center gap-1">
+                    <Phone className="w-4 h-4" /> 전화번호
+                  </span>
+                  <span className="text-sm">{selectedStudent.phone || '-'}</span>
+                </div>
+
+                {/* 가입일 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted flex items-center gap-1">
+                    <Calendar className="w-4 h-4" /> 가입일
+                  </span>
+                  <span className="text-sm">{formatDate(selectedStudent.createdAt)}</span>
+                </div>
+
+                {/* 학부모 연결 코드 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-muted">연결 코드</span>
+                  <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                    {selectedStudent.parentCode}
+                  </code>
+                </div>
+              </div>
+
+              {/* 연결된 학부모 */}
+              {selectedStudent.parent && (
+                <div className="pt-4 border-t">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
+                    <UserCheck className="w-4 h-4 text-secondary" />
+                    연결된 학부모
+                  </h4>
+                  <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                    <p className="font-medium">{selectedStudent.parent.name}</p>
+                    <p className="text-sm text-text-muted">{selectedStudent.parent.email}</p>
+                    <p className="text-sm text-text-muted">{selectedStudent.parent.phone || '-'}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 학습 통계 (최근 30일) */}
+              <div className="pt-4 border-t">
+                <h4 className="text-sm font-medium mb-3">최근 30일 통계</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-primary/10 rounded-xl p-3 text-center">
+                    <BookOpen className="w-5 h-5 text-primary mx-auto mb-1" />
+                    <p className="text-2xl font-bold text-primary">
+                      {selectedStudent.stats.attendanceDays}
+                    </p>
+                    <p className="text-xs text-text-muted">출석일</p>
+                  </div>
+                  <div className="bg-secondary/10 rounded-xl p-3 text-center">
+                    <Brain className="w-5 h-5 text-secondary mx-auto mb-1" />
+                    <p className="text-2xl font-bold text-secondary">
+                      {selectedStudent.stats.avgFocus ?? '-'}
+                    </p>
+                    <p className="text-xs text-text-muted">평균 몰입도</p>
+                  </div>
+                  <div className="bg-success/20 rounded-xl p-3 text-center">
+                    <Award className="w-5 h-5 text-green-600 mx-auto mb-1" />
+                    <p className="text-2xl font-bold text-green-600">
+                      +{selectedStudent.stats.totalReward}
+                    </p>
+                    <p className="text-xs text-text-muted">상점</p>
+                  </div>
+                  <div className="bg-error/20 rounded-xl p-3 text-center">
+                    <Award className="w-5 h-5 text-red-500 mx-auto mb-1" />
+                    <p className="text-2xl font-bold text-red-500">
+                      -{selectedStudent.stats.totalPenalty}
+                    </p>
+                    <p className="text-xs text-text-muted">벌점</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* 승인 모달 */}
       {approvalModal && (
