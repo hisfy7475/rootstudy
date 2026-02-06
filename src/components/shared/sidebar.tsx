@@ -49,9 +49,10 @@ const adminNavItems: NavItem[] = [
 
 interface SidebarProps {
   basePath?: string;
+  branchName?: string | null;
 }
 
-export function Sidebar({ basePath = '' }: SidebarProps) {
+export function Sidebar({ basePath = '', branchName }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -67,7 +68,15 @@ export function Sidebar({ basePath = '' }: SidebarProps) {
             className="object-contain"
           />
         </Link>
-        <p className="text-sm text-text-muted mt-2">관리자</p>
+        <p className="text-xs text-text-muted mt-2">관리자</p>
+        {branchName && (
+          <div className="mt-2 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20">
+            <div className="flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+              <span className="text-sm font-semibold text-primary">{branchName}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 네비게이션 */}
