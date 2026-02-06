@@ -73,11 +73,16 @@ export function ChatRoom({
             .eq('id', payload.new.sender_id)
             .single();
 
+          // 관리자인 경우 '루트스터디센터'로 표시
+          const senderName = senderProfile?.user_type === 'admin'
+            ? '루트스터디센터'
+            : (senderProfile?.name || '알 수 없음');
+
           const newMessage: ChatMessageData = {
             id: payload.new.id,
             room_id: payload.new.room_id,
             sender_id: payload.new.sender_id,
-            sender_name: senderProfile?.name || '알 수 없음',
+            sender_name: senderName,
             sender_type: senderProfile?.user_type || 'unknown',
             content: payload.new.content,
             image_url: payload.new.image_url,

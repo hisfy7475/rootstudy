@@ -24,7 +24,7 @@ interface NavItem {
 const studentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
   { href: '/stats', label: '통계', icon: BarChart3 },
-  { href: '/schedule', label: '부재', icon: CalendarClock },
+  { href: '/schedule', label: '스케줄', icon: CalendarClock },
   { href: '/points', label: '상벌점', icon: Award },
   { href: '/chat', label: '채팅', icon: MessageCircle },
   { href: '/settings', label: '설정', icon: Settings },

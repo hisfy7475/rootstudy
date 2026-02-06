@@ -59,12 +59,31 @@ export async function middleware(request: NextRequest) {
     // 프로필 정보 가져오기
     const { data: profile } = await supabase
       .from('profiles')
-      .select('user_type')
+      .select('user_type, is_approved')
       .eq('id', user.id)
       .single();
 
     const userType = profile?.user_type as string | undefined;
+    const isApproved = profile?.is_approved as boolean | undefined;
     const correctPath = userType ? userTypeRoutes[userType] : null;
+
+    // 미승인 학생 처리
+    if (userType === 'student' && isApproved === false) {
+      // 미승인 학생은 /student/pending만 접근 가능
+      if (pathname !== '/student/pending') {
+        const url = request.nextUrl.clone();
+        url.pathname = '/student/pending';
+        return NextResponse.redirect(url);
+      }
+      return supabaseResponse;
+    }
+
+    // 승인된 학생이 /student/pending 접근 시 → /student로 리다이렉트
+    if (userType === 'student' && isApproved === true && pathname === '/student/pending') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/student';
+      return NextResponse.redirect(url);
+    }
 
     // 인증된 사용자가 공개 경로(로그인, 회원가입 등) 접근 시 → 본인 타입 페이지로 리다이렉트
     if (isPublicPath && correctPath) {

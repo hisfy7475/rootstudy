@@ -215,11 +215,16 @@ export async function getChatMessages(roomId: string) {
       ? msg.profiles[0] 
       : msg.profiles;
 
+    // 관리자인 경우 '루트스터디센터'로 표시
+    const senderName = senderProfile?.user_type === 'admin'
+      ? '루트스터디센터'
+      : (senderProfile?.name || '알 수 없음');
+
     return {
       id: msg.id,
       room_id: msg.room_id,
       sender_id: msg.sender_id,
-      sender_name: senderProfile?.name || '알 수 없음',
+      sender_name: senderName,
       sender_type: senderProfile?.user_type || 'unknown',
       content: msg.content,
       image_url: msg.image_url,

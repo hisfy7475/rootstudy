@@ -691,6 +691,50 @@ export async function updateStudentType(studentId: string, studentTypeId: string
 }
 
 // ============================================
+// 학생 승인 관련
+// ============================================
+
+// 학생 가입 승인 (CAPS ID, 좌석번호, 학생타입 설정)
+export async function approveStudent(
+  studentId: string,
+  capsId: string,
+  seatNumber: number | null,
+  studentTypeId: string | null
+) {
+  const supabase = await createClient();
+
+  // 1. profiles 테이블에서 is_approved를 true로 업데이트
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({ is_approved: true })
+    .eq('id', studentId);
+
+  if (profileError) {
+    console.error('Error approving student profile:', profileError);
+    return { success: false, error: '학생 승인에 실패했습니다.' };
+  }
+
+  // 2. student_profiles 테이블에서 caps_id, seat_number, student_type_id 업데이트
+  const { error: studentError } = await supabase
+    .from('student_profiles')
+    .update({
+      caps_id: capsId || null,
+      seat_number: seatNumber,
+      student_type_id: studentTypeId || null,
+    })
+    .eq('id', studentId);
+
+  if (studentError) {
+    console.error('Error updating student profile:', studentError);
+    return { success: false, error: '학생 정보 업데이트에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+// ============================================
 // 알림 관련
 // ============================================
 

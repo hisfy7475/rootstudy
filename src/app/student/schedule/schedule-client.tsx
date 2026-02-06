@@ -199,7 +199,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">부재 일정 관리</h1>
+          <h1 className="text-xl font-bold text-gray-800">스케줄 관리</h1>
           <p className="text-sm text-gray-500 mt-1">자리를 비우는 일정을 등록하세요</p>
         </div>
         {/* 뷰 모드 토글 */}

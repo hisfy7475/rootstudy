@@ -17,6 +17,7 @@ export interface Database {
           phone: string | null;
           user_type: 'student' | 'parent' | 'admin';
           branch_id: string | null;
+          is_approved: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -27,6 +28,7 @@ export interface Database {
           phone?: string | null;
           user_type: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
+          is_approved?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -37,6 +39,7 @@ export interface Database {
           phone?: string | null;
           user_type?: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
+          is_approved?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -73,7 +76,6 @@ export interface Database {
       student_types: {
         Row: {
           id: string;
-          branch_id: string | null;
           name: string;
           weekly_goal_hours: number;
           vacation_weekly_hours: number;
@@ -82,7 +84,6 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          branch_id?: string | null;
           name: string;
           weekly_goal_hours: number;
           vacation_weekly_hours?: number;
@@ -91,7 +92,6 @@ export interface Database {
         };
         Update: {
           id?: string;
-          branch_id?: string | null;
           name?: string;
           weekly_goal_hours?: number;
           vacation_weekly_hours?: number;

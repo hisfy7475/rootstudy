@@ -23,11 +23,11 @@ import {
   getStudentTypeSubjects,
   setStudentTypeSubjects,
   getWeeklyGoalSettings,
-  getDateTypesForStudentType,
+  getDateTypesForBranch,
   saveWeeklyGoalSettingsBatch,
   type WeeklyGoalSettingWithDateType
 } from '@/lib/actions/student-type';
-import type { StudentType, Branch, DateTypeDefinition } from '@/types/database';
+import type { StudentType, DateTypeDefinition } from '@/types/database';
 import { DEFAULT_SUBJECTS } from '@/lib/constants';
 
 interface StudentTypeWithCount extends StudentType {
@@ -36,13 +36,13 @@ interface StudentTypeWithCount extends StudentType {
 
 interface StudentTypesClientProps {
   initialTypes: StudentTypeWithCount[];
-  branches: Branch[];
+  adminBranchId: string | null;
   unassignedCount: number;
 }
 
 export default function StudentTypesClient({ 
   initialTypes, 
-  branches,
+  adminBranchId,
   unassignedCount 
 }: StudentTypesClientProps) {
   const [types, setTypes] = useState(initialTypes);
@@ -54,12 +54,10 @@ export default function StudentTypesClient({
   // 새 타입 추가 폼
   const [newName, setNewName] = useState('');
   const [newGoalHours, setNewGoalHours] = useState('40');
-  const [newBranchId, setNewBranchId] = useState<string>('');
 
   // 수정 폼
   const [editName, setEditName] = useState('');
   const [editGoalHours, setEditGoalHours] = useState('');
-  const [editBranchId, setEditBranchId] = useState<string>('');
 
   // 과목 설정
   const [typeSubjects, setTypeSubjects] = useState<string[]>([]);
@@ -82,14 +80,12 @@ export default function StudentTypesClient({
     const result = await createStudentType({
       name: newName.trim(),
       weekly_goal_hours: parseInt(newGoalHours) || 40,
-      branch_id: newBranchId || null,
     });
 
     if (result.success && result.data) {
       setTypes([...types, { ...result.data, studentCount: 0 }]);
       setNewName('');
       setNewGoalHours('40');
-      setNewBranchId('');
       setShowAddForm(false);
     }
     setIsLoading(false);
@@ -99,7 +95,6 @@ export default function StudentTypesClient({
     setEditingId(type.id);
     setEditName(type.name);
     setEditGoalHours(type.weekly_goal_hours.toString());
-    setEditBranchId(type.branch_id || '');
   };
 
   const handleSaveEdit = async (id: string) => {
@@ -109,7 +104,6 @@ export default function StudentTypesClient({
     const result = await updateStudentType(id, {
       name: editName.trim(),
       weekly_goal_hours: parseInt(editGoalHours) || 40,
-      branch_id: editBranchId || null,
     });
 
     if (result.success) {
@@ -119,7 +113,6 @@ export default function StudentTypesClient({
               ...t, 
               name: editName.trim(), 
               weekly_goal_hours: parseInt(editGoalHours) || 40,
-              branch_id: editBranchId || null
             } 
           : t
       ));
@@ -176,10 +169,15 @@ export default function StudentTypesClient({
 
   // 주간 목표 설정 모달 열기
   const handleOpenGoalEdit = async (type: StudentTypeWithCount) => {
+    if (!adminBranchId) {
+      alert('관리자의 소속 지점이 설정되지 않았습니다. 먼저 지점을 배정받으세요.');
+      return;
+    }
+    
     setIsLoading(true);
     
-    // 해당 학생 타입의 지점 날짜 타입들 조회
-    const dateTypeList = await getDateTypesForStudentType(type.id);
+    // 관리자의 지점 날짜 타입들 조회
+    const dateTypeList = await getDateTypesForBranch(adminBranchId);
     setDateTypes(dateTypeList);
     
     // 기존 설정 조회
@@ -255,12 +253,6 @@ export default function StudentTypesClient({
     }));
   };
 
-  const getBranchName = (branchId: string | null) => {
-    if (!branchId) return '전체';
-    const branch = branches.find(b => b.id === branchId);
-    return branch?.name || '알 수 없음';
-  };
-
   const totalStudents = types.reduce((sum, t) => sum + t.studentCount, 0) + unassignedCount;
 
   return (
@@ -284,7 +276,7 @@ export default function StudentTypesClient({
       {showAddForm && (
         <Card className="p-4">
           <h3 className="font-semibold mb-4">새 학생 타입 추가</h3>
-          <div className="grid grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-3 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">타입명 *</label>
               <Input
@@ -304,19 +296,6 @@ export default function StudentTypesClient({
                 max="168"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">지점</label>
-              <select
-                value={newBranchId}
-                onChange={(e) => setNewBranchId(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="">전체 지점</option>
-                {branches.map(branch => (
-                  <option key={branch.id} value={branch.id}>{branch.name}</option>
-                ))}
-              </select>
-            </div>
             <div className="flex gap-2">
               <Button
                 onClick={handleAdd}
@@ -330,7 +309,6 @@ export default function StudentTypesClient({
                   setShowAddForm(false);
                   setNewName('');
                   setNewGoalHours('40');
-                  setNewBranchId('');
                 }}
               >
                 취소
@@ -496,7 +474,7 @@ export default function StudentTypesClient({
 
             {dateTypes.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                <p>이 학생 타입에 해당하는 지점의 날짜 타입이 없습니다.</p>
+                <p>현재 지점에 등록된 날짜 타입이 없습니다.</p>
                 <p className="text-sm mt-1">먼저 날짜 타입 관리에서 날짜 타입을 추가해주세요.</p>
               </div>
             ) : (
@@ -613,7 +591,7 @@ export default function StudentTypesClient({
             types.map(type => (
               <Card key={type.id} className="p-4">
                 {editingId === type.id ? (
-                  <div className="grid grid-cols-4 gap-4 items-end">
+                  <div className="grid grid-cols-3 gap-4 items-end">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">타입명</label>
                       <Input
@@ -630,19 +608,6 @@ export default function StudentTypesClient({
                         min="1"
                         max="168"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">지점</label>
-                      <select
-                        value={editBranchId}
-                        onChange={(e) => setEditBranchId(e.target.value)}
-                        className="w-full h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      >
-                        <option value="">전체 지점</option>
-                        {branches.map(branch => (
-                          <option key={branch.id} value={branch.id}>{branch.name}</option>
-                        ))}
-                      </select>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -667,7 +632,6 @@ export default function StudentTypesClient({
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-800">{type.name}</h3>
-                        <p className="text-sm text-gray-500">{getBranchName(type.branch_id)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-6">

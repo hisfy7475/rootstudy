@@ -119,17 +119,6 @@ export function PointsPageClient({ points, summary }: PointsPageClientProps) {
       {/* 내역 목록 */}
       <PointsList points={filteredPoints} />
 
-      {/* 안내 문구 */}
-      <div className="bg-accent/20 rounded-2xl p-4">
-        <p className="text-sm text-text">
-          <span className="font-semibold">💡 상벌점 규칙:</span>
-        </p>
-        <ul className="text-sm text-text mt-2 space-y-1">
-          <li>• 목표 시간까지 등원: <span className="text-green-600 font-medium">상점 +1</span></li>
-          <li>• 목표 시간 지각: <span className="text-red-500 font-medium">벌점 +1</span></li>
-          <li>• 높은 몰입도 유지: <span className="text-green-600 font-medium">상점 +1</span></li>
-        </ul>
-      </div>
     </div>
   );
 }

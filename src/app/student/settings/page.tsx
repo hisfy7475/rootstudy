@@ -16,10 +16,8 @@ export default async function StudentSettingsPage() {
     );
   }
 
-  // 해당 지점의 학생 타입 목록 조회
-  const studentTypes = profile.branchId 
-    ? await getStudentTypes(profile.branchId) 
-    : [];
+  // 학생 타입 목록 조회 (지점 무관)
+  const studentTypes = await getStudentTypes();
 
   return (
     <SettingsClient 

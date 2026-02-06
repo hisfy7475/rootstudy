@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -23,6 +23,9 @@ import {
   BookOpen,
   Shield,
   Building2,
+  UserPlus,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,7 +35,9 @@ interface Member {
   name: string;
   phone: string | null;
   user_type: string;
+  is_approved: boolean;
   created_at: string;
+  branch_id: string | null;
 }
 
 interface ParentMember {
@@ -120,11 +125,24 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved'>('all');
+  // 승인 모달 상태
+  const [approvalModal, setApprovalModal] = useState<{ student: Member } | null>(null);
+  const [approvalForm, setApprovalForm] = useState({ capsId: '', seatNumber: '', studentTypeId: '' });
+  const [approvalStudentTypes, setApprovalStudentTypes] = useState<StudentTypeOption[]>([]);
+
+  const pendingCount = students.filter(s => !s.is_approved).length;
+  const approvedCount = students.filter(s => s.is_approved).length;
 
   const filteredStudents = students.filter(
-    (m) =>
-      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.email.toLowerCase().includes(searchQuery.toLowerCase())
+    (m) => {
+      const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.email.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesFilter = studentFilter === 'all' ||
+        (studentFilter === 'pending' && !m.is_approved) ||
+        (studentFilter === 'approved' && m.is_approved);
+      return matchesSearch && matchesFilter;
+    }
   );
 
   const filteredParents = parents.filter(
@@ -163,11 +181,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       const detail = await getStudentDetail(studentId);
       setSelectedStudent(detail);
       
-      // 학생의 지점에 해당하는 학생 타입 목록 로드
-      if (detail?.branchId) {
-        const types = await getStudentTypes(detail.branchId);
-        setStudentTypes(types.map(t => ({ id: t.id, name: t.name })));
-      }
+      // 학생 타입 목록 로드 (지점 무관)
+      const types = await getStudentTypes();
+      setStudentTypes(types.map(t => ({ id: t.id, name: t.name })));
     } catch (error) {
       console.error('Failed to fetch student detail:', error);
     } finally {
@@ -211,6 +227,48 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       setLoading(false);
       setEditMode(null);
       setEditValue('');
+    }
+  };
+
+  // 승인 모달 열기
+  const handleOpenApproval = async (student: Member) => {
+    setApprovalModal({ student });
+    setApprovalForm({ capsId: '', seatNumber: '', studentTypeId: '' });
+    // 학생 타입 목록 로드
+    try {
+      const types = await getStudentTypes();
+      setApprovalStudentTypes(types.map(t => ({ id: t.id, name: t.name })));
+    } catch (error) {
+      console.error('Failed to load student types:', error);
+    }
+  };
+
+  // 승인 처리
+  const handleApprove = async () => {
+    if (!approvalModal) return;
+
+    setLoading(true);
+    try {
+      const result = await approveStudent(
+        approvalModal.student.id,
+        approvalForm.capsId,
+        approvalForm.seatNumber ? parseInt(approvalForm.seatNumber) : null,
+        approvalForm.studentTypeId || null
+      );
+
+      if (result.success) {
+        // 학생 목록 새로고침
+        const allMembers = await getAllMembers();
+        setStudents(allMembers.filter(m => m.user_type === 'student'));
+        setApprovalModal(null);
+      } else {
+        alert(result.error || '승인에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to approve student:', error);
+      alert('승인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -268,6 +326,47 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
               />
             </div>
           </div>
+
+          {/* 학생 탭: 승인 상태 필터 */}
+          {activeTab === 'students' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setStudentFilter('all')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                  studentFilter === 'all'
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-text-muted hover:bg-gray-200"
+                )}
+              >
+                전체 ({students.length})
+              </button>
+              <button
+                onClick={() => setStudentFilter('pending')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1",
+                  studentFilter === 'pending'
+                    ? "bg-yellow-500 text-white"
+                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                )}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                승인 대기 ({pendingCount})
+              </button>
+              <button
+                onClick={() => setStudentFilter('approved')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1",
+                  studentFilter === 'approved'
+                    ? "bg-green-600 text-white"
+                    : "bg-green-50 text-green-700 hover:bg-green-100"
+                )}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                승인됨 ({approvedCount})
+              </button>
+            </div>
+          )}
 
           {/* 관리자 목록 테이블 */}
           {activeTab === 'admins' ? (
@@ -340,6 +439,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">상태</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
                   </tr>
@@ -347,35 +447,64 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                 <tbody className="divide-y divide-gray-100">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
-                        학생이 없습니다.
+                      <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                        {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : '학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     filteredStudents.map((member) => (
-                      <tr key={member.id} className="hover:bg-gray-50">
+                      <tr key={member.id} className={cn("hover:bg-gray-50", !member.is_approved && "bg-yellow-50/50")}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <User className="w-4 h-4 text-primary" />
+                            <div className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center",
+                              member.is_approved ? "bg-primary/10" : "bg-yellow-100"
+                            )}>
+                              <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : "text-yellow-600")} />
                             </div>
                             <span className="font-medium">{member.name}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-text-muted">{member.email}</td>
                         <td className="px-4 py-3 text-sm">{member.phone || '-'}</td>
+                        <td className="px-4 py-3 text-sm">
+                          {member.is_approved ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                              <CheckCircle2 className="w-3 h-3" />
+                              승인됨
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                              <Clock className="w-3 h-3" />
+                              대기중
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-sm text-text-muted">
                           {formatDate(member.created_at)}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleViewDetail(member.id)}
-                            disabled={loading}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!member.is_approved && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenApproval(member)}
+                                disabled={loading}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <UserPlus className="w-4 h-4 mr-1" />
+                                승인
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleViewDetail(member.id)}
+                              disabled={loading}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -546,9 +675,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     )}
                   </div>
 
-                  {/* 학년(학생 타입) */}
+                  {/* 학생 타입 */}
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-muted">학년</span>
+                    <span className="text-sm text-text-muted">학생 타입</span>
                     {editMode?.id === selectedStudent.id && editMode.field === 'studentTypeId' ? (
                       <div className="flex items-center gap-2">
                         <select
@@ -679,6 +808,94 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         </div>
         )}
       </div>
+
+      {/* 승인 모달 */}
+      {approvalModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">학생 가입 승인</h2>
+              <button
+                onClick={() => setApprovalModal(null)}
+                className="text-text-muted hover:text-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 학생 정보 */}
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
+                  <User className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="font-medium">{approvalModal.student.name}</p>
+                  <p className="text-sm text-text-muted">{approvalModal.student.email}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 입력 폼 */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  CAPS ID <span className="text-text-muted font-normal">(출입관리 학번)</span>
+                </label>
+                <Input
+                  type="text"
+                  placeholder="CAPS ID 입력"
+                  value={approvalForm.capsId}
+                  onChange={(e) => setApprovalForm(prev => ({ ...prev, capsId: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">좌석 번호</label>
+                <Input
+                  type="number"
+                  placeholder="좌석 번호 입력"
+                  value={approvalForm.seatNumber}
+                  onChange={(e) => setApprovalForm(prev => ({ ...prev, seatNumber: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">학생 타입</label>
+                <select
+                  value={approvalForm.studentTypeId}
+                  onChange={(e) => setApprovalForm(prev => ({ ...prev, studentTypeId: e.target.value }))}
+                  className="w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">학생 타입 선택</option>
+                  {approvalStudentTypes.map(type => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* 버튼 */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setApprovalModal(null)}
+                disabled={loading}
+              >
+                취소
+              </Button>
+              <Button
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                onClick={handleApprove}
+                disabled={loading}
+              >
+                {loading ? '처리중...' : '승인'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

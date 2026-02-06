@@ -9,20 +9,14 @@ export interface WeeklyGoalSettingWithDateType extends WeeklyGoalSetting {
   date_type?: DateTypeDefinition;
 }
 
-// 학생 타입 목록 조회
-export async function getStudentTypes(branchId?: string): Promise<StudentType[]> {
+// 학생 타입 목록 조회 (지점 무관, 전체 조회)
+export async function getStudentTypes(): Promise<StudentType[]> {
   const supabase = await createClient();
   
-  let query = supabase
+  const { data, error } = await supabase
     .from('student_types')
     .select('*')
     .order('name');
-  
-  if (branchId) {
-    query = query.eq('branch_id', branchId);
-  }
-  
-  const { data, error } = await query;
   
   if (error) {
     console.error('Error fetching student types:', error);
@@ -54,7 +48,6 @@ export async function getStudentType(id: string): Promise<StudentType | null> {
 export async function createStudentType(data: {
   name: string;
   weekly_goal_hours: number;
-  branch_id?: string | null;
 }): Promise<{ success: boolean; data?: StudentType; error?: string }> {
   const supabase = await createClient();
   
@@ -63,7 +56,6 @@ export async function createStudentType(data: {
     .insert({
       name: data.name,
       weekly_goal_hours: data.weekly_goal_hours,
-      branch_id: data.branch_id || null,
     })
     .select()
     .single();
@@ -83,7 +75,6 @@ export async function updateStudentType(
   data: {
     name?: string;
     weekly_goal_hours?: number;
-    branch_id?: string | null;
   }
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
@@ -277,29 +268,16 @@ export async function getWeeklyGoalSettings(
   return data || [];
 }
 
-// 학생 타입의 지점에 해당하는 날짜 타입 목록 조회
-export async function getDateTypesForStudentType(
-  studentTypeId: string
+// 지점에 해당하는 날짜 타입 목록 조회
+export async function getDateTypesForBranch(
+  branchId: string
 ): Promise<DateTypeDefinition[]> {
   const supabase = await createClient();
   
-  // 학생 타입의 지점 조회
-  const { data: studentType, error: typeError } = await supabase
-    .from('student_types')
-    .select('branch_id')
-    .eq('id', studentTypeId)
-    .single();
-  
-  if (typeError || !studentType?.branch_id) {
-    console.error('Error fetching student type branch:', typeError);
-    return [];
-  }
-  
-  // 해당 지점의 날짜 타입 목록 조회
   const { data: dateTypes, error: dateError } = await supabase
     .from('date_type_definitions')
     .select('*')
-    .eq('branch_id', studentType.branch_id)
+    .eq('branch_id', branchId)
     .order('name');
   
   if (dateError) {

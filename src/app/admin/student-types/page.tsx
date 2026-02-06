@@ -1,12 +1,26 @@
 import { getStudentTypes, getStudentTypeStudentCounts } from '@/lib/actions/student-type';
-import { getAllBranches } from '@/lib/actions/branch';
+import { createClient } from '@/lib/supabase/server';
 import StudentTypesClient from './student-types-client';
 
 export default async function StudentTypesPage() {
-  const [studentTypes, studentCounts, branches] = await Promise.all([
+  const supabase = await createClient();
+
+  // 현재 로그인한 관리자의 branch_id 조회
+  const { data: { user } } = await supabase.auth.getUser();
+  let adminBranchId: string | null = null;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('branch_id')
+      .eq('id', user.id)
+      .single();
+    adminBranchId = profile?.branch_id || null;
+  }
+
+  const [studentTypes, studentCounts] = await Promise.all([
     getStudentTypes(),
     getStudentTypeStudentCounts(),
-    getAllBranches(),
   ]);
 
   // 학생 수 매핑
@@ -20,7 +34,7 @@ export default async function StudentTypesPage() {
   return (
     <StudentTypesClient
       initialTypes={typesWithCount}
-      branches={branches}
+      adminBranchId={adminBranchId}
       unassignedCount={unassignedCount}
     />
   );
