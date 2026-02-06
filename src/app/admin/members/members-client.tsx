@@ -498,7 +498,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                         </td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            {!member.is_approved && (
+                            {!member.is_approved ? (
                               <Button
                                 size="sm"
                                 onClick={() => handleOpenApproval(member)}
@@ -508,15 +508,16 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                                 <UserPlus className="w-4 h-4 mr-1" />
                                 승인
                               </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleViewDetail(member.id)}
+                                disabled={loading}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
                             )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleViewDetail(member.id)}
-                              disabled={loading}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
                           </div>
                         </td>
                       </tr>
