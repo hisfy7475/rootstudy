@@ -104,18 +104,21 @@ export interface Database {
           id: string;
           student_type_id: string;
           subject_name: string;
+          sort_order: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           student_type_id: string;
           subject_name: string;
+          sort_order?: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           student_type_id?: string;
           subject_name?: string;
+          sort_order?: number;
           created_at?: string;
         };
       };
@@ -885,6 +888,8 @@ export interface Database {
           weekly_goal_hours: number;
           reward_points: number;
           penalty_points: number;
+          minimum_hours: number;
+          minimum_penalty_points: number;
           created_at: string;
         };
         Insert: {
@@ -894,6 +899,8 @@ export interface Database {
           weekly_goal_hours?: number;
           reward_points?: number;
           penalty_points?: number;
+          minimum_hours?: number;
+          minimum_penalty_points?: number;
           created_at?: string;
         };
         Update: {
@@ -903,6 +910,8 @@ export interface Database {
           weekly_goal_hours?: number;
           reward_points?: number;
           penalty_points?: number;
+          minimum_hours?: number;
+          minimum_penalty_points?: number;
           created_at?: string;
         };
       };

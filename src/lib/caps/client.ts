@@ -61,8 +61,7 @@ export async function getEnterRecordsAfter(
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
       FROM tenter 
       WHERE CONCAT(e_date, e_time) > @afterDatetime 
-        AND e_id > 0 
-        AND e_idno != ''
+        AND e_id > 0
       ORDER BY e_date, e_time
     `;
     request.input('afterDatetime', sql.VarChar, afterDatetime);
@@ -75,8 +74,7 @@ export async function getEnterRecordsAfter(
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
       FROM tenter 
       WHERE CONCAT(e_date, e_time) >= @sdate 
-        AND e_id > 0 
-        AND e_idno != ''
+        AND e_id > 0
       ORDER BY e_date, e_time
     `;
     request.input('sdate', sql.VarChar, sdate);

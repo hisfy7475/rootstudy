@@ -14,7 +14,10 @@ import {
   BookOpen,
   X,
   Check,
-  Target
+  Target,
+  ChevronUp,
+  ChevronDown,
+  GripVertical
 } from 'lucide-react';
 import { 
   createStudentType, 
@@ -63,14 +66,15 @@ export default function StudentTypesClient({
   const [typeSubjects, setTypeSubjects] = useState<string[]>([]);
   const [newSubject, setNewSubject] = useState('');
 
-  // 주간 목표 설정
+  // 주간 목표 설정 (투트랙 지원)
   const [goalEditingId, setGoalEditingId] = useState<string | null>(null);
   const [goalEditingName, setGoalEditingName] = useState('');
   const [dateTypes, setDateTypes] = useState<DateTypeDefinition[]>([]);
   const [goalSettings, setGoalSettings] = useState<Record<string, {
     weekly_goal_hours: number;
     reward_points: number;
-    penalty_points: number;
+    minimum_hours: number;
+    minimum_penalty_points: number;
   }>>({});
 
   const handleAdd = async () => {
@@ -138,6 +142,7 @@ export default function StudentTypesClient({
   const handleOpenSubjectEdit = async (id: string) => {
     setIsLoading(true);
     const subjects = await getStudentTypeSubjects(id);
+    // sort_order 순으로 정렬된 과목명 배열
     setTypeSubjects(subjects.map(s => s.subject_name));
     setSubjectEditingId(id);
     setIsLoading(false);
@@ -154,6 +159,16 @@ export default function StudentTypesClient({
     setTypeSubjects(typeSubjects.filter(s => s !== subject));
   };
 
+  // 과목 순서 이동
+  const handleMoveSubject = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= typeSubjects.length) return;
+    
+    const newSubjects = [...typeSubjects];
+    [newSubjects[index], newSubjects[newIndex]] = [newSubjects[newIndex], newSubjects[index]];
+    setTypeSubjects(newSubjects);
+  };
+
   const handleSaveSubjects = async () => {
     if (!subjectEditingId) return;
 
@@ -167,7 +182,7 @@ export default function StudentTypesClient({
     setIsLoading(false);
   };
 
-  // 주간 목표 설정 모달 열기
+  // 주간 목표 설정 모달 열기 (투트랙 지원)
   const handleOpenGoalEdit = async (type: StudentTypeWithCount) => {
     if (!adminBranchId) {
       alert('관리자의 소속 지점이 설정되지 않았습니다. 먼저 지점을 배정받으세요.');
@@ -183,11 +198,12 @@ export default function StudentTypesClient({
     // 기존 설정 조회
     const existingSettings = await getWeeklyGoalSettings(type.id);
     
-    // 설정을 객체로 변환
+    // 설정을 객체로 변환 (투트랙 지원)
     const settingsMap: Record<string, {
       weekly_goal_hours: number;
       reward_points: number;
-      penalty_points: number;
+      minimum_hours: number;
+      minimum_penalty_points: number;
     }> = {};
     
     // 모든 날짜 타입에 대해 기본값 설정
@@ -195,7 +211,8 @@ export default function StudentTypesClient({
       settingsMap[dt.id] = {
         weekly_goal_hours: type.weekly_goal_hours, // 기본값으로 학생타입의 주간목표 사용
         reward_points: 1,
-        penalty_points: 1,
+        minimum_hours: 0,
+        minimum_penalty_points: 0,
       };
     });
     
@@ -204,7 +221,8 @@ export default function StudentTypesClient({
       settingsMap[s.date_type_id] = {
         weekly_goal_hours: s.weekly_goal_hours,
         reward_points: s.reward_points,
-        penalty_points: s.penalty_points,
+        minimum_hours: s.minimum_hours || 0,
+        minimum_penalty_points: s.minimum_penalty_points || 0,
       };
     });
     
@@ -214,7 +232,7 @@ export default function StudentTypesClient({
     setIsLoading(false);
   };
 
-  // 주간 목표 설정 저장
+  // 주간 목표 설정 저장 (투트랙 지원)
   const handleSaveGoalSettings = async () => {
     if (!goalEditingId) return;
 
@@ -224,7 +242,9 @@ export default function StudentTypesClient({
       date_type_id: dateTypeId,
       weekly_goal_hours: setting.weekly_goal_hours,
       reward_points: setting.reward_points,
-      penalty_points: setting.penalty_points,
+      penalty_points: 0, // deprecated, 기존 호환을 위해 0으로 설정
+      minimum_hours: setting.minimum_hours,
+      minimum_penalty_points: setting.minimum_penalty_points,
     }));
     
     const result = await saveWeeklyGoalSettingsBatch(goalEditingId, settings);
@@ -238,10 +258,10 @@ export default function StudentTypesClient({
     setIsLoading(false);
   };
 
-  // 목표 설정 값 변경
+  // 목표 설정 값 변경 (투트랙 지원)
   const handleGoalSettingChange = (
     dateTypeId: string,
-    field: 'weekly_goal_hours' | 'reward_points' | 'penalty_points',
+    field: 'weekly_goal_hours' | 'reward_points' | 'minimum_hours' | 'minimum_penalty_points',
     value: number
   ) => {
     setGoalSettings(prev => ({
@@ -400,28 +420,51 @@ export default function StudentTypesClient({
               </div>
             </div>
 
-            {/* 선택된 과목 목록 */}
+            {/* 선택된 과목 목록 (순서 변경 가능) */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                선택된 과목 ({typeSubjects.length})
+                선택된 과목 ({typeSubjects.length}) - 순서 변경 가능
               </label>
-              <div className="flex flex-wrap gap-2 min-h-[40px] p-3 bg-gray-50 rounded-xl">
+              <div className="space-y-2 min-h-[40px] p-3 bg-gray-50 rounded-xl">
                 {typeSubjects.length === 0 ? (
                   <span className="text-gray-400 text-sm">과목을 선택해주세요</span>
                 ) : (
-                  typeSubjects.map(subject => (
-                    <span
+                  typeSubjects.map((subject, index) => (
+                    <div
                       key={subject}
-                      className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                      className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-lg border border-gray-200"
                     >
-                      {subject}
-                      <button
-                        onClick={() => handleRemoveSubject(subject)}
-                        className="hover:text-red-500"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
+                      <div className="flex items-center gap-2">
+                        <GripVertical className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-500 w-5">{index + 1}</span>
+                        <span className="text-sm font-medium">{subject}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleMoveSubject(index, 'up')}
+                          disabled={index === 0}
+                          className="p-1 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="위로 이동"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleMoveSubject(index, 'down')}
+                          disabled={index === typeSubjects.length - 1}
+                          className="p-1 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="아래로 이동"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveSubject(subject)}
+                          className="p-1 hover:bg-red-50 hover:text-red-500 rounded"
+                          title="삭제"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
                   ))
                 )}
               </div>
@@ -479,20 +522,21 @@ export default function StudentTypesClient({
               </div>
             ) : (
               <>
-                {/* 테이블 헤더 */}
-                <div className="grid grid-cols-4 gap-4 mb-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium text-gray-600">
+                {/* 테이블 헤더 - 투트랙 */}
+                <div className="grid grid-cols-5 gap-3 mb-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium text-gray-600">
                   <div>날짜 타입</div>
                   <div className="text-center">주간 목표 (시간)</div>
                   <div className="text-center">달성 상점</div>
+                  <div className="text-center">최소 시간</div>
                   <div className="text-center">미달 벌점</div>
                 </div>
 
-                {/* 설정 행 */}
+                {/* 설정 행 - 투트랙 */}
                 <div className="space-y-2">
                   {dateTypes.map(dt => (
                     <div
                       key={dt.id}
-                      className="grid grid-cols-4 gap-4 items-center px-3 py-3 bg-gray-50 rounded-lg"
+                      className="grid grid-cols-5 gap-3 items-center px-3 py-3 bg-gray-50 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
                         <div
@@ -533,11 +577,25 @@ export default function StudentTypesClient({
                         <Input
                           type="number"
                           min="0"
-                          max="100"
-                          value={goalSettings[dt.id]?.penalty_points ?? 1}
+                          max="168"
+                          value={goalSettings[dt.id]?.minimum_hours ?? 0}
                           onChange={(e) => handleGoalSettingChange(
                             dt.id,
-                            'penalty_points',
+                            'minimum_hours',
+                            parseInt(e.target.value) || 0
+                          )}
+                          className="text-center"
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={goalSettings[dt.id]?.minimum_penalty_points ?? 0}
+                          onChange={(e) => handleGoalSettingChange(
+                            dt.id,
+                            'minimum_penalty_points',
                             parseInt(e.target.value) || 0
                           )}
                           className="text-center"
@@ -550,7 +608,8 @@ export default function StudentTypesClient({
                 <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
                   <p><strong>안내:</strong> 매주 일요일 자정에 주간 목표 달성 여부를 체크합니다.</p>
                   <p className="mt-1">• 목표 달성 시 → 상점 부여</p>
-                  <p>• 목표 미달 시 → 벌점 부여</p>
+                  <p>• 최소 미달 시 → 벌점 부여</p>
+                  <p>• 중간 (최소 이상, 목표 미만) → 상벌점 없음</p>
                 </div>
               </>
             )}

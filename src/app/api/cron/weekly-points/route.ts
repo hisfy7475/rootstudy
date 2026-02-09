@@ -83,14 +83,22 @@ function calculateStudyMinutes(
   return Math.floor(totalMinutes);
 }
 
-// 학생의 주간 목표시간 계산 (날짜 타입별 가중 평균)
+// 투트랙 주간 목표 설정 반환 타입
+interface WeeklyGoalResult {
+  goalMinutes: number;           // 목표 시간 (분)
+  rewardPoints: number;          // 목표 달성 시 상점
+  minimumMinutes: number;        // 최소 시간 (분)
+  minimumPenaltyPoints: number;  // 최소 미달 시 벌점
+}
+
+// 학생의 주간 목표시간 계산 (날짜 타입별 가중 평균) - 투트랙 지원
 async function calculateWeeklyGoalMinutes(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   studentTypeId: string,
   branchId: string,
   weekDates: string[],
   defaultGoalHours: number
-): Promise<{ goalMinutes: number; rewardPoints: number; penaltyPoints: number }> {
+): Promise<WeeklyGoalResult> {
   // 해당 주의 날짜별 date_type 조회
   const { data: dateAssignments } = await supabase
     .from('date_assignments')
@@ -104,29 +112,36 @@ async function calculateWeeklyGoalMinutes(
     dateTypeMap.set(da.date, da.date_type_id);
   });
 
-  // 학생 타입의 날짜 타입별 목표 설정 조회
+  // 학생 타입의 날짜 타입별 목표 설정 조회 (투트랙 필드 포함)
   const { data: goalSettings } = await supabase
     .from('weekly_goal_settings')
-    .select('date_type_id, weekly_goal_hours, reward_points, penalty_points')
+    .select('date_type_id, weekly_goal_hours, reward_points, minimum_hours, minimum_penalty_points')
     .eq('student_type_id', studentTypeId);
 
   // 날짜 타입별 설정 맵 생성
   const settingsMap = new Map<
     string,
-    { weekly_goal_hours: number; reward_points: number; penalty_points: number }
+    {
+      weekly_goal_hours: number;
+      reward_points: number;
+      minimum_hours: number;
+      minimum_penalty_points: number;
+    }
   >();
   goalSettings?.forEach((gs) => {
     settingsMap.set(gs.date_type_id, {
       weekly_goal_hours: gs.weekly_goal_hours,
       reward_points: gs.reward_points,
-      penalty_points: gs.penalty_points,
+      minimum_hours: gs.minimum_hours || 0,
+      minimum_penalty_points: gs.minimum_penalty_points || 0,
     });
   });
 
   // 날짜 타입별 일수 카운트 및 목표시간/상벌점 합산
   let totalGoalHours = 0;
   let totalRewardPoints = 0;
-  let totalPenaltyPoints = 0;
+  let totalMinimumHours = 0;
+  let totalMinimumPenaltyPoints = 0;
   let assignedDays = 0;
 
   for (const date of weekDates) {
@@ -136,7 +151,8 @@ async function calculateWeeklyGoalMinutes(
       // 해당 날짜 타입의 목표시간을 7로 나눈 값 (일일 목표)
       totalGoalHours += setting.weekly_goal_hours / 7;
       totalRewardPoints += setting.reward_points / 7;
-      totalPenaltyPoints += setting.penalty_points / 7;
+      totalMinimumHours += setting.minimum_hours / 7;
+      totalMinimumPenaltyPoints += setting.minimum_penalty_points / 7;
       assignedDays++;
     }
   }
@@ -146,7 +162,8 @@ async function calculateWeeklyGoalMinutes(
     return {
       goalMinutes: Math.round(totalGoalHours * 60),
       rewardPoints: Math.round(totalRewardPoints * 7),
-      penaltyPoints: Math.round(totalPenaltyPoints * 7),
+      minimumMinutes: Math.round(totalMinimumHours * 60),
+      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints * 7),
     };
   } else if (assignedDays > 0) {
     // 일부만 설정된 경우
@@ -156,14 +173,16 @@ async function calculateWeeklyGoalMinutes(
     return {
       goalMinutes: Math.round(finalGoalHours * 60),
       rewardPoints: Math.round(totalRewardPoints * 7 / assignedDays),
-      penaltyPoints: Math.round(totalPenaltyPoints * 7 / assignedDays),
+      minimumMinutes: Math.round(totalMinimumHours * 60 * 7 / assignedDays),
+      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints * 7 / assignedDays),
     };
   } else {
-    // 설정이 없으면 기본값 사용
+    // 설정이 없으면 기본값 사용 (투트랙 미적용)
     return {
       goalMinutes: defaultGoalHours * 60,
       rewardPoints: 1,
-      penaltyPoints: 1,
+      minimumMinutes: 0,
+      minimumPenaltyPoints: 0,
     };
   }
 }
@@ -182,12 +201,14 @@ export async function GET(request: Request) {
     processed: number;
     rewarded: number;
     penalized: number;
+    neutral: number;  // 투트랙: 중간 (상벌점 없음)
     skipped: number;
     errors: string[];
   } = {
     processed: 0,
     rewarded: 0,
     penalized: 0,
+    neutral: 0,
     skipped: 0,
     errors: [],
   };
@@ -292,8 +313,8 @@ export async function GET(request: Request) {
         } | null;
         const defaultGoalHours = studentType?.weekly_goal_hours || 40;
 
-        // 목표시간 및 상벌점 계산
-        const { goalMinutes, rewardPoints, penaltyPoints } =
+        // 목표시간 및 상벌점 계산 (투트랙 지원)
+        const { goalMinutes, rewardPoints, minimumMinutes, minimumPenaltyPoints } =
           await calculateWeeklyGoalMinutes(
             supabase,
             student.student_type_id,
@@ -310,36 +331,71 @@ export async function GET(request: Request) {
           lastWeekEnd
         );
 
-        // 달성 여부 판단
-        const isAchieved = totalStudyMinutes >= goalMinutes;
-
-        // 포인트 부여
-        const pointType = isAchieved ? 'reward' : 'penalty';
-        const pointAmount = isAchieved ? rewardPoints : penaltyPoints;
-        const reason = isAchieved
-          ? `주간 목표 달성 (${Math.floor(totalStudyMinutes / 60)}시간/${Math.floor(goalMinutes / 60)}시간)`
-          : `주간 목표 미달 (${Math.floor(totalStudyMinutes / 60)}시간/${Math.floor(goalMinutes / 60)}시간)`;
-
-        // points 테이블에 저장
-        const { data: point, error: pointError } = await supabase
-          .from('points')
-          .insert({
-            student_id: student.id,
-            admin_id: null,
-            type: pointType,
-            amount: pointAmount,
-            reason,
-            is_auto: true,
-          })
-          .select('id')
-          .single();
-
-        if (pointError) {
-          results.errors.push(`Student ${student.id}: ${pointError.message}`);
-          continue;
+        // 투트랙 판단
+        const goalHours = Math.floor(goalMinutes / 60);
+        const minimumHours = Math.floor(minimumMinutes / 60);
+        const studyHours = Math.floor(totalStudyMinutes / 60);
+        
+        const isGoalAchieved = totalStudyMinutes >= goalMinutes;
+        const isBelowMinimum = minimumMinutes > 0 && totalStudyMinutes < minimumMinutes;
+        
+        // 투트랙: 목표 달성 → 상점, 최소 미달 → 벌점, 중간 → 없음
+        let pointType: 'reward' | 'penalty' | null = null;
+        let pointAmount = 0;
+        let reason = '';
+        let notificationTitle = '';
+        
+        if (isGoalAchieved) {
+          // 목표 달성 → 상점
+          pointType = 'reward';
+          pointAmount = rewardPoints;
+          reason = `주간 목표 달성 (${studyHours}시간/${goalHours}시간)`;
+          notificationTitle = '주간 목표 달성! 상점이 부여되었습니다';
+        } else if (isBelowMinimum) {
+          // 최소 미달 → 벌점
+          pointType = 'penalty';
+          pointAmount = minimumPenaltyPoints;
+          reason = `주간 최소시간 미달 (${studyHours}시간/${minimumHours}시간 미만)`;
+          notificationTitle = '주간 최소시간 미달로 벌점이 부여되었습니다';
+        } else {
+          // 중간 → 상벌점 없음
+          reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간)`;
         }
 
-        // weekly_point_history에 기록
+        let pointId: string | null = null;
+
+        // 상벌점이 있는 경우만 points 테이블에 저장
+        if (pointType && pointAmount > 0) {
+          const { data: point, error: pointError } = await supabase
+            .from('points')
+            .insert({
+              student_id: student.id,
+              admin_id: null,
+              type: pointType,
+              amount: pointAmount,
+              reason,
+              is_auto: true,
+            })
+            .select('id')
+            .single();
+
+          if (pointError) {
+            results.errors.push(`Student ${student.id}: ${pointError.message}`);
+            continue;
+          }
+          pointId = point.id;
+
+          // 알림 생성 (상벌점이 있는 경우만)
+          await supabase.from('student_notifications').insert({
+            student_id: student.id,
+            type: 'point',
+            title: notificationTitle,
+            message: reason,
+            link: '/student/points',
+          });
+        }
+
+        // weekly_point_history에 기록 (모든 경우)
         const { error: historyError } = await supabase
           .from('weekly_point_history')
           .insert({
@@ -347,8 +403,8 @@ export async function GET(request: Request) {
             week_start: weekStartStr,
             total_study_minutes: totalStudyMinutes,
             goal_minutes: goalMinutes,
-            is_achieved: isAchieved,
-            point_id: point.id,
+            is_achieved: isGoalAchieved,
+            point_id: pointId,
           });
 
         if (historyError) {
@@ -358,22 +414,13 @@ export async function GET(request: Request) {
           continue;
         }
 
-        // 학생 알림 생성
-        await supabase.from('student_notifications').insert({
-          student_id: student.id,
-          type: 'point',
-          title: isAchieved
-            ? '주간 목표 달성! 상점이 부여되었습니다'
-            : '주간 목표 미달로 벌점이 부여되었습니다',
-          message: reason,
-          link: '/student/points',
-        });
-
         results.processed++;
-        if (isAchieved) {
+        if (isGoalAchieved) {
           results.rewarded++;
-        } else {
+        } else if (isBelowMinimum) {
           results.penalized++;
+        } else {
+          results.neutral++;
         }
       } catch (err) {
         const errorMessage =

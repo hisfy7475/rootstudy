@@ -133,14 +133,9 @@ export function StudentStatusCard({
               <Brain className="w-4 h-4 text-secondary" />
             </div>
             <p className="text-xs text-text-muted mb-1">몰입도</p>
-            <p className="font-bold text-text text-sm">
-              {focusScore !== null ? `${focusScore}점` : '-'}
+            <p className="font-bold text-text text-sm truncate w-full">
+              {latestActivity || '-'}
             </p>
-            {latestActivity && (
-              <p className="text-xs text-primary mt-1 truncate w-full">
-                {latestActivity}
-              </p>
-            )}
           </div>
         </Card>
       </div>

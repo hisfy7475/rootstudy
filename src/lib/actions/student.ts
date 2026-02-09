@@ -468,15 +468,24 @@ export async function changeSubject(subjectName: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  // 입실 상태 확인
-  const { data: currentSession } = await supabase
-    .from('attendance_records')
-    .select('id')
+  // 입실 상태 확인 - attendance 테이블에서 오늘의 마지막 기록 확인
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+  
+  const { data: lastAttendance } = await supabase
+    .from('attendance')
+    .select('type')
     .eq('student_id', user.id)
-    .is('checked_out_at', null)
+    .gte('timestamp', start.toISOString())
+    .lte('timestamp', end.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(1)
     .single();
     
-  if (!currentSession) {
+  // 마지막 기록이 check_in 또는 break_end여야 입실 상태
+  const isCheckedIn = lastAttendance?.type === 'check_in' || lastAttendance?.type === 'break_end';
+  
+  if (!isCheckedIn) {
     return { error: '입실 상태에서만 과목을 변경할 수 있습니다.' };
   }
 

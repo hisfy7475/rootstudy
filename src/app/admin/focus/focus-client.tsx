@@ -12,7 +12,11 @@ import {
   createPenaltyPreset,
   deletePenaltyPreset,
   getPenaltyPresets,
+  createFocusScorePreset,
+  deleteFocusScorePreset,
+  getFocusScorePresets,
   type PenaltyPreset,
+  type FocusScorePreset,
 } from '@/lib/actions/admin';
 import {
   Brain,
@@ -29,7 +33,6 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { FOCUS_PRESETS } from '@/lib/constants';
 
 interface Student {
   id: string;
@@ -67,6 +70,7 @@ interface FocusClientProps {
   todayDate: string;
   branchId: string | null;
   initialPenaltyPresets: PenaltyPreset[];
+  initialFocusPresets: FocusScorePreset[];
 }
 
 // 기본 벌점 프리셋 (DB에 없을 때 사용)
@@ -74,6 +78,14 @@ const defaultPenaltyPresets = [
   { amount: 1, reason: '졸음/집중력 저하', color: 'bg-red-400' },
   { amount: 2, reason: '휴대폰 사용', color: 'bg-red-500' },
   { amount: 3, reason: '무단 이탈', color: 'bg-red-600' },
+];
+
+// 기본 몰입도 프리셋 (DB에 없을 때 사용)
+const defaultFocusPresets = [
+  { score: 8, label: '인강', color: 'bg-blue-500' },
+  { score: 5, label: '수면', color: 'bg-amber-500' },
+  { score: 7, label: '라운지', color: 'bg-blue-400' },
+  { score: 10, label: '클리닉/멘토링', color: 'bg-emerald-600' },
 ];
 
 // 현재 시간 기준 교시 찾기
@@ -115,6 +127,7 @@ export function FocusClient({
   todayDate,
   branchId,
   initialPenaltyPresets,
+  initialFocusPresets,
 }: FocusClientProps) {
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [report, setReport] = useState<FocusReport[]>(initialReport);
@@ -128,9 +141,16 @@ export function FocusClient({
   // 벌점 프리셋 상태
   const [penaltyPresets, setPenaltyPresets] = useState<PenaltyPreset[]>(initialPenaltyPresets);
   
+  // 몰입도 프리셋 상태
+  const [focusPresets, setFocusPresets] = useState<FocusScorePreset[]>(initialFocusPresets);
+  
   // 새 벌점 프리셋 입력
   const [newPenaltyAmount, setNewPenaltyAmount] = useState('');
   const [newPenaltyReason, setNewPenaltyReason] = useState('');
+  
+  // 새 몰입도 프리셋 입력
+  const [newFocusScore, setNewFocusScore] = useState('');
+  const [newFocusLabel, setNewFocusLabel] = useState('');
 
   // 커스텀 벌점
   const [customPenaltyReason, setCustomPenaltyReason] = useState('');
@@ -155,6 +175,11 @@ export function FocusClient({
   const activePenaltyPresets = penaltyPresets.length > 0 
     ? penaltyPresets.filter(p => p.amount < 999)
     : defaultPenaltyPresets.map((p, i) => ({ ...p, id: `default-${i}`, branch_id: '', sort_order: i, is_active: true }));
+
+  // 사용할 몰입도 프리셋 (DB에 있으면 DB것, 없으면 기본값)
+  const activeFocusPresets = focusPresets.length > 0 
+    ? focusPresets
+    : defaultFocusPresets.map((p, i) => ({ ...p, id: `default-${i}`, branch_id: '', sort_order: i, is_active: true }));
 
   // 전체 선택/해제
   const handleSelectAll = () => {
@@ -299,6 +324,50 @@ export function FocusClient({
     setLoading(false);
   };
 
+  // 몰입도 프리셋 추가
+  const handleAddFocusPreset = async () => {
+    if (!branchId) {
+      alert('지점 정보가 없습니다.');
+      return;
+    }
+    const score = parseInt(newFocusScore);
+    if (isNaN(score) || score < 1 || score > 10) {
+      alert('점수는 1~10 사이로 입력하세요.');
+      return;
+    }
+    if (!newFocusLabel.trim()) {
+      alert('라벨을 입력하세요.');
+      return;
+    }
+
+    setLoading(true);
+    const result = await createFocusScorePreset(branchId, score, newFocusLabel.trim());
+    if (result.success) {
+      const presets = await getFocusScorePresets(branchId);
+      setFocusPresets(presets);
+      setNewFocusScore('');
+      setNewFocusLabel('');
+      showSuccess('몰입도 프리셋 추가 완료');
+    } else {
+      alert(result.error);
+    }
+    setLoading(false);
+  };
+
+  // 몰입도 프리셋 삭제
+  const handleDeleteFocusPreset = async (id: string) => {
+    if (id.startsWith('default-')) return; // 기본 프리셋은 삭제 불가
+    
+    setLoading(true);
+    const result = await deleteFocusScorePreset(id);
+    if (result.success && branchId) {
+      const presets = await getFocusScorePresets(branchId);
+      setFocusPresets(presets);
+      showSuccess('프리셋 삭제 완료');
+    }
+    setLoading(false);
+  };
+
   const showSuccess = (message: string) => {
     setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(null), 3000);
@@ -360,53 +429,106 @@ export function FocusClient({
         </div>
       )}
 
-      {/* 벌점 프리셋 관리 패널 */}
+      {/* 프리셋 관리 패널 */}
       {showPresetManager && (
-        <Card className="p-4 bg-gray-50 border-2 border-dashed">
-          <h3 className="font-semibold mb-4 flex items-center gap-2">
-            <Settings className="w-4 h-4" />
-            벌점 프리셋 관리
-          </h3>
-          
-          <div className="flex flex-wrap gap-2 mb-3">
-            {activePenaltyPresets.map((preset) => (
-              <span
-                key={preset.id}
-                className={cn(
-                  'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white',
-                  preset.color || 'bg-red-500'
-                )}
-              >
-                {preset.reason} (-{preset.amount}점)
-                {!preset.id.startsWith('default-') && (
-                  <button
-                    onClick={() => handleDeletePenaltyPreset(preset.id)}
-                    className="ml-1 hover:bg-white/20 rounded-full p-0.5"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </span>
-            ))}
+        <Card className="p-4 bg-gray-50 border-2 border-dashed space-y-6">
+          {/* 몰입도 프리셋 관리 */}
+          <div>
+            <h3 className="font-semibold mb-4 flex items-center gap-2 text-blue-700">
+              <Brain className="w-4 h-4" />
+              몰입도 프리셋 관리
+            </h3>
+            
+            <div className="flex flex-wrap gap-2 mb-3">
+              {activeFocusPresets.map((preset) => (
+                <span
+                  key={preset.id}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white',
+                    preset.color || 'bg-blue-500'
+                  )}
+                >
+                  {preset.label} ({preset.score}점)
+                  {!preset.id.startsWith('default-') && (
+                    <button
+                      onClick={() => handleDeleteFocusPreset(preset.id)}
+                      className="ml-1 hover:bg-white/20 rounded-full p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2 max-w-md">
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                placeholder="점수"
+                value={newFocusScore}
+                onChange={(e) => setNewFocusScore(e.target.value)}
+                className="w-20"
+              />
+              <Input
+                placeholder="라벨 (예: 인강)"
+                value={newFocusLabel}
+                onChange={(e) => setNewFocusLabel(e.target.value)}
+                className="flex-1"
+              />
+              <Button size="sm" onClick={handleAddFocusPreset} disabled={loading}>
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2 max-w-md">
-            <Input
-              type="number"
-              min="1"
-              placeholder="점수"
-              value={newPenaltyAmount}
-              onChange={(e) => setNewPenaltyAmount(e.target.value)}
-              className="w-20"
-            />
-            <Input
-              placeholder="사유 (예: 지각)"
-              value={newPenaltyReason}
-              onChange={(e) => setNewPenaltyReason(e.target.value)}
-              className="flex-1"
-            />
-            <Button size="sm" onClick={handleAddPenaltyPreset} disabled={loading}>
-              <Plus className="w-4 h-4" />
-            </Button>
+
+          {/* 벌점 프리셋 관리 */}
+          <div>
+            <h3 className="font-semibold mb-4 flex items-center gap-2 text-red-700">
+              <Settings className="w-4 h-4" />
+              벌점 프리셋 관리
+            </h3>
+            
+            <div className="flex flex-wrap gap-2 mb-3">
+              {activePenaltyPresets.map((preset) => (
+                <span
+                  key={preset.id}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white',
+                    preset.color || 'bg-red-500'
+                  )}
+                >
+                  {preset.reason} (-{preset.amount}점)
+                  {!preset.id.startsWith('default-') && (
+                    <button
+                      onClick={() => handleDeletePenaltyPreset(preset.id)}
+                      className="ml-1 hover:bg-white/20 rounded-full p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2 max-w-md">
+              <Input
+                type="number"
+                min="1"
+                placeholder="점수"
+                value={newPenaltyAmount}
+                onChange={(e) => setNewPenaltyAmount(e.target.value)}
+                className="w-20"
+              />
+              <Input
+                placeholder="사유 (예: 지각)"
+                value={newPenaltyReason}
+                onChange={(e) => setNewPenaltyReason(e.target.value)}
+                className="flex-1"
+              />
+              <Button size="sm" onClick={handleAddPenaltyPreset} disabled={loading}>
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -490,18 +612,16 @@ export function FocusClient({
           <div>
             <p className="text-xs text-gray-500 mb-2">빠른 몰입도 입력</p>
             <div className="flex flex-wrap gap-2">
-              {FOCUS_PRESETS.map((preset) => (
+              {activeFocusPresets.map((preset) => (
                 <button
-                  key={preset.label}
+                  key={preset.id}
                   className={cn(
                     'px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm',
                     'hover:opacity-90 active:scale-95 transition-all',
                     'disabled:opacity-50 disabled:cursor-not-allowed',
-                    preset.score >= 9 ? 'bg-emerald-600' :
-                    preset.score >= 7 ? 'bg-blue-500' :
-                    'bg-amber-500'
+                    preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
                   )}
-                  onClick={() => handleBatchFocusScore(preset.score, preset.activityLabel)}
+                  onClick={() => handleBatchFocusScore(preset.score, preset.label)}
                   disabled={loading || selectedStudents.size === 0 || !selectedPeriodId}
                 >
                   {preset.label} ({preset.score}점)

@@ -6,7 +6,6 @@ import { ExamTimer } from '@/components/student/exam-timer';
 import { SwipeableTimer } from '@/components/student/swipeable-timer';
 import { StatusBadge, type AttendanceStatus } from '@/components/student/status-badge';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
-import { subjects as subjectMeta } from '@/components/student/subject-selector';
 import { changeSubject } from '@/lib/actions/student';
 import { cn } from '@/lib/utils';
 
@@ -26,8 +25,6 @@ interface DashboardProps {
   weeklyProgress: WeeklyProgressData;
   availableSubjects: string[] | null;
 }
-
-const defaultSubjects = ['국어', '수학', '영어', '과학', '사회', '기타'];
 
 export function StudentDashboardClient({
   initialStatus,
@@ -52,8 +49,8 @@ export function StudentDashboardClient({
   const startTime = checkInTime ? new Date(checkInTime) : null;
   const isTimerActive = status === 'checked_in';
 
-  // 사용 가능한 과목 목록
-  const subjectNames = availableSubjects || defaultSubjects;
+  // 사용 가능한 과목 목록 (순서 유지)
+  const subjectNames = availableSubjects || [];
 
   const handleSubjectSelect = (subject: string) => {
     if (subject === selectedSubject || isPending || status !== 'checked_in') return;
@@ -61,11 +58,6 @@ export function StudentDashboardClient({
     startTransition(async () => {
       await changeSubject(subject);
     });
-  };
-
-  // 과목 메타 정보 매칭 (아이콘, 색상)
-  const getSubjectMeta = (name: string) => {
-    return subjectMeta.find(s => s.name === name);
   };
 
   return (
@@ -76,8 +68,6 @@ export function StudentDashboardClient({
       {/* 과목 선택 - 전과목 칩 리스트 */}
       <div className="flex flex-wrap gap-2">
         {subjectNames.map((name) => {
-          const meta = getSubjectMeta(name);
-          const Icon = meta?.icon;
           const isSelected = selectedSubject === name;
           const isDisabled = isPending || status !== 'checked_in';
 
@@ -87,19 +77,13 @@ export function StudentDashboardClient({
               onClick={() => handleSubjectSelect(name)}
               disabled={isDisabled}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-all',
+                'flex items-center px-3 py-1.5 rounded-full text-sm transition-all',
                 isSelected
                   ? 'bg-primary text-white font-bold shadow-md scale-105'
                   : 'bg-gray-100 text-text-muted font-normal hover:bg-gray-200',
                 isDisabled && !isSelected && 'opacity-50 cursor-not-allowed'
               )}
             >
-              {Icon && (
-                <Icon className={cn(
-                  'w-3.5 h-3.5',
-                  isSelected ? 'text-white' : 'text-text-muted'
-                )} />
-              )}
               {name}
             </button>
           );

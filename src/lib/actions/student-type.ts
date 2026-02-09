@@ -111,7 +111,7 @@ export async function deleteStudentType(id: string): Promise<{ success: boolean;
   return { success: true };
 }
 
-// 타입별 과목 목록 조회
+// 타입별 과목 목록 조회 (sort_order 순)
 export async function getStudentTypeSubjects(studentTypeId: string): Promise<StudentTypeSubject[]> {
   const supabase = await createClient();
   
@@ -119,7 +119,7 @@ export async function getStudentTypeSubjects(studentTypeId: string): Promise<Stu
     .from('student_type_subjects')
     .select('*')
     .eq('student_type_id', studentTypeId)
-    .order('subject_name');
+    .order('sort_order', { ascending: true });
   
   if (error) {
     console.error('Error fetching student type subjects:', error);
@@ -129,7 +129,7 @@ export async function getStudentTypeSubjects(studentTypeId: string): Promise<Stu
   return data || [];
 }
 
-// 타입별 과목 설정 (기존 과목 삭제 후 새로 등록)
+// 타입별 과목 설정 (기존 과목 삭제 후 새로 등록, sort_order 포함)
 export async function setStudentTypeSubjects(
   studentTypeId: string,
   subjects: string[]
@@ -147,11 +147,12 @@ export async function setStudentTypeSubjects(
     return { success: false, error: deleteError.message };
   }
   
-  // 새 과목 추가
+  // 새 과목 추가 (순서 포함)
   if (subjects.length > 0) {
-    const insertData = subjects.map(subject => ({
+    const insertData = subjects.map((subject, index) => ({
       student_type_id: studentTypeId,
       subject_name: subject,
+      sort_order: index + 1,
     }));
     
     const { error: insertError } = await supabase
@@ -168,7 +169,7 @@ export async function setStudentTypeSubjects(
   return { success: true };
 }
 
-// 학생의 타입에 해당하는 과목 목록 조회
+// 학생의 타입에 해당하는 과목 목록 조회 (sort_order 순)
 export async function getSubjectsForStudent(studentId: string): Promise<string[]> {
   const supabase = await createClient();
   
@@ -184,12 +185,12 @@ export async function getSubjectsForStudent(studentId: string): Promise<string[]
     return [];
   }
   
-  // 타입별 과목 조회
+  // 타입별 과목 조회 (sort_order 순)
   const { data: subjects, error: subjectsError } = await supabase
     .from('student_type_subjects')
     .select('subject_name')
     .eq('student_type_id', studentProfile.student_type_id)
-    .order('subject_name');
+    .order('sort_order', { ascending: true });
   
   if (subjectsError) {
     console.error('Error fetching subjects for student:', subjectsError);
@@ -295,6 +296,8 @@ export async function saveWeeklyGoalSetting(data: {
   weekly_goal_hours: number;
   reward_points: number;
   penalty_points: number;
+  minimum_hours: number;
+  minimum_penalty_points: number;
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   
@@ -307,6 +310,8 @@ export async function saveWeeklyGoalSetting(data: {
         weekly_goal_hours: data.weekly_goal_hours,
         reward_points: data.reward_points,
         penalty_points: data.penalty_points,
+        minimum_hours: data.minimum_hours,
+        minimum_penalty_points: data.minimum_penalty_points,
       },
       {
         onConflict: 'student_type_id,date_type_id',
@@ -330,6 +335,8 @@ export async function saveWeeklyGoalSettingsBatch(
     weekly_goal_hours: number;
     reward_points: number;
     penalty_points: number;
+    minimum_hours: number;
+    minimum_penalty_points: number;
   }>
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
@@ -353,6 +360,8 @@ export async function saveWeeklyGoalSettingsBatch(
       weekly_goal_hours: s.weekly_goal_hours,
       reward_points: s.reward_points,
       penalty_points: s.penalty_points,
+      minimum_hours: s.minimum_hours,
+      minimum_penalty_points: s.minimum_penalty_points,
     }));
     
     const { error: insertError } = await supabase
