@@ -273,7 +273,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                     <div className="flex items-center gap-3 text-xs text-text-muted">
                       <span>수신: {notification.parentName}</span>
                       <span>•</span>
-                      <span>{notification.sent_via === 'kakao' ? '카카오톡' : '푸시'}</span>
+                      <span>카카오톡</span>
                       <span>•</span>
                       <span>{formatDate(notification.sent_at)}</span>
                     </div>

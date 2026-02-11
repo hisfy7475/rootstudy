@@ -231,7 +231,8 @@ export async function getTodayStudyTime() {
   };
 }
 
-// 주간 목표 달성 현황 조회 (DAY_CONFIG.weekStartsOn 기준)
+// 주간 출석 현황 조회 (DAY_CONFIG.weekStartsOn 기준)
+// attendance 테이블의 check_in 기록 기반으로 출석 여부 판단
 export async function getWeeklyGoals() {
   const supabase = await createClient();
   
@@ -240,25 +241,44 @@ export async function getWeeklyGoals() {
 
   // 이번 주 시작일 (DAY_CONFIG 기준)
   const startOfWeek = getWeekStart();
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(endOfWeek.getDate() + 7);
 
-  const { data: goals } = await supabase
-    .from('study_goals')
-    .select('*')
+  // 이번 주의 출석(check_in) 기록 조회
+  const { data: attendanceRecords } = await supabase
+    .from('attendance')
+    .select('timestamp')
     .eq('student_id', user.id)
-    .gte('date', startOfWeek.toISOString().split('T')[0])
-    .order('date', { ascending: true });
+    .eq('type', 'check_in')
+    .gte('timestamp', startOfWeek.toISOString())
+    .lt('timestamp', endOfWeek.toISOString())
+    .order('timestamp', { ascending: true });
+
+  // 출석한 날짜 Set 생성 (YYYY-MM-DD)
+  const attendedDates = new Set<string>();
+  if (attendanceRecords) {
+    for (const record of attendanceRecords) {
+      const dateStr = new Date(record.timestamp).toLocaleDateString('en-CA'); // YYYY-MM-DD
+      attendedDates.add(dateStr);
+    }
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   // 7일간의 데이터 생성
   const weekDays = [];
   for (let i = 0; i < 7; i++) {
     const date = new Date(startOfWeek);
     date.setDate(startOfWeek.getDate() + i);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = date.toLocaleDateString('en-CA'); // YYYY-MM-DD
     
-    const goal = goals?.find(g => g.date === dateStr);
+    const attended = attendedDates.has(dateStr);
+    
     weekDays.push({
       date: date.toISOString(),
-      achieved: goal ? goal.achieved : null,
+      // 출석한 날: true, 오늘 이후(미래): null, 과거 미출석: false
+      achieved: attended ? true : (date <= today ? false : null),
     });
   }
 

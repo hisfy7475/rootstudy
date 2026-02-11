@@ -7,13 +7,9 @@ import {
   getStudentNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
-  savePushSubscription,
-  deletePushSubscription,
 } from '@/lib/actions/notification';
 import {
   Bell,
-  BellOff,
-  BellRing,
   Clock,
   AlertCircle,
   Calendar,
@@ -95,26 +91,6 @@ export function NotificationsClient({
   const [notifications, setNotifications] = useState<StudentNotification[]>(initialNotifications);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [loading, setLoading] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushLoading, setPushLoading] = useState(false);
-
-  // 푸시 알림 상태 확인
-  useEffect(() => {
-    checkPushPermission();
-  }, []);
-
-  const checkPushPermission = async () => {
-    if (!('Notification' in window)) return;
-    
-    if (Notification.permission === 'granted') {
-      // Service Worker 등록 확인
-      const registration = await navigator.serviceWorker?.getRegistration();
-      if (registration) {
-        const subscription = await registration.pushManager.getSubscription();
-        setPushEnabled(!!subscription);
-      }
-    }
-  };
 
   const refreshNotifications = async () => {
     setLoading(true);
@@ -144,69 +120,6 @@ export function NotificationsClient({
     if (result.success) {
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       setUnreadCount(0);
-    }
-  };
-
-  const togglePushNotifications = async () => {
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-      alert('이 브라우저는 푸시 알림을 지원하지 않습니다.');
-      return;
-    }
-
-    setPushLoading(true);
-
-    try {
-      if (pushEnabled) {
-        // 푸시 알림 비활성화
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (registration) {
-          const subscription = await registration.pushManager.getSubscription();
-          if (subscription) {
-            await subscription.unsubscribe();
-            await deletePushSubscription(subscription.endpoint);
-          }
-        }
-        setPushEnabled(false);
-      } else {
-        // 푸시 알림 활성화
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          alert('알림 권한이 거부되었습니다. 브라우저 설정에서 알림을 허용해주세요.');
-          return;
-        }
-
-        const registration = await navigator.serviceWorker.ready;
-        
-        // VAPID 공개키 가져오기
-        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-          console.log('VAPID key not configured');
-          alert('푸시 알림 설정이 완료되지 않았습니다.');
-          return;
-        }
-
-        // 구독 생성
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-        });
-
-        // 서버에 구독 정보 저장
-        const json = subscription.toJSON();
-        await savePushSubscription({
-          endpoint: subscription.endpoint,
-          p256dhKey: json.keys?.p256dh || '',
-          authKey: json.keys?.auth || '',
-          userAgent: navigator.userAgent,
-        });
-
-        setPushEnabled(true);
-      }
-    } catch (error) {
-      console.error('Push notification toggle error:', error);
-      alert('푸시 알림 설정 중 오류가 발생했습니다.');
-    } finally {
-      setPushLoading(false);
     }
   };
 
@@ -281,46 +194,6 @@ export function NotificationsClient({
           )}
         </div>
       </div>
-
-      {/* 푸시 알림 설정 */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                'w-10 h-10 rounded-xl flex items-center justify-center',
-                pushEnabled ? 'bg-primary/10' : 'bg-gray-100'
-              )}
-            >
-              {pushEnabled ? (
-                <BellRing className="w-5 h-5 text-primary" />
-              ) : (
-                <BellOff className="w-5 h-5 text-gray-400" />
-              )}
-            </div>
-            <div>
-              <p className="font-medium">푸시 알림</p>
-              <p className="text-sm text-text-muted">
-                {pushEnabled ? '알림을 받고 있습니다' : '알림이 꺼져 있습니다'}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant={pushEnabled ? 'outline' : 'default'}
-            size="sm"
-            onClick={togglePushNotifications}
-            disabled={pushLoading}
-          >
-            {pushLoading ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : pushEnabled ? (
-              '끄기'
-            ) : (
-              '켜기'
-            )}
-          </Button>
-        </div>
-      </Card>
 
       {/* 알림 목록 */}
       {notifications.length === 0 ? (
@@ -457,19 +330,4 @@ function NotificationItem({
   }
 
   return content;
-}
-
-// VAPID 키 변환 유틸리티
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
 }

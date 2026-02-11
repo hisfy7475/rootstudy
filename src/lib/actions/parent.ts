@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -79,14 +80,16 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
 export async function getStudentStatus(studentId: string, options?: { forParentView?: boolean }) {
   const supabase = await createClient();
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
 
   const { data: attendance } = await supabase
     .from('attendance')
     .select('*')
     .eq('student_id', studentId)
-    .gte('timestamp', today.toISOString())
+    .gte('timestamp', start.toISOString())
+    .lte('timestamp', end.toISOString())
     .order('timestamp', { ascending: true });
 
   if (!attendance || attendance.length === 0) {
@@ -121,14 +124,16 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
 export async function getStudentStudyTime(studentId: string) {
   const supabase = await createClient();
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
 
   const { data: attendance } = await supabase
     .from('attendance')
     .select('*')
     .eq('student_id', studentId)
-    .gte('timestamp', today.toISOString())
+    .gte('timestamp', start.toISOString())
+    .lte('timestamp', end.toISOString())
     .order('timestamp', { ascending: true });
 
   if (!attendance || attendance.length === 0) {
@@ -190,14 +195,16 @@ export async function getStudentCurrentSubject(studentId: string) {
 export async function getStudentTodayFocus(studentId: string) {
   const supabase = await createClient();
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
 
   const { data } = await supabase
     .from('focus_scores')
     .select('*')
     .eq('student_id', studentId)
-    .gte('recorded_at', today.toISOString())
+    .gte('recorded_at', start.toISOString())
+    .lte('recorded_at', end.toISOString())
     .order('recorded_at', { ascending: false });
 
   if (!data || data.length === 0) {

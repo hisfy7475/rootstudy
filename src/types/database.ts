@@ -576,7 +576,7 @@ export interface Database {
           student_id: string | null;
           type: 'late' | 'absent' | 'point' | 'schedule';
           message: string;
-          sent_via: 'kakao' | 'push';
+          sent_via: 'kakao';
           sent_at: string;
           is_sent: boolean;
         };
@@ -586,7 +586,7 @@ export interface Database {
           student_id?: string | null;
           type: 'late' | 'absent' | 'point' | 'schedule';
           message: string;
-          sent_via?: 'kakao' | 'push';
+          sent_via?: 'kakao';
           sent_at?: string;
           is_sent?: boolean;
         };
@@ -596,7 +596,7 @@ export interface Database {
           student_id?: string | null;
           type?: 'late' | 'absent' | 'point' | 'schedule';
           message?: string;
-          sent_via?: 'kakao' | 'push';
+          sent_via?: 'kakao';
           sent_at?: string;
           is_sent?: boolean;
         };
@@ -631,41 +631,6 @@ export interface Database {
           link?: string | null;
           is_read?: boolean;
           created_at?: string;
-        };
-      };
-      push_subscriptions: {
-        Row: {
-          id: string;
-          user_id: string;
-          endpoint: string;
-          p256dh_key: string;
-          auth_key: string;
-          user_agent: string | null;
-          is_active: boolean;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          endpoint: string;
-          p256dh_key: string;
-          auth_key: string;
-          user_agent?: string | null;
-          is_active?: boolean;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          endpoint?: string;
-          p256dh_key?: string;
-          auth_key?: string;
-          user_agent?: string | null;
-          is_active?: boolean;
-          created_at?: string;
-          updated_at?: string;
         };
       };
       caps_sync_log: {
@@ -977,7 +942,6 @@ export type StudentTypeSubject = Database['public']['Tables']['student_type_subj
 export type StudentAbsenceSchedule = Database['public']['Tables']['student_absence_schedules']['Row'];
 export type StudentNotification = Database['public']['Tables']['student_notifications']['Row'];
 export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
-export type PushSubscription = Database['public']['Tables']['push_subscriptions']['Row'];
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
 export type Announcement = Database['public']['Tables']['announcements']['Row'];
 export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];

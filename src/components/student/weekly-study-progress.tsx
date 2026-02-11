@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { Target, Check, X } from 'lucide-react';
+import { Target } from 'lucide-react';
 
 interface DayProgress {
   date: Date;
@@ -45,11 +45,12 @@ export function WeeklyStudyProgress({
     return 'from-error to-warning';
   };
 
-  // 요일별 달성 통계
+  // 요일별 출석 통계
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const achievedCount = weekDays.filter(d => d.achieved === true).length;
-  const totalDaysWithGoal = weekDays.filter(d => d.achieved !== null).length;
+  // 오늘까지의 날짜 수 (미래 제외)
+  const totalPastDays = weekDays.filter(d => d.date <= today).length;
 
   return (
     <div className={cn('bg-card rounded-3xl p-5 shadow-sm', className)}>
@@ -104,7 +105,7 @@ export function WeeklyStudyProgress({
               <div className="border-t border-gray-100 pt-4 mt-2">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs text-text-muted">일별 출석</span>
-                  <span className="text-xs text-text-muted">{achievedCount}/{totalDaysWithGoal}일</span>
+                  <span className="text-xs text-text-muted">{achievedCount}/{totalPastDays}일</span>
                 </div>
                 <div className="flex justify-between gap-1">
                   {weekDays.map((day, index) => {
@@ -123,16 +124,17 @@ export function WeeklyStudyProgress({
                           className={cn(
                             'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
                             isToday && 'ring-2 ring-primary ring-offset-1',
-                            day.achieved === true && 'bg-success/20',
-                            day.achieved === false && 'bg-error/20',
+                            day.achieved === true && 'bg-primary text-white',
+                            day.achieved === false && 'bg-gray-100',
                             day.achieved === null && 'bg-gray-100'
                           )}
                         >
-                          {day.achieved === true && <Check className="w-4 h-4 text-green-600" />}
-                          {day.achieved === false && <X className="w-4 h-4 text-red-500" />}
-                          {day.achieved === null && (
-                            <span className="text-xs text-text-muted">{day.date.getDate()}</span>
-                          )}
+                          <span className={cn(
+                            'text-xs font-medium',
+                            day.achieved === true ? 'text-white' : 'text-text-muted'
+                          )}>
+                            {day.date.getDate()}
+                          </span>
                         </div>
                       </div>
                     );

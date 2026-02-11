@@ -504,13 +504,15 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                   )}
                   <div className="mt-1">
                     <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
-                      schedule.date_type === 'semester' 
+                      !schedule.is_recurring
+                        ? 'bg-amber-100 text-amber-700'
+                        : schedule.date_type === 'semester' 
                         ? 'bg-blue-100 text-blue-700'
                         : schedule.date_type === 'vacation'
                         ? 'bg-green-100 text-green-700'
                         : 'bg-gray-100 text-gray-600'
                     }`}>
-                      {formatDateType(schedule.date_type)}
+                      {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
                     </span>
                   </div>
                 </div>

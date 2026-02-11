@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
 
@@ -715,10 +715,13 @@ export async function approveStudent(
   }
 
   // 2. student_profiles 테이블에서 caps_id, seat_number, student_type_id 업데이트
+  // CAPS ID 앞의 0 제거 (예: "0004" -> "4") - CAPS DB의 e_id와 매칭을 위해
+  const normalizedCapsId = capsId ? String(parseInt(capsId, 10)) : null;
+  
   const { error: studentError } = await supabase
     .from('student_profiles')
     .update({
-      caps_id: capsId || null,
+      caps_id: normalizedCapsId,
       seat_number: seatNumber,
       student_type_id: studentTypeId || null,
     })
@@ -1560,6 +1563,99 @@ export async function recordFocusScoreBatch(
   return { success: true, count: studentIds.length };
 }
 
+// 오늘 교시별 몰입도 데이터 조회
+export async function getTodayFocusScoresByPeriod() {
+  const supabase = await createClient();
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const { data, error } = await supabase
+    .from('focus_scores')
+    .select('id, student_id, period_id, score, note')
+    .gte('recorded_at', start.toISOString())
+    .lte('recorded_at', end.toISOString());
+
+  if (error) {
+    console.error('Error fetching today focus scores:', error);
+    return {};
+  }
+
+  // { [studentId]: { [periodId]: { score, note, id } } }
+  const result: Record<string, Record<string, { score: number; note: string | null; id: string }>> = {};
+  for (const row of data || []) {
+    if (!row.student_id || !row.period_id) continue;
+    if (!result[row.student_id]) result[row.student_id] = {};
+    result[row.student_id][row.period_id] = {
+      score: row.score,
+      note: row.note,
+      id: row.id,
+    };
+  }
+
+  return result;
+}
+
+// 개별 학생-교시 몰입도 upsert
+export async function recordFocusScoreIndividual(
+  studentId: string,
+  periodId: string,
+  score: number,
+  note?: string
+) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  // 오늘 해당 학생-교시에 기존 기록이 있는지 확인
+  const { data: existing } = await supabase
+    .from('focus_scores')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('period_id', periodId)
+    .gte('recorded_at', start.toISOString())
+    .lte('recorded_at', end.toISOString())
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    // 업데이트
+    const { error } = await supabase
+      .from('focus_scores')
+      .update({ score, note: note || null, admin_id: user.id })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('Error updating focus score:', error);
+      return { error: '몰입도 수정에 실패했습니다.' };
+    }
+  } else {
+    // 삽입
+    const { error } = await supabase
+      .from('focus_scores')
+      .insert({
+        student_id: studentId,
+        admin_id: user.id,
+        score,
+        note: note || null,
+        period_id: periodId,
+      });
+
+    if (error) {
+      console.error('Error inserting focus score:', error);
+      return { error: '몰입도 기록에 실패했습니다.' };
+    }
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/focus');
+  return { success: true };
+}
+
 // 일괄 벌점 부여
 export async function givePointsBatch(
   studentIds: string[],
@@ -1606,4 +1702,81 @@ export async function givePointsBatch(
   revalidatePath('/admin/points');
   revalidatePath('/admin/focus');
   return { success: true, count: studentIds.length };
+}
+
+// ============================================
+// 회원 탈퇴 관련
+// ============================================
+
+// 회원 탈퇴 (학생/학부모)
+export async function deleteMember(userId: string, userType: 'student' | 'parent') {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  // 현재 로그인한 사용자가 관리자인지 확인
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (adminProfile?.user_type !== 'admin') {
+    return { error: '관리자만 회원을 탈퇴시킬 수 있습니다.' };
+  }
+
+  try {
+    // 1. NO ACTION FK 테이블 처리 (학생인 경우)
+    if (userType === 'student') {
+      // student_profiles에서 student_id 조회
+      const { data: studentProfile } = await adminClient
+        .from('student_profiles')
+        .select('id')
+        .eq('id', userId)
+        .single();
+
+      if (studentProfile) {
+        // notifications.student_id → NULL로 설정
+        await adminClient
+          .from('notifications')
+          .update({ student_id: null })
+          .eq('student_id', studentProfile.id);
+
+        // chat_messages.sender_id → NULL로 설정
+        await adminClient
+          .from('chat_messages')
+          .update({ sender_id: null })
+          .eq('sender_id', userId);
+      }
+    }
+
+    // 2. profiles 삭제 (CASCADE로 student_profiles/parent_profiles 및 관련 데이터 자동 삭제)
+    const { error: deleteError } = await adminClient
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+
+    if (deleteError) {
+      console.error('Error deleting profile:', deleteError);
+      return { error: '회원 정보 삭제에 실패했습니다.' };
+    }
+
+    // 3. Supabase Auth에서 사용자 삭제
+    const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
+
+    if (authError) {
+      console.error('Error deleting auth user:', authError);
+      // DB에서는 삭제되었으므로 경고만 반환
+      return { success: true, warning: 'Auth 사용자 삭제에 실패했습니다. DB 정보는 삭제되었습니다.' };
+    }
+
+    revalidatePath('/admin');
+    revalidatePath('/admin/members');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in deleteMember:', error);
+    return { error: '회원 탈퇴 처리 중 오류가 발생했습니다.' };
+  }
 }

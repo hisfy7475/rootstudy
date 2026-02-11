@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, deleteMember } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -24,8 +24,11 @@ import {
   Shield,
   Building2,
   UserPlus,
+  UserMinus,
   Clock,
   CheckCircle2,
+  AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -130,6 +133,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [approvalModal, setApprovalModal] = useState<{ student: Member } | null>(null);
   const [approvalForm, setApprovalForm] = useState({ capsId: '', seatNumber: '', studentTypeId: '' });
   const [approvalStudentTypes, setApprovalStudentTypes] = useState<StudentTypeOption[]>([]);
+  // 탈퇴 모달 상태
+  const [deleteModal, setDeleteModal] = useState<{ member: Member | ParentMember; userType: 'student' | 'parent' } | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const pendingCount = students.filter(s => !s.is_approved).length;
   const approvedCount = students.filter(s => s.is_approved).length;
@@ -282,6 +288,45 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     } catch (error) {
       console.error('Failed to approve student:', error);
       alert('승인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 탈퇴 모달 열기
+  const handleOpenDeleteModal = (member: Member | ParentMember, userType: 'student' | 'parent') => {
+    setDeleteModal({ member, userType });
+    setDeleteConfirmName('');
+  };
+
+  // 탈퇴 처리
+  const handleDelete = async () => {
+    if (!deleteModal) return;
+    if (deleteConfirmName !== deleteModal.member.name) {
+      alert('회원 이름이 일치하지 않습니다.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await deleteMember(deleteModal.member.id, deleteModal.userType);
+
+      if (result.success) {
+        // 목록 새로고침
+        const allMembers = await getAllMembers();
+        setStudents(allMembers.filter(m => m.user_type === 'student'));
+        setParents(allMembers.filter(m => m.user_type === 'parent') as unknown as ParentMember[]);
+        setDeleteModal(null);
+        setSelectedStudent(null); // 상세 모달도 닫기
+        if (result.warning) {
+          alert(result.warning);
+        }
+      } else {
+        alert(result.error || '탈퇴 처리에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to delete member:', error);
+      alert('탈퇴 처리 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -518,6 +563,15 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                                 <Eye className="w-4 h-4" />
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenDeleteModal(member, 'student')}
+                              disabled={loading}
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                            >
+                              <UserMinus className="w-4 h-4" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -810,6 +864,32 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   </div>
                 </div>
               </div>
+
+              {/* 회원 탈퇴 버튼 */}
+              <div className="pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Member 형태로 변환
+                    const memberData: Member = {
+                      id: selectedStudent.id,
+                      email: selectedStudent.email,
+                      name: selectedStudent.name,
+                      phone: selectedStudent.phone,
+                      user_type: 'student',
+                      is_approved: true,
+                      created_at: selectedStudent.createdAt,
+                      branch_id: selectedStudent.branchId,
+                    };
+                    handleOpenDeleteModal(memberData, 'student');
+                  }}
+                  disabled={loading}
+                  className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                >
+                  <UserMinus className="w-4 h-4 mr-2" />
+                  회원 탈퇴
+                </Button>
+              </div>
             </div>
           </Card>
         </div>
@@ -901,6 +981,92 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                 disabled={loading}
               >
                 {loading ? '처리중...' : '승인'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* 탈퇴 확인 모달 */}
+      {deleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-red-600 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                회원 탈퇴
+              </h2>
+              <button
+                onClick={() => setDeleteModal(null)}
+                className="text-text-muted hover:text-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 경고 메시지 */}
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+              <p className="text-red-700 font-medium">이 작업은 되돌릴 수 없습니다.</p>
+              <p className="text-sm text-red-600">
+                <strong>[{deleteModal.member.name}]</strong> 회원을 탈퇴시키시겠습니까?
+              </p>
+              <p className="text-sm text-red-600">
+                {deleteModal.userType === 'student' 
+                  ? '모든 학습 기록, 출석 기록, 상벌점 등이 영구적으로 삭제됩니다.'
+                  : '학부모 계정이 삭제됩니다. 연결된 학생 계정은 유지됩니다.'}
+              </p>
+            </div>
+
+            {/* 회원 정보 */}
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "w-10 h-10 rounded-full flex items-center justify-center",
+                  deleteModal.userType === 'student' ? "bg-primary/10" : "bg-secondary/10"
+                )}>
+                  {deleteModal.userType === 'student' 
+                    ? <User className="w-5 h-5 text-primary" />
+                    : <UserCheck className="w-5 h-5 text-secondary" />
+                  }
+                </div>
+                <div>
+                  <p className="font-medium">{deleteModal.member.name}</p>
+                  <p className="text-sm text-text-muted">{deleteModal.member.email}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 확인 입력 */}
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                확인을 위해 회원 이름을 입력하세요
+              </label>
+              <Input
+                type="text"
+                placeholder={deleteModal.member.name}
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                className="border-red-200 focus:ring-red-500"
+              />
+            </div>
+
+            {/* 버튼 */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDeleteModal(null)}
+                disabled={loading}
+              >
+                취소
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                onClick={handleDelete}
+                disabled={loading || deleteConfirmName !== deleteModal.member.name}
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                {loading ? '처리중...' : '탈퇴 처리'}
               </Button>
             </div>
           </Card>
