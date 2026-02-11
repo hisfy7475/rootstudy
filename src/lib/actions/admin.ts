@@ -246,21 +246,28 @@ export async function getStudentFocusHistory(studentId: string, startDate: strin
 }
 
 // 전체 몰입도 리포트 (주간) - DAY_CONFIG.weekStartsOn 기준
-export async function getWeeklyFocusReport() {
+export async function getWeeklyFocusReport(branchId?: string | null) {
   const supabase = await createClient();
 
   // 이번 주 시작일 (DAY_CONFIG 기준)
   const startOfWeek = getWeekStart();
 
   // 학생 목록
-  const { data: students } = await supabase
+  let query = supabase
     .from('student_profiles')
     .select(`
       id,
       seat_number,
-      profiles!inner (name)
+      profiles!inner (name, branch_id)
     `)
     .order('seat_number', { ascending: true });
+
+  // 브랜치 필터 적용
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students } = await query;
 
   // 각 학생의 주간 몰입도
   const report = await Promise.all(
@@ -352,18 +359,25 @@ export async function givePoints(
 }
 
 // 상벌점 현황 조회
-export async function getPointsOverview() {
+export async function getPointsOverview(branchId?: string | null) {
   const supabase = await createClient();
 
   // 학생 목록
-  const { data: students } = await supabase
+  let query = supabase
     .from('student_profiles')
     .select(`
       id,
       seat_number,
-      profiles!inner (name)
+      profiles!inner (name, branch_id)
     `)
     .order('seat_number', { ascending: true });
+
+  // 브랜치 필터 적용
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students } = await query;
 
   // 각 학생의 상벌점 합계
   const overview = await Promise.all(
@@ -400,8 +414,22 @@ export async function getPointsOverview() {
 }
 
 // 상벌점 내역 조회 (전체)
-export async function getAllPointsHistory(filter?: 'reward' | 'penalty' | 'all') {
+export async function getAllPointsHistory(
+  filter?: 'reward' | 'penalty' | 'all',
+  studentId?: string,
+  branchId?: string | null
+) {
   const supabase = await createClient();
+
+  // 브랜치 필터가 있으면 해당 브랜치 학생 ID 목록 먼저 조회
+  let studentIds: string[] | null = null;
+  if (branchId) {
+    const { data: branchStudents } = await supabase
+      .from('student_profiles')
+      .select('id, profiles!inner(branch_id)')
+      .eq('profiles.branch_id', branchId);
+    studentIds = branchStudents?.map(s => s.id) || [];
+  }
 
   let query = supabase
     .from('points')
@@ -414,10 +442,19 @@ export async function getAllPointsHistory(filter?: 'reward' | 'penalty' | 'all')
       admin:admin_id (name)
     `)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(200);
 
   if (filter && filter !== 'all') {
     query = query.eq('type', filter);
+  }
+
+  if (studentId) {
+    query = query.eq('student_id', studentId);
+  }
+
+  // 브랜치 필터 적용
+  if (studentIds !== null) {
+    query = query.in('student_id', studentIds);
   }
 
   const { data } = await query;
@@ -434,6 +471,55 @@ export async function getAllPointsHistory(filter?: 'reward' | 'penalty' | 'all')
       adminName: p.admin?.name || '시스템',
     };
   });
+}
+
+// 상벌점 내역 삭제 (점수 원상복구)
+export async function deletePoint(pointId: string) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  // 삭제 전에 포인트 정보 확인 (알림용)
+  const { data: pointData } = await supabase
+    .from('points')
+    .select(`
+      *,
+      student:student_id (
+        seat_number,
+        profiles!inner (name)
+      )
+    `)
+    .eq('id', pointId)
+    .single();
+
+  if (!pointData) {
+    return { error: '해당 내역을 찾을 수 없습니다.' };
+  }
+
+  const { error } = await supabase
+    .from('points')
+    .delete()
+    .eq('id', pointId);
+
+  if (error) {
+    console.error('Error deleting point:', error);
+    return { error: '상벌점 삭제에 실패했습니다.' };
+  }
+
+  // 학생에게 알림 발송
+  const { createStudentNotification } = await import('./notification');
+  await createStudentNotification({
+    studentId: pointData.student_id,
+    type: 'point',
+    title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
+    message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
+    link: '/student/points',
+  }).catch(console.error);
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true };
 }
 
 // ============================================
@@ -1389,17 +1475,29 @@ export async function deleteRewardPreset(id: string) {
 // ============================================
 
 // 출석부 데이터 조회 (학생별 상태, 부재 스케줄, 미등원 시간, 몰입도)
-export async function getAttendanceBoard() {
+export async function getAttendanceBoard(
+  targetDate?: string,
+  branchId?: string | null,
+  page: number = 1,
+  pageSize: number = 20
+) {
   const supabase = await createClient();
 
   // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
-  const studyDate = getStudyDate();
+  // targetDate가 전달되면 해당 날짜 사용, 아니면 오늘 날짜
+  const studyDate = targetDate 
+    ? new Date(targetDate + 'T12:00:00') 
+    : getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
   const todayStr = studyDate.toISOString().split('T')[0];
   const todayDayOfWeek = studyDate.getDay();
 
-  // 학생 프로필 조회
-  const { data: students, error } = await supabase
+  // 페이지네이션 계산
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  // 학생 프로필 조회 (페이지네이션 적용)
+  let query = supabase
     .from('student_profiles')
     .select(`
       id,
@@ -1408,14 +1506,22 @@ export async function getAttendanceBoard() {
         id,
         name,
         email,
-        phone
+        phone,
+        branch_id
       )
-    `)
+    `, { count: 'exact' })
     .order('seat_number', { ascending: true });
+
+  // 브랜치 필터 적용
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students, error, count } = await query.range(from, to);
 
   if (error) {
     console.error('Error fetching students:', error);
-    return [];
+    return { data: [], total: 0, page, pageSize };
   }
 
   // 각 학생의 출석부 데이터 생성
@@ -1526,7 +1632,131 @@ export async function getAttendanceBoard() {
     })
   );
 
-  return attendanceData;
+  return { data: attendanceData, total: count || 0, page, pageSize };
+}
+
+// 주간 출석 데이터 조회 (학생별 7일간 출석 상태)
+export async function getWeeklyAttendance(
+  weekStartDate: string,
+  branchId?: string | null,
+  page: number = 1,
+  pageSize: number = 20
+) {
+  const supabase = await createClient();
+
+  // 주 시작일(월요일)부터 7일간의 날짜 배열 생성
+  const startDate = new Date(weekStartDate + 'T12:00:00');
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+
+  // 페이지네이션 계산
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  // 학생 프로필 조회 (페이지네이션 적용)
+  let query = supabase
+    .from('student_profiles')
+    .select(`
+      id,
+      seat_number,
+      profiles!inner (
+        id,
+        name,
+        branch_id
+      )
+    `, { count: 'exact' })
+    .order('seat_number', { ascending: true });
+
+  // 브랜치 필터 적용
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students, error, count } = await query.range(from, to);
+
+  if (error) {
+    console.error('Error fetching students:', error);
+    return { students: [], dates: [], total: 0, page, pageSize };
+  }
+
+  // 주간 전체 기간의 시작/종료 시간
+  const weekStart = getStudyDayBounds(dates[0]).start;
+  const weekEnd = getStudyDayBounds(dates[6]).end;
+
+  // 해당 기간의 모든 출석 기록 조회
+  const studentIds = (students || []).map(s => s.id);
+  const { data: allAttendance } = await supabase
+    .from('attendance')
+    .select('*')
+    .in('student_id', studentIds)
+    .gte('timestamp', weekStart.toISOString())
+    .lte('timestamp', weekEnd.toISOString())
+    .order('timestamp', { ascending: true });
+
+  // 각 학생별 주간 데이터 생성
+  const weeklyData = (students || []).map((student) => {
+    const profile = Array.isArray(student.profiles) 
+      ? student.profiles[0] 
+      : student.profiles;
+
+    // 각 날짜별 출석 상태 계산
+    const dailyStatus: Record<string, { 
+      status: 'attended' | 'not_attended' | 'on_break' | null;
+      checkInTime: string | null;
+    }> = {};
+
+    dates.forEach(dateStr => {
+      const { start: dayStart, end: dayEnd } = getStudyDayBounds(dateStr);
+      
+      // 해당 날짜의 출석 기록 필터링
+      const dayAttendance = (allAttendance || []).filter(a => 
+        a.student_id === student.id &&
+        new Date(a.timestamp) >= dayStart &&
+        new Date(a.timestamp) <= dayEnd
+      );
+
+      if (dayAttendance.length === 0) {
+        // 미래 날짜인 경우 null, 과거 날짜인 경우 not_attended
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const checkDate = new Date(dateStr + 'T12:00:00');
+        checkDate.setHours(0, 0, 0, 0);
+        
+        dailyStatus[dateStr] = {
+          status: checkDate > today ? null : 'not_attended',
+          checkInTime: null,
+        };
+      } else {
+        // 첫 입실 시간
+        const firstCheckIn = dayAttendance.find(a => a.type === 'check_in');
+        
+        // 입실 기록이 있으면 attended
+        dailyStatus[dateStr] = {
+          status: firstCheckIn ? 'attended' : 'not_attended',
+          checkInTime: firstCheckIn?.timestamp || null,
+        };
+      }
+    });
+
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      dailyStatus,
+    };
+  });
+
+  return {
+    students: weeklyData,
+    dates,
+    total: count || 0,
+    page,
+    pageSize,
+  };
 }
 
 // 일괄 몰입도 점수 입력
@@ -1564,17 +1794,34 @@ export async function recordFocusScoreBatch(
 }
 
 // 오늘 교시별 몰입도 데이터 조회
-export async function getTodayFocusScoresByPeriod() {
+export async function getTodayFocusScoresByPeriod(branchId?: string | null) {
   const supabase = await createClient();
 
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
-  const { data, error } = await supabase
+  // 브랜치 필터가 있으면 해당 브랜치 학생 ID 목록 먼저 조회
+  let studentIds: string[] | null = null;
+  if (branchId) {
+    const { data: branchStudents } = await supabase
+      .from('student_profiles')
+      .select('id, profiles!inner(branch_id)')
+      .eq('profiles.branch_id', branchId);
+    studentIds = branchStudents?.map(s => s.id) || [];
+  }
+
+  let query = supabase
     .from('focus_scores')
     .select('id, student_id, period_id, score, note')
     .gte('recorded_at', start.toISOString())
     .lte('recorded_at', end.toISOString());
+
+  // 브랜치 필터 적용
+  if (studentIds !== null) {
+    query = query.in('student_id', studentIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Error fetching today focus scores:', error);

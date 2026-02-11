@@ -35,7 +35,7 @@ export default async function AttendancePage() {
   const today = new Date().toISOString().split('T')[0];
 
   const [attendanceData, todayPeriodsData] = await Promise.all([
-    getAttendanceBoard(),
+    getAttendanceBoard(undefined, branchId, 1, 20),
     branchId ? getTodayPeriods(branchId) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
   ]);
 
@@ -45,6 +45,7 @@ export default async function AttendancePage() {
       todayPeriods={todayPeriodsData.periods}
       dateTypeName={todayPeriodsData.dateTypeName}
       todayDate={today}
+      branchId={branchId}
     />
   );
 }

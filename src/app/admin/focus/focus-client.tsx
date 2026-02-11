@@ -98,12 +98,6 @@ const defaultPenaltyPresets = [
   { amount: 3, reason: '무단 이탈', color: 'bg-red-600' },
 ];
 
-const defaultFocusPresets = [
-  { score: 8, label: '인강', color: 'bg-blue-500' },
-  { score: 5, label: '수면', color: 'bg-amber-500' },
-  { score: 7, label: '라운지', color: 'bg-blue-400' },
-  { score: 10, label: '클리닉/멘토링', color: 'bg-emerald-600' },
-];
 
 function findCurrentPeriod(periods: Period[]): Period | null {
   const now = new Date();
@@ -211,9 +205,10 @@ export function FocusClient({
     ? penaltyPresets.filter(p => p.amount < 999)
     : defaultPenaltyPresets.map((p, i) => ({ ...p, id: `default-${i}`, branch_id: '', sort_order: i, is_active: true }));
 
-  const activeFocusPresets = focusPresets.length > 0 
-    ? focusPresets
-    : defaultFocusPresets.map((p, i) => ({ ...p, id: `default-${i}`, branch_id: '', sort_order: i, is_active: true }));
+  // DB에서 가져온 프리셋만 사용 (is_active 필터링)
+  const activeFocusPresets = useMemo(() => {
+    return focusPresets.filter(p => p.is_active);
+  }, [focusPresets]);
 
   // ============================================
   // Handlers
@@ -229,8 +224,8 @@ export function FocusClient({
     try {
       const [newStudents, newReport, newScores] = await Promise.all([
         getAllStudents('all'),
-        getWeeklyFocusReport(),
-        getTodayFocusScoresByPeriod(),
+        getWeeklyFocusReport(branchId),
+        getTodayFocusScoresByPeriod(branchId),
       ]);
       setStudents(newStudents);
       setReport(newReport);
@@ -238,7 +233,7 @@ export function FocusClient({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [branchId]);
 
   // Quick input: record a single student's focus score for selected period
   const handleQuickFocusScore = useCallback(async (studentId: string, score: number, label: string) => {
@@ -381,7 +376,6 @@ export function FocusClient({
   };
 
   const handleDeleteFocusPreset = async (id: string) => {
-    if (id.startsWith('default-')) return;
     setLoading(true);
     const result = await deleteFocusScorePreset(id);
     if (result.success && branchId) { setFocusPresets(await getFocusScorePresets(branchId)); showSuccess('프리셋 삭제 완료'); }
@@ -446,11 +440,9 @@ export function FocusClient({
               {activeFocusPresets.map((preset) => (
                 <span key={preset.id} className={cn('inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white', preset.color || 'bg-blue-500')}>
                   {preset.label} ({preset.score}점)
-                  {!preset.id.startsWith('default-') && (
-                    <button onClick={() => handleDeleteFocusPreset(preset.id)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
+                  <button onClick={() => handleDeleteFocusPreset(preset.id)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
+                    <X className="w-3 h-3" />
+                  </button>
                 </span>
               ))}
             </div>
@@ -687,6 +679,7 @@ function QuickInputView({
                     const cellKey = `${student.id}-${selectedPeriodId}`;
                     const isSaving = savingCell === cellKey;
                     const isActive = currentScore?.note === preset.label;
+                    const hasOtherSelection = currentScore && !isActive;
 
                     return (
                       <td key={preset.id} className="px-1.5 py-2 text-center">
@@ -696,10 +689,15 @@ function QuickInputView({
                             'active:scale-95 disabled:opacity-40',
                             isActive
                               ? 'ring-2 ring-offset-1 ring-primary bg-primary text-white shadow-md'
-                              : cn(
-                                  'text-white shadow-sm hover:opacity-90',
-                                  preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
-                                )
+                              : hasOtherSelection
+                                ? cn(
+                                    'text-white/70 shadow-sm opacity-50 hover:opacity-80',
+                                    preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
+                                  )
+                                : cn(
+                                    'text-white shadow-sm hover:opacity-90',
+                                    preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
+                                  )
                           )}
                           onClick={() => onQuickScore(student.id, preset.score, preset.label)}
                           disabled={isSaving}
@@ -707,7 +705,10 @@ function QuickInputView({
                           {isSaving ? (
                             <RefreshCw className="w-3.5 h-3.5 animate-spin mx-auto" />
                           ) : isActive ? (
-                            <Check className="w-3.5 h-3.5 mx-auto" />
+                            <span className="flex items-center justify-center gap-1">
+                              <Check className="w-3.5 h-3.5" />
+                              {preset.label}
+                            </span>
                           ) : (
                             preset.label
                           )}

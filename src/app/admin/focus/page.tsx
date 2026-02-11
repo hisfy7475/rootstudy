@@ -36,11 +36,11 @@ export default async function FocusManagementPage() {
 
   const [students, report, todayPeriodsData, penaltyPresets, focusPresets, focusScoresByPeriod] = await Promise.all([
     getAllStudents('all'),
-    getWeeklyFocusReport(),
+    getWeeklyFocusReport(branchId),
     branchId ? getTodayPeriods(branchId) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
     branchId ? getPenaltyPresets(branchId) : Promise.resolve([]),
     branchId ? getFocusScorePresets(branchId) : Promise.resolve([]),
-    getTodayFocusScoresByPeriod(),
+    getTodayFocusScoresByPeriod(branchId),
   ]);
 
   return (

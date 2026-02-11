@@ -14,6 +14,7 @@ import {
   deletePenaltyPreset,
   getRewardPresets,
   getPenaltyPresets,
+  deletePoint,
   type RewardPreset,
   type PenaltyPreset,
 } from '@/lib/actions/admin';
@@ -28,6 +29,8 @@ import {
   Settings,
   AlertTriangle,
   BookOpen,
+  Trash2,
+  Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +45,7 @@ interface PointsOverview {
 
 interface PointsHistory {
   id: string;
+  student_id: string;
   type: 'reward' | 'penalty';
   amount: number;
   reason: string;
@@ -81,11 +85,13 @@ export function PointsClient({
   const [overview, setOverview] = useState<PointsOverview[]>(initialOverview);
   const [history, setHistory] = useState<PointsHistory[]>(initialHistory);
   const [filter, setFilter] = useState<FilterType>('all');
+  const [studentFilter, setStudentFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [showPresetManager, setShowPresetManager] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // 프리셋 상태
   const [rewardPresets, setRewardPresets] = useState<RewardPreset[]>(initialRewardPresets);
@@ -103,9 +109,11 @@ export function PointsClient({
   const [amount, setAmount] = useState<string>('1');
   const [reason, setReason] = useState<string>('');
 
-  const filteredHistory = filter === 'all'
-    ? history
-    : history.filter(h => h.type === filter);
+  const filteredHistory = history.filter(h => {
+    const typeMatch = filter === 'all' || h.type === filter;
+    const studentMatch = !studentFilter || h.student_id === studentFilter;
+    return typeMatch && studentMatch;
+  });
 
   const handleSubmit = async () => {
     if (!selectedStudent || !amount || !reason) {
@@ -172,13 +180,33 @@ export function PointsClient({
     setLoading(true);
     try {
       const [newOverview, newHistory] = await Promise.all([
-        getPointsOverview(),
-        getAllPointsHistory(filter === 'all' ? undefined : filter),
+        getPointsOverview(branchId),
+        getAllPointsHistory(undefined, undefined, branchId), // 전체 내역 가져오기
       ]);
       setOverview(newOverview);
       setHistory(newHistory);
     } catch (error) {
       console.error('Failed to refresh:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 상벌점 내역 삭제
+  const handleDeletePoint = async (pointId: string) => {
+    setLoading(true);
+    try {
+      const result = await deletePoint(pointId);
+      if (result.success) {
+        showSuccess('상벌점 내역이 삭제되었습니다. 점수가 원상복구됩니다.');
+        setDeleteConfirmId(null);
+        await refreshData();
+      } else {
+        alert(result.error || '삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to delete point:', error);
+      alert('삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -597,19 +625,55 @@ export function PointsClient({
       {/* 상벌점 내역 탭 */}
       {activeTab === 'history' && (
         <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">상벌점 내역</h2>
-            <div className="flex gap-2">
-              {(['all', 'reward', 'penalty'] as FilterType[]).map((f) => (
+          <div className="flex flex-col gap-4 mb-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">상벌점 내역</h2>
+              <div className="flex gap-2">
+                {(['all', 'reward', 'penalty'] as FilterType[]).map((f) => (
+                  <Button
+                    key={f}
+                    variant={filter === f ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? '전체' : f === 'reward' ? '상점' : '벌점'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            {/* 학생별 필터 */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-text-muted" />
+                <span className="text-sm text-text-muted">학생 필터:</span>
+              </div>
+              <select
+                value={studentFilter}
+                onChange={(e) => setStudentFilter(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="">전체 학생</option>
+                {students.map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.seatNumber || '-'}번 {student.name}
+                  </option>
+                ))}
+              </select>
+              {studentFilter && (
                 <Button
-                  key={f}
-                  variant={filter === f ? 'default' : 'outline'}
+                  variant="ghost"
                   size="sm"
-                  onClick={() => setFilter(f)}
+                  onClick={() => setStudentFilter('')}
+                  className="text-text-muted hover:text-text"
                 >
-                  {f === 'all' ? '전체' : f === 'reward' ? '상점' : '벌점'}
+                  <X className="w-4 h-4" />
+                  초기화
                 </Button>
-              ))}
+              )}
+              <span className="text-xs text-text-muted ml-auto">
+                {filteredHistory.length}건
+              </span>
             </div>
           </div>
 
@@ -663,9 +727,42 @@ export function PointsClient({
                         <p className="text-sm text-text-muted">{item.reason}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-text-muted">{formatDate(item.created_at)}</p>
-                      <p className="text-xs text-text-muted">by {item.adminName}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm text-text-muted">{formatDate(item.created_at)}</p>
+                        <p className="text-xs text-text-muted">by {item.adminName}</p>
+                      </div>
+                      
+                      {/* 삭제 버튼 */}
+                      {deleteConfirmId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleDeletePoint(item.id)}
+                            disabled={loading}
+                            className="text-xs"
+                          >
+                            삭제
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="text-xs"
+                          >
+                            취소
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirmId(item.id)}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="삭제 (점수 원상복구)"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

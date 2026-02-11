@@ -31,9 +31,9 @@ export default async function PointsManagementPage() {
   }
 
   const [overview, history, students, rewardPresets, penaltyPresets] = await Promise.all([
-    getPointsOverview(),
-    getAllPointsHistory(),
-    getAllStudents(),
+    getPointsOverview(branchId),
+    getAllPointsHistory(undefined, undefined, branchId),
+    getAllStudents(undefined),
     branchId ? getRewardPresets(branchId) : Promise.resolve([]),
     branchId ? getPenaltyPresets(branchId) : Promise.resolve([]),
   ]);
