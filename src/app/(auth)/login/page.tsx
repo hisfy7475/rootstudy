@@ -44,10 +44,15 @@ export default function LoginPage() {
               priority
             />
           </div>
-          <CardTitle className="text-2xl">로그인</CardTitle>
-          <CardDescription>
-            독서실 학습관리 시스템에 오신 것을 환영합니다
+          <CardDescription className="space-y-2">
+            <span className="block font-bold text-foreground">
+              철저한 관리와 몰입이 확실한 결과로 이어지는 프리미엄 학습 공간
+            </span>
+            <span className="block text-text-muted">
+              학습시간 관리, 몰입도, 상벌점 시스템
+            </span>
           </CardDescription>
+          <CardTitle className="text-2xl mt-4">로그인 (회원 전용)</CardTitle>
         </CardHeader>
         <CardContent>
           <form action={handleSubmit} className="space-y-4">

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, deleteMember } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, deleteMember, createAdmin, deleteAdmin } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -29,6 +29,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   Trash2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +46,9 @@ interface Member {
   is_approved: boolean;
   created_at: string;
   branch_id: string | null;
+  seat_number: number | null;
+  school: string | null;
+  grade: number | null;
 }
 
 interface ParentMember {
@@ -129,6 +137,12 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved'>('all');
+  // 정렬 상태
+  const [sortField, setSortField] = useState<'seat_number' | 'name' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  // 인라인 이름 편집 상태
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
   // 승인 모달 상태
   const [approvalModal, setApprovalModal] = useState<{ student: Member } | null>(null);
   const [approvalForm, setApprovalForm] = useState({ capsId: '', seatNumber: '', studentTypeId: '' });
@@ -136,20 +150,69 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   // 탈퇴 모달 상태
   const [deleteModal, setDeleteModal] = useState<{ member: Member | ParentMember; userType: 'student' | 'parent' } | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  // 관리자 추가 모달 상태
+  const [addAdminModal, setAddAdminModal] = useState(false);
+  const [addAdminForm, setAddAdminForm] = useState({
+    email: '',
+    password: '',
+    name: '',
+    phone: '',
+    branchId: '',
+  });
+  const [addAdminError, setAddAdminError] = useState<string | null>(null);
+  // 관리자 삭제 모달 상태
+  const [deleteAdminModal, setDeleteAdminModal] = useState<Admin | null>(null);
+  const [deleteAdminConfirmName, setDeleteAdminConfirmName] = useState('');
 
   const pendingCount = students.filter(s => !s.is_approved).length;
   const approvedCount = students.filter(s => s.is_approved).length;
 
-  const filteredStudents = students.filter(
-    (m) => {
+  // 정렬 토글 핸들러
+  const handleSort = (field: 'seat_number' | 'name') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // 정렬 아이콘 렌더링
+  const renderSortIcon = (field: 'seat_number' | 'name') => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-text-muted" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="w-3.5 h-3.5 text-primary" />
+      : <ArrowDown className="w-3.5 h-3.5 text-primary" />;
+  };
+
+  const filteredStudents = students
+    .filter((m) => {
       const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.email.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesFilter = studentFilter === 'all' ||
         (studentFilter === 'pending' && !m.is_approved) ||
         (studentFilter === 'approved' && m.is_approved);
       return matchesSearch && matchesFilter;
-    }
-  );
+    })
+    .sort((a, b) => {
+      if (!sortField) return 0;
+      
+      if (sortField === 'seat_number') {
+        const aVal = a.seat_number ?? Infinity;
+        const bVal = b.seat_number ?? Infinity;
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      
+      if (sortField === 'name') {
+        return sortDirection === 'asc' 
+          ? a.name.localeCompare(b.name, 'ko')
+          : b.name.localeCompare(a.name, 'ko');
+      }
+      
+      return 0;
+    });
 
   const filteredParents = parents.filter(
     (p) =>
@@ -332,6 +395,126 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     }
   };
 
+  // 이름 수정 핸들러
+  const handleStartEditName = (member: Member) => {
+    setEditingNameId(member.id);
+    setEditingNameValue(member.name);
+  };
+
+  const handleSaveNameEdit = async (memberId: string) => {
+    if (!editingNameValue.trim()) return;
+    
+    setLoading(true);
+    try {
+      await updateMember(memberId, { name: editingNameValue.trim() });
+      
+      // 학생 목록 새로고침
+      const allMembers = await getAllMembers();
+      setStudents(allMembers.filter(m => m.user_type === 'student'));
+    } catch (error) {
+      console.error('Failed to update name:', error);
+    } finally {
+      setLoading(false);
+      setEditingNameId(null);
+      setEditingNameValue('');
+    }
+  };
+
+  // 학교/학년 수정 핸들러
+  const handleUpdateStudentField = async (memberId: string, field: 'school' | 'grade', value: string) => {
+    setLoading(true);
+    try {
+      const updateData: { school?: string | null; grade?: number | null } = {};
+      if (field === 'school') {
+        updateData.school = value || null;
+      } else if (field === 'grade') {
+        updateData.grade = value ? parseInt(value) : null;
+      }
+      
+      await updateMember(memberId, updateData);
+      
+      // 학생 목록 새로고침
+      const allMembers = await getAllMembers();
+      setStudents(allMembers.filter(m => m.user_type === 'student'));
+    } catch (error) {
+      console.error(`Failed to update ${field}:`, error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 관리자 추가 처리
+  const handleAddAdmin = async () => {
+    if (!addAdminForm.email || !addAdminForm.password || !addAdminForm.name) {
+      setAddAdminError('이메일, 비밀번호, 이름은 필수입니다.');
+      return;
+    }
+
+    if (addAdminForm.password.length < 6) {
+      setAddAdminError('비밀번호는 최소 6자 이상이어야 합니다.');
+      return;
+    }
+
+    setLoading(true);
+    setAddAdminError(null);
+    try {
+      const result = await createAdmin({
+        email: addAdminForm.email,
+        password: addAdminForm.password,
+        name: addAdminForm.name,
+        phone: addAdminForm.phone || undefined,
+        branchId: addAdminForm.branchId || undefined,
+      });
+
+      if (result.success) {
+        // 관리자 목록 새로고침
+        const updatedAdmins = await getAllAdmins();
+        setAdmins(updatedAdmins);
+        setAddAdminModal(false);
+        setAddAdminForm({ email: '', password: '', name: '', phone: '', branchId: '' });
+      } else {
+        setAddAdminError(result.error || '관리자 추가에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to create admin:', error);
+      setAddAdminError('관리자 추가 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 관리자 삭제 처리
+  const handleDeleteAdmin = async () => {
+    if (!deleteAdminModal) return;
+    if (deleteAdminConfirmName !== deleteAdminModal.name) {
+      alert('관리자 이름이 일치하지 않습니다.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await deleteAdmin(deleteAdminModal.id);
+
+      if (result.success) {
+        // 관리자 목록 새로고침
+        const updatedAdmins = await getAllAdmins();
+        setAdmins(updatedAdmins);
+        setDeleteAdminModal(null);
+        setDeleteAdminConfirmName('');
+        if (result.warning) {
+          alert(result.warning);
+        }
+      } else {
+        alert(result.error || '관리자 삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to delete admin:', error);
+      alert('관리자 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('ko-KR', {
       year: 'numeric',
@@ -428,103 +611,230 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
 
           {/* 관리자 목록 테이블 */}
           {activeTab === 'admins' ? (
-            <Card className="overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">소속 지점</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredAdmins.length === 0 ? (
+            <div className="space-y-4">
+              {/* 관리자 추가 버튼 */}
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => {
+                    setAddAdminModal(true);
+                    setAddAdminForm({ email: '', password: '', name: '', phone: '', branchId: '' });
+                    setAddAdminError(null);
+                  }}
+                  className="gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  관리자 추가
+                </Button>
+              </div>
+
+              <Card className="overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
-                        관리자가 없습니다.
-                      </td>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">소속 지점</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
                     </tr>
-                  ) : (
-                    filteredAdmins.map((admin) => (
-                      <tr key={admin.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
-                              <Shield className="w-4 h-4 text-purple-600" />
-                            </div>
-                            <span className="font-medium">{admin.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">{admin.email}</td>
-                        <td className="px-4 py-3 text-sm">{admin.phone || '-'}</td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={admin.branch_id || ''}
-                            onChange={(e) => handleBranchChange(admin.id, e.target.value)}
-                            disabled={loading}
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50",
-                              !admin.branch_id 
-                                ? "border-yellow-300 bg-yellow-50 text-yellow-700" 
-                                : "border-gray-200 bg-white"
-                            )}
-                          >
-                            <option value="">지점 미지정</option>
-                            {branches.map((branch) => (
-                              <option key={branch.id} value={branch.id}>
-                                {branch.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">
-                          {formatDate(admin.created_at)}
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredAdmins.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                          관리자가 없습니다.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </Card>
+                    ) : (
+                      filteredAdmins.map((admin) => (
+                        <tr key={admin.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                                <Shield className="w-4 h-4 text-purple-600" />
+                              </div>
+                              <span className="font-medium">{admin.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-text-muted">{admin.email}</td>
+                          <td className="px-4 py-3 text-sm">{admin.phone || '-'}</td>
+                          <td className="px-4 py-3">
+                            <select
+                              value={admin.branch_id || ''}
+                              onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+                              disabled={loading}
+                              className={cn(
+                                "px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50",
+                                !admin.branch_id 
+                                  ? "border-yellow-300 bg-yellow-50 text-yellow-700" 
+                                  : "border-gray-200 bg-white"
+                              )}
+                            >
+                              <option value="">지점 미지정</option>
+                              {branches.map((branch) => (
+                                <option key={branch.id} value={branch.id}>
+                                  {branch.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-text-muted">
+                            {formatDate(admin.created_at)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setDeleteAdminModal(admin);
+                                setDeleteAdminConfirmName('');
+                              }}
+                              disabled={loading}
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </Card>
+            </div>
           ) : activeTab === 'students' ? (
             /* 학생 목록 테이블 */
             <Card className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort('seat_number')}
+                    >
+                      <div className="flex items-center gap-1">
+                        좌석번호
+                        {renderSortIcon('seat_number')}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort('name')}
+                    >
+                      <div className="flex items-center gap-1">
+                        이름
+                        {renderSortIcon('name')}
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학교</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학년</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">상태</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                      <td colSpan={7} className="px-4 py-8 text-center text-text-muted">
                         {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : '학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     filteredStudents.map((member) => (
                       <tr key={member.id} className={cn("hover:bg-gray-50", !member.is_approved && "bg-yellow-50/50")}>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className={cn(
-                              "w-8 h-8 rounded-full flex items-center justify-center",
-                              member.is_approved ? "bg-primary/10" : "bg-yellow-100"
-                            )}>
-                              <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : "text-yellow-600")} />
-                            </div>
-                            <span className="font-medium">{member.name}</span>
-                          </div>
+                        {/* 좌석번호 */}
+                        <td className="px-4 py-3 text-sm">
+                          <span className={cn(
+                            "inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium",
+                            member.seat_number ? "bg-primary/10 text-primary" : "bg-gray-100 text-text-muted"
+                          )}>
+                            {member.seat_number || '-'}
+                          </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">{member.email}</td>
+                        {/* 이름 (편집 가능) */}
+                        <td className="px-4 py-3">
+                          {editingNameId === member.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="text"
+                                value={editingNameValue}
+                                onChange={(e) => setEditingNameValue(e.target.value)}
+                                className="w-24 h-8 text-sm"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveNameEdit(member.id);
+                                  if (e.key === 'Escape') setEditingNameId(null);
+                                }}
+                              />
+                              <button 
+                                onClick={() => handleSaveNameEdit(member.id)} 
+                                className="text-success hover:text-green-700"
+                                disabled={loading}
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => setEditingNameId(null)} 
+                                className="text-error hover:text-red-700"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 group">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                                member.is_approved ? "bg-primary/10" : "bg-yellow-100"
+                              )}>
+                                <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : "text-yellow-600")} />
+                              </div>
+                              <span className="font-medium">{member.name}</span>
+                              <button
+                                onClick={() => handleStartEditName(member)}
+                                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-primary transition-opacity"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        {/* 학교 */}
+                        <td className="px-4 py-3 text-sm">
+                          <input
+                            type="text"
+                            defaultValue={member.school || ''}
+                            placeholder="학교 입력"
+                            className="w-28 h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
+                            onBlur={(e) => {
+                              if (e.target.value !== (member.school || '')) {
+                                handleUpdateStudentField(member.id, 'school', e.target.value);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                          />
+                        </td>
+                        {/* 학년 */}
+                        <td className="px-4 py-3 text-sm">
+                          <select
+                            value={member.grade || ''}
+                            onChange={(e) => handleUpdateStudentField(member.id, 'grade', e.target.value)}
+                            className="h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
+                          >
+                            <option value="">선택</option>
+                            <option value="1">1학년</option>
+                            <option value="2">2학년</option>
+                            <option value="3">3학년</option>
+                          </select>
+                        </td>
+                        {/* 전화번호 */}
                         <td className="px-4 py-3 text-sm">{member.phone || '-'}</td>
+                        {/* 상태 */}
                         <td className="px-4 py-3 text-sm">
                           {member.is_approved ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
@@ -538,9 +848,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">
-                          {formatDate(member.created_at)}
-                        </td>
+                        {/* 액션 */}
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             {!member.is_approved ? (
@@ -880,6 +1188,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                       is_approved: true,
                       created_at: selectedStudent.createdAt,
                       branch_id: selectedStudent.branchId,
+                      seat_number: selectedStudent.seatNumber ?? null,
+                      school: null,
+                      grade: null,
                     };
                     handleOpenDeleteModal(memberData, 'student');
                   }}
@@ -1067,6 +1378,215 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
               >
                 <Trash2 className="w-4 h-4 mr-1" />
                 {loading ? '처리중...' : '탈퇴 처리'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* 관리자 추가 모달 */}
+      {addAdminModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Shield className="w-5 h-5 text-purple-600" />
+                관리자 추가
+              </h2>
+              <button
+                onClick={() => setAddAdminModal(false)}
+                className="text-text-muted hover:text-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 입력 폼 */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  이메일 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                  <Input
+                    type="email"
+                    placeholder="admin@example.com"
+                    value={addAdminForm.email}
+                    onChange={(e) => setAddAdminForm(prev => ({ ...prev, email: e.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  비밀번호 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                  <Input
+                    type="password"
+                    placeholder="최소 6자 이상"
+                    value={addAdminForm.password}
+                    onChange={(e) => setAddAdminForm(prev => ({ ...prev, password: e.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  이름 <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                  <Input
+                    type="text"
+                    placeholder="관리자 이름"
+                    value={addAdminForm.name}
+                    onChange={(e) => setAddAdminForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">전화번호</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                  <Input
+                    type="tel"
+                    placeholder="010-0000-0000"
+                    value={addAdminForm.phone}
+                    onChange={(e) => setAddAdminForm(prev => ({ ...prev, phone: e.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">소속 지점</label>
+                <select
+                  value={addAdminForm.branchId}
+                  onChange={(e) => setAddAdminForm(prev => ({ ...prev, branchId: e.target.value }))}
+                  className="w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">지점 선택 (선택사항)</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* 에러 메시지 */}
+            {addAdminError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+                {addAdminError}
+              </div>
+            )}
+
+            {/* 버튼 */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setAddAdminModal(false)}
+                disabled={loading}
+              >
+                취소
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleAddAdmin}
+                disabled={loading}
+              >
+                <UserPlus className="w-4 h-4 mr-1" />
+                {loading ? '추가중...' : '관리자 추가'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* 관리자 삭제 모달 */}
+      {deleteAdminModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-red-600 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                관리자 삭제
+              </h2>
+              <button
+                onClick={() => setDeleteAdminModal(null)}
+                className="text-text-muted hover:text-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 경고 메시지 */}
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+              <p className="text-red-700 font-medium">이 작업은 되돌릴 수 없습니다.</p>
+              <p className="text-sm text-red-600">
+                <strong>[{deleteAdminModal.name}]</strong> 관리자를 삭제하시겠습니까?
+              </p>
+            </div>
+
+            {/* 관리자 정보 */}
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="font-medium">{deleteAdminModal.name}</p>
+                  <p className="text-sm text-text-muted">{deleteAdminModal.email}</p>
+                </div>
+              </div>
+              {deleteAdminModal.branch_name && (
+                <div className="flex items-center gap-2 text-sm pl-[52px]">
+                  <Building2 className="w-3.5 h-3.5 text-text-muted" />
+                  <span>{deleteAdminModal.branch_name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* 확인 입력 */}
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                확인을 위해 관리자 이름을 입력하세요
+              </label>
+              <Input
+                type="text"
+                placeholder={deleteAdminModal.name}
+                value={deleteAdminConfirmName}
+                onChange={(e) => setDeleteAdminConfirmName(e.target.value)}
+                className="border-red-200 focus:ring-red-500"
+              />
+            </div>
+
+            {/* 버튼 */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDeleteAdminModal(null)}
+                disabled={loading}
+              >
+                취소
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                onClick={handleDeleteAdmin}
+                disabled={loading || deleteAdminConfirmName !== deleteAdminModal.name}
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                {loading ? '처리중...' : '삭제'}
               </Button>
             </div>
           </Card>

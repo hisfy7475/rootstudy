@@ -526,10 +526,11 @@ export async function deletePoint(pointId: string) {
 // 회원 관리 관련
 // ============================================
 
-// 전체 회원 목록 조회
+// 전체 회원 목록 조회 (학생의 경우 seat_number 포함)
 export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
   const supabase = await createClient();
 
+  // 기본 프로필 조회
   let query = supabase
     .from('profiles')
     .select('*')
@@ -539,8 +540,34 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
     query = query.eq('user_type', userType);
   }
 
-  const { data } = await query;
-  return data || [];
+  const { data: profiles } = await query;
+  if (!profiles) return [];
+
+  // 학생의 경우 student_profiles에서 seat_number 가져오기
+  const studentIds = profiles
+    .filter(p => p.user_type === 'student')
+    .map(p => p.id);
+
+  let seatMap: Record<string, number | null> = {};
+  if (studentIds.length > 0) {
+    const { data: studentProfiles } = await supabase
+      .from('student_profiles')
+      .select('id, seat_number')
+      .in('id', studentIds);
+
+    if (studentProfiles) {
+      seatMap = studentProfiles.reduce((acc, sp) => {
+        acc[sp.id] = sp.seat_number;
+        return acc;
+      }, {} as Record<string, number | null>);
+    }
+  }
+
+  // 결과 합치기
+  return profiles.map(p => ({
+    ...p,
+    seat_number: p.user_type === 'student' ? (seatMap[p.id] ?? null) : null,
+  }));
 }
 
 // 학부모 목록 조회 (연결된 학생 정보 포함)
@@ -718,7 +745,7 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
 }
 
 // 회원 정보 수정
-export async function updateMember(userId: string, data: { name?: string; phone?: string }) {
+export async function updateMember(userId: string, data: { name?: string; phone?: string; school?: string | null; grade?: number | null }) {
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -1165,6 +1192,137 @@ export async function updateAdminBranch(adminId: string, branchId: string | null
   return { success: true };
 }
 
+// 관리자 계정 생성
+export async function createAdmin(data: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  branchId?: string;
+}) {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  // 현재 사용자가 관리자인지 확인
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (currentProfile?.user_type !== 'admin') {
+    return { error: '관리자만 새 관리자를 추가할 수 있습니다.' };
+  }
+
+  // 1. Supabase Auth에 사용자 생성 (Admin Client로 RLS 우회)
+  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+    email: data.email,
+    password: data.password,
+    email_confirm: true, // 이메일 확인 없이 바로 사용 가능
+  });
+
+  if (authError) {
+    console.error('Error creating admin auth:', authError);
+    if (authError.message.includes('already registered') || authError.message.includes('already been registered')) {
+      return { error: '이미 등록된 이메일입니다.' };
+    }
+    return { error: authError.message };
+  }
+
+  if (!authData.user) {
+    return { error: '관리자 계정 생성에 실패했습니다.' };
+  }
+
+  const newUserId = authData.user.id;
+
+  // 2. profiles 테이블에 관리자 정보 저장 (Admin Client로 RLS 우회)
+  const { error: profileError } = await adminClient.from('profiles').insert({
+    id: newUserId,
+    email: data.email,
+    name: data.name,
+    phone: data.phone || null,
+    user_type: 'admin',
+    branch_id: data.branchId || null,
+    is_approved: true, // 관리자는 승인 불필요
+  });
+
+  if (profileError) {
+    console.error('Error creating admin profile:', profileError);
+    // Auth 사용자 롤백
+    await adminClient.auth.admin.deleteUser(newUserId);
+    return { error: '관리자 프로필 생성에 실패했습니다: ' + profileError.message };
+  }
+
+  revalidatePath('/admin/members');
+  return { success: true, adminId: newUserId };
+}
+
+// 관리자 계정 삭제
+export async function deleteAdmin(adminId: string) {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  // 현재 사용자가 관리자인지 확인
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (currentProfile?.user_type !== 'admin') {
+    return { error: '관리자만 삭제할 수 있습니다.' };
+  }
+
+  // 자기 자신은 삭제할 수 없음
+  if (adminId === user.id) {
+    return { error: '자기 자신은 삭제할 수 없습니다.' };
+  }
+
+  // 삭제 대상이 관리자인지 확인
+  const { data: targetProfile } = await supabase
+    .from('profiles')
+    .select('user_type, name')
+    .eq('id', adminId)
+    .single();
+
+  if (!targetProfile || targetProfile.user_type !== 'admin') {
+    return { error: '삭제 대상이 관리자가 아닙니다.' };
+  }
+
+  try {
+    // 1. profiles 삭제
+    const { error: profileError } = await adminClient
+      .from('profiles')
+      .delete()
+      .eq('id', adminId);
+
+    if (profileError) {
+      console.error('Error deleting admin profile:', profileError);
+      return { error: '관리자 정보 삭제에 실패했습니다.' };
+    }
+
+    // 2. Auth 사용자 삭제
+    const { error: authError } = await adminClient.auth.admin.deleteUser(adminId);
+
+    if (authError) {
+      console.error('Error deleting admin auth:', authError);
+      return { success: true, warning: 'Auth 사용자 삭제에 실패했습니다. DB 정보는 삭제되었습니다.' };
+    }
+
+    revalidatePath('/admin/members');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in deleteAdmin:', error);
+    return { error: '관리자 삭제 중 오류가 발생했습니다.' };
+  }
+}
+
 // ============================================
 // 몰입도 점수 프리셋 관련
 // ============================================
@@ -1206,6 +1364,33 @@ export async function createFocusScorePreset(
   color: string = 'bg-primary'
 ) {
   const supabase = await createClient();
+
+  // 같은 점수의 비활성(소프트 삭제된) 프리셋이 있는지 확인
+  const { data: existing } = await supabase
+    .from('focus_score_presets')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('score', score)
+    .eq('is_active', false)
+    .single();
+
+  if (existing) {
+    // 비활성 프리셋이 있으면 재활성화 + 라벨/색상 업데이트
+    const { data, error } = await supabase
+      .from('focus_score_presets')
+      .update({ is_active: true, label, color })
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error reactivating focus score preset:', error);
+      return { error: '프리셋 생성에 실패했습니다.' };
+    }
+
+    revalidatePath('/admin/focus');
+    return { success: true, data };
+  }
 
   // 최대 sort_order 조회
   const { data: maxOrder } = await supabase
