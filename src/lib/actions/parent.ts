@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
+import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -11,6 +12,19 @@ export interface LinkedStudent {
   email: string;
   phone: string | null;
   seatNumber: number | null;
+}
+
+// 주간 학습 진행 데이터 타입
+export interface WeeklyProgressData {
+  goalHours: number;
+  actualMinutes: number;
+  progressPercent: number;
+  studentTypeName: string | null;
+}
+
+export interface WeeklyGoalDay {
+  date: string;
+  achieved: boolean | null;
 }
 
 // 학생별 대시보드 데이터 타입
@@ -23,6 +37,8 @@ export interface StudentDashboardData {
   todayFocus: number | null;
   latestActivity: string | null;  // 최근 학습 상태 (인강 수강 중, 수면 중 등)
   pendingSchedules: number;
+  weeklyProgress: WeeklyProgressData;
+  weeklyGoals: WeeklyGoalDay[];
 }
 
 // 연결된 모든 학생 정보 조회 (1:N)
@@ -237,11 +253,13 @@ export async function getParentDashboardData(): Promise<{
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
   const studentsData = await Promise.all(
     linkedStudents.map(async (student) => {
-      const [status, studyTime, currentSubject, todayFocus] = await Promise.all([
+      const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] = await Promise.all([
         getStudentStatus(student.id, { forParentView: true }),
         getStudentStudyTime(student.id),
         getStudentCurrentSubject(student.id),
         getStudentTodayFocus(student.id),
+        getWeeklyProgress(student.id),
+        getWeeklyGoals(student.id),
       ]);
 
       return {
@@ -253,6 +271,8 @@ export async function getParentDashboardData(): Promise<{
         todayFocus: todayFocus.average,
         latestActivity: todayFocus.latestActivity,
         pendingSchedules: 0,
+        weeklyProgress: weeklyProgressData,
+        weeklyGoals: weeklyGoalsData,
       };
     })
   );
@@ -276,11 +296,13 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
   }
 
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
-  const [status, studyTime, currentSubject, todayFocus] = await Promise.all([
+  const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] = await Promise.all([
     getStudentStatus(student.id, { forParentView: true }),
     getStudentStudyTime(student.id),
     getStudentCurrentSubject(student.id),
     getStudentTodayFocus(student.id),
+    getWeeklyProgress(student.id),
+    getWeeklyGoals(student.id),
   ]);
 
   const studentData: StudentDashboardData = {
@@ -292,6 +314,8 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     todayFocus: todayFocus.average,
     latestActivity: todayFocus.latestActivity,
     pendingSchedules: 0,
+    weeklyProgress: weeklyProgressData,
+    weeklyGoals: weeklyGoalsData,
   };
 
   return {

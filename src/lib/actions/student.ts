@@ -233,11 +233,16 @@ export async function getTodayStudyTime() {
 
 // 주간 출석 현황 조회 (DAY_CONFIG.weekStartsOn 기준)
 // attendance 테이블의 check_in 기록 기반으로 출석 여부 판단
-export async function getWeeklyGoals() {
+export async function getWeeklyGoals(studentId?: string) {
   const supabase = await createClient();
   
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  let targetStudentId = studentId;
+  
+  if (!targetStudentId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    targetStudentId = user.id;
+  }
 
   // 이번 주 시작일 (DAY_CONFIG 기준)
   const startOfWeek = getWeekStart();
@@ -248,7 +253,7 @@ export async function getWeeklyGoals() {
   const { data: attendanceRecords } = await supabase
     .from('attendance')
     .select('timestamp')
-    .eq('student_id', user.id)
+    .eq('student_id', targetStudentId)
     .eq('type', 'check_in')
     .gte('timestamp', startOfWeek.toISOString())
     .lt('timestamp', endOfWeek.toISOString())

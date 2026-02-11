@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { StudentInfoCard } from '@/components/parent/student-info-card';
 import { StudentStatusCard } from '@/components/parent/student-status-card';
+import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
@@ -36,6 +37,18 @@ interface Student {
   seatNumber: number | null;
 }
 
+interface WeeklyProgressData {
+  goalHours: number;
+  actualMinutes: number;
+  progressPercent: number;
+  studentTypeName: string | null;
+}
+
+interface WeeklyGoalDay {
+  date: string;
+  achieved: boolean | null;
+}
+
 interface StudentData {
   student: Student;
   status: AttendanceStatus;
@@ -45,6 +58,8 @@ interface StudentData {
   todayFocus: number | null;
   latestActivity: string | null;
   pendingSchedules: number;
+  weeklyProgress: WeeklyProgressData;
+  weeklyGoals: WeeklyGoalDay[];
 }
 
 interface PendingScheduleWithStudent extends StudentAbsenceSchedule {
@@ -234,6 +249,18 @@ export function ParentDashboardClient({
             focusScore={data.todayFocus}
             latestActivity={data.latestActivity}
             lastUpdate={data.lastUpdate}
+          />
+
+          {/* 주간 학습 현황 */}
+          <WeeklyStudyProgress
+            goalHours={data.weeklyProgress.goalHours}
+            actualMinutes={data.weeklyProgress.actualMinutes}
+            progressPercent={data.weeklyProgress.progressPercent}
+            studentTypeName={data.weeklyProgress.studentTypeName}
+            weekDays={data.weeklyGoals.map(g => ({
+              date: new Date(g.date),
+              achieved: g.achieved,
+            }))}
           />
         </div>
       ))}

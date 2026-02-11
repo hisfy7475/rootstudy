@@ -732,7 +732,10 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
 
   const { error } = await supabase
     .from('student_profiles')
-    .update({ caps_id: normalizedCapsId })
+    .update({
+      caps_id: normalizedCapsId,
+      caps_id_set_at: normalizedCapsId ? new Date().toISOString() : null,
+    })
     .eq('id', studentId);
 
   if (error) {
@@ -835,6 +838,7 @@ export async function approveStudent(
     .from('student_profiles')
     .update({
       caps_id: normalizedCapsId,
+      caps_id_set_at: normalizedCapsId ? new Date().toISOString() : null,
       seat_number: seatNumber,
       student_type_id: studentTypeId || null,
     })

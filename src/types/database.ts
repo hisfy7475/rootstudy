@@ -52,6 +52,7 @@ export interface Database {
           birthday: string | null;
           student_type_id: string | null;
           caps_id: string | null;
+          caps_id_set_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -61,6 +62,7 @@ export interface Database {
           birthday?: string | null;
           student_type_id?: string | null;
           caps_id?: string | null;
+          caps_id_set_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -70,6 +72,7 @@ export interface Database {
           birthday?: string | null;
           student_type_id?: string | null;
           caps_id?: string | null;
+          caps_id_set_at?: string | null;
           created_at?: string;
         };
       };

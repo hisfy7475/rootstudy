@@ -87,13 +87,17 @@ export async function GET(request: Request) {
 
     const { data: students } = await supabase
       .from('student_profiles')
-      .select('id, caps_id')
+      .select('id, caps_id, caps_id_set_at')
       .in('caps_id', capsIds);
 
-    const studentMap = new Map<string, string>();
+    // caps_id -> { studentId, capsIdSetAt } 매핑
+    const studentMap = new Map<string, { studentId: string; capsIdSetAt: string | null }>();
     students?.forEach((s) => {
       if (s.caps_id) {
-        studentMap.set(s.caps_id, s.id);
+        studentMap.set(s.caps_id, {
+          studentId: s.id,
+          capsIdSetAt: s.caps_id_set_at,
+        });
       }
     });
 
@@ -106,8 +110,8 @@ export async function GET(request: Request) {
     }[] = [];
 
     for (const record of enterRecords) {
-      const studentId = studentMap.get(String(record.e_id));
-      if (!studentId) {
+      const student = studentMap.get(String(record.e_id));
+      if (!student) {
         // 매칭되는 학생 없음 - 스킵
         continue;
       }
@@ -124,8 +128,13 @@ export async function GET(request: Request) {
 
       const timestamp = parseCapsDatetime(record.e_date, record.e_time);
 
+      // caps_id 설정(승인) 시점 이전의 기록은 무시
+      if (student.capsIdSetAt && timestamp < student.capsIdSetAt) {
+        continue;
+      }
+
       attendanceRecords.push({
-        student_id: studentId,
+        student_id: student.studentId,
         type: attendanceType,
         timestamp,
         source: 'caps',
