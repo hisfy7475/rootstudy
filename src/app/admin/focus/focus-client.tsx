@@ -402,100 +402,100 @@ export function FocusClient({
   // ============================================
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-full overflow-hidden">
+    <div className="p-4 md:p-6 space-y-3 max-w-full overflow-hidden">
       {/* 헤더 */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold">몰입도 관리</h1>
-          <p className="text-text-muted text-sm mt-1">학생들의 학습 몰입도를 기록하세요</p>
+          <h1 className="text-lg md:text-xl font-bold">몰입도 관리</h1>
+          <p className="text-text-muted text-xs mt-0.5">학생들의 학습 몰입도를 기록하세요</p>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => setShowPresetManager(!showPresetManager)}>
-            <Settings className="w-4 h-4 mr-1" />
-            <span className="hidden sm:inline">프리셋 관리</span>
+        <div className="flex gap-1.5 flex-shrink-0">
+          <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={() => setShowPresetManager(!showPresetManager)}>
+            <Settings className="w-3.5 h-3.5 mr-1" />
+            <span className="hidden sm:inline">프리셋</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={refreshData} disabled={loading}>
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+          <Button variant="outline" size="sm" className="h-7 px-2" onClick={refreshData} disabled={loading}>
+            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
           </Button>
         </div>
       </div>
 
       {/* 성공 메시지 토스트 */}
       {successMessage && (
-        <div className="fixed top-4 right-4 bg-green-100 text-green-800 px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 animate-in slide-in-from-top z-50 text-sm">
-          <Check className="w-4 h-4" />
+        <div className="fixed top-4 right-4 bg-green-100 text-green-800 px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-1.5 animate-in slide-in-from-top z-50 text-xs">
+          <Check className="w-3.5 h-3.5" />
           {successMessage}
         </div>
       )}
 
       {/* 프리셋 관리 패널 */}
       {showPresetManager && (
-        <Card className="p-4 bg-gray-50 border-2 border-dashed space-y-6">
+        <Card className="p-3 bg-gray-50 border-2 border-dashed space-y-4">
           <div>
-            <h3 className="font-semibold mb-3 flex items-center gap-2 text-blue-700">
-              <Brain className="w-4 h-4" />
+            <h3 className="font-semibold mb-2 flex items-center gap-1.5 text-blue-700 text-xs">
+              <Brain className="w-3.5 h-3.5" />
               몰입도 프리셋 관리
             </h3>
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {activeFocusPresets.map((preset) => (
-                <span key={preset.id} className={cn('inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white', preset.color || 'bg-blue-500')}>
+                <span key={preset.id} className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white', preset.color || 'bg-blue-500')}>
                   {preset.label} ({preset.score}점)
-                  <button onClick={() => handleDeleteFocusPreset(preset.id)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
-                    <X className="w-3 h-3" />
+                  <button onClick={() => handleDeleteFocusPreset(preset.id)} className="ml-0.5 hover:bg-white/20 rounded-full p-0.5">
+                    <X className="w-2.5 h-2.5" />
                   </button>
                 </span>
               ))}
             </div>
-            <div className="flex gap-2 max-w-md">
-              <Input type="number" min="1" max="10" placeholder="점수" value={newFocusScore} onChange={(e) => setNewFocusScore(e.target.value)} className="w-20" />
-              <Input placeholder="라벨 (예: 인강)" value={newFocusLabel} onChange={(e) => setNewFocusLabel(e.target.value)} className="flex-1" />
-              <Button size="sm" onClick={handleAddFocusPreset} disabled={loading}><Plus className="w-4 h-4" /></Button>
+            <div className="flex gap-1.5 max-w-md">
+              <Input type="number" min="1" max="10" placeholder="점수" value={newFocusScore} onChange={(e) => setNewFocusScore(e.target.value)} className="w-16 h-7 text-xs" />
+              <Input placeholder="라벨 (예: 인강)" value={newFocusLabel} onChange={(e) => setNewFocusLabel(e.target.value)} className="flex-1 h-7 text-xs" />
+              <Button size="sm" className="h-7 px-2" onClick={handleAddFocusPreset} disabled={loading}><Plus className="w-3.5 h-3.5" /></Button>
             </div>
           </div>
           <div>
-            <h3 className="font-semibold mb-3 flex items-center gap-2 text-red-700">
-              <Settings className="w-4 h-4" />
+            <h3 className="font-semibold mb-2 flex items-center gap-1.5 text-red-700 text-xs">
+              <Settings className="w-3.5 h-3.5" />
               벌점 프리셋 관리
             </h3>
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {activePenaltyPresets.map((preset) => (
-                <span key={preset.id} className={cn('inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-white', preset.color || 'bg-red-500')}>
+                <span key={preset.id} className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white', preset.color || 'bg-red-500')}>
                   {preset.reason} (-{preset.amount}점)
                   {!preset.id.startsWith('default-') && (
-                    <button onClick={() => handleDeletePenaltyPreset(preset.id)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
-                      <X className="w-3 h-3" />
+                    <button onClick={() => handleDeletePenaltyPreset(preset.id)} className="ml-0.5 hover:bg-white/20 rounded-full p-0.5">
+                      <X className="w-2.5 h-2.5" />
                     </button>
                   )}
                 </span>
               ))}
             </div>
-            <div className="flex gap-2 max-w-md">
-              <Input type="number" min="1" placeholder="점수" value={newPenaltyAmount} onChange={(e) => setNewPenaltyAmount(e.target.value)} className="w-20" />
-              <Input placeholder="사유 (예: 지각)" value={newPenaltyReason} onChange={(e) => setNewPenaltyReason(e.target.value)} className="flex-1" />
-              <Button size="sm" onClick={handleAddPenaltyPreset} disabled={loading}><Plus className="w-4 h-4" /></Button>
+            <div className="flex gap-1.5 max-w-md">
+              <Input type="number" min="1" placeholder="점수" value={newPenaltyAmount} onChange={(e) => setNewPenaltyAmount(e.target.value)} className="w-16 h-7 text-xs" />
+              <Input placeholder="사유 (예: 지각)" value={newPenaltyReason} onChange={(e) => setNewPenaltyReason(e.target.value)} className="flex-1 h-7 text-xs" />
+              <Button size="sm" className="h-7 px-2" onClick={handleAddPenaltyPreset} disabled={loading}><Plus className="w-3.5 h-3.5" /></Button>
             </div>
           </div>
         </Card>
       )}
 
       {/* 날짜/교시 정보 */}
-      <Card className="p-3 md:p-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 md:gap-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-              <span className="font-medium text-sm md:text-base">{formatDate(todayDate)}</span>
-              <span className={cn("px-2 py-0.5 rounded-full text-xs", dateTypeName ? "bg-primary/10 text-primary" : "bg-yellow-100 text-yellow-700")}>
+      <Card className="p-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-primary" />
+              <span className="font-medium text-xs">{formatDate(todayDate)}</span>
+              <span className={cn("px-1.5 py-0.5 rounded-full text-[10px]", dateTypeName ? "bg-primary/10 text-primary" : "bg-yellow-100 text-yellow-700")}>
                 {dateTypeName || '미지정'}
               </span>
             </div>
             {activeTab !== 'report' && todayPeriods.length > 0 && activeTab === 'quick' && (
-              <div className="flex items-center gap-2">
-                <span className="text-text-muted text-sm">교시:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-text-muted text-xs">교시:</span>
                 <select
                   value={selectedPeriodId}
                   onChange={(e) => setSelectedPeriodId(e.target.value)}
-                  className="px-2 py-1.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+                  className="px-1.5 py-1 rounded-md border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs"
                 >
                   <option value="">선택</option>
                   {todayPeriods.map((period) => (
@@ -508,7 +508,7 @@ export function FocusClient({
             )}
           </div>
           {currentPeriod && (
-            <div className="text-xs md:text-sm text-text-muted">
+            <div className="text-xs text-text-muted">
               현재: <span className="font-medium text-primary">{getPeriodLabel(currentPeriod)}</span>
             </div>
           )}
@@ -525,14 +525,14 @@ export function FocusClient({
           <button
             key={key}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+              'flex items-center gap-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors',
               activeTab === key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             )}
             onClick={() => setActiveTab(key)}
           >
-            <Icon className="w-4 h-4" />
+            <Icon className="w-3.5 h-3.5" />
             {label}
           </button>
         ))}
@@ -620,7 +620,7 @@ function QuickInputView({
 }) {
   if (students.length === 0) {
     return (
-      <Card className="p-8 text-center text-text-muted">
+      <Card className="p-4 text-center text-text-muted text-xs">
         현재 입실 중인 학생이 없습니다.
       </Card>
     );
@@ -628,38 +628,38 @@ function QuickInputView({
 
   if (!selectedPeriodId) {
     return (
-      <Card className="p-8 text-center">
-        <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-        <p className="text-text-muted">교시를 먼저 선택해주세요.</p>
+      <Card className="p-4 text-center">
+        <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+        <p className="text-text-muted text-xs">교시를 먼저 선택해주세요.</p>
       </Card>
     );
   }
 
   return (
     <Card className="p-0 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary" />
-          <span className="font-medium text-sm">빠른 몰입도 입력</span>
-          <span className="text-xs text-text-muted">
+      <div className="px-2 py-1.5 bg-gray-50 border-b flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Zap className="w-3.5 h-3.5 text-primary" />
+          <span className="font-medium text-xs">빠른 몰입도 입력</span>
+          <span className="text-[10px] text-text-muted">
             ({selectedPeriod ? getPeriodLabel(selectedPeriod) : ''})
           </span>
         </div>
-        <span className="text-xs text-text-muted">{students.length}명</span>
+        <span className="text-[10px] text-text-muted">{students.length}명</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full text-xs">
           <thead className="bg-gray-50/50 border-b">
             <tr>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 w-12">번호</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 min-w-[60px]">이름</th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10">번호</th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px]">이름</th>
               {presets.map((preset) => (
-                <th key={preset.id} className="px-1.5 py-2.5 text-center text-xs font-medium text-gray-500 min-w-[56px]">
+                <th key={preset.id} className="px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[44px]">
                   <div>{preset.label}</div>
-                  <div className="text-gray-400 font-normal">({preset.score})</div>
+                  <div className="text-gray-400 font-normal text-[10px]">({preset.score})</div>
                 </th>
               ))}
-              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 w-16">현재</th>
+              <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-500 w-10">현재</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -669,11 +669,11 @@ function QuickInputView({
               
               return (
                 <tr key={student.id} className="hover:bg-gray-50/50">
-                  <td className="px-3 py-2">
-                    <span className="font-semibold text-primary text-sm">{student.seatNumber ?? '-'}</span>
+                  <td className="px-2 py-1">
+                    <span className="font-semibold text-primary text-xs">{student.seatNumber ?? '-'}</span>
                   </td>
-                  <td className="px-3 py-2">
-                    <span className="font-medium text-sm truncate">{student.name}</span>
+                  <td className="px-2 py-1">
+                    <span className="font-medium text-xs truncate">{student.name}</span>
                   </td>
                   {presets.map((preset) => {
                     const cellKey = `${student.id}-${selectedPeriodId}`;
@@ -682,10 +682,10 @@ function QuickInputView({
                     const hasOtherSelection = currentScore && !isActive;
 
                     return (
-                      <td key={preset.id} className="px-1.5 py-2 text-center">
+                      <td key={preset.id} className="px-0.5 py-1 text-center">
                         <button
                           className={cn(
-                            'w-full min-h-[44px] px-2 py-2 rounded-lg text-xs font-semibold transition-all',
+                            'w-full min-h-[28px] px-1.5 py-1 rounded-md text-[10px] font-semibold transition-all',
                             'active:scale-95 disabled:opacity-40',
                             isActive
                               ? 'ring-2 ring-offset-1 ring-primary bg-primary text-white shadow-md'
@@ -703,10 +703,10 @@ function QuickInputView({
                           disabled={isSaving}
                         >
                           {isSaving ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin mx-auto" />
+                            <RefreshCw className="w-3 h-3 animate-spin mx-auto" />
                           ) : isActive ? (
-                            <span className="flex items-center justify-center gap-1">
-                              <Check className="w-3.5 h-3.5" />
+                            <span className="flex items-center justify-center gap-0.5">
+                              <Check className="w-3 h-3" />
                               {preset.label}
                             </span>
                           ) : (
@@ -716,13 +716,13 @@ function QuickInputView({
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-center">
+                  <td className="px-2 py-1 text-center">
                     {currentScore ? (
-                      <span className={cn('inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold', getScoreColor(currentScore.score))}>
+                      <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold', getScoreColor(currentScore.score))}>
                         {currentScore.score}
                       </span>
                     ) : (
-                      <span className="text-gray-300 text-sm">-</span>
+                      <span className="text-gray-300 text-xs">-</span>
                     )}
                   </td>
                 </tr>
@@ -758,7 +758,7 @@ function PeriodTableView({
 }) {
   if (students.length === 0) {
     return (
-      <Card className="p-8 text-center text-text-muted">
+      <Card className="p-4 text-center text-text-muted text-xs">
         현재 입실 중인 학생이 없습니다.
       </Card>
     );
@@ -766,9 +766,9 @@ function PeriodTableView({
 
   if (periods.length === 0) {
     return (
-      <Card className="p-8 text-center">
-        <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-        <p className="text-text-muted">오늘 교시가 설정되지 않았습니다.</p>
+      <Card className="p-4 text-center">
+        <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+        <p className="text-text-muted text-xs">오늘 교시가 설정되지 않았습니다.</p>
       </Card>
     );
   }
@@ -785,32 +785,32 @@ function PeriodTableView({
 
   return (
     <Card className="p-0 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Table2 className="w-4 h-4 text-primary" />
-          <span className="font-medium text-sm">교시별 몰입도</span>
+      <div className="px-2 py-1.5 bg-gray-50 border-b flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Table2 className="w-3.5 h-3.5 text-primary" />
+          <span className="font-medium text-xs">교시별 몰입도</span>
         </div>
-        <span className="text-xs text-text-muted">{students.length}명 / {periods.length}교시</span>
+        <span className="text-[10px] text-text-muted">{students.length}명 / {periods.length}교시</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="bg-gray-50 border-b">
-              <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium text-gray-500 w-12 border-r">번호</th>
-              <th className="sticky left-12 z-10 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium text-gray-500 min-w-[60px] border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">이름</th>
+              <th className="sticky left-0 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10 border-r">번호</th>
+              <th className="sticky left-10 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px] border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">이름</th>
               {periods.map((period) => (
                 <th
                   key={period.id}
                   className={cn(
-                    'px-1.5 py-2.5 text-center text-xs font-medium min-w-[72px]',
+                    'px-1 py-1.5 text-center text-xs font-medium min-w-[56px]',
                     currentPeriod?.id === period.id ? 'text-primary bg-primary/5' : 'text-gray-500'
                   )}
                 >
                   <div>{getPeriodLabel(period)}</div>
-                  <div className="text-gray-400 font-normal">{fmtTime(period.start_time)}</div>
+                  <div className="text-gray-400 font-normal text-[10px]">{fmtTime(period.start_time)}</div>
                 </th>
               ))}
-              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 w-16 border-l">평균</th>
+              <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-500 w-12 border-l">평균</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -821,11 +821,11 @@ function PeriodTableView({
 
               return (
                 <tr key={student.id} className="hover:bg-gray-50/50">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 border-r">
-                    <span className="font-semibold text-primary text-sm">{student.seatNumber ?? '-'}</span>
+                  <td className="sticky left-0 z-10 bg-white px-2 py-1 border-r">
+                    <span className="font-semibold text-primary text-xs">{student.seatNumber ?? '-'}</span>
                   </td>
-                  <td className="sticky left-12 z-10 bg-white px-3 py-1.5 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                    <span className="font-medium text-sm truncate block max-w-[80px]">{student.name}</span>
+                  <td className="sticky left-10 z-10 bg-white px-2 py-1 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                    <span className="font-medium text-xs truncate block max-w-[60px]">{student.name}</span>
                   </td>
                   {periods.map((period) => {
                     const cellKey = `${student.id}-${period.id}`;
@@ -837,7 +837,7 @@ function PeriodTableView({
                       <td
                         key={period.id}
                         className={cn(
-                          'px-1 py-1.5 text-center',
+                          'px-0.5 py-1 text-center',
                           isCurrentPeriod && 'bg-primary/5',
                           scoreData && getScoreBgOnly(scoreData.score)
                         )}
@@ -848,7 +848,7 @@ function PeriodTableView({
                             onChange={(e) => onScoreChange(student.id, period.id, e.target.value)}
                             disabled={isSaving}
                             className={cn(
-                              'w-full min-h-[40px] px-1 py-1 rounded-lg border text-xs font-medium text-center appearance-none cursor-pointer',
+                              'w-full min-h-[28px] px-0.5 py-0.5 rounded-md border text-[10px] font-medium text-center appearance-none cursor-pointer',
                               'focus:outline-none focus:ring-2 focus:ring-primary/50',
                               scoreData
                                 ? cn('border-transparent font-bold', getScoreColor(scoreData.score))
@@ -861,21 +861,21 @@ function PeriodTableView({
                             ))}
                           </select>
                           {isSaving && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-lg">
-                              <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                            <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-md">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin text-primary" />
                             </div>
                           )}
                         </div>
                       </td>
                     );
                   })}
-                  <td className="px-3 py-1.5 text-center border-l">
+                  <td className="px-2 py-1 text-center border-l">
                     {avg !== null ? (
-                      <span className={cn('inline-flex items-center justify-center w-10 h-8 rounded-full text-xs font-bold', getScoreColor(avg))}>
+                      <span className={cn('inline-flex items-center justify-center w-7 h-6 rounded-full text-[10px] font-bold', getScoreColor(avg))}>
                         {avg}
                       </span>
                     ) : (
-                      <span className="text-gray-300 text-sm">-</span>
+                      <span className="text-gray-300 text-xs">-</span>
                     )}
                   </td>
                 </tr>
@@ -945,51 +945,51 @@ function WeeklyReportView({
 
   return (
     <Card className="p-0 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-primary" />
-          <span className="font-medium text-sm">주간 몰입도 리포트</span>
+      <div className="px-2 py-1.5 bg-gray-50 border-b flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <BarChart3 className="w-3.5 h-3.5 text-primary" />
+          <span className="font-medium text-xs">주간 몰입도 리포트</span>
         </div>
-        <Button variant="outline" size="sm" onClick={handleExcelDownload}>
-          <Download className="w-4 h-4 mr-1" />
-          <span className="hidden sm:inline">엑셀 다운로드</span>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={handleExcelDownload}>
+          <Download className="w-3 h-3 mr-1" />
+          <span className="hidden sm:inline">엑셀</span>
         </Button>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full text-xs">
           <thead className="bg-gray-50/50 border-b">
             <tr>
-              <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left text-sm font-medium text-text-muted border-r">학생</th>
+              <th className="sticky left-0 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-text-muted border-r">학생</th>
               {weekDays.map((day) => (
                 <th
                   key={day.date}
                   className={cn(
-                    'px-4 py-3 text-center text-sm font-medium min-w-[56px]',
+                    'px-2 py-1.5 text-center text-xs font-medium min-w-[44px]',
                     day.isToday ? 'text-primary bg-primary/5' : 'text-text-muted'
                   )}
                 >
                   {day.label}
                   <br />
-                  <span className="text-xs font-normal">{day.date.slice(5)}</span>
+                  <span className="text-[10px] font-normal">{day.date.slice(5)}</span>
                 </th>
               ))}
-              <th className="px-4 py-3 text-center text-sm font-medium text-text-muted border-l">평균</th>
+              <th className="px-2 py-1.5 text-center text-xs font-medium text-text-muted border-l">평균</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {report.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-text-muted">
+                <td colSpan={9} className="px-2 py-4 text-center text-text-muted text-xs">
                   데이터가 없습니다.
                 </td>
               </tr>
             ) : (
               report.map((student) => (
                 <tr key={student.id} className="hover:bg-gray-50">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-3 border-r">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-primary font-medium">{student.seatNumber || '-'}</span>
-                      <span className="text-sm">{student.name}</span>
+                  <td className="sticky left-0 z-10 bg-white px-2 py-1 border-r">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-primary font-medium">{student.seatNumber || '-'}</span>
+                      <span className="text-xs">{student.name}</span>
                     </div>
                   </td>
                   {weekDays.map((day) => {
@@ -998,10 +998,10 @@ function WeeklyReportView({
                       ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10
                       : null;
                     return (
-                      <td key={day.date} className={cn('px-4 py-3 text-center', day.isToday && 'bg-primary/5')}>
+                      <td key={day.date} className={cn('px-2 py-1 text-center', day.isToday && 'bg-primary/5')}>
                         {avg !== null ? (
                           <span className={cn(
-                            'font-medium text-sm',
+                            'font-medium text-xs',
                             avg >= 8 ? 'text-green-600' :
                             avg >= 6 ? 'text-primary' :
                             avg >= 4 ? 'text-yellow-600' : 'text-red-500'
@@ -1009,16 +1009,16 @@ function WeeklyReportView({
                             {avg}
                           </span>
                         ) : (
-                          <span className="text-text-muted text-sm">-</span>
+                          <span className="text-text-muted text-xs">-</span>
                         )}
                       </td>
                     );
                   })}
-                  <td className="px-4 py-3 text-center border-l">
+                  <td className="px-2 py-1 text-center border-l">
                     {student.weeklyAvg !== null ? (
-                      <span className="font-semibold text-primary text-sm">{student.weeklyAvg}</span>
+                      <span className="font-semibold text-primary text-xs">{student.weeklyAvg}</span>
                     ) : (
-                      <span className="text-text-muted text-sm">-</span>
+                      <span className="text-text-muted text-xs">-</span>
                     )}
                   </td>
                 </tr>
@@ -1065,39 +1065,39 @@ function PenaltySection({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card className="p-4">
+    <Card className="p-2">
       <button
         className="flex items-center justify-between w-full"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-red-500" />
-          <span className="font-semibold text-sm">벌점 부여</span>
+        <div className="flex items-center gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+          <span className="font-semibold text-xs">벌점 부여</span>
           {selectedStudents.size > 0 && (
-            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+            <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px] font-medium">
               {selectedStudents.size}명 선택
             </span>
           )}
         </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        {expanded ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
       </button>
 
       {expanded && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-2 space-y-2">
           {/* 학생 선택 */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-gray-500">학생 선택</p>
-              <button className="text-xs text-primary hover:underline" onClick={onSelectAll}>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] text-gray-500">학생 선택</p>
+              <button className="text-[10px] text-primary hover:underline" onClick={onSelectAll}>
                 {selectedStudents.size === students.length ? '전체 해제' : '전체 선택'}
               </button>
             </div>
-            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
               {students.map((student) => (
                 <button
                   key={student.id}
                   className={cn(
-                    'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                    'px-1.5 py-1 rounded-md text-[10px] font-medium transition-all border',
                     selectedStudents.has(student.id)
                       ? 'bg-red-50 border-red-300 text-red-700'
                       : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
@@ -1112,13 +1112,13 @@ function PenaltySection({
 
           {/* 빠른 벌점 */}
           <div>
-            <p className="text-xs text-gray-500 mb-2">빠른 벌점</p>
-            <div className="flex flex-wrap gap-2">
+            <p className="text-[10px] text-gray-500 mb-1.5">빠른 벌점</p>
+            <div className="flex flex-wrap gap-1.5">
               {penaltyPresets.map((preset) => (
                 <button
                   key={preset.id}
                   className={cn(
-                    'px-3 py-2 rounded-lg text-xs font-semibold text-white shadow-sm',
+                    'px-2 py-1 rounded-md text-[10px] font-semibold text-white shadow-sm',
                     'hover:opacity-90 active:scale-95 transition-all',
                     'disabled:opacity-50 disabled:cursor-not-allowed',
                     preset.color || 'bg-red-500'
@@ -1134,19 +1134,19 @@ function PenaltySection({
 
           {/* 직접 입력 */}
           <div>
-            <p className="text-xs text-gray-500 mb-2">직접 입력</p>
-            <div className="flex gap-2">
+            <p className="text-[10px] text-gray-500 mb-1.5">직접 입력</p>
+            <div className="flex gap-1.5">
               <Input
                 type="number" min="1" max="10"
                 value={customPenaltyAmount}
                 onChange={(e) => onSetAmount(e.target.value)}
-                className="w-16 h-9 text-sm"
+                className="w-12 h-7 text-xs"
                 placeholder="점수"
               />
               <Input
                 value={customPenaltyReason}
                 onChange={(e) => onSetReason(e.target.value)}
-                className="flex-1 h-9 text-sm"
+                className="flex-1 h-7 text-xs"
                 placeholder="벌점 사유 입력..."
               />
               <Button
@@ -1154,7 +1154,7 @@ function PenaltySection({
                 variant="danger"
                 onClick={onCustomPenalty}
                 disabled={loading || selectedStudents.size === 0}
-                className="h-9 text-xs"
+                className="h-7 text-[10px] px-2"
               >
                 부여
               </Button>

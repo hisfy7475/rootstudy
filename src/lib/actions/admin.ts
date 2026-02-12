@@ -1369,33 +1369,6 @@ export async function createFocusScorePreset(
 ) {
   const supabase = await createClient();
 
-  // 같은 점수의 비활성(소프트 삭제된) 프리셋이 있는지 확인
-  const { data: existing } = await supabase
-    .from('focus_score_presets')
-    .select('*')
-    .eq('branch_id', branchId)
-    .eq('score', score)
-    .eq('is_active', false)
-    .single();
-
-  if (existing) {
-    // 비활성 프리셋이 있으면 재활성화 + 라벨/색상 업데이트
-    const { data, error } = await supabase
-      .from('focus_score_presets')
-      .update({ is_active: true, label, color })
-      .eq('id', existing.id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error reactivating focus score preset:', error);
-      return { error: '프리셋 생성에 실패했습니다.' };
-    }
-
-    revalidatePath('/admin/focus');
-    return { success: true, data };
-  }
-
   // 최대 sort_order 조회
   const { data: maxOrder } = await supabase
     .from('focus_score_presets')
@@ -1421,9 +1394,6 @@ export async function createFocusScorePreset(
 
   if (error) {
     console.error('Error creating focus score preset:', error);
-    if (error.code === '23505') {
-      return { error: '이미 해당 점수의 프리셋이 존재합니다.' };
-    }
     return { error: '프리셋 생성에 실패했습니다.' };
   }
 
@@ -1679,10 +1649,6 @@ export async function getAttendanceBoard(
     : getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
   const todayStr = studyDate.toISOString().split('T')[0];
-
-  // #region agent log
-  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'admin.ts:getAttendanceBoard',message:'Date bounds calculation',data:{targetDate,studyDateISO:studyDate.toISOString(),todayStr,todayStartISO:todayStart.toISOString(),todayEndISO:todayEnd.toISOString(),serverNow:new Date().toISOString(),serverTimezoneOffset:new Date().getTimezoneOffset()},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   const todayDayOfWeek = studyDate.getDay();
 
   // 페이지네이션 계산
@@ -1755,12 +1721,6 @@ export async function getAttendanceBoard(
         else if (lastRecord.type === 'break_start') status = 'on_break';
         else if (lastRecord.type === 'break_end') status = 'checked_in';
       }
-
-      // #region agent log
-      if (profile?.name === '김루트') {
-        fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'admin.ts:getAttendanceBoard:studentLoop',message:'김루트 attendance data',data:{studentId:student.id,attendanceCount:attendance?.length||0,attendance:attendance?.slice(-3),lastRecord:attendance?.[attendance.length-1],calculatedStatus:status,firstCheckInTime,queryRange:{start:todayStart.toISOString(),end:todayEnd.toISOString()}},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      }
-      // #endregion
 
       // 오늘 해당하는 부재 스케줄 조회
       const { data: absenceSchedules } = await supabase
