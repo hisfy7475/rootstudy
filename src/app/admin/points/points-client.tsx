@@ -504,7 +504,11 @@ export function PointsClient({
                     'flex-1',
                     pointType === 'reward' && 'bg-green-600 hover:bg-green-700'
                   )}
-                  onClick={() => setPointType('reward')}
+                  onClick={() => {
+                    setPointType('reward');
+                    setReason('');
+                    setAmount('1');
+                  }}
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   상점
@@ -515,7 +519,11 @@ export function PointsClient({
                     'flex-1',
                     pointType === 'penalty' && 'bg-red-600 hover:bg-red-700'
                   )}
-                  onClick={() => setPointType('penalty')}
+                  onClick={() => {
+                    setPointType('penalty');
+                    setReason('');
+                    setAmount('1');
+                  }}
                 >
                   <Minus className="w-4 h-4 mr-1" />
                   벌점
@@ -535,14 +543,30 @@ export function PointsClient({
               />
             </div>
 
-            {/* 사유 */}
+            {/* 사유 선택 */}
             <div>
               <label className="block text-sm font-medium mb-2">사유</label>
-              <Input
+              <select
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="사유를 입력하세요"
-              />
+                onChange={(e) => {
+                  const selectedValue = e.target.value;
+                  setReason(selectedValue);
+                  // 선택한 프리셋에서 점수 자동 설정
+                  const presets = pointType === 'reward' ? rewardPresets : penaltyPresets;
+                  const selectedPreset = presets.find(p => p.reason === selectedValue);
+                  if (selectedPreset && selectedPreset.amount !== 999) {
+                    setAmount(selectedPreset.amount.toString());
+                  }
+                }}
+                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="">사유를 선택하세요</option>
+                {(pointType === 'reward' ? rewardPresets : penaltyPresets).map((preset) => (
+                  <option key={preset.id} value={preset.reason}>
+                    {preset.reason} ({preset.amount === 999 ? '제적' : `${preset.amount}점`})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
