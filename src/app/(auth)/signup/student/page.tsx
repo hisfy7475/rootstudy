@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2, GraduationCap } from 'lucide-react';
+import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2, GraduationCap, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -151,97 +151,125 @@ export default function StudentSignupPage() {
         </CardHeader>
         <CardContent>
           <form action={handleSubmit} className="space-y-4">
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="email"
-                name="email"
-                placeholder="이메일"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="password"
-                name="password"
-                placeholder="비밀번호 (6자 이상)"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="password"
-                name="confirmPassword"
-                placeholder="비밀번호 확인"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="text"
-                name="name"
-                placeholder="이름"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <Phone className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <Input
-                type="tel"
-                name="phone"
-                placeholder="전화번호"
-                className="pl-12"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <Building2 className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <select
-                name="branchId"
-                required
-                disabled={isLoading}
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
-              >
-                <option value="">지점 선택 *</option>
-                {branches.map(branch => (
-                  <option key={branch.id} value={branch.id}>{branch.name}</option>
-                ))}
-              </select>
+            {/* 계정 정보 */}
+            <div className="space-y-4">
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="email"
+                  name="email"
+                  placeholder="이메일"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="password"
+                  name="password"
+                  placeholder="비밀번호 (6자 이상)"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="password"
+                  name="confirmPassword"
+                  placeholder="비밀번호 확인"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
             </div>
 
-            {/* 학생 타입(학년) 선택 - 필수 */}
-            <div className="relative">
-              <GraduationCap className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-              <select
-                name="studentTypeId"
-                required
-                disabled={isLoading || studentTypes.length === 0}
-                className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
-              >
-                <option value="">학년 선택 *</option>
-                {studentTypes.map(type => (
-                  <option key={type.id} value={type.id}>{type.name}</option>
-                ))}
-              </select>
-              {studentTypes.length === 0 && (
-                <p className="text-xs text-text-muted mt-1 ml-1">
-                  등록된 학년이 없습니다. 관리자에게 문의하세요.
-                </p>
-              )}
+            {/* 구분선 */}
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-white px-3 text-xs text-text-muted">개인 정보</span>
+              </div>
+            </div>
+
+            {/* 개인 정보 */}
+            <div className="space-y-4">
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="text"
+                  name="name"
+                  placeholder="이름"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="tel"
+                  name="phone"
+                  placeholder="전화번호"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="relative">
+                <BookOpen className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <Input
+                  type="text"
+                  name="school"
+                  placeholder="학교 이름"
+                  className="pl-12"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="relative">
+                <Building2 className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <select
+                  name="branchId"
+                  required
+                  disabled={isLoading}
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
+                >
+                  <option value="">지점 선택</option>
+                  {branches.map(branch => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 학생 타입(학년) 선택 - 필수 */}
+              <div className="relative">
+                <GraduationCap className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <select
+                  name="studentTypeId"
+                  required
+                  disabled={isLoading || studentTypes.length === 0}
+                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
+                >
+                  <option value="">학년 선택</option>
+                  {studentTypes.map(type => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </select>
+                {studentTypes.length === 0 && (
+                  <p className="text-xs text-text-muted mt-1 ml-1">
+                    등록된 학년이 없습니다. 관리자에게 문의하세요.
+                  </p>
+                )}
+              </div>
             </div>
 
             {error && (

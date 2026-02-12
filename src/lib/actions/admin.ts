@@ -549,10 +549,11 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
     .map(p => p.id);
 
   let seatMap: Record<string, number | null> = {};
+  let studentTypeMap: Record<string, string | null> = {};
   if (studentIds.length > 0) {
     const { data: studentProfiles } = await supabase
       .from('student_profiles')
-      .select('id, seat_number')
+      .select('id, seat_number, student_type_id')
       .in('id', studentIds);
 
     if (studentProfiles) {
@@ -560,6 +561,10 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
         acc[sp.id] = sp.seat_number;
         return acc;
       }, {} as Record<string, number | null>);
+      studentTypeMap = studentProfiles.reduce((acc, sp) => {
+        acc[sp.id] = sp.student_type_id;
+        return acc;
+      }, {} as Record<string, string | null>);
     }
   }
 
@@ -567,6 +572,7 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
   return profiles.map(p => ({
     ...p,
     seat_number: p.user_type === 'student' ? (seatMap[p.id] ?? null) : null,
+    student_type_id: p.user_type === 'student' ? (studentTypeMap[p.id] ?? null) : null,
   }));
 }
 

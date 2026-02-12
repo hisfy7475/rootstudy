@@ -9,6 +9,14 @@ function getSupabaseAdmin() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+// 로컬(KST) 날짜를 YYYY-MM-DD 문자열로 변환 (toISOString의 UTC 변환 문제 방지)
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 주의 시작일 계산 (일요일 기준)
 function getWeekStart(date: Date = new Date()): Date {
   const d = new Date(date);
@@ -33,7 +41,7 @@ function getWeekDates(weekStart: Date): string[] {
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStart);
     date.setDate(date.getDate() + i);
-    dates.push(date.toISOString().split('T')[0]);
+    dates.push(formatLocalDate(date));
   }
   return dates;
 }
@@ -219,7 +227,7 @@ export async function GET(request: Request) {
     const lastWeekEnd = new Date(lastWeekStart);
     lastWeekEnd.setDate(lastWeekEnd.getDate() + 7);
     
-    const weekStartStr = lastWeekStart.toISOString().split('T')[0];
+    const weekStartStr = formatLocalDate(lastWeekStart);
     const weekDates = getWeekDates(lastWeekStart);
 
     // 3. 모든 학생 조회 (타입 정보 포함)

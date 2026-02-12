@@ -49,6 +49,7 @@ interface Member {
   seat_number: number | null;
   school: string | null;
   grade: number | null;
+  student_type_id: string | null;
 }
 
 interface ParentMember {
@@ -116,6 +117,7 @@ interface MembersClientProps {
   initialParents: ParentMember[];
   initialAdmins: Admin[];
   branches: Branch[];
+  initialStudentTypes?: StudentTypeOption[];
 }
 
 type Tab = 'students' | 'parents' | 'admins';
@@ -125,7 +127,7 @@ interface StudentTypeOption {
   name: string;
 }
 
-export function MembersClient({ initialStudents, initialParents, initialAdmins, branches }: MembersClientProps) {
+export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [] }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<ParentMember[]>(initialParents);
   const [admins, setAdmins] = useState<Admin[]>(initialAdmins);
@@ -133,6 +135,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
   const [studentTypes, setStudentTypes] = useState<StudentTypeOption[]>([]);
+  const [allStudentTypes] = useState<StudentTypeOption[]>(initialStudentTypes);
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -417,6 +420,29 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       setLoading(false);
       setEditingNameId(null);
       setEditingNameValue('');
+    }
+  };
+
+  // 학생 타입 인라인 수정 핸들러
+  const handleUpdateStudentTypeInline = async (memberId: string, studentTypeId: string) => {
+    setLoading(true);
+    try {
+      const result = await updateStudentType(memberId, studentTypeId || null);
+      
+      if (result.error) {
+        console.error('Failed to update student type:', result.error);
+        alert('학생 타입 수정에 실패했습니다: ' + result.error);
+        return;
+      }
+      
+      // 학생 목록 새로고침
+      const allMembers = await getAllMembers();
+      setStudents(allMembers.filter(m => m.user_type === 'student'));
+    } catch (error) {
+      console.error('Failed to update student type:', error);
+      alert('학생 타입 수정 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -736,6 +762,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학교</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학년</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학생 타입</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">상태</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
@@ -744,7 +771,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                 <tbody className="divide-y divide-gray-100">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-text-muted">
+                      <td colSpan={8} className="px-4 py-8 text-center text-text-muted">
                         {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : '학생이 없습니다.'}
                       </td>
                     </tr>
@@ -837,6 +864,20 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                             <option value="1">1학년</option>
                             <option value="2">2학년</option>
                             <option value="3">3학년</option>
+                          </select>
+                        </td>
+                        {/* 학생 타입 */}
+                        <td className="px-4 py-3 text-sm">
+                          <select
+                            value={member.student_type_id || ''}
+                            onChange={(e) => handleUpdateStudentTypeInline(member.id, e.target.value)}
+                            disabled={loading}
+                            className="h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
+                          >
+                            <option value="">선택</option>
+                            {allStudentTypes.map(type => (
+                              <option key={type.id} value={type.id}>{type.name}</option>
+                            ))}
                           </select>
                         </td>
                         {/* 전화번호 */}
@@ -1198,6 +1239,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                       seat_number: selectedStudent.seatNumber ?? null,
                       school: null,
                       grade: null,
+                      student_type_id: selectedStudent.studentTypeId ?? null,
                     };
                     handleOpenDeleteModal(memberData, 'student');
                   }}
