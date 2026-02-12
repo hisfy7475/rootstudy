@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, deleteMember, createAdmin, deleteAdmin } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, rejectStudent, deleteMember, createAdmin, deleteAdmin } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -44,6 +44,7 @@ interface Member {
   phone: string | null;
   user_type: string;
   is_approved: boolean;
+  is_rejected?: boolean;
   created_at: string;
   branch_id: string | null;
   seat_number: number | null;
@@ -139,7 +140,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved'>('all');
+  const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   // 정렬 상태
   const [sortField, setSortField] = useState<'seat_number' | 'name' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -167,8 +168,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [deleteAdminModal, setDeleteAdminModal] = useState<Admin | null>(null);
   const [deleteAdminConfirmName, setDeleteAdminConfirmName] = useState('');
 
-  const pendingCount = students.filter(s => !s.is_approved).length;
+  const pendingCount = students.filter(s => !s.is_approved && !s.is_rejected).length;
   const approvedCount = students.filter(s => s.is_approved).length;
+  const rejectedCount = students.filter(s => s.is_rejected).length;
 
   // 정렬 토글 핸들러
   const handleSort = (field: 'seat_number' | 'name') => {
@@ -195,8 +197,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.email.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesFilter = studentFilter === 'all' ||
-        (studentFilter === 'pending' && !m.is_approved) ||
-        (studentFilter === 'approved' && m.is_approved);
+        (studentFilter === 'pending' && !m.is_approved && !m.is_rejected) ||
+        (studentFilter === 'approved' && m.is_approved) ||
+        (studentFilter === 'rejected' && m.is_rejected);
       return matchesSearch && matchesFilter;
     })
     .sort((a, b) => {
@@ -359,6 +362,29 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     }
   };
 
+  // 비승인 처리
+  const handleReject = async (studentId: string) => {
+    if (!confirm('이 학생을 비승인 처리하시겠습니까?')) return;
+
+    setLoading(true);
+    try {
+      const result = await rejectStudent(studentId);
+
+      if (result.success) {
+        // 학생 목록 새로고침
+        const allMembers = await getAllMembers();
+        setStudents(allMembers.filter(m => m.user_type === 'student'));
+      } else {
+        alert(result.error || '비승인에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to reject student:', error);
+      alert('비승인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 탈퇴 모달 열기
   const handleOpenDeleteModal = (member: Member | ParentMember, userType: 'student' | 'parent') => {
     setDeleteModal({ member, userType });
@@ -368,7 +394,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   // 탈퇴 처리
   const handleDelete = async () => {
     if (!deleteModal) return;
-    if (deleteConfirmName !== deleteModal.member.name) {
+    if (deleteConfirmName.trim() !== deleteModal.member.name.trim()) {
       alert('회원 이름이 일치하지 않습니다.');
       return;
     }
@@ -639,6 +665,20 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 승인됨 ({approvedCount})
               </button>
+              {rejectedCount > 0 && (
+                <button
+                  onClick={() => setStudentFilter('rejected')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1",
+                    studentFilter === 'rejected'
+                      ? "bg-red-600 text-white"
+                      : "bg-red-50 text-red-700 hover:bg-red-100"
+                  )}
+                >
+                  <X className="w-3.5 h-3.5" />
+                  비승인 ({rejectedCount})
+                </button>
+              )}
             </div>
           )}
 
@@ -772,12 +812,13 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   {filteredStudents.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-text-muted">
-                        {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : '학생이 없습니다.'}
+                        {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : 
+                         studentFilter === 'rejected' ? '비승인된 학생이 없습니다.' : '학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     filteredStudents.map((member) => (
-                      <tr key={member.id} className={cn("hover:bg-gray-50", !member.is_approved && "bg-yellow-50/50")}>
+                      <tr key={member.id} className={cn("hover:bg-gray-50", member.is_rejected && "bg-red-50/50", !member.is_approved && !member.is_rejected && "bg-yellow-50/50")}>
                         {/* 좌석번호 */}
                         <td className="px-4 py-3 text-sm">
                           <span className={cn(
@@ -820,9 +861,9 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                             <div className="flex items-center gap-2 group">
                               <div className={cn(
                                 "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                                member.is_approved ? "bg-primary/10" : "bg-yellow-100"
+                                member.is_approved ? "bg-primary/10" : member.is_rejected ? "bg-red-100" : "bg-yellow-100"
                               )}>
-                                <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : "text-yellow-600")} />
+                                <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : member.is_rejected ? "text-red-600" : "text-yellow-600")} />
                               </div>
                               <span className="font-medium">{member.name}</span>
                               <button
@@ -889,6 +930,11 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                               <CheckCircle2 className="w-3 h-3" />
                               승인됨
                             </span>
+                          ) : member.is_rejected ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                              <X className="w-3 h-3" />
+                              비승인
+                            </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
                               <Clock className="w-3 h-3" />
@@ -899,35 +945,59 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                         {/* 액션 */}
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            {!member.is_approved ? (
-                              <Button
-                                size="sm"
-                                onClick={() => handleOpenApproval(member)}
-                                disabled={loading}
-                                className="bg-green-600 hover:bg-green-700 text-white"
-                              >
-                                <UserPlus className="w-4 h-4 mr-1" />
-                                승인
-                              </Button>
+                            {!member.is_approved && !member.is_rejected ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenApproval(member)}
+                                  disabled={loading}
+                                  className="bg-green-600 hover:bg-green-700 text-white"
+                                >
+                                  <UserPlus className="w-4 h-4 mr-1" />
+                                  승인
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleReject(member.id)}
+                                  disabled={loading}
+                                  className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                >
+                                  <X className="w-4 h-4 mr-1" />
+                                  비승인
+                                </Button>
+                              </>
+                            ) : member.is_approved ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleViewDetail(member.id)}
+                                  disabled={loading}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleOpenDeleteModal(member, 'student')}
+                                  disabled={loading}
+                                  className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                >
+                                  <UserMinus className="w-4 h-4" />
+                                </Button>
+                              </>
                             ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => handleViewDetail(member.id)}
+                                onClick={() => handleOpenDeleteModal(member, 'student')}
                                 disabled={loading}
+                                className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
                               >
-                                <Eye className="w-4 h-4" />
+                                <UserMinus className="w-4 h-4" />
                               </Button>
                             )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenDeleteModal(member, 'student')}
-                              disabled={loading}
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                            >
-                              <UserMinus className="w-4 h-4" />
-                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -947,12 +1017,13 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredParents.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
+                      <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
                         학부모가 없습니다.
                       </td>
                     </tr>
@@ -968,7 +1039,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          {parent.students.length === 0 ? (
+                          {!parent.students || parent.students.length === 0 ? (
                             <span className="text-sm text-text-muted">미연결</span>
                           ) : (
                             <div className="flex flex-wrap gap-1">
@@ -991,6 +1062,17 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                         <td className="px-4 py-3 text-sm">{parent.phone || '-'}</td>
                         <td className="px-4 py-3 text-sm text-text-muted">
                           {formatDate(parent.created_at)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenDeleteModal(parent, 'parent')}
+                            disabled={loading}
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                          >
+                            <UserMinus className="w-4 h-4" />
+                          </Button>
                         </td>
                       </tr>
                     ))
@@ -1423,7 +1505,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
               <Button
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white"
                 onClick={handleDelete}
-                disabled={loading || deleteConfirmName !== deleteModal.member.name}
+                disabled={loading || deleteConfirmName.trim() !== deleteModal.member.name.trim()}
               >
                 <Trash2 className="w-4 h-4 mr-1" />
                 {loading ? '처리중...' : '탈퇴 처리'}

@@ -860,6 +860,28 @@ export async function approveStudent(
   return { success: true };
 }
 
+// 학생 가입 비승인
+export async function rejectStudent(studentId: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ 
+      is_rejected: true,
+      rejected_at: new Date().toISOString()
+    })
+    .eq('id', studentId);
+
+  if (error) {
+    console.error('Error rejecting student:', error);
+    return { success: false, error: '학생 비승인에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
 // ============================================
 // 알림 관련
 // ============================================
