@@ -22,11 +22,14 @@ export default function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Link href="/login" className="block">
-            <Button className="w-full" size="lg">
-              로그인
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="flex-1">
+              <Button className="w-full" size="lg">
+                로그인
+              </Button>
+            </Link>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">(회원 전용)</span>
+          </div>
           <div className="flex gap-2">
             <Link href="/signup/student" className="flex-1">
               <Button variant="outline" className="w-full">
