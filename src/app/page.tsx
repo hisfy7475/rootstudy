@@ -18,17 +18,18 @@ export default function Home() {
             />
           </div>
           <CardDescription>
-            학습시간 관리, 몰입도 측정, 등원 목표 관리
+            철저한 학습관리가 성적향상으로 이어지는
+            <br />
+            프리미엄 학습공간
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Link href="/login" className="flex-1">
+          <div>
+            <Link href="/login">
               <Button className="w-full" size="lg">
-                로그인
+                로그인 (회원 전용)
               </Button>
             </Link>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">(회원 전용)</span>
           </div>
           <div className="flex gap-2">
             <Link href="/signup/student" className="flex-1">

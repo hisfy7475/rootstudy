@@ -44,15 +44,14 @@ export default function LoginPage() {
               priority
             />
           </div>
-          <CardDescription className="space-y-2">
-            <span className="block font-bold text-foreground">
-              철저한 관리와 몰입이 확실한 결과로 이어지는 프리미엄 학습 공간
+          <CardDescription className="space-y-1">
+            <span className="block text-foreground">
+              철저한 학습관리가 성적향상으로 이어지는
             </span>
-            <span className="block text-text-muted">
-              학습시간 관리, 몰입도, 상벌점 시스템
+            <span className="block text-foreground">
+              프리미엄 학습공간
             </span>
           </CardDescription>
-          <CardTitle className="text-2xl mt-4">로그인 (회원 전용)</CardTitle>
         </CardHeader>
         <CardContent>
           <form action={handleSubmit} className="space-y-4">
@@ -91,7 +90,7 @@ export default function LoginPage() {
               size="lg"
               disabled={isLoading}
             >
-              {isLoading ? '로그인 중...' : '로그인'}
+              {isLoading ? '로그인 중...' : '로그인 (회원 전용)'}
             </Button>
           </form>
 
@@ -122,6 +121,9 @@ export default function LoginPage() {
               </Button>
             </Link>
           </div>
+          <p className="text-sm text-center font-bold text-muted-foreground pt-2">
+            해당 사이트는 회원 전용으로, 재원생에 한해 회원가입이 가능합니다.
+          </p>
         </CardFooter>
       </Card>
     </div>
