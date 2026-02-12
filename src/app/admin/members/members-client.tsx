@@ -431,13 +431,20 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         updateData.grade = value ? parseInt(value) : null;
       }
       
-      await updateMember(memberId, updateData);
+      const result = await updateMember(memberId, updateData);
+      
+      if (result.error) {
+        console.error(`Failed to update ${field}:`, result.error);
+        alert(`${field === 'school' ? '학교' : '학년'} 수정에 실패했습니다: ${result.error}`);
+        return;
+      }
       
       // 학생 목록 새로고침
       const allMembers = await getAllMembers();
       setStudents(allMembers.filter(m => m.user_type === 'student'));
     } catch (error) {
       console.error(`Failed to update ${field}:`, error);
+      alert(`${field === 'school' ? '학교' : '학년'} 수정 중 오류가 발생했습니다.`);
     } finally {
       setLoading(false);
     }
@@ -822,7 +829,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                         {/* 학년 */}
                         <td className="px-4 py-3 text-sm">
                           <select
-                            value={member.grade || ''}
+                            value={member.grade?.toString() || ''}
                             onChange={(e) => handleUpdateStudentField(member.id, 'grade', e.target.value)}
                             className="h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
                           >
