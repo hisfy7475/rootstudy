@@ -41,24 +41,39 @@ export function generateParentCode(): string {
 }
 
 /**
- * 실제 날짜/시간을 학습일로 변환
- * 새벽 01:30 이전(00:00~01:30)은 전날의 학습일로 처리
+ * 실제 날짜/시간을 학습일로 변환 (한국 시간 기준)
  * 
- * @param date - 변환할 날짜/시간 (기본값: 현재 시각)
- * @returns 학습일 (YYYY-MM-DD 형식의 Date 객체, 시간은 00:00:00)
+ * 서버 타임존에 관계없이 한국 시간(KST, UTC+9) 기준으로 계산합니다.
+ * - 한국 시간 00:00~01:30 사이는 전날의 학습일
+ * - 한국 시간 01:30~07:30 사이는 전날의 학습일 (학습 시간 외)
+ * - 한국 시간 07:30 이후는 해당 날짜의 학습일
+ * 
+ * @param date - 변환할 날짜/시간 (기본값: 현재 시각, UTC 기준)
+ * @returns 학습일 (YYYY-MM-DD 형식의 Date 객체, UTC 자정 기준)
  */
 export function getStudyDate(date: Date = new Date()): Date {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
+  // 한국 시간으로 변환 (UTC + 9시간)
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kstTime = new Date(date.getTime() + KST_OFFSET_MS);
   
-  // 자정~01:30 사이는 전날의 학습일
-  const isBeforeEndTime = hours < 1 || (hours === 1 && minutes < DAY_CONFIG.endMinute);
+  const kstHours = kstTime.getUTCHours();
+  const kstMinutes = kstTime.getUTCMinutes();
   
-  const studyDate = new Date(date);
-  studyDate.setHours(0, 0, 0, 0);
+  // 한국 시간 기준으로 학습일 계산
+  // 00:00~07:30 KST는 전날의 학습일 (01:30까지가 학습시간이고, 01:30~07:30은 새벽 공백)
+  const isBeforeStartTime = kstHours < DAY_CONFIG.startHour || 
+    (kstHours === DAY_CONFIG.startHour && kstMinutes < DAY_CONFIG.startMinute);
   
-  if (isBeforeEndTime) {
-    studyDate.setDate(studyDate.getDate() - 1);
+  // 한국 시간 기준 날짜 (UTC 자정으로 반환)
+  const studyDate = new Date(Date.UTC(
+    kstTime.getUTCFullYear(),
+    kstTime.getUTCMonth(),
+    kstTime.getUTCDate(),
+    0, 0, 0, 0
+  ));
+  
+  if (isBeforeStartTime) {
+    studyDate.setUTCDate(studyDate.getUTCDate() - 1);
   }
   
   return studyDate;
@@ -84,23 +99,35 @@ export function isWithinStudyDay(date: Date = new Date()): boolean {
 }
 
 /**
- * 특정 학습일의 시작/종료 시각을 반환
+ * 특정 학습일의 시작/종료 시각을 반환 (한국 시간 기준)
+ * 
+ * 서버 타임존에 관계없이 한국 시간(KST, UTC+9) 기준으로 계산합니다.
+ * - 시작: 해당 날짜 07:30 KST = 전날 22:30 UTC
+ * - 종료: 다음 날짜 01:30 KST = 해당 날짜 16:30 UTC
  * 
  * @param studyDate - 학습일 (Date 객체 또는 YYYY-MM-DD 문자열)
- * @returns { start: Date, end: Date } 학습일의 시작/종료 시각
+ * @returns { start: Date, end: Date } 학습일의 시작/종료 시각 (UTC)
  */
 export function getStudyDayBounds(studyDate: Date | string): { start: Date; end: Date } {
-  const date = typeof studyDate === 'string' ? new Date(studyDate) : new Date(studyDate);
-  date.setHours(0, 0, 0, 0);
+  // YYYY-MM-DD 문자열로 정규화
+  const dateStr = typeof studyDate === 'string' 
+    ? studyDate.split('T')[0] 
+    : studyDate.toISOString().split('T')[0];
   
-  // 시작: 해당 날짜 07:30
-  const start = new Date(date);
-  start.setHours(DAY_CONFIG.startHour, DAY_CONFIG.startMinute, 0, 0);
+  // 한국 시간 기준 시작/종료 시각을 UTC로 계산
+  // KST = UTC + 9시간, 따라서 KST 07:30 = UTC 22:30 (전날)
+  const KST_OFFSET_HOURS = 9;
   
-  // 종료: 다음 날짜 01:30
-  const end = new Date(date);
-  end.setDate(end.getDate() + 1);
-  end.setHours(DAY_CONFIG.endHour - 24, DAY_CONFIG.endMinute, 0, 0);
+  // 시작: 해당 날짜 07:30 KST = 전날 22:30 UTC
+  const startHourUTC = DAY_CONFIG.startHour - KST_OFFSET_HOURS; // 7 - 9 = -2 = 전날 22시
+  const start = new Date(`${dateStr}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - 1); // 전날로 이동
+  start.setUTCHours(24 + startHourUTC, DAY_CONFIG.startMinute, 0, 0); // 22:30 UTC
+  
+  // 종료: 다음 날짜 01:30 KST = 해당 날짜 16:30 UTC
+  const endHourUTC = (DAY_CONFIG.endHour - 24) - KST_OFFSET_HOURS; // 1 - 9 = -8 → 전날 16시 = 해당 날짜 16시 (다음날 01:30 KST)
+  const end = new Date(`${dateStr}T00:00:00.000Z`);
+  end.setUTCHours(24 + endHourUTC, DAY_CONFIG.endMinute, 0, 0); // 16:30 UTC
   
   return { start, end };
 }

@@ -1679,6 +1679,10 @@ export async function getAttendanceBoard(
     : getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
   const todayStr = studyDate.toISOString().split('T')[0];
+
+  // #region agent log
+  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'admin.ts:getAttendanceBoard',message:'Date bounds calculation',data:{targetDate,studyDateISO:studyDate.toISOString(),todayStr,todayStartISO:todayStart.toISOString(),todayEndISO:todayEnd.toISOString(),serverNow:new Date().toISOString(),serverTimezoneOffset:new Date().getTimezoneOffset()},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   const todayDayOfWeek = studyDate.getDay();
 
   // 페이지네이션 계산
@@ -1751,6 +1755,12 @@ export async function getAttendanceBoard(
         else if (lastRecord.type === 'break_start') status = 'on_break';
         else if (lastRecord.type === 'break_end') status = 'checked_in';
       }
+
+      // #region agent log
+      if (profile?.name === '김루트') {
+        fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'admin.ts:getAttendanceBoard:studentLoop',message:'김루트 attendance data',data:{studentId:student.id,attendanceCount:attendance?.length||0,attendance:attendance?.slice(-3),lastRecord:attendance?.[attendance.length-1],calculatedStatus:status,firstCheckInTime,queryRange:{start:todayStart.toISOString(),end:todayEnd.toISOString()}},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      }
+      // #endregion
 
       // 오늘 해당하는 부재 스케줄 조회
       const { data: absenceSchedules } = await supabase
