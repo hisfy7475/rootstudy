@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/shared/sidebar';
+import { SidebarProvider, SidebarMain } from '@/components/shared/sidebar-context';
 import { createClient } from '@/lib/supabase/server';
 
 export default async function AdminLayout({
@@ -30,9 +31,11 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar basePath="/admin" branchName={branchName} />
-      <main className="ml-64 min-h-screen">{children}</main>
-    </div>
+    <SidebarProvider>
+      <div className="min-h-screen bg-background">
+        <Sidebar basePath="/admin" branchName={branchName} />
+        <SidebarMain>{children}</SidebarMain>
+      </div>
+    </SidebarProvider>
   );
 }
