@@ -310,15 +310,17 @@ export function FocusClient({
   }, [selectedPeriodId, showSuccess]);
 
   // Period view: individual dropdown change
+  // value 형식: "score:label" (예: "10:몰입최상" 또는 "5:")
   const handlePeriodScoreChange = useCallback(async (studentId: string, periodId: string, value: string) => {
     if (!value) return;
     
-    const score = parseInt(value);
+    // value에서 score와 label 파싱
+    const [scoreStr, ...labelParts] = value.split(':');
+    const score = parseInt(scoreStr);
     if (isNaN(score)) return;
 
-    // Find label from preset if it matches
-    const matchingPreset = activeFocusPresets.find(p => p.score === score);
-    const note = matchingPreset?.label || undefined;
+    // label이 있으면 사용, 없으면 undefined
+    const note = labelParts.join(':') || undefined;
 
     const cellKey = `${studentId}-${periodId}`;
     setSavingCell(cellKey);
@@ -340,7 +342,7 @@ export function FocusClient({
     } finally {
       setSavingCell(null);
     }
-  }, [activeFocusPresets]);
+  }, []);
 
   // Penalty handlers
   const handleTogglePenaltyStudent = (studentId: string) => {
@@ -833,14 +835,11 @@ function PeriodTableView({
     );
   }
 
-  // Build dropdown options from presets + extra
+  // Build dropdown options from presets only
+  // value를 `score:label` 형태로 설정하여 같은 점수를 가진 프리셋을 구분
   const scoreOptions = [
     { value: '', label: '-' },
-    ...presets.map(p => ({ value: String(p.score), label: `${p.label}(${p.score})` })),
-    // Also add raw score options that aren't already covered by presets
-    ...[1,2,3,4,5,6,7,8,9,10]
-      .filter(s => !presets.some(p => p.score === s))
-      .map(s => ({ value: String(s), label: String(s) })),
+    ...presets.map(p => ({ value: `${p.score}:${p.label}`, label: `${p.label}(${p.score})` })),
   ];
 
   return (
@@ -904,7 +903,7 @@ function PeriodTableView({
                       >
                         <div className="relative">
                           <select
-                            value={scoreData?.score?.toString() || ''}
+                            value={scoreData ? `${scoreData.score}:${scoreData.note || ''}` : ''}
                             onChange={(e) => onScoreChange(student.id, period.id, e.target.value)}
                             disabled={isSaving}
                             className={cn(
