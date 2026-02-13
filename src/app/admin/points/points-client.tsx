@@ -15,6 +15,7 @@ import {
   getRewardPresets,
   getPenaltyPresets,
   deletePoint,
+  deletePoints,
   type RewardPreset,
   type PenaltyPreset,
 } from '@/lib/actions/admin';
@@ -31,6 +32,8 @@ import {
   BookOpen,
   Trash2,
   Search,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +95,11 @@ export function PointsClient({
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [showPresetManager, setShowPresetManager] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  
+  // 다중 선택 관련 상태
+  const [selectedPointIds, setSelectedPointIds] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // 프리셋 상태
   const [rewardPresets, setRewardPresets] = useState<RewardPreset[]>(initialRewardPresets);
@@ -209,6 +217,61 @@ export function PointsClient({
       alert('삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 다중 선택 토글
+  const toggleSelectPoint = (pointId: string) => {
+    setSelectedPointIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(pointId)) {
+        newSet.delete(pointId);
+      } else {
+        newSet.add(pointId);
+      }
+      return newSet;
+    });
+  };
+
+  // 전체 선택/해제
+  const toggleSelectAll = () => {
+    if (selectedPointIds.size === filteredHistory.length) {
+      setSelectedPointIds(new Set());
+    } else {
+      setSelectedPointIds(new Set(filteredHistory.map(h => h.id)));
+    }
+  };
+
+  // 선택 모드 종료
+  const exitSelectMode = () => {
+    setIsSelectMode(false);
+    setSelectedPointIds(new Set());
+    setShowBulkDeleteConfirm(false);
+  };
+
+  // 일괄 삭제
+  const handleBulkDelete = async () => {
+    if (selectedPointIds.size === 0) {
+      alert('삭제할 내역을 선택해주세요.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await deletePoints(Array.from(selectedPointIds));
+      if (result.success) {
+        showSuccess(`${result.deletedCount}건의 상벌점 내역이 삭제되었습니다.`);
+        exitSelectMode();
+        await refreshData();
+      } else {
+        alert(result.error || '삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to delete points:', error);
+      alert('삭제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+      setShowBulkDeleteConfirm(false);
     }
   };
 
@@ -653,16 +716,74 @@ export function PointsClient({
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">상벌점 내역</h2>
               <div className="flex gap-2">
-                {(['all', 'reward', 'penalty'] as FilterType[]).map((f) => (
-                  <Button
-                    key={f}
-                    variant={filter === f ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setFilter(f)}
-                  >
-                    {f === 'all' ? '전체' : f === 'reward' ? '상점' : '벌점'}
-                  </Button>
-                ))}
+                {!isSelectMode ? (
+                  <>
+                    {(['all', 'reward', 'penalty'] as FilterType[]).map((f) => (
+                      <Button
+                        key={f}
+                        variant={filter === f ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setFilter(f)}
+                      >
+                        {f === 'all' ? '전체' : f === 'reward' ? '상점' : '벌점'}
+                      </Button>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsSelectMode(true)}
+                      className="ml-2"
+                    >
+                      <CheckSquare className="w-4 h-4 mr-1" />
+                      선택
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={toggleSelectAll}
+                      className={cn(
+                        selectedPointIds.size > 0 && "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                      )}
+                    >
+                      {selectedPointIds.size === filteredHistory.length && filteredHistory.length > 0 ? (
+                        <>
+                          <CheckSquare className="w-4 h-4 mr-1" />
+                          전체 해제
+                        </>
+                      ) : selectedPointIds.size > 0 ? (
+                        <>
+                          <CheckSquare className="w-4 h-4 mr-1" />
+                          전체 선택
+                        </>
+                      ) : (
+                        <>
+                          <Square className="w-4 h-4 mr-1" />
+                          전체 선택
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      disabled={selectedPointIds.size === 0}
+                      className="bg-red-500 hover:bg-red-600 border-red-500"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      선택 삭제 ({selectedPointIds.size})
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitSelectMode}
+                    >
+                      취소
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
             
@@ -700,6 +821,40 @@ export function PointsClient({
               </span>
             </div>
           </div>
+          
+          {/* 일괄 삭제 확인 모달 */}
+          {showBulkDeleteConfirm && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-red-800">
+                    {selectedPointIds.size}건의 상벌점 내역을 삭제하시겠습니까?
+                  </p>
+                  <p className="text-sm text-red-600 mt-1">
+                    삭제된 내역의 점수는 모두 원상복구됩니다.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    disabled={loading}
+                  >
+                    {loading ? '삭제 중...' : '삭제'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowBulkDeleteConfirm(false)}
+                  >
+                    취소
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             {filteredHistory.length === 0 ? (
@@ -712,11 +867,30 @@ export function PointsClient({
                     'p-4 rounded-xl border-l-4',
                     item.type === 'reward'
                       ? 'bg-green-50 border-green-500'
-                      : 'bg-red-50 border-red-500'
+                      : 'bg-red-50 border-red-500',
+                    isSelectMode && selectedPointIds.has(item.id) && 'ring-2 ring-primary ring-offset-1'
                   )}
+                  onClick={isSelectMode ? () => toggleSelectPoint(item.id) : undefined}
+                  style={isSelectMode ? { cursor: 'pointer' } : undefined}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
+                      {/* 선택 모드 체크박스 */}
+                      {isSelectMode && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectPoint(item.id);
+                          }}
+                          className="flex-shrink-0"
+                        >
+                          {selectedPointIds.has(item.id) ? (
+                            <CheckSquare className="w-5 h-5 text-primary" />
+                          ) : (
+                            <Square className="w-5 h-5 text-gray-400" />
+                          )}
+                        </button>
+                      )}
                       <div
                         className={cn(
                           'w-8 h-8 rounded-full flex items-center justify-center',
@@ -757,35 +931,37 @@ export function PointsClient({
                         <p className="text-xs text-text-muted">by {item.adminName}</p>
                       </div>
                       
-                      {/* 삭제 버튼 */}
-                      {deleteConfirmId === item.id ? (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleDeletePoint(item.id)}
-                            disabled={loading}
-                            className="text-xs"
+                      {/* 삭제 버튼 (선택 모드가 아닐 때만) */}
+                      {!isSelectMode && (
+                        deleteConfirmId === item.id ? (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDeletePoint(item.id)}
+                              disabled={loading}
+                              className="text-xs"
+                            >
+                              삭제
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="text-xs"
+                            >
+                              취소
+                            </Button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirmId(item.id)}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="삭제 (점수 원상복구)"
                           >
-                            삭제
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteConfirmId(null)}
-                            className="text-xs"
-                          >
-                            취소
-                          </Button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirmId(item.id)}
-                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          title="삭제 (점수 원상복구)"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

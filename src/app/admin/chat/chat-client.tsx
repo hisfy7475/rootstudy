@@ -5,7 +5,7 @@ import { ChatRoom } from '@/components/shared/chat';
 import { ChatMessageData } from '@/components/shared/chat';
 import { getChatMessages, getChatRoomList } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
-import { MessageCircle, User, Clock, ChevronRight } from 'lucide-react';
+import { MessageCircle, User, Clock, ChevronRight, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -36,6 +36,7 @@ export function AdminChatClient({
   const [selectedRoom, setSelectedRoom] = useState<ChatRoomItem | null>(null);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 채팅방 목록 Realtime 업데이트
   useEffect(() => {
@@ -126,6 +127,13 @@ export function AdminChatClient({
     }
   };
 
+  // 검색어로 채팅방 필터링
+  const filteredRooms = searchQuery.trim()
+    ? rooms.filter((room) =>
+        room.student_name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : rooms;
+
   // 모바일에서는 목록/채팅 분리, PC에서는 나란히 표시
   return (
     <div className="p-6">
@@ -143,11 +151,33 @@ export function AdminChatClient({
             selectedRoom && 'hidden lg:flex'
           )}
         >
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-text">채팅방 목록</h2>
-            <p className="text-sm text-text-muted mt-0.5">
-              {rooms.length}개의 채팅방
-            </p>
+          <div className="p-4 border-b border-gray-100 space-y-3">
+            <div>
+              <h2 className="font-semibold text-text">채팅방 목록</h2>
+              <p className="text-sm text-text-muted mt-0.5">
+                {searchQuery.trim()
+                  ? `${filteredRooms.length} / ${rooms.length}개의 채팅방`
+                  : `${rooms.length}개의 채팅방`}
+              </p>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <input
+                type="text"
+                placeholder="학생명으로 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-9 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-colors placeholder:text-text-muted/60"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -159,9 +189,17 @@ export function AdminChatClient({
                   학생이 채팅을 시작하면 표시됩니다
                 </p>
               </div>
+            ) : filteredRooms.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
+                <Search className="w-12 h-12 mb-3 opacity-50" />
+                <p className="text-center">검색 결과가 없습니다</p>
+                <p className="text-sm text-center mt-1">
+                  다른 이름으로 검색해보세요
+                </p>
+              </div>
             ) : (
               <ul className="divide-y divide-gray-100">
-                {rooms.map((room) => (
+                {filteredRooms.map((room) => (
                   <li key={room.id}>
                     <button
                       onClick={() => handleSelectRoom(room)}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,10 +17,12 @@ import {
   createFocusScorePreset,
   deleteFocusScorePreset,
   getFocusScorePresets,
+  setStudentSubject,
   type PenaltyPreset,
   type FocusScorePreset,
 } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
+import { getSubjectsForStudent } from '@/lib/actions/student-type';
 import {
   Brain,
   User,
@@ -88,6 +90,127 @@ interface FocusClientProps {
   initialPenaltyPresets: PenaltyPreset[];
   initialFocusPresets: FocusScorePreset[];
   initialFocusScoresByPeriod: FocusScoreMap;
+}
+
+// ============================================
+// Subject Dropdown Component
+// ============================================
+
+function SubjectDropdown({
+  studentId,
+  currentSubject,
+  onSubjectChange,
+}: {
+  studentId: string;
+  currentSubject: string | null;
+  onSubjectChange: (studentId: string, subject: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [subjects, setSubjects] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleOpen = async () => {
+    if (isOpen) {
+      setIsOpen(false);
+      return;
+    }
+    
+    setIsOpen(true);
+    setLoading(true);
+    
+    try {
+      const subjectList = await getSubjectsForStudent(studentId);
+      setSubjects(subjectList);
+    } catch (error) {
+      console.error('Failed to load subjects:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelect = async (subject: string) => {
+    if (subject === currentSubject) {
+      setIsOpen(false);
+      return;
+    }
+    
+    setSaving(true);
+    try {
+      const result = await setStudentSubject(studentId, subject);
+      if (result.success) {
+        onSubjectChange(studentId, subject);
+      }
+    } catch (error) {
+      console.error('Failed to set subject:', error);
+    } finally {
+      setSaving(false);
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={handleOpen}
+        disabled={saving}
+        className={cn(
+          'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-all',
+          'hover:bg-gray-100 cursor-pointer',
+          currentSubject ? 'text-primary font-medium' : 'text-gray-400',
+          saving && 'opacity-50'
+        )}
+      >
+        {saving ? (
+          <RefreshCw className="w-3 h-3 animate-spin" />
+        ) : (
+          <>
+            <span className="truncate max-w-[60px]">{currentSubject || '-'}</span>
+            <ChevronDown className={cn('w-3 h-3 transition-transform', isOpen && 'rotate-180')} />
+          </>
+        )}
+      </button>
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white border rounded-md shadow-lg min-w-[120px] max-h-[200px] overflow-y-auto">
+          {loading ? (
+            <div className="p-2 text-center">
+              <RefreshCw className="w-4 h-4 animate-spin mx-auto text-gray-400" />
+            </div>
+          ) : subjects.length === 0 ? (
+            <div className="p-2 text-center text-[10px] text-gray-400">
+              과목이 없습니다
+            </div>
+          ) : (
+            subjects.map((subject) => (
+              <button
+                key={subject}
+                onClick={() => handleSelect(subject)}
+                className={cn(
+                  'w-full px-3 py-1.5 text-left text-[11px] hover:bg-gray-50 transition-colors',
+                  subject === currentSubject && 'bg-primary/10 text-primary font-medium'
+                )}
+              >
+                {subject}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ============================================
@@ -308,6 +431,14 @@ export function FocusClient({
       setSavingCell(null);
     }
   }, [selectedPeriodId, showSuccess]);
+
+  // Subject change handler
+  const handleSubjectChange = useCallback((studentId: string, subject: string) => {
+    setStudents(prev => prev.map(s => 
+      s.id === studentId ? { ...s, currentSubject: subject } : s
+    ));
+    showSuccess(`과목이 "${subject}"(으)로 변경되었습니다.`);
+  }, [showSuccess]);
 
   // Period view: individual dropdown change
   // value 형식: "score:label" (예: "10:몰입최상" 또는 "5:")
@@ -610,6 +741,7 @@ export function FocusClient({
           focusScoresByPeriod={focusScoresByPeriod}
           savingCell={savingCell}
           onQuickScore={handleQuickFocusScore}
+          onSubjectChange={handleSubjectChange}
         />
       )}
 
@@ -671,6 +803,7 @@ function QuickInputView({
   focusScoresByPeriod,
   savingCell,
   onQuickScore,
+  onSubjectChange,
 }: {
   students: Student[];
   presets: FocusScorePreset[];
@@ -679,6 +812,7 @@ function QuickInputView({
   focusScoresByPeriod: FocusScoreMap;
   savingCell: string | null;
   onQuickScore: (studentId: string, score: number, label: string) => void;
+  onSubjectChange: (studentId: string, subject: string) => void;
 }) {
   if (students.length === 0) {
     return (
@@ -715,6 +849,7 @@ function QuickInputView({
             <tr>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10">번호</th>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px]">이름</th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[70px]">과목</th>
               {presets.map((preset) => (
                 <th key={preset.id} className="px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[44px]">
                   <div>{preset.label}</div>
@@ -736,6 +871,13 @@ function QuickInputView({
                   </td>
                   <td className="px-2 py-1">
                     <span className="font-medium text-xs truncate">{student.name}</span>
+                  </td>
+                  <td className="px-1 py-1">
+                    <SubjectDropdown
+                      studentId={student.id}
+                      currentSubject={student.currentSubject}
+                      onSubjectChange={onSubjectChange}
+                    />
                   </td>
                   {presets.map((preset) => {
                     const cellKey = `${student.id}-${selectedPeriodId}`;

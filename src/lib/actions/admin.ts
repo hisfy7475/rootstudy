@@ -522,6 +522,60 @@ export async function deletePoint(pointId: string) {
   return { success: true };
 }
 
+// 상벌점 내역 일괄 삭제 (점수 원상복구)
+export async function deletePoints(pointIds: string[]) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  if (!pointIds || pointIds.length === 0) {
+    return { error: '삭제할 내역을 선택해주세요.' };
+  }
+
+  // 삭제 전에 포인트 정보들 확인 (알림용)
+  const { data: pointsData } = await supabase
+    .from('points')
+    .select(`
+      *,
+      student:student_id (
+        seat_number,
+        profiles!inner (name)
+      )
+    `)
+    .in('id', pointIds);
+
+  if (!pointsData || pointsData.length === 0) {
+    return { error: '해당 내역을 찾을 수 없습니다.' };
+  }
+
+  const { error } = await supabase
+    .from('points')
+    .delete()
+    .in('id', pointIds);
+
+  if (error) {
+    console.error('Error deleting points:', error);
+    return { error: '상벌점 일괄 삭제에 실패했습니다.' };
+  }
+
+  // 학생들에게 알림 발송
+  const { createStudentNotification } = await import('./notification');
+  for (const pointData of pointsData) {
+    await createStudentNotification({
+      studentId: pointData.student_id,
+      type: 'point',
+      title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
+      message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
+      link: '/student/points',
+    }).catch(console.error);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true, deletedCount: pointsData.length };
+}
+
 // ============================================
 // 회원 관리 관련
 // ============================================
