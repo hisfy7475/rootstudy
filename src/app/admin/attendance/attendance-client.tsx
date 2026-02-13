@@ -22,7 +22,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getTodayKST, formatDateKST } from '@/lib/utils';
 
 interface AbsenceSchedule {
   id: string;
@@ -141,13 +141,15 @@ function getStatusDisplay(status: string) {
   }
 }
 
-// 주의 월요일 날짜 계산
+// 주의 월요일 날짜 계산 (KST 기준)
 function getWeekMonday(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d.toISOString().split('T')[0];
+  // KST 기준 날짜를 구한 뒤 월요일로 이동
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kstTime = new Date(date.getTime() + KST_OFFSET_MS);
+  const day = kstTime.getUTCDay();
+  const diff = kstTime.getUTCDate() - day + (day === 0 ? -6 : 1);
+  kstTime.setUTCDate(diff);
+  return kstTime.toISOString().split('T')[0];
 }
 
 // 주 범위 텍스트 생성
@@ -256,14 +258,14 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const handlePreviousWeek = () => {
     const monday = new Date(currentWeekMonday + 'T00:00:00');
     monday.setDate(monday.getDate() - 7);
-    setCurrentWeekMonday(monday.toISOString().split('T')[0]);
+    setCurrentWeekMonday(formatDateKST(monday));
     setWeeklyPage(1);
   };
 
   const handleNextWeek = () => {
     const monday = new Date(currentWeekMonday + 'T00:00:00');
     monday.setDate(monday.getDate() + 7);
-    setCurrentWeekMonday(monday.toISOString().split('T')[0]);
+    setCurrentWeekMonday(formatDateKST(monday));
     setWeeklyPage(1);
   };
 

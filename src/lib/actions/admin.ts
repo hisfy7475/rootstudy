@@ -1981,10 +1981,10 @@ export async function recordFocusScoreBatch(
 }
 
 // 오늘 교시별 몰입도 데이터 조회
-export async function getTodayFocusScoresByPeriod(branchId?: string | null) {
+export async function getTodayFocusScoresByPeriod(branchId?: string | null, targetDate?: string) {
   const supabase = await createClient();
 
-  const studyDate = getStudyDate();
+  const studyDate = targetDate ? new Date(targetDate + 'T00:00:00.000Z') : getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
   // 브랜치 필터가 있으면 해당 브랜치 학생 ID 목록 먼저 조회

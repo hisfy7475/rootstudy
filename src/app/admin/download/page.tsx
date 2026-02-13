@@ -20,7 +20,7 @@ import {
   Calendar,
   Loader2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getTodayKST, formatDateKST } from '@/lib/utils';
 
 type DataType = 'students' | 'attendance' | 'focus' | 'points';
 
@@ -66,10 +66,10 @@ export default function DownloadPage() {
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 7);
-    return date.toISOString().split('T')[0];
+    return formatDateKST(date);
   });
   const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    return getTodayKST();
   });
   const [loading, setLoading] = useState(false);
 
@@ -85,7 +85,7 @@ export default function DownloadPage() {
       switch (selectedType) {
         case 'students':
           data = await getStudentDataForExport();
-          filename = `학생목록_${new Date().toISOString().split('T')[0]}`;
+          filename = `학생목록_${getTodayKST()}`;
           break;
         case 'attendance':
           data = await getAttendanceDataForExport(startDate, endDate + 'T23:59:59');

@@ -1,5 +1,6 @@
 import { getAllBranches } from '@/lib/actions/branch';
 import { getDateTypeDefinitions, getDateAssignments } from '@/lib/actions/date-type';
+import { formatDateKST } from '@/lib/utils';
 import DateTypesClient from './date-types-client';
 
 export default async function DateTypesPage() {
@@ -20,8 +21,8 @@ export default async function DateTypesPage() {
       getDateTypeDefinitions(firstBranch.id),
       getDateAssignments(
         firstBranch.id,
-        startOfMonth.toISOString().split('T')[0],
-        endOfMonth.toISOString().split('T')[0]
+        formatDateKST(startOfMonth),
+        formatDateKST(endOfMonth)
       ),
     ]);
   }

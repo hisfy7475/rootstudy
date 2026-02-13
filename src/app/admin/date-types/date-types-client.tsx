@@ -17,6 +17,7 @@ import {
   type DateAssignment,
 } from '@/lib/actions/date-type';
 import { type Branch } from '@/lib/actions/branch';
+import { getTodayKST, formatDateKST } from '@/lib/utils';
 
 interface DateTypesClientProps {
   branches: Branch[];
@@ -81,8 +82,8 @@ export default function DateTypesClient({
       getDateTypeDefinitions(selectedBranchId),
       getDateAssignments(
         selectedBranchId,
-        startOfMonth.toISOString().split('T')[0],
-        endOfMonth.toISOString().split('T')[0]
+        formatDateKST(startOfMonth),
+        formatDateKST(endOfMonth)
       ),
     ]);
 
@@ -479,7 +480,7 @@ export default function DateTypesClient({
               const dayOfWeek = new Date(item.date).getDay();
               const typeColor = item.assignment?.date_type?.color;
               const typeName = item.assignment?.date_type?.name;
-              const isToday = item.date === new Date().toISOString().split('T')[0];
+              const isToday = item.date === getTodayKST();
 
               return (
                 <div

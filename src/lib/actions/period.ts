@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { getStudyDate, formatDate } from '@/lib/utils';
 
 // ============================================
 // 교시(Period) 관련
@@ -204,16 +205,16 @@ export async function bulkCreatePeriodDefinitions(
   return { success: true };
 }
 
-// 오늘 날짜의 교시 목록 조회 (관리자용 - 날짜 타입 자동 감지)
-export async function getTodayPeriods(branchId: string): Promise<{
+// 특정 날짜의 교시 목록 조회 (관리자용 - 날짜 타입 자동 감지)
+export async function getTodayPeriods(branchId: string, targetDate?: string): Promise<{
   periods: PeriodDefinition[];
   dateTypeName: string | null;
   dateTypeId: string | null;
 }> {
   const supabase = await createClient();
 
-  // 오늘 날짜 (YYYY-MM-DD)
-  const today = new Date().toISOString().split('T')[0];
+  // 날짜 결정: 지정된 날짜 또는 오늘 (KST 기준)
+  const today = targetDate || formatDate(getStudyDate());
 
   // 오늘의 날짜 타입 조회
   const { data: assignment, error: assignmentError } = await supabase

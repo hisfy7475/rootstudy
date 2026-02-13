@@ -22,10 +22,29 @@ export function formatTime(seconds: number): string {
 }
 
 /**
- * 날짜를 YYYY-MM-DD 형식으로 포맷
+ * 날짜를 YYYY-MM-DD 형식으로 포맷 (KST 기준)
  */
 export function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return formatDateKST(date);
+}
+
+/**
+ * 날짜를 KST 기준 YYYY-MM-DD 문자열로 반환
+ * 
+ * @param date - 변환할 날짜 (기본값: 현재 시각)
+ * @returns KST 기준 YYYY-MM-DD 문자열
+ */
+export function formatDateKST(date: Date = new Date()): string {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kstTime = new Date(date.getTime() + KST_OFFSET_MS);
+  return kstTime.toISOString().split('T')[0];
+}
+
+/**
+ * 현재 KST 기준 오늘 날짜를 YYYY-MM-DD로 반환
+ */
+export function getTodayKST(): string {
+  return formatDateKST(new Date());
 }
 
 /**

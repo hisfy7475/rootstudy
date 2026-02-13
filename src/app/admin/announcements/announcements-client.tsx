@@ -28,7 +28,7 @@ import {
   Eye,
   MessageCircle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getTodayKST } from '@/lib/utils';
 
 interface Announcement {
   id: string;
@@ -118,7 +118,7 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
     total: announcements.length,
     important: announcements.filter(a => a.is_important).length,
     today: announcements.filter(a => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayKST();
       return a.created_at.startsWith(today);
     }).length,
     totalReads: announcements.reduce((sum, a) => sum + (a.read_count || 0), 0),

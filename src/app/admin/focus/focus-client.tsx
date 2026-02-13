@@ -20,6 +20,7 @@ import {
   type PenaltyPreset,
   type FocusScorePreset,
 } from '@/lib/actions/admin';
+import { getTodayPeriods } from '@/lib/actions/period';
 import {
   Brain,
   User,
@@ -27,6 +28,7 @@ import {
   RefreshCw,
   Download,
   Clock,
+  Calendar,
   AlertCircle,
   ChevronDown,
   ChevronUp,
@@ -37,7 +39,7 @@ import {
   Table2,
   BarChart3,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDateKST, getTodayKST } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 
 // ============================================
@@ -166,6 +168,12 @@ export function FocusClient({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showPresetManager, setShowPresetManager] = useState(false);
 
+  // Date selection state
+  const [selectedDate, setSelectedDate] = useState(todayDate);
+  const [periods, setPeriods] = useState<Period[]>(todayPeriods);
+  const [currentDateTypeName, setCurrentDateTypeName] = useState<string | null>(dateTypeName);
+  const isToday = selectedDate === todayDate;
+
   // Preset state
   const [penaltyPresets, setPenaltyPresets] = useState<PenaltyPreset[]>(initialPenaltyPresets);
   const [focusPresets, setFocusPresets] = useState<FocusScorePreset[]>(initialFocusPresets);
@@ -179,8 +187,41 @@ export function FocusClient({
   const [customPenaltyAmount, setCustomPenaltyAmount] = useState('1');
   const [selectedStudentsForPenalty, setSelectedStudentsForPenalty] = useState<Set<string>>(new Set());
 
+  // 날짜 변경 시 교시/몰입도 데이터 새로 로드
+  useEffect(() => {
+    if (selectedDate === todayDate) {
+      // 오늘 날짜면 초기 데이터 복원
+      setPeriods(todayPeriods);
+      setCurrentDateTypeName(dateTypeName);
+      setFocusScoresByPeriod(initialFocusScoresByPeriod);
+      setSelectedPeriodId('');
+      return;
+    }
+    // 다른 날짜면 서버에서 새로 로드
+    let cancelled = false;
+    const loadDateData = async () => {
+      setLoading(true);
+      try {
+        const [periodsResult, scoresResult] = await Promise.all([
+          branchId ? getTodayPeriods(branchId, selectedDate) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
+          getTodayFocusScoresByPeriod(branchId, selectedDate),
+        ]);
+        if (!cancelled) {
+          setPeriods(periodsResult.periods);
+          setCurrentDateTypeName(periodsResult.dateTypeName);
+          setFocusScoresByPeriod(scoresResult);
+          setSelectedPeriodId('');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadDateData();
+    return () => { cancelled = true; };
+  }, [selectedDate, todayDate, todayPeriods, dateTypeName, initialFocusScoresByPeriod, branchId]);
+
   // Current period auto-select
-  const currentPeriod = useMemo(() => findCurrentPeriod(todayPeriods), [todayPeriods]);
+  const currentPeriod = useMemo(() => isToday ? findCurrentPeriod(periods) : null, [periods, isToday]);
   
   useEffect(() => {
     if (currentPeriod && !selectedPeriodId) {
@@ -188,7 +229,7 @@ export function FocusClient({
     }
   }, [currentPeriod, selectedPeriodId]);
 
-  const selectedPeriod = todayPeriods.find(p => p.id === selectedPeriodId);
+  const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
 
   // Filtered students
   const checkedInStudents = useMemo(
@@ -222,18 +263,21 @@ export function FocusClient({
   const refreshData = useCallback(async () => {
     setLoading(true);
     try {
-      const [newStudents, newReport, newScores] = await Promise.all([
+      const [newStudents, newReport, newScores, periodsResult] = await Promise.all([
         getAllStudents('all'),
         getWeeklyFocusReport(branchId),
-        getTodayFocusScoresByPeriod(branchId),
+        getTodayFocusScoresByPeriod(branchId, selectedDate),
+        branchId ? getTodayPeriods(branchId, selectedDate) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
       ]);
       setStudents(newStudents);
       setReport(newReport);
       setFocusScoresByPeriod(newScores);
+      setPeriods(periodsResult.periods);
+      setCurrentDateTypeName(periodsResult.dateTypeName);
     } finally {
       setLoading(false);
     }
-  }, [branchId]);
+  }, [branchId, selectedDate]);
 
   // Quick input: record a single student's focus score for selected period
   const handleQuickFocusScore = useCallback(async (studentId: string, score: number, label: string) => {
@@ -384,16 +428,18 @@ export function FocusClient({
 
   // Weekly report data
   const today = new Date();
+  const todayKST = getTodayKST();
   const dayOfWeek = today.getDay();
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - dayOfWeek);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(startOfWeek);
     date.setDate(startOfWeek.getDate() + i);
+    const dateStr = formatDateKST(date);
     return {
-      date: date.toISOString().split('T')[0],
+      date: dateStr,
       label: ['일', '월', '화', '수', '목', '금', '토'][i],
-      isToday: date.toISOString().split('T')[0] === today.toISOString().split('T')[0],
+      isToday: dateStr === todayKST,
     };
   });
 
@@ -484,12 +530,26 @@ export function FocusClient({
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-primary" />
-              <span className="font-medium text-xs">{formatDate(todayDate)}</span>
-              <span className={cn("px-1.5 py-0.5 rounded-full text-[10px]", dateTypeName ? "bg-primary/10 text-primary" : "bg-yellow-100 text-yellow-700")}>
-                {dateTypeName || '미지정'}
+              <span className="font-medium text-xs">{formatDate(selectedDate)}</span>
+              <span className={cn("px-1.5 py-0.5 rounded-full text-[10px]", currentDateTypeName ? "bg-primary/10 text-primary" : "bg-yellow-100 text-yellow-700")}>
+                {currentDateTypeName || '미지정'}
               </span>
             </div>
-            {activeTab !== 'report' && todayPeriods.length > 0 && activeTab === 'quick' && (
+            <div className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-text-muted" />
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-36 h-7 text-xs"
+              />
+              {!isToday && (
+                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setSelectedDate(todayDate)}>
+                  오늘
+                </Button>
+              )}
+            </div>
+            {activeTab !== 'report' && periods.length > 0 && activeTab === 'quick' && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted text-xs">교시:</span>
                 <select
@@ -498,7 +558,7 @@ export function FocusClient({
                   className="px-1.5 py-1 rounded-md border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-xs"
                 >
                   <option value="">선택</option>
-                  {todayPeriods.map((period) => (
+                  {periods.map((period) => (
                     <option key={period.id} value={period.id}>
                       {getPeriodLabel(period)} ({fmtTime(period.start_time)}~{fmtTime(period.end_time)})
                     </option>
@@ -507,7 +567,7 @@ export function FocusClient({
               </div>
             )}
           </div>
-          {currentPeriod && (
+          {currentPeriod && isToday && (
             <div className="text-xs text-text-muted">
               현재: <span className="font-medium text-primary">{getPeriodLabel(currentPeriod)}</span>
             </div>
@@ -554,7 +614,7 @@ export function FocusClient({
       {activeTab === 'period' && (
         <PeriodTableView
           students={checkedInStudents}
-          periods={todayPeriods}
+          periods={periods}
           presets={activeFocusPresets}
           focusScoresByPeriod={focusScoresByPeriod}
           savingCell={savingCell}
@@ -939,8 +999,8 @@ function WeeklyReportView({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '주간 몰입도 리포트');
 
-    const today = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `몰입도_주간리포트_${today}.xlsx`);
+    const kstDate = getTodayKST();
+    XLSX.writeFile(wb, `몰입도_주간리포트_${kstDate}.xlsx`);
   };
 
   return (

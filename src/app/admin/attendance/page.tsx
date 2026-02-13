@@ -1,6 +1,7 @@
 import { getAttendanceBoard } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { createClient } from '@/lib/supabase/server';
+import { getStudyDate, formatDate } from '@/lib/utils';
 import { AttendanceClient } from './attendance-client';
 
 export default async function AttendancePage() {
@@ -31,8 +32,8 @@ export default async function AttendancePage() {
     branchId = firstBranch?.id || null;
   }
 
-  // 오늘 날짜
-  const today = new Date().toISOString().split('T')[0];
+  // 오늘 날짜 (KST 기준)
+  const today = formatDate(getStudyDate());
 
   const [attendanceData, todayPeriodsData] = await Promise.all([
     getAttendanceBoard(undefined, branchId, 1, 20),

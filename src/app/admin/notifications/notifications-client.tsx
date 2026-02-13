@@ -16,7 +16,7 @@ import {
   Settings,
   MessageSquare,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getTodayKST } from '@/lib/utils';
 
 interface Notification {
   id: string;
@@ -78,7 +78,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
     sent: notifications.filter(n => n.is_sent).length,
     pending: notifications.filter(n => !n.is_sent).length,
     today: notifications.filter(n => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayKST();
       return n.sent_at.startsWith(today);
     }).length,
   };

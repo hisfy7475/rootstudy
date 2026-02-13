@@ -1,6 +1,7 @@
 import { getAllStudents, getWeeklyFocusReport, getPenaltyPresets, getFocusScorePresets, getTodayFocusScoresByPeriod } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { createClient } from '@/lib/supabase/server';
+import { getStudyDate, formatDate } from '@/lib/utils';
 import { FocusClient } from './focus-client';
 
 export default async function FocusManagementPage() {
@@ -31,8 +32,8 @@ export default async function FocusManagementPage() {
     branchId = firstBranch?.id || null;
   }
 
-  // 오늘 날짜
-  const today = new Date().toISOString().split('T')[0];
+  // 오늘 날짜 (KST 기준)
+  const today = formatDate(getStudyDate());
 
   const [students, report, todayPeriodsData, penaltyPresets, focusPresets, focusScoresByPeriod] = await Promise.all([
     getAllStudents('all'),
