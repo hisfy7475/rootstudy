@@ -1045,7 +1045,7 @@ export async function getSubjectStudyTime(
   const studySessions = extractStudySessions(attendance || [], end);
   const totalStudySeconds = studySessions.reduce((sum, s) => sum + s.durationSeconds, 0);
 
-  // 과목별 시간 계산
+  // 과목별 시간 계산 (학습 세션과 교차하는 시간만)
   const subjectTimes: Record<string, number> = {};
   const subjectRecords: SubjectStudyRecord[] = [];
 
@@ -1057,14 +1057,22 @@ export async function getSubjectStudyTime(
         ? new Date() 
         : subjectStart;
 
-    const durationSeconds = Math.floor((subjectEnd.getTime() - subjectStart.getTime()) / 1000);
+    // 학습 세션과 교차하는 시간만 계산 (퇴실 이후 시간 제외)
+    let effectiveSeconds = 0;
+    for (const session of studySessions) {
+      const overlapStart = Math.max(subjectStart.getTime(), session.startTime.getTime());
+      const overlapEnd = Math.min(subjectEnd.getTime(), session.endTime.getTime());
+      if (overlapEnd > overlapStart) {
+        effectiveSeconds += Math.floor((overlapEnd - overlapStart) / 1000);
+      }
+    }
     
-    subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + durationSeconds;
+    subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + effectiveSeconds;
     subjectRecords.push({
       subjectName: subject.subject_name,
       startTime: subjectStart,
       endTime: subjectEnd,
-      durationSeconds,
+      durationSeconds: effectiveSeconds,
     });
   }
 
@@ -1316,19 +1324,30 @@ export async function assignUnclassifiedTime(
     return { error: '종료 시간이 시작 시간보다 커야 합니다.' };
   }
 
-  // 해당 시간대에 이미 과목 기록이 있는지 확인
+  // 해당 학습일의 범위 계산
+  const studyDate = getStudyDate(start);
+  const { start: dayStart, end: dayEnd } = getStudyDayBounds(studyDate);
+
+  // 해당 학습일에 시작된 과목만 겹침 체크
+  // (다른 날짜에 시작된 과목은 미분류 계산에 영향을 주지 않음)
   const { data: existingSubjects } = await supabase
     .from('subjects')
     .select('*')
     .eq('student_id', user.id)
-    .lt('started_at', end.toISOString())
-    .or(`ended_at.gt.${start.toISOString()},ended_at.is.null`);
+    .gte('started_at', dayStart.toISOString())
+    .lt('started_at', dayEnd.toISOString());
 
   // 겹치는 구간이 있으면 에러
   for (const existing of existingSubjects || []) {
-    const existingStart = new Date(existing.started_at);
-    const existingEnd = existing.ended_at ? new Date(existing.ended_at) : new Date();
+    // 현재 진행 중인 과목은 겹침 체크에서 제외
+    if (existing.is_current && !existing.ended_at) {
+      continue;
+    }
     
+    const existingStart = new Date(existing.started_at);
+    const existingEnd = existing.ended_at ? new Date(existing.ended_at) : existingStart;
+    
+    // 할당하려는 시간과 겹치는지 확인
     if (existingStart < end && existingEnd > start) {
       return { error: '이미 과목이 할당된 시간대와 겹칩니다.' };
     }

@@ -102,13 +102,17 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
         }
       }
 
-      // 현재 과목
-      const { data: currentSubject } = await supabase
-        .from('subjects')
-        .select('subject_name')
-        .eq('student_id', student.id)
-        .eq('is_current', true)
-        .single();
+      // 현재 과목 (입실 상태일 때만 조회)
+      let currentSubjectName: string | null = null;
+      if (status === 'checked_in') {
+        const { data: currentSubject } = await supabase
+          .from('subjects')
+          .select('subject_name')
+          .eq('student_id', student.id)
+          .eq('is_current', true)
+          .single();
+        currentSubjectName = currentSubject?.subject_name || null;
+      }
 
       // 학습일 기준 몰입도 평균
       const { data: focusScores } = await supabase
@@ -146,7 +150,7 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
         status,
         checkInTime,
         totalStudySeconds,
-        currentSubject: currentSubject?.subject_name || null,
+        currentSubject: currentSubjectName,
         avgFocus,
         todayReward,
         todayPenalty,
@@ -165,6 +169,26 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
 // 학생 과목 설정 (관리자가 직접)
 export async function setStudentSubject(studentId: string, subjectName: string) {
   const supabase = await createClient();
+
+  // 학습일 기준으로 조회
+  const studyDate = getStudyDate();
+  const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
+
+  // 학생의 입실 상태 확인
+  const { data: lastAttendance } = await supabase
+    .from('attendance')
+    .select('type')
+    .eq('student_id', studentId)
+    .gte('timestamp', todayStart.toISOString())
+    .lte('timestamp', todayEnd.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(1)
+    .single();
+
+  // 입실 상태(check_in 또는 break_end)가 아니면 과목 설정 거부
+  if (lastAttendance?.type !== 'check_in' && lastAttendance?.type !== 'break_end') {
+    return { error: '입실 상태인 학생에게만 과목을 설정할 수 있습니다.' };
+  }
 
   // 현재 과목 종료
   await supabase
@@ -549,6 +573,16 @@ export async function deletePoints(pointIds: string[]) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
   }
 
+  // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제
+  const { error: clearRefError } = await supabase
+    .from('weekly_point_history')
+    .update({ point_id: null })
+    .in('point_id', pointIds);
+
+  if (clearRefError) {
+    console.error('Error clearing point references:', clearRefError);
+  }
+
   const { error } = await supabase
     .from('points')
     .delete()
@@ -581,17 +615,28 @@ export async function deletePoints(pointIds: string[]) {
 // ============================================
 
 // 전체 회원 목록 조회 (학생의 경우 seat_number 포함)
-export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
+export async function getAllMembers(userType?: 'student' | 'parent' | 'admin', branchId?: string | null) {
   const supabase = await createClient();
 
-  // 기본 프로필 조회
+  // 기본 프로필 조회 (지점명 포함)
   let query = supabase
     .from('profiles')
-    .select('*')
+    .select(`
+      *,
+      branch:branch_id (
+        id,
+        name
+      )
+    `)
     .order('created_at', { ascending: false });
 
   if (userType) {
     query = query.eq('user_type', userType);
+  }
+
+  // 브랜치 필터 적용 (관리자에게 지점이 지정된 경우)
+  if (branchId) {
+    query = query.eq('branch_id', branchId);
   }
 
   const { data: profiles } = await query;
@@ -627,15 +672,17 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin') {
     ...p,
     seat_number: p.user_type === 'student' ? (seatMap[p.id] ?? null) : null,
     student_type_id: p.user_type === 'student' ? (studentTypeMap[p.id] ?? null) : null,
+    branch_name: p.branch?.name || null,
   }));
 }
 
 // 학부모 목록 조회 (연결된 학생 정보 포함)
 export async function getAllParentsWithStudents() {
-  const supabase = await createClient();
+  // RLS를 우회하여 모든 학부모 조회 (학부모는 branch_id가 null이므로 일반 클라이언트로는 조회 불가)
+  const adminClient = createAdminClient();
 
   // 학부모 프로필 조회
-  const { data: parents, error } = await supabase
+  const { data: parents, error } = await adminClient
     .from('profiles')
     .select('*')
     .eq('user_type', 'parent')
@@ -650,7 +697,7 @@ export async function getAllParentsWithStudents() {
   const parentsWithStudents = await Promise.all(
     parents.map(async (parent) => {
       // parent_student_links 테이블을 통해 연결된 학생들 조회
-      const { data: links } = await supabase
+      const { data: links } = await adminClient
         .from('parent_student_links')
         .select(`
           student:student_id (

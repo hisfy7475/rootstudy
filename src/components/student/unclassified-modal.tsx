@@ -123,14 +123,14 @@ export function UnclassifiedModal({
       />
       
       {/* 모달 콘텐츠 */}
-      <div className="relative bg-white rounded-t-3xl w-full max-w-lg animate-slide-up max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-white rounded-t-3xl w-full max-w-lg animate-slide-up max-h-[80vh] flex flex-col">
         {/* 핸들 */}
-        <div className="flex justify-center pt-3 sticky top-0 bg-white">
+        <div className="flex justify-center pt-3 bg-white flex-shrink-0">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
 
         {/* 헤더 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 sticky top-4 bg-white">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white flex-shrink-0">
           <h2 className="text-lg font-bold text-text">미분류 시간 분류</h2>
           <button
             onClick={resetAndClose}
@@ -140,129 +140,132 @@ export function UnclassifiedModal({
           </button>
         </div>
 
-        {/* 시간 정보 */}
-        <div className="p-4 border-b border-gray-100">
-          <div className="flex items-center gap-3 p-3 bg-warning/10 rounded-xl">
-            <Clock className="w-5 h-5 text-warning flex-shrink-0" />
-            <div>
-              <p className="font-medium text-text">
-                {format(startTime, 'M월 d일', { locale: ko })} {format(startTime, 'HH:mm')} ~ {format(endTime, 'HH:mm')}
-              </p>
-              <p className="text-sm text-text-muted">
-                총 {formatDuration(segment.durationSeconds)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* 시간 선택 */}
-        <div className="p-4 border-b border-gray-100">
-          <p className="text-sm font-medium text-text-muted mb-3">
-            할당할 시간 선택
-          </p>
-          <div className="flex items-center justify-center gap-4">
-            <button
-              onClick={() => handleMinutesChange(-5)}
-              disabled={isPending || selectedMinutes <= 5}
-              className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-                selectedMinutes <= 5
-                  ? 'bg-gray-100 text-gray-300'
-                  : 'bg-gray-100 text-text hover:bg-gray-200'
-              )}
-            >
-              <Minus className="w-5 h-5" />
-            </button>
-            
-            <div className="text-center min-w-[120px]">
-              <p className="text-3xl font-bold text-primary">{selectedMinutes}분</p>
-              {calculatedEndTime && (
-                <p className="text-xs text-text-muted mt-1">
-                  {format(startTime, 'HH:mm')} ~ {format(calculatedEndTime, 'HH:mm')}
+        {/* 스크롤 가능한 콘텐츠 영역 */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* 시간 정보 */}
+          <div className="p-4 border-b border-gray-100">
+            <div className="flex items-center gap-3 p-3 bg-warning/10 rounded-xl">
+              <Clock className="w-5 h-5 text-warning flex-shrink-0" />
+              <div>
+                <p className="font-medium text-text">
+                  {format(startTime, 'M월 d일', { locale: ko })} {format(startTime, 'HH:mm')} ~ {format(endTime, 'HH:mm')}
                 </p>
-              )}
+                <p className="text-sm text-text-muted">
+                  총 {formatDuration(segment.durationSeconds)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 시간 선택 */}
+          <div className="p-4 border-b border-gray-100">
+            <p className="text-sm font-medium text-text-muted mb-3">
+              할당할 시간 선택
+            </p>
+            <div className="flex items-center justify-center gap-4">
+              <button
+                onClick={() => handleMinutesChange(-5)}
+                disabled={isPending || selectedMinutes <= 5}
+                className={cn(
+                  'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+                  selectedMinutes <= 5
+                    ? 'bg-gray-100 text-gray-300'
+                    : 'bg-gray-100 text-text hover:bg-gray-200'
+                )}
+              >
+                <Minus className="w-5 h-5" />
+              </button>
+              
+              <div className="text-center min-w-[120px]">
+                <p className="text-3xl font-bold text-primary">{selectedMinutes}분</p>
+                {calculatedEndTime && (
+                  <p className="text-xs text-text-muted mt-1">
+                    {format(startTime, 'HH:mm')} ~ {format(calculatedEndTime, 'HH:mm')}
+                  </p>
+                )}
+              </div>
+              
+              <button
+                onClick={() => handleMinutesChange(5)}
+                disabled={isPending || selectedMinutes >= totalMinutes}
+                className={cn(
+                  'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+                  selectedMinutes >= totalMinutes
+                    ? 'bg-gray-100 text-gray-300'
+                    : 'bg-gray-100 text-text hover:bg-gray-200'
+                )}
+              >
+                <Plus className="w-5 h-5" />
+              </button>
             </div>
             
-            <button
-              onClick={() => handleMinutesChange(5)}
-              disabled={isPending || selectedMinutes >= totalMinutes}
-              className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-                selectedMinutes >= totalMinutes
-                  ? 'bg-gray-100 text-gray-300'
-                  : 'bg-gray-100 text-text hover:bg-gray-200'
+            {/* 빠른 선택 버튼 */}
+            <div className="flex justify-center gap-2 mt-3">
+              {[15, 30, 45, 60].filter(m => m <= totalMinutes).map((minutes) => (
+                <button
+                  key={minutes}
+                  onClick={() => setSelectedMinutes(minutes)}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                    selectedMinutes === minutes
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-text-muted hover:bg-gray-200'
+                  )}
+                >
+                  {minutes}분
+                </button>
+              ))}
+              {totalMinutes > 5 && (
+                <button
+                  onClick={() => setSelectedMinutes(totalMinutes)}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                    selectedMinutes === totalMinutes
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-text-muted hover:bg-gray-200'
+                  )}
+                >
+                  전체
+                </button>
               )}
-            >
-              <Plus className="w-5 h-5" />
-            </button>
+            </div>
           </div>
-          
-          {/* 빠른 선택 버튼 */}
-          <div className="flex justify-center gap-2 mt-3">
-            {[15, 30, 45, 60].filter(m => m <= totalMinutes).map((minutes) => (
-              <button
-                key={minutes}
-                onClick={() => setSelectedMinutes(minutes)}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  selectedMinutes === minutes
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-text-muted hover:bg-gray-200'
-                )}
-              >
-                {minutes}분
-              </button>
-            ))}
-            {totalMinutes > 5 && (
-              <button
-                onClick={() => setSelectedMinutes(totalMinutes)}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  selectedMinutes === totalMinutes
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-text-muted hover:bg-gray-200'
-                )}
-              >
-                전체
-              </button>
+
+          {/* 과목 선택 */}
+          <div className="py-4">
+            <p className="text-sm font-medium text-text-muted mb-3 px-4">
+              과목 선택
+            </p>
+            <div className="flex gap-2 overflow-x-auto px-4 pb-2 scrollbar-hide">
+              {subjects.map((subject) => (
+                <button
+                  key={subject}
+                  onClick={() => setSelectedSubject(subject)}
+                  disabled={isPending}
+                  className={cn(
+                    'py-2 px-4 rounded-full border-2 text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                    selectedSubject === subject
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-gray-200 text-text hover:border-gray-300'
+                  )}
+                >
+                  {selectedSubject === subject && (
+                    <Check className="w-4 h-4 inline mr-1" />
+                  )}
+                  {subject}
+                </button>
+              ))}
+            </div>
+
+            {/* 에러 메시지 */}
+            {error && (
+              <p className="text-sm text-error mt-3 px-4">{error}</p>
             )}
           </div>
         </div>
 
-        {/* 과목 선택 */}
-        <div className="p-4">
-          <p className="text-sm font-medium text-text-muted mb-3">
-            과목 선택
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {subjects.map((subject) => (
-              <button
-                key={subject}
-                onClick={() => setSelectedSubject(subject)}
-                disabled={isPending}
-                className={cn(
-                  'py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all',
-                  selectedSubject === subject
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-gray-200 text-text hover:border-gray-300'
-                )}
-              >
-                {selectedSubject === subject && (
-                  <Check className="w-4 h-4 inline mr-1" />
-                )}
-                {subject}
-              </button>
-            ))}
-          </div>
-
-          {/* 에러 메시지 */}
-          {error && (
-            <p className="text-sm text-error mt-3">{error}</p>
-          )}
-        </div>
-
-        {/* 버튼 - safe area 고려 */}
-        <div className="p-4 pb-safe flex gap-3 sticky bottom-0 bg-white border-t border-gray-100">
+        {/* 버튼 - 항상 하단에 고정, 네비게이션 바 위로 충분한 여백 */}
+        <div className="p-4 pb-20 flex gap-3 bg-white border-t border-gray-100 flex-shrink-0">
           <button
             onClick={resetAndClose}
             disabled={isPending}

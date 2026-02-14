@@ -824,7 +824,7 @@ export function PointsClient({
           
           {/* 일괄 삭제 확인 모달 */}
           {showBulkDeleteConfirm && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div className="mb-4 p-4 bg-red-100 border border-red-300 rounded-xl">
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
                 <div className="flex-1">
@@ -837,10 +837,10 @@ export function PointsClient({
                 </div>
                 <div className="flex gap-2">
                   <Button
-                    variant="danger"
                     size="sm"
                     onClick={handleBulkDelete}
                     disabled={loading}
+                    className="bg-red-500 hover:bg-red-600 text-white"
                   >
                     {loading ? '삭제 중...' : '삭제'}
                   </Button>

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, rejectStudent, deleteMember, createAdmin, deleteAdmin } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, rejectStudent, deleteMember, createAdmin, deleteAdmin, getAllParentsWithStudents } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -47,6 +47,7 @@ interface Member {
   is_rejected?: boolean;
   created_at: string;
   branch_id: string | null;
+  branch_name: string | null;
   seat_number: number | null;
   school: string | null;
   grade: number | null;
@@ -119,6 +120,7 @@ interface MembersClientProps {
   initialAdmins: Admin[];
   branches: Branch[];
   initialStudentTypes?: StudentTypeOption[];
+  branchId?: string | null;
 }
 
 type Tab = 'students' | 'parents' | 'admins';
@@ -128,7 +130,7 @@ interface StudentTypeOption {
   name: string;
 }
 
-export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [] }: MembersClientProps) {
+export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [], branchId }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<ParentMember[]>(initialParents);
   const [admins, setAdmins] = useState<Admin[]>(initialAdmins);
@@ -142,7 +144,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [editValue, setEditValue] = useState('');
   const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   // 정렬 상태
-  const [sortField, setSortField] = useState<'seat_number' | 'name' | null>(null);
+  const [sortField, setSortField] = useState<'seat_number' | 'name' | 'branch_name' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   // 인라인 이름 편집 상태
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
@@ -173,7 +175,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const rejectedCount = students.filter(s => s.is_rejected).length;
 
   // 정렬 토글 핸들러
-  const handleSort = (field: 'seat_number' | 'name') => {
+  const handleSort = (field: 'seat_number' | 'name' | 'branch_name') => {
     if (sortField === field) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
@@ -183,7 +185,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   };
 
   // 정렬 아이콘 렌더링
-  const renderSortIcon = (field: 'seat_number' | 'name') => {
+  const renderSortIcon = (field: 'seat_number' | 'name' | 'branch_name') => {
     if (sortField !== field) {
       return <ArrowUpDown className="w-3.5 h-3.5 text-text-muted" />;
     }
@@ -215,6 +217,14 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         return sortDirection === 'asc' 
           ? a.name.localeCompare(b.name, 'ko')
           : b.name.localeCompare(a.name, 'ko');
+      }
+      
+      if (sortField === 'branch_name') {
+        const aVal = a.branch_name || '';
+        const bVal = b.branch_name || '';
+        return sortDirection === 'asc' 
+          ? aVal.localeCompare(bVal, 'ko')
+          : bVal.localeCompare(aVal, 'ko');
       }
       
       return 0;
@@ -287,9 +297,12 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       }
 
       // 데이터 새로고침
-      const allMembers = await getAllMembers();
+      const [allMembers, parentsData] = await Promise.all([
+        getAllMembers(undefined, branchId),
+        getAllParentsWithStudents(),
+      ]);
       setStudents(allMembers.filter(m => m.user_type === 'student'));
-      setParents(allMembers.filter(m => m.user_type === 'parent'));
+      setParents(parentsData);
 
       // 상세 정보 새로고침
       if (selectedStudent && editMode.id === selectedStudent.id) {
@@ -348,7 +361,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
 
       if (result.success) {
         // 학생 목록 새로고침
-        const allMembers = await getAllMembers();
+        const allMembers = await getAllMembers(undefined, branchId);
         setStudents(allMembers.filter(m => m.user_type === 'student'));
         setApprovalModal(null);
       } else {
@@ -372,7 +385,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
 
       if (result.success) {
         // 학생 목록 새로고침
-        const allMembers = await getAllMembers();
+        const allMembers = await getAllMembers(undefined, branchId);
         setStudents(allMembers.filter(m => m.user_type === 'student'));
       } else {
         alert(result.error || '비승인에 실패했습니다.');
@@ -405,9 +418,12 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
 
       if (result.success) {
         // 목록 새로고침
-        const allMembers = await getAllMembers();
+        const [allMembers, parentsData] = await Promise.all([
+          getAllMembers(undefined, branchId),
+          getAllParentsWithStudents(),
+        ]);
         setStudents(allMembers.filter(m => m.user_type === 'student'));
-        setParents(allMembers.filter(m => m.user_type === 'parent') as unknown as ParentMember[]);
+        setParents(parentsData);
         setDeleteModal(null);
         setSelectedStudent(null); // 상세 모달도 닫기
         if (result.warning) {
@@ -438,7 +454,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       await updateMember(memberId, { name: editingNameValue.trim() });
       
       // 학생 목록 새로고침
-      const allMembers = await getAllMembers();
+      const allMembers = await getAllMembers(undefined, branchId);
       setStudents(allMembers.filter(m => m.user_type === 'student'));
     } catch (error) {
       console.error('Failed to update name:', error);
@@ -462,7 +478,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
       }
       
       // 학생 목록 새로고침
-      const allMembers = await getAllMembers();
+      const allMembers = await getAllMembers(undefined, branchId);
       setStudents(allMembers.filter(m => m.user_type === 'student'));
     } catch (error) {
       console.error('Failed to update student type:', error);
@@ -472,31 +488,29 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     }
   };
 
-  // 학교/학년 수정 핸들러
-  const handleUpdateStudentField = async (memberId: string, field: 'school' | 'grade', value: string) => {
+  // 학교 수정 핸들러
+  const handleUpdateStudentField = async (memberId: string, field: 'school', value: string) => {
     setLoading(true);
     try {
-      const updateData: { school?: string | null; grade?: number | null } = {};
+      const updateData: { school?: string | null } = {};
       if (field === 'school') {
         updateData.school = value || null;
-      } else if (field === 'grade') {
-        updateData.grade = value ? parseInt(value) : null;
       }
       
       const result = await updateMember(memberId, updateData);
       
       if (result.error) {
         console.error(`Failed to update ${field}:`, result.error);
-        alert(`${field === 'school' ? '학교' : '학년'} 수정에 실패했습니다: ${result.error}`);
+        alert('학교 수정에 실패했습니다: ' + result.error);
         return;
       }
       
       // 학생 목록 새로고침
-      const allMembers = await getAllMembers();
+      const allMembers = await getAllMembers(undefined, branchId);
       setStudents(allMembers.filter(m => m.user_type === 'student'));
     } catch (error) {
       console.error(`Failed to update ${field}:`, error);
-      alert(`${field === 'school' ? '학교' : '학년'} 수정 중 오류가 발생했습니다.`);
+      alert('학교 수정 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -801,7 +815,15 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                       </div>
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학교</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학년</th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort('branch_name')}
+                    >
+                      <div className="flex items-center gap-1">
+                        센터
+                        {renderSortIcon('branch_name')}
+                      </div>
+                    </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학생 타입</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">상태</th>
@@ -894,18 +916,16 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                             }}
                           />
                         </td>
-                        {/* 학년 */}
+                        {/* 센터 */}
                         <td className="px-4 py-3 text-sm">
-                          <select
-                            value={member.grade?.toString() || ''}
-                            onChange={(e) => handleUpdateStudentField(member.id, 'grade', e.target.value)}
-                            className="h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
-                          >
-                            <option value="">선택</option>
-                            <option value="1">1학년</option>
-                            <option value="2">2학년</option>
-                            <option value="3">3학년</option>
-                          </select>
+                          {member.branch_name ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+                              <Building2 className="w-3 h-3" />
+                              {member.branch_name}
+                            </span>
+                          ) : (
+                            <span className="text-text-muted">-</span>
+                          )}
                         </td>
                         {/* 학생 타입 */}
                         <td className="px-4 py-3 text-sm">
@@ -1318,6 +1338,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                       is_approved: true,
                       created_at: selectedStudent.createdAt,
                       branch_id: selectedStudent.branchId,
+                      branch_name: null,
                       seat_number: selectedStudent.seatNumber ?? null,
                       school: null,
                       grade: null,
