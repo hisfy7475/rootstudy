@@ -707,80 +707,401 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     setAddAdminForm({ email: '', password: '', name: '', phone: '', branchId: '' });
                     setAddAdminError(null);
                   }}
-                  className="gap-2"
+                  size="sm"
+                  className="gap-1.5"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-3.5 h-3.5" />
                   관리자 추가
                 </Button>
               </div>
 
               <Card className="overflow-hidden">
-                <table className="w-full">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이름</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이메일</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">전화번호</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">소속 지점</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">가입일</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">액션</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredAdmins.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-2 py-6 text-center text-xs text-gray-500">
+                            관리자가 없습니다.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredAdmins.map((admin) => (
+                          <tr key={admin.id} className="hover:bg-gray-50">
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                                  <Shield className="w-3 h-3 text-purple-600" />
+                                </div>
+                                <span className="font-medium">{admin.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 text-gray-600">{admin.email}</td>
+                            <td className="px-2 py-1.5">{admin.phone || '-'}</td>
+                            <td className="px-2 py-1.5">
+                              <select
+                                value={admin.branch_id || ''}
+                                onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+                                disabled={loading}
+                                className={cn(
+                                  "px-2 py-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50",
+                                  !admin.branch_id 
+                                    ? "border-yellow-300 bg-yellow-50 text-yellow-700" 
+                                    : "border-gray-200 bg-white"
+                                )}
+                              >
+                                <option value="">지점 미지정</option>
+                                {branches.map((branch) => (
+                                  <option key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5 text-gray-500">
+                              {formatDate(admin.created_at)}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setDeleteAdminModal(admin);
+                                  setDeleteAdminConfirmName('');
+                                }}
+                                disabled={loading}
+                                className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          ) : activeTab === 'students' ? (
+            /* 학생 목록 테이블 */
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">소속 지점</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
+                      <th 
+                        className="px-2 py-2 text-left text-xs font-medium text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors"
+                        onClick={() => handleSort('seat_number')}
+                      >
+                        <div className="flex items-center gap-0.5">
+                          번호
+                          {renderSortIcon('seat_number')}
+                        </div>
+                      </th>
+                      <th 
+                        className="px-2 py-2 text-left text-xs font-medium text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors"
+                        onClick={() => handleSort('name')}
+                      >
+                        <div className="flex items-center gap-0.5">
+                          이름
+                          {renderSortIcon('name')}
+                        </div>
+                      </th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이메일</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">학교</th>
+                      <th 
+                        className="px-2 py-2 text-left text-xs font-medium text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors"
+                        onClick={() => handleSort('branch_name')}
+                      >
+                        <div className="flex items-center gap-0.5">
+                          센터
+                          {renderSortIcon('branch_name')}
+                        </div>
+                      </th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">타입</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">전화번호</th>
+                      <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">상태</th>
+                      <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">액션</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredAdmins.length === 0 ? (
+                    {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
-                          관리자가 없습니다.
+                        <td colSpan={9} className="px-2 py-6 text-center text-xs text-gray-500">
+                          {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : 
+                           studentFilter === 'rejected' ? '비승인된 학생이 없습니다.' : '학생이 없습니다.'}
                         </td>
                       </tr>
                     ) : (
-                      filteredAdmins.map((admin) => (
-                        <tr key={admin.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
-                                <Shield className="w-4 h-4 text-purple-600" />
-                              </div>
-                              <span className="font-medium">{admin.name}</span>
-                            </div>
+                      filteredStudents.map((member) => (
+                        <tr key={member.id} className={cn("hover:bg-gray-50", member.is_rejected && "bg-red-50/50", !member.is_approved && !member.is_rejected && "bg-yellow-50/50")}>
+                          {/* 좌석번호 */}
+                          <td className="px-2 py-1.5">
+                            <span className={cn(
+                              "inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium",
+                              member.seat_number ? "bg-primary/10 text-primary" : "bg-gray-100 text-gray-400"
+                            )}>
+                              {member.seat_number || '-'}
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-text-muted">{admin.email}</td>
-                          <td className="px-4 py-3 text-sm">{admin.phone || '-'}</td>
-                          <td className="px-4 py-3">
+                          {/* 이름 (편집 가능) */}
+                          <td className="px-2 py-1.5">
+                            {editingNameId === member.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="text"
+                                  value={editingNameValue}
+                                  onChange={(e) => setEditingNameValue(e.target.value)}
+                                  className="w-20 h-6 text-xs px-1.5"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveNameEdit(member.id);
+                                    if (e.key === 'Escape') setEditingNameId(null);
+                                  }}
+                                />
+                                <button 
+                                  onClick={() => handleSaveNameEdit(member.id)} 
+                                  className="text-green-600 hover:text-green-700"
+                                  disabled={loading}
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  onClick={() => setEditingNameId(null)} 
+                                  className="text-red-500 hover:text-red-600"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 group">
+                                <div className={cn(
+                                  "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0",
+                                  member.is_approved ? "bg-primary/10" : member.is_rejected ? "bg-red-100" : "bg-yellow-100"
+                                )}>
+                                  <User className={cn("w-3 h-3", member.is_approved ? "text-primary" : member.is_rejected ? "text-red-600" : "text-yellow-600")} />
+                                </div>
+                                <span className="font-medium">{member.name}</span>
+                                <button
+                                  onClick={() => handleStartEditName(member)}
+                                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-primary transition-opacity"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          {/* 이메일 */}
+                          <td className="px-2 py-1.5 text-gray-600 max-w-[160px] truncate" title={member.email}>
+                            {member.email}
+                          </td>
+                          {/* 학교 */}
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="text"
+                              defaultValue={member.school || ''}
+                              placeholder="-"
+                              className="w-20 h-6 px-1.5 text-xs border border-transparent rounded hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 bg-transparent"
+                              onBlur={(e) => {
+                                if (e.target.value !== (member.school || '')) {
+                                  handleUpdateStudentField(member.id, 'school', e.target.value);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                            />
+                          </td>
+                          {/* 센터 */}
+                          <td className="px-2 py-1.5">
+                            {member.branch_name ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-medium">
+                                <Building2 className="w-2.5 h-2.5" />
+                                {member.branch_name}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          {/* 학생 타입 */}
+                          <td className="px-2 py-1.5">
                             <select
-                              value={admin.branch_id || ''}
-                              onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+                              value={member.student_type_id || ''}
+                              onChange={(e) => handleUpdateStudentTypeInline(member.id, e.target.value)}
                               disabled={loading}
-                              className={cn(
-                                "px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50",
-                                !admin.branch_id 
-                                  ? "border-yellow-300 bg-yellow-50 text-yellow-700" 
-                                  : "border-gray-200 bg-white"
-                              )}
+                              className="h-6 px-1.5 text-xs border border-transparent rounded hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 bg-transparent"
                             >
-                              <option value="">지점 미지정</option>
-                              {branches.map((branch) => (
-                                <option key={branch.id} value={branch.id}>
-                                  {branch.name}
-                                </option>
+                              <option value="">-</option>
+                              {allStudentTypes.map(type => (
+                                <option key={type.id} value={type.id}>{type.name}</option>
                               ))}
                             </select>
                           </td>
-                          <td className="px-4 py-3 text-sm text-text-muted">
-                            {formatDate(admin.created_at)}
+                          {/* 전화번호 */}
+                          <td className="px-2 py-1.5">{member.phone || '-'}</td>
+                          {/* 상태 */}
+                          <td className="px-2 py-1.5 text-center">
+                            {member.is_approved ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-medium">
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                승인
+                              </span>
+                            ) : member.is_rejected ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium">
+                                <X className="w-2.5 h-2.5" />
+                                비승인
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-[10px] font-medium">
+                                <Clock className="w-2.5 h-2.5" />
+                                대기
+                              </span>
+                            )}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          {/* 액션 */}
+                          <td className="px-2 py-1.5 text-center">
+                            <div className="flex items-center justify-center gap-0.5">
+                              {!member.is_approved && !member.is_rejected ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleOpenApproval(member)}
+                                    disabled={loading}
+                                    className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                  >
+                                    <UserPlus className="w-3 h-3 mr-0.5" />
+                                    승인
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleReject(member.id)}
+                                    disabled={loading}
+                                    className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </>
+                              ) : member.is_approved ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleViewDetail(member.id)}
+                                    disabled={loading}
+                                    className="h-6 px-1.5"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenDeleteModal(member, 'student')}
+                                    disabled={loading}
+                                    className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                  >
+                                    <UserMinus className="w-3 h-3" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleOpenDeleteModal(member, 'student')}
+                                  disabled={loading}
+                                  className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                >
+                                  <UserMinus className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : (
+            /* 학부모 목록 테이블 */
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이름</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">연결된 학생</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이메일</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">전화번호</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">가입일</th>
+                      <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredParents.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-2 py-6 text-center text-xs text-gray-500">
+                          학부모가 없습니다.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredParents.map((parent) => (
+                        <tr key={parent.id} className="hover:bg-gray-50">
+                          <td className="px-2 py-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-5 h-5 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0">
+                                <UserCheck className="w-3 h-3 text-secondary" />
+                              </div>
+                              <span className="font-medium">{parent.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            {!parent.students || parent.students.length === 0 ? (
+                              <span className="text-gray-400">미연결</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-0.5">
+                                {parent.students.map((student) => (
+                                  <span
+                                    key={student.id}
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/10 text-primary text-[10px] rounded"
+                                  >
+                                    {student.seatNumber && (
+                                      <span className="text-primary/70">{student.seatNumber}번</span>
+                                    )}
+                                    {student.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-600">{parent.email}</td>
+                          <td className="px-2 py-1.5">{parent.phone || '-'}</td>
+                          <td className="px-2 py-1.5 text-gray-500">
+                            {formatDate(parent.created_at)}
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => {
-                                setDeleteAdminModal(admin);
-                                setDeleteAdminConfirmName('');
-                              }}
+                              onClick={() => handleOpenDeleteModal(parent, 'parent')}
                               disabled={loading}
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                              className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <UserMinus className="w-3 h-3" />
                             </Button>
                           </td>
                         </tr>
@@ -788,317 +1109,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     )}
                   </tbody>
                 </table>
-              </Card>
-            </div>
-          ) : activeTab === 'students' ? (
-            /* 학생 목록 테이블 */
-            <Card className="overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th 
-                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort('seat_number')}
-                    >
-                      <div className="flex items-center gap-1">
-                        좌석번호
-                        {renderSortIcon('seat_number')}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort('name')}
-                    >
-                      <div className="flex items-center gap-1">
-                        이름
-                        {renderSortIcon('name')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학교</th>
-                    <th 
-                      className="px-4 py-3 text-left text-sm font-medium text-text-muted cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort('branch_name')}
-                    >
-                      <div className="flex items-center gap-1">
-                        센터
-                        {renderSortIcon('branch_name')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">학생 타입</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">상태</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredStudents.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-text-muted">
-                        {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : 
-                         studentFilter === 'rejected' ? '비승인된 학생이 없습니다.' : '학생이 없습니다.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredStudents.map((member) => (
-                      <tr key={member.id} className={cn("hover:bg-gray-50", member.is_rejected && "bg-red-50/50", !member.is_approved && !member.is_rejected && "bg-yellow-50/50")}>
-                        {/* 좌석번호 */}
-                        <td className="px-4 py-3 text-sm">
-                          <span className={cn(
-                            "inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium",
-                            member.seat_number ? "bg-primary/10 text-primary" : "bg-gray-100 text-text-muted"
-                          )}>
-                            {member.seat_number || '-'}
-                          </span>
-                        </td>
-                        {/* 이름 (편집 가능) */}
-                        <td className="px-4 py-3">
-                          {editingNameId === member.id ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="text"
-                                value={editingNameValue}
-                                onChange={(e) => setEditingNameValue(e.target.value)}
-                                className="w-24 h-8 text-sm"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleSaveNameEdit(member.id);
-                                  if (e.key === 'Escape') setEditingNameId(null);
-                                }}
-                              />
-                              <button 
-                                onClick={() => handleSaveNameEdit(member.id)} 
-                                className="text-success hover:text-green-700"
-                                disabled={loading}
-                              >
-                                <Check className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => setEditingNameId(null)} 
-                                className="text-error hover:text-red-700"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 group">
-                              <div className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                                member.is_approved ? "bg-primary/10" : member.is_rejected ? "bg-red-100" : "bg-yellow-100"
-                              )}>
-                                <User className={cn("w-4 h-4", member.is_approved ? "text-primary" : member.is_rejected ? "text-red-600" : "text-yellow-600")} />
-                              </div>
-                              <span className="font-medium">{member.name}</span>
-                              <button
-                                onClick={() => handleStartEditName(member)}
-                                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-primary transition-opacity"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        {/* 학교 */}
-                        <td className="px-4 py-3 text-sm">
-                          <input
-                            type="text"
-                            defaultValue={member.school || ''}
-                            placeholder="학교 입력"
-                            className="w-28 h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
-                            onBlur={(e) => {
-                              if (e.target.value !== (member.school || '')) {
-                                handleUpdateStudentField(member.id, 'school', e.target.value);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                        </td>
-                        {/* 센터 */}
-                        <td className="px-4 py-3 text-sm">
-                          {member.branch_name ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
-                              <Building2 className="w-3 h-3" />
-                              {member.branch_name}
-                            </span>
-                          ) : (
-                            <span className="text-text-muted">-</span>
-                          )}
-                        </td>
-                        {/* 학생 타입 */}
-                        <td className="px-4 py-3 text-sm">
-                          <select
-                            value={member.student_type_id || ''}
-                            onChange={(e) => handleUpdateStudentTypeInline(member.id, e.target.value)}
-                            disabled={loading}
-                            className="h-8 px-2 text-sm border border-transparent rounded-lg hover:border-gray-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 bg-transparent"
-                          >
-                            <option value="">선택</option>
-                            {allStudentTypes.map(type => (
-                              <option key={type.id} value={type.id}>{type.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        {/* 전화번호 */}
-                        <td className="px-4 py-3 text-sm">{member.phone || '-'}</td>
-                        {/* 상태 */}
-                        <td className="px-4 py-3 text-sm">
-                          {member.is_approved ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                              <CheckCircle2 className="w-3 h-3" />
-                              승인됨
-                            </span>
-                          ) : member.is_rejected ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                              <X className="w-3 h-3" />
-                              비승인
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
-                              <Clock className="w-3 h-3" />
-                              대기중
-                            </span>
-                          )}
-                        </td>
-                        {/* 액션 */}
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {!member.is_approved && !member.is_rejected ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleOpenApproval(member)}
-                                  disabled={loading}
-                                  className="bg-green-600 hover:bg-green-700 text-white"
-                                >
-                                  <UserPlus className="w-4 h-4 mr-1" />
-                                  승인
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleReject(member.id)}
-                                  disabled={loading}
-                                  className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                                >
-                                  <X className="w-4 h-4 mr-1" />
-                                  비승인
-                                </Button>
-                              </>
-                            ) : member.is_approved ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleViewDetail(member.id)}
-                                  disabled={loading}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleOpenDeleteModal(member, 'student')}
-                                  disabled={loading}
-                                  className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                                >
-                                  <UserMinus className="w-4 h-4" />
-                                </Button>
-                              </>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleOpenDeleteModal(member, 'student')}
-                                disabled={loading}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                              >
-                                <UserMinus className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </Card>
-          ) : (
-            /* 학부모 목록 테이블 */
-            <Card className="overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이름</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">연결된 학생</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">이메일</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">전화번호</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">가입일</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">관리</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredParents.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
-                        학부모가 없습니다.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredParents.map((parent) => (
-                      <tr key={parent.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center">
-                              <UserCheck className="w-4 h-4 text-secondary" />
-                            </div>
-                            <span className="font-medium">{parent.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {!parent.students || parent.students.length === 0 ? (
-                            <span className="text-sm text-text-muted">미연결</span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {parent.students.map((student) => (
-                                <span
-                                  key={student.id}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-sm rounded-full"
-                                >
-                                  <User className="w-3 h-3" />
-                                  {student.seatNumber && (
-                                    <span className="text-xs text-primary/70">{student.seatNumber}번</span>
-                                  )}
-                                  {student.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">{parent.email}</td>
-                        <td className="px-4 py-3 text-sm">{parent.phone || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-text-muted">
-                          {formatDate(parent.created_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleOpenDeleteModal(parent, 'parent')}
-                            disabled={loading}
-                            className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                          >
-                            <UserMinus className="w-4 h-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+              </div>
             </Card>
           )}
       </div>
