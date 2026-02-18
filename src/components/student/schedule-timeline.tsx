@@ -260,8 +260,8 @@ export default function ScheduleTimeline({
     };
   }, []);
 
-  // 활성화된 반복 일정만 필터링
-  const activeRecurringSchedules = schedules.filter(s => s.is_active && s.is_recurring);
+  // 활성화된 반복 일정 + 승인 대기 중인 일정 필터링
+  const displaySchedules = schedules.filter(s => s.is_recurring && (s.is_active || s.status === 'pending'));
 
   // 일정의 블록 위치 계산
   const getScheduleBlockStyle = (schedule: StudentAbsenceSchedule, dayIndex: number) => {
@@ -356,15 +356,20 @@ export default function ScheduleTimeline({
         )}
 
         {/* 일정 블록들 */}
-        {activeRecurringSchedules.map(schedule => (
+        {displaySchedules.map(schedule => (
           schedule.day_of_week?.map(dayIndex => {
             const style = getScheduleBlockStyle(schedule, dayIndex);
             if (!style) return null;
             
+            const isPending = schedule.status === 'pending';
+            const bgColor = isPending 
+              ? 'bg-amber-400/90 hover:bg-amber-500' 
+              : 'bg-primary/80 hover:bg-primary';
+            
             return (
               <div
                 key={`${schedule.id}-${dayIndex}`}
-                className="absolute bg-primary/80 text-white text-[10px] px-1 py-0.5 rounded cursor-pointer hover:bg-primary transition-colors overflow-hidden z-10"
+                className={`absolute text-white text-[10px] px-1 py-0.5 rounded cursor-pointer transition-colors overflow-hidden z-10 ${bgColor}`}
                 style={{
                   top: style.top,
                   height: style.height,
@@ -372,12 +377,20 @@ export default function ScheduleTimeline({
                   width: style.width,
                   minHeight: SLOT_HEIGHT,
                 }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onScheduleClick(schedule);
                 }}
               >
-                <div className="font-medium truncate">{schedule.title}</div>
+                <div className="font-medium truncate">
+                  {isPending && '⏳ '}{schedule.title}
+                </div>
                 {style.height > SLOT_HEIGHT && (
                   <div className="text-white/80 truncate">
                     {schedule.start_time.slice(0, 5)}~{schedule.end_time.slice(0, 5)}

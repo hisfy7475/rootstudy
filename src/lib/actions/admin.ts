@@ -2186,8 +2186,32 @@ export async function recordFocusScoreIndividual(
     }
   }
 
-  revalidatePath('/admin');
-  revalidatePath('/admin/focus');
+  return { success: true };
+}
+
+// 몰입도 점수 삭제 (취소)
+export async function deleteFocusScore(studentId: string, periodId: string) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const { error } = await supabase
+    .from('focus_scores')
+    .delete()
+    .eq('student_id', studentId)
+    .eq('period_id', periodId)
+    .gte('recorded_at', start.toISOString())
+    .lte('recorded_at', end.toISOString());
+
+  if (error) {
+    console.error('Error deleting focus score:', error);
+    return { error: '몰입도 삭제에 실패했습니다.' };
+  }
+
   return { success: true };
 }
 

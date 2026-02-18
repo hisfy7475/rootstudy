@@ -95,6 +95,7 @@ export function StudentDashboardClient({
         <TimerDisplay
           startTime={startTime}
           isActive={isTimerActive}
+          initialSeconds={initialStudyTime}
           className="py-4"
         />
         <ExamTimer className="py-4" />

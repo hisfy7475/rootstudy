@@ -6,29 +6,32 @@ import { cn } from '@/lib/utils';
 interface TimerDisplayProps {
   startTime?: Date | null;
   isActive: boolean;
+  initialSeconds?: number;
   className?: string;
 }
 
-export function TimerDisplay({ startTime, isActive, className }: TimerDisplayProps) {
-  const [elapsed, setElapsed] = useState(0);
+export function TimerDisplay({ startTime, isActive, initialSeconds = 0, className }: TimerDisplayProps) {
+  const [currentSessionElapsed, setCurrentSessionElapsed] = useState(0);
 
   useEffect(() => {
     if (!isActive || !startTime) {
+      setCurrentSessionElapsed(0);
       return;
     }
 
-    // 초기 경과 시간 계산
-    const initialElapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
-    setElapsed(initialElapsed);
+    const calculateSessionElapsed = () => 
+      Math.floor((Date.now() - startTime.getTime()) / 1000);
 
-    // 1초마다 업데이트
+    setCurrentSessionElapsed(calculateSessionElapsed());
+
     const interval = setInterval(() => {
-      const newElapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
-      setElapsed(newElapsed);
+      setCurrentSessionElapsed(calculateSessionElapsed());
     }, 1000);
 
     return () => clearInterval(interval);
   }, [isActive, startTime]);
+
+  const totalElapsed = initialSeconds + currentSessionElapsed;
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -42,7 +45,7 @@ export function TimerDisplay({ startTime, isActive, className }: TimerDisplayPro
     };
   };
 
-  const time = formatTime(elapsed);
+  const time = formatTime(totalElapsed);
 
   return (
     <div className={cn('flex flex-col items-center', className)}>

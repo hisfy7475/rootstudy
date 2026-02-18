@@ -17,7 +17,8 @@ import {
 import {
   createAbsenceSchedule,
   deleteAbsenceSchedule,
-  toggleAbsenceSchedule
+  toggleAbsenceSchedule,
+  updateAbsenceSchedule
 } from '@/lib/actions/absence-schedule';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { DAY_NAMES, ABSENCE_REASONS } from '@/lib/constants';
@@ -38,6 +39,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [selectedSchedule, setSelectedSchedule] = useState<StudentAbsenceSchedule | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<StudentAbsenceSchedule | null>(null);
 
   // 폼 상태
   const [formData, setFormData] = useState({
@@ -67,6 +69,30 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
       recurringEndDate: '',
     });
+    setEditingSchedule(null);
+  };
+
+  // 수정 모드 핸들러
+  const handleEdit = (schedule: StudentAbsenceSchedule) => {
+    // 부재 사유 타입 판별
+    const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
+    const reasonType = foundReason?.value || 'other';
+    const customReason = reasonType === 'other' ? schedule.title : '';
+    
+    setEditingSchedule(schedule);
+    setFormData({
+      reasonType,
+      customReason,
+      description: schedule.description || '',
+      isRecurring: schedule.is_recurring,
+      dayOfWeek: schedule.day_of_week || [],
+      startTime: schedule.start_time.slice(0, 5),
+      endTime: schedule.end_time.slice(0, 5),
+      specificDate: schedule.specific_date || format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      recurringStartDate: schedule.valid_from || format(new Date(), 'yyyy-MM-dd'),
+      recurringEndDate: schedule.valid_until || '',
+    });
+    setShowAddForm(true);
   };
 
   // 선택된 사유에 따른 제목 생성
@@ -119,26 +145,72 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     }
 
     setIsLoading(true);
-    const result = await createAbsenceSchedule({
-      title,
-      description: formData.description.trim() || undefined,
-      is_recurring: formData.isRecurring,
-      recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
-      day_of_week: formData.isRecurring ? formData.dayOfWeek : undefined,
-      start_time: formData.startTime + ':00',
-      end_time: formData.endTime + ':00',
-      date_type: 'all', // 기간 유형은 항상 'all'로 고정
-      valid_from: formData.isRecurring ? formData.recurringStartDate : undefined,
-      valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
-      specific_date: !formData.isRecurring ? formData.specificDate : undefined,
-    });
+    
+    // 수정 모드
+    if (editingSchedule) {
+      const result = await updateAbsenceSchedule(editingSchedule.id, {
+        title,
+        description: formData.description.trim() || null,
+        is_recurring: formData.isRecurring,
+        recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
+        day_of_week: formData.isRecurring ? formData.dayOfWeek : null,
+        start_time: formData.startTime + ':00',
+        end_time: formData.endTime + ':00',
+        date_type: 'all',
+        valid_from: formData.isRecurring ? formData.recurringStartDate : null,
+        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
+        specific_date: !formData.isRecurring ? formData.specificDate : null,
+        status: 'pending', // 수정 시 재승인 필요
+      });
 
-    if (result.success && result.data) {
-      setSchedules([result.data, ...schedules]);
-      setShowAddForm(false);
-      resetForm();
+      if (result.success) {
+        setSchedules(schedules.map(s => 
+          s.id === editingSchedule.id 
+            ? { 
+                ...s, 
+                title,
+                description: formData.description.trim() || null,
+                is_recurring: formData.isRecurring,
+                recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
+                day_of_week: formData.isRecurring ? formData.dayOfWeek : null,
+                start_time: formData.startTime + ':00',
+                end_time: formData.endTime + ':00',
+                valid_from: formData.isRecurring ? formData.recurringStartDate : null,
+                valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
+                specific_date: !formData.isRecurring ? formData.specificDate : null,
+                status: 'pending', // 재승인 대기 상태로 변경
+              } 
+            : s
+        ));
+        setShowAddForm(false);
+        resetForm();
+        alert('수정 요청이 완료되었습니다. 승인 후 적용됩니다.');
+      } else {
+        alert(result.error || '일정 수정에 실패했습니다.');
+      }
     } else {
-      alert(result.error || '일정 등록에 실패했습니다.');
+      // 추가 모드
+      const result = await createAbsenceSchedule({
+        title,
+        description: formData.description.trim() || undefined,
+        is_recurring: formData.isRecurring,
+        recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
+        day_of_week: formData.isRecurring ? formData.dayOfWeek : undefined,
+        start_time: formData.startTime + ':00',
+        end_time: formData.endTime + ':00',
+        date_type: 'all',
+        valid_from: formData.isRecurring ? formData.recurringStartDate : undefined,
+        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
+        specific_date: !formData.isRecurring ? formData.specificDate : undefined,
+      });
+
+      if (result.success && result.data) {
+        setSchedules([result.data, ...schedules]);
+        setShowAddForm(false);
+        resetForm();
+      } else {
+        alert(result.error || '일정 등록에 실패했습니다.');
+      }
     }
     setIsLoading(false);
   };
@@ -182,9 +254,9 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     setShowAddForm(true);
   };
 
-  // 타임라인에서 일정 블록 클릭 시
+  // 타임라인에서 일정 블록 클릭 시 - 바로 수정 폼 열기
   const handleScheduleClick = (schedule: StudentAbsenceSchedule) => {
-    setSelectedSchedule(schedule);
+    handleEdit(schedule);
   };
 
   // 승인 대기 vs 승인됨 vs 거부됨 분류
@@ -305,7 +377,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md p-5 bg-white max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">새 부재 일정</h3>
+              <h3 className="font-bold text-lg">{editingSchedule ? '부재 일정 수정' : '새 부재 일정'}</h3>
               <Button
                 variant="ghost"
                 size="sm"
@@ -515,7 +587,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                   onClick={handleSubmit}
                   disabled={isLoading}
                 >
-                  등록
+                  {editingSchedule ? '수정' : '등록'}
                 </Button>
               </div>
             </div>
@@ -530,6 +602,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
           onClose={() => setSelectedSchedule(null)}
           onToggle={handleToggle}
           onDelete={handleDelete}
+          onEdit={handleEdit}
         />
       )}
 
@@ -554,6 +627,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                     variant="active"
                     onToggle={handleToggle}
                     onDelete={handleDelete}
+                    onEdit={handleEdit}
                   />
                 ))
               )}
@@ -574,6 +648,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                     variant="inactive"
                     onToggle={handleToggle}
                     onDelete={handleDelete}
+                    onEdit={handleEdit}
                   />
                 ))}
               </div>
@@ -596,6 +671,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                 variant="inactive"
                 onToggle={handleToggle}
                 onDelete={handleDelete}
+                onEdit={handleEdit}
               />
             ))}
           </div>

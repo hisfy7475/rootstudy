@@ -10,7 +10,6 @@ import {
   Calendar,
   CalendarClock,
   BarChart3,
-  Settings,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -27,7 +26,6 @@ const studentNavItems: NavItem[] = [
   { href: '/schedule', label: '스케줄', icon: CalendarClock },
   { href: '/points', label: '상벌점', icon: Award },
   { href: '/chat', label: '채팅', icon: MessageCircle },
-  { href: '/settings', label: '설정', icon: Settings },
 ];
 
 // 학부모용 네비게이션 아이템

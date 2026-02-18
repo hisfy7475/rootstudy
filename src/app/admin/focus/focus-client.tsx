@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { 
   recordFocusScoreBatch,
   recordFocusScoreIndividual,
+  deleteFocusScore,
   getTodayFocusScoresByPeriod,
   givePointsBatch, 
   getAllStudents, 
@@ -403,6 +404,7 @@ export function FocusClient({
   }, [branchId, selectedDate]);
 
   // Quick input: record a single student's focus score for selected period
+  // 같은 버튼을 다시 누르면 점수 취소
   const handleQuickFocusScore = useCallback(async (studentId: string, score: number, label: string) => {
     if (!selectedPeriodId) {
       alert('교시를 선택해주세요.');
@@ -410,27 +412,44 @@ export function FocusClient({
     }
     const cellKey = `${studentId}-${selectedPeriodId}`;
     setSavingCell(cellKey);
+    
+    const currentScore = focusScoresByPeriod[studentId]?.[selectedPeriodId];
+    const isToggleOff = currentScore?.note === label;
+    
     try {
-      const result = await recordFocusScoreIndividual(studentId, selectedPeriodId, score, label);
-      if (result.success) {
-        // Optimistic update
-        setFocusScoresByPeriod(prev => ({
-          ...prev,
-          [studentId]: {
-            ...(prev[studentId] || {}),
-            [selectedPeriodId]: { score, note: label, id: '' },
-          },
-        }));
-        showSuccess(`${score}점 (${label}) 기록 완료`);
+      if (isToggleOff) {
+        const result = await deleteFocusScore(studentId, selectedPeriodId);
+        if (result.success) {
+          setFocusScoresByPeriod(prev => {
+            const studentScores = { ...(prev[studentId] || {}) };
+            delete studentScores[selectedPeriodId];
+            return { ...prev, [studentId]: studentScores };
+          });
+          showSuccess(`${label} 취소됨`);
+        } else {
+          alert(result.error);
+        }
       } else {
-        alert(result.error);
+        const result = await recordFocusScoreIndividual(studentId, selectedPeriodId, score, label);
+        if (result.success) {
+          setFocusScoresByPeriod(prev => ({
+            ...prev,
+            [studentId]: {
+              ...(prev[studentId] || {}),
+              [selectedPeriodId]: { score, note: label, id: '' },
+            },
+          }));
+          showSuccess(`${score}점 (${label}) 기록 완료`);
+        } else {
+          alert(result.error);
+        }
       }
     } catch (error) {
-      console.error('Failed to record focus score:', error);
+      console.error('Failed to record/delete focus score:', error);
     } finally {
       setSavingCell(null);
     }
-  }, [selectedPeriodId, showSuccess]);
+  }, [selectedPeriodId, showSuccess, focusScoresByPeriod]);
 
   // Subject change handler
   const handleSubjectChange = useCallback((studentId: string, subject: string) => {

@@ -292,19 +292,11 @@ export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ succe
     return { success: false, error: '로그인이 필요합니다.' };
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'absence-schedule.ts:rejectAbsenceSchedule',message:'Function called',data:{scheduleId,userId:user.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
-
   // 대기 중인 스케줄만 거부 가능 (raw SQL로 스키마 캐시 우회)
   const { error } = await supabase.rpc('reject_absence_schedule', {
     p_schedule_id: scheduleId,
     p_rejected_by: user.id
   });
-
-  // #region agent log
-  fetch('http://127.0.0.1:7247/ingest/888ac2ee-d945-49d4-9c42-79185fbe90b3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'absence-schedule.ts:afterRpc',message:'RPC result',data:{error:error?.message||null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
 
   if (error) {
     console.error('Error rejecting absence schedule:', error);
@@ -399,6 +391,7 @@ export async function updateAbsenceSchedule(
     valid_until: string | null;
     specific_date: string | null;
     is_active: boolean;
+    status: 'pending' | 'approved' | 'rejected';
   }>
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
