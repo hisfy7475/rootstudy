@@ -93,6 +93,87 @@ export async function getMyChatRoom(studentId?: string) {
   return { error: '권한이 없습니다.' };
 }
 
+// 학생용 미읽음 채팅 개수 조회
+export async function getStudentUnreadChatCount() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { count: 0 };
+
+  const { data: room } = await supabase
+    .from('chat_rooms')
+    .select('id')
+    .eq('student_id', user.id)
+    .single();
+
+  if (!room) return { count: 0 };
+
+  const { count } = await supabase
+    .from('chat_messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('room_id', room.id)
+    .eq('is_read_by_student', false);
+
+  return { count: count || 0 };
+}
+
+// 학부모용 미읽음 채팅 개수 조회
+export async function getParentUnreadChatCount() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { count: 0 };
+
+  const { data: links } = await supabase
+    .from('parent_student_links')
+    .select('student_id')
+    .eq('parent_id', user.id);
+
+  if (!links || links.length === 0) return { count: 0 };
+
+  const studentIds = links.map((l) => l.student_id);
+
+  const { data: rooms } = await supabase
+    .from('chat_rooms')
+    .select('id')
+    .in('student_id', studentIds);
+
+  if (!rooms || rooms.length === 0) return { count: 0 };
+
+  const roomIds = rooms.map((r) => r.id);
+
+  const { count } = await supabase
+    .from('chat_messages')
+    .select('*', { count: 'exact', head: true })
+    .in('room_id', roomIds)
+    .eq('is_read_by_parent', false);
+
+  return { count: count || 0 };
+}
+
+// 관리자용 미읽음 채팅 총 개수 조회
+export async function getAdminUnreadChatCount() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { count: 0 };
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.user_type !== 'admin') return { count: 0 };
+
+  const { count } = await supabase
+    .from('chat_messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_read_by_admin', false);
+
+  return { count: count || 0 };
+}
+
 // 관리자용 채팅방 목록 조회
 export async function getChatRoomList() {
   const supabase = await createClient();

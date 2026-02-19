@@ -18,6 +18,7 @@ import {
   createFocusScorePreset,
   deleteFocusScorePreset,
   getFocusScorePresets,
+  updateFocusScorePreset,
   setStudentSubject,
   type PenaltyPreset,
   type FocusScorePreset,
@@ -224,6 +225,21 @@ const defaultPenaltyPresets = [
   { amount: 3, reason: '무단 이탈', color: 'bg-red-600' },
 ];
 
+const FOCUS_COLOR_PALETTE = [
+  { label: '파랑', bgClass: 'bg-blue-500', hex: '#3b82f6' },
+  { label: '남색', bgClass: 'bg-indigo-500', hex: '#6366f1' },
+  { label: '보라', bgClass: 'bg-purple-500', hex: '#a855f7' },
+  { label: '청록', bgClass: 'bg-teal-500', hex: '#14b8a6' },
+  { label: '에메랄드', bgClass: 'bg-emerald-500', hex: '#10b981' },
+  { label: '초록', bgClass: 'bg-green-500', hex: '#22c55e' },
+  { label: '노랑', bgClass: 'bg-amber-500', hex: '#f59e0b' },
+  { label: '주황', bgClass: 'bg-orange-500', hex: '#f97316' },
+  { label: '빨강', bgClass: 'bg-red-500', hex: '#ef4444' },
+  { label: '분홍', bgClass: 'bg-pink-500', hex: '#ec4899' },
+  { label: '회색', bgClass: 'bg-gray-500', hex: '#6b7280' },
+  { label: '슬레이트', bgClass: 'bg-slate-600', hex: '#475569' },
+];
+
 
 function findCurrentPeriod(periods: Period[]): Period | null {
   const now = new Date();
@@ -305,6 +321,8 @@ export function FocusClient({
   const [newPenaltyReason, setNewPenaltyReason] = useState('');
   const [newFocusScore, setNewFocusScore] = useState('');
   const [newFocusLabel, setNewFocusLabel] = useState('');
+  const [newFocusColor, setNewFocusColor] = useState(FOCUS_COLOR_PALETTE[0].bgClass);
+  const [editingColorPresetId, setEditingColorPresetId] = useState<string | null>(null);
 
   // Penalty state
   const [customPenaltyReason, setCustomPenaltyReason] = useState('');
@@ -562,12 +580,26 @@ export function FocusClient({
     if (isNaN(score) || score < 1 || score > 10) { alert('점수는 1~10 사이로 입력하세요.'); return; }
     if (!newFocusLabel.trim()) { alert('라벨을 입력하세요.'); return; }
     setLoading(true);
-    const result = await createFocusScorePreset(branchId, score, newFocusLabel.trim());
+    const result = await createFocusScorePreset(branchId, score, newFocusLabel.trim(), newFocusColor);
     if (result.success) {
       setFocusPresets(await getFocusScorePresets(branchId));
       setNewFocusScore(''); setNewFocusLabel('');
+      setNewFocusColor(FOCUS_COLOR_PALETTE[0].bgClass);
       showSuccess('몰입도 프리셋 추가 완료');
     } else { alert(result.error); }
+    setLoading(false);
+  };
+
+  const handleUpdateFocusPresetColor = async (presetId: string, colorClass: string) => {
+    setLoading(true);
+    const result = await updateFocusScorePreset(presetId, { color: colorClass });
+    if (result.success && branchId) {
+      setFocusPresets(await getFocusScorePresets(branchId));
+      showSuccess('색상 변경 완료');
+    } else if (result.error) {
+      alert(result.error);
+    }
+    setEditingColorPresetId(null);
     setLoading(false);
   };
 
@@ -636,18 +668,70 @@ export function FocusClient({
             </h3>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {activeFocusPresets.map((preset) => (
-                <span key={preset.id} className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white', preset.color || 'bg-blue-500')}>
-                  {preset.label} ({preset.score}점)
-                  <button onClick={() => handleDeleteFocusPreset(preset.id)} className="ml-0.5 hover:bg-white/20 rounded-full p-0.5">
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
+                <div key={preset.id} className="relative">
+                  <span className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white', preset.color || 'bg-blue-500')}>
+                    {preset.label} ({preset.score}점)
+                    <button
+                      onClick={() => setEditingColorPresetId(editingColorPresetId === preset.id ? null : preset.id)}
+                      className="ml-0.5 hover:bg-white/20 rounded-full p-0.5"
+                      title="색상 변경"
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full border border-white/60 bg-white/30" />
+                    </button>
+                    <button onClick={() => handleDeleteFocusPreset(preset.id)} className="hover:bg-white/20 rounded-full p-0.5">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                  {editingColorPresetId === preset.id && (
+                    <div className="absolute top-full left-0 mt-1 z-50 bg-white border rounded-lg shadow-lg p-2">
+                      <p className="text-[10px] text-gray-500 mb-1.5">색상 선택</p>
+                      <div className="flex flex-wrap gap-1 w-[132px]">
+                        {FOCUS_COLOR_PALETTE.map((color) => (
+                          <button
+                            key={color.bgClass}
+                            onClick={() => handleUpdateFocusPresetColor(preset.id, color.bgClass)}
+                            title={color.label}
+                            className={cn(
+                              'w-5 h-5 rounded-full border-2 transition-transform hover:scale-110',
+                              preset.color === color.bgClass ? 'border-gray-800 scale-110' : 'border-transparent'
+                            )}
+                            style={{ backgroundColor: color.hex }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
-            <div className="flex gap-1.5 max-w-md">
-              <Input type="number" min="1" max="10" placeholder="점수" value={newFocusScore} onChange={(e) => setNewFocusScore(e.target.value)} className="w-16 h-7 text-xs" />
-              <Input placeholder="라벨 (예: 인강)" value={newFocusLabel} onChange={(e) => setNewFocusLabel(e.target.value)} className="flex-1 h-7 text-xs" />
-              <Button size="sm" className="h-7 px-2" onClick={handleAddFocusPreset} disabled={loading}><Plus className="w-3.5 h-3.5" /></Button>
+            <div className="space-y-1.5 max-w-md">
+              <div className="flex gap-1.5">
+                <Input type="number" min="1" max="10" placeholder="점수" value={newFocusScore} onChange={(e) => setNewFocusScore(e.target.value)} className="w-16 h-7 text-xs" />
+                <Input placeholder="라벨 (예: 인강)" value={newFocusLabel} onChange={(e) => setNewFocusLabel(e.target.value)} className="flex-1 h-7 text-xs" />
+                <Button size="sm" className="h-7 px-2" onClick={handleAddFocusPreset} disabled={loading}><Plus className="w-3.5 h-3.5" /></Button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-gray-500">색상:</span>
+                <div className="flex flex-wrap gap-1">
+                  {FOCUS_COLOR_PALETTE.map((color) => (
+                    <button
+                      key={color.bgClass}
+                      onClick={() => setNewFocusColor(color.bgClass)}
+                      title={color.label}
+                      className={cn(
+                        'w-4 h-4 rounded-full border-2 transition-transform hover:scale-110',
+                        newFocusColor === color.bgClass ? 'border-gray-700 scale-110' : 'border-transparent'
+                      )}
+                      style={{ backgroundColor: color.hex }}
+                    />
+                  ))}
+                </div>
+                <span
+                  className={cn('ml-1 px-2 py-0.5 rounded-full text-[10px] text-white font-medium', newFocusColor)}
+                >
+                  미리보기
+                </span>
+              </div>
             </div>
           </div>
           <div>

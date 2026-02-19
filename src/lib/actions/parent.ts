@@ -371,6 +371,204 @@ export async function addChildToParent(code: string) {
   return { success: true };
 }
 
+// 주간 리포트 타입
+export interface DailyStudyData {
+  date: string;            // YYYY-MM-DD (학습일 기준)
+  studySeconds: number;    // 해당 날 순공시간(초)
+  hasAttendance: boolean;  // 출석 여부
+  focusAvg: number | null; // 해당 날 몰입도 평균
+}
+
+export interface WeeklyAttendanceStat {
+  totalWeekdays: number;   // 지난 주중일 수(월~금, 미래 제외)
+  attendedDays: number;
+  absentDays: number;
+  attendanceRate: number;  // 정상 출석 %
+  absentRate: number;      // 결석 %
+}
+
+export interface WeeklyReportData {
+  weekStart: string;        // ISO string (월요일)
+  weekEnd: string;          // ISO string (일요일)
+  studentName: string;
+  dailyData: DailyStudyData[];   // 7일치 (월~일)
+  attendanceStat: WeeklyAttendanceStat;
+  weeklyFocusAvg: number | null;
+}
+
+// 주간 리포트 데이터 조회 (학부모용)
+export async function getWeeklyReportData(
+  studentId: string,
+  weekStartDate: Date
+): Promise<WeeklyReportData | null> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  // 부모-자녀 연결 확인
+  const { data: link } = await supabase
+    .from('parent_student_links')
+    .select('student_id')
+    .eq('parent_id', user.id)
+    .eq('student_id', studentId)
+    .single();
+
+  if (!link) return null;
+
+  // 학생 이름 조회
+  const { data: profileData } = await supabase
+    .from('student_profiles')
+    .select('profiles!inner(name)')
+    .eq('id', studentId)
+    .single();
+
+  const studentName =
+    (profileData?.profiles as unknown as { name: string })?.name || '';
+
+  // 주의 7일(월~일) 날짜 배열
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStartDate);
+    d.setDate(d.getDate() + i);
+    days.push(d);
+  }
+
+  // 주 전체 범위
+  const { start: periodStart } = getStudyDayBounds(days[0]);
+  const { end: periodEnd } = getStudyDayBounds(days[6]);
+
+  // 출석 기록 + 몰입도 점수 병렬 조회
+  const [{ data: attendanceRecords }, { data: focusScores }] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('*')
+      .eq('student_id', studentId)
+      .gte('timestamp', periodStart.toISOString())
+      .lte('timestamp', periodEnd.toISOString())
+      .order('timestamp', { ascending: true }),
+    supabase
+      .from('focus_scores')
+      .select('score, recorded_at')
+      .eq('student_id', studentId)
+      .gte('recorded_at', periodStart.toISOString())
+      .lte('recorded_at', periodEnd.toISOString()),
+  ]);
+
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+
+  // 일별 데이터 계산
+  const dailyData: DailyStudyData[] = days.map((day) => {
+    const dateStr = day.toISOString().split('T')[0];
+    const { start, end } = getStudyDayBounds(day);
+
+    // 해당 날의 출석 기록 필터
+    const dayAttendance = (attendanceRecords || []).filter((r) => {
+      const t = new Date(r.timestamp);
+      return t >= start && t <= end;
+    });
+
+    const hasAttendance = dayAttendance.some((r) => r.type === 'check_in');
+
+    // 순공시간 계산
+    let studySeconds = 0;
+    let checkInTime: Date | null = null;
+
+    for (const record of dayAttendance) {
+      const timestamp = new Date(record.timestamp);
+      switch (record.type) {
+        case 'check_in':
+          checkInTime = timestamp;
+          break;
+        case 'check_out':
+          if (checkInTime) {
+            studySeconds += Math.floor(
+              (timestamp.getTime() - checkInTime.getTime()) / 1000
+            );
+            checkInTime = null;
+          }
+          break;
+        case 'break_start':
+          if (checkInTime) {
+            studySeconds += Math.floor(
+              (timestamp.getTime() - checkInTime.getTime()) / 1000
+            );
+            checkInTime = null;
+          }
+          break;
+        case 'break_end':
+          checkInTime = timestamp;
+          break;
+      }
+    }
+
+    // 오늘 날짜 중 아직 퇴실 안 한 경우 현재 시각까지 계산
+    if (checkInTime) {
+      const endTime = end < today ? end : new Date();
+      studySeconds += Math.floor(
+        (endTime.getTime() - checkInTime.getTime()) / 1000
+      );
+    }
+
+    // 몰입도 평균
+    const dayFocus = (focusScores || []).filter((f) => {
+      const t = new Date(f.recorded_at);
+      return t >= start && t <= end;
+    });
+    const focusAvg =
+      dayFocus.length > 0
+        ? Math.round(
+            (dayFocus.reduce((sum, f) => sum + f.score, 0) / dayFocus.length) * 10
+          ) / 10
+        : null;
+
+    return { date: dateStr, studySeconds, hasAttendance, focusAvg };
+  });
+
+  // 출결 통계 (월~금, 미래 제외)
+  const weekdays = dailyData.slice(0, 5);
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const pastWeekdays = weekdays.filter((d) => new Date(d.date) <= todayMidnight);
+  const attendedDays = pastWeekdays.filter((d) => d.hasAttendance).length;
+  const absentDays = pastWeekdays.length - attendedDays;
+  const totalWeekdays = pastWeekdays.length;
+  const attendanceRate =
+    totalWeekdays > 0 ? Math.round((attendedDays / totalWeekdays) * 100) : 0;
+  const absentRate =
+    totalWeekdays > 0 ? Math.round((absentDays / totalWeekdays) * 100) : 0;
+
+  // 주간 몰입도 평균
+  const focusDays = dailyData.filter((d) => d.focusAvg !== null);
+  const weeklyFocusAvg =
+    focusDays.length > 0
+      ? Math.round(
+          (focusDays.reduce((sum, d) => sum + (d.focusAvg || 0), 0) /
+            focusDays.length) *
+            10
+        ) / 10
+      : null;
+
+  const weekEnd = new Date(weekStartDate);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+
+  return {
+    weekStart: weekStartDate.toISOString(),
+    weekEnd: weekEnd.toISOString(),
+    studentName,
+    dailyData,
+    attendanceStat: {
+      totalWeekdays,
+      attendedDays,
+      absentDays,
+      attendanceRate,
+      absentRate,
+    },
+    weeklyFocusAvg,
+  };
+}
+
 // 자녀 연결 해제
 export async function removeChildFromParent(studentId: string) {
   const supabase = await createClient();

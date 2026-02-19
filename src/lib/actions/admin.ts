@@ -571,10 +571,18 @@ export async function deletePoint(pointId: string) {
     return { error: '상벌점 삭제에 실패했습니다.' };
   }
 
-  // 학생에게 알림 발송
-  const { createStudentNotification } = await import('./notification');
-  await createStudentNotification({
+  // 학생과 연결된 학부모 조회
+  const { data: parentLink } = await supabase
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', pointData.student_id)
+    .maybeSingle();
+
+  // 학생 및 학부모(있는 경우) 알림 발송 - notifications 테이블에도 기록됨
+  const { sendNotificationToAll } = await import('./notification');
+  await sendNotificationToAll({
     studentId: pointData.student_id,
+    parentId: parentLink?.parent_id ?? undefined,
     type: 'point',
     title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
     message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
@@ -583,6 +591,7 @@ export async function deletePoint(pointId: string) {
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
+  revalidatePath('/admin/notifications');
   return { success: true };
 }
 
@@ -633,11 +642,21 @@ export async function deletePoints(pointIds: string[]) {
     return { error: '상벌점 일괄 삭제에 실패했습니다.' };
   }
 
-  // 학생들에게 알림 발송
-  const { createStudentNotification } = await import('./notification');
+  // 학생들과 연결된 학부모 조회
+  const studentIds = [...new Set(pointsData.map(p => p.student_id))];
+  const { data: parentLinks } = await supabase
+    .from('parent_student_links')
+    .select('student_id, parent_id')
+    .in('student_id', studentIds);
+
+  const parentMap = new Map((parentLinks || []).map(l => [l.student_id, l.parent_id]));
+
+  // 학생들 및 학부모(있는 경우) 알림 발송 - notifications 테이블에도 기록됨
+  const { sendNotificationToAll } = await import('./notification');
   for (const pointData of pointsData) {
-    await createStudentNotification({
+    await sendNotificationToAll({
       studentId: pointData.student_id,
+      parentId: parentMap.get(pointData.student_id) ?? undefined,
       type: 'point',
       title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
       message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
@@ -647,6 +666,7 @@ export async function deletePoints(pointIds: string[]) {
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
+  revalidatePath('/admin/notifications');
   return { success: true, deletedCount: pointsData.length };
 }
 

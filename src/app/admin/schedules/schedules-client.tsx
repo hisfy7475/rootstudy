@@ -18,6 +18,8 @@ import {
   X,
   Check,
   AlertCircle,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, SCHEDULE_DATE_TYPES } from '@/lib/constants';
@@ -28,6 +30,8 @@ import {
   getAllAbsenceSchedules,
   approveAbsenceSchedule,
   rejectAbsenceSchedule,
+  updateAbsenceSchedule,
+  deleteAbsenceSchedule,
 } from '@/lib/actions/absence-schedule';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +63,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'approved' | 'pending'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -87,6 +92,23 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       dateType: 'all',
       specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
     });
+    setEditingScheduleId(null);
+  };
+
+  const openEditModal = (schedule: ScheduleWithStudent) => {
+    setFormData({
+      studentId: schedule.student_id,
+      title: schedule.title,
+      description: schedule.description || '',
+      isRecurring: schedule.is_recurring,
+      dayOfWeek: schedule.day_of_week || [],
+      startTime: schedule.start_time.slice(0, 5),
+      endTime: schedule.end_time.slice(0, 5),
+      dateType: (schedule.date_type as 'semester' | 'vacation' | 'all') || 'all',
+      specificDate: schedule.specific_date || format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    });
+    setEditingScheduleId(schedule.id);
+    setShowAddModal(true);
   };
 
   const handleDayToggle = (day: number) => {
@@ -98,7 +120,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   };
 
   const handleSubmit = async () => {
-    if (!formData.studentId) {
+    if (!editingScheduleId && !formData.studentId) {
       alert('학생을 선택해주세요.');
       return;
     }
@@ -116,28 +138,65 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
     }
 
     setIsLoading(true);
-    const result = await createAbsenceScheduleForStudent(formData.studentId, {
-      title: formData.title.trim(),
-      description: formData.description.trim() || undefined,
-      is_recurring: formData.isRecurring,
-      recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
-      day_of_week: formData.isRecurring ? formData.dayOfWeek : undefined,
-      start_time: formData.startTime + ':00',
-      end_time: formData.endTime + ':00',
-      date_type: formData.dateType,
-      specific_date: !formData.isRecurring ? formData.specificDate : undefined,
-    });
 
-    if (result.success) {
-      // 데이터 새로고침
-      const newSchedules = await getAllAbsenceSchedules();
-      setSchedules(newSchedules);
-      setShowAddModal(false);
-      resetForm();
+    if (editingScheduleId) {
+      const result = await updateAbsenceSchedule(editingScheduleId, {
+        title: formData.title.trim(),
+        description: formData.description.trim() || null,
+        is_recurring: formData.isRecurring,
+        recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
+        day_of_week: formData.isRecurring ? formData.dayOfWeek : null,
+        start_time: formData.startTime + ':00',
+        end_time: formData.endTime + ':00',
+        date_type: formData.dateType,
+        specific_date: !formData.isRecurring ? formData.specificDate : null,
+      });
+
+      if (result.success) {
+        const newSchedules = await getAllAbsenceSchedules();
+        setSchedules(newSchedules);
+        setShowAddModal(false);
+        resetForm();
+      } else {
+        alert(result.error || '일정 수정에 실패했습니다.');
+      }
     } else {
-      alert(result.error || '일정 등록에 실패했습니다.');
+      const result = await createAbsenceScheduleForStudent(formData.studentId, {
+        title: formData.title.trim(),
+        description: formData.description.trim() || undefined,
+        is_recurring: formData.isRecurring,
+        recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
+        day_of_week: formData.isRecurring ? formData.dayOfWeek : undefined,
+        start_time: formData.startTime + ':00',
+        end_time: formData.endTime + ':00',
+        date_type: formData.dateType,
+        specific_date: !formData.isRecurring ? formData.specificDate : undefined,
+      });
+
+      if (result.success) {
+        const newSchedules = await getAllAbsenceSchedules();
+        setSchedules(newSchedules);
+        setShowAddModal(false);
+        resetForm();
+      } else {
+        alert(result.error || '일정 등록에 실패했습니다.');
+      }
     }
+
     setIsLoading(false);
+  };
+
+  const handleDelete = async (schedule: ScheduleWithStudent) => {
+    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`)) return;
+
+    startTransition(async () => {
+      const result = await deleteAbsenceSchedule(schedule.id);
+      if (result.success) {
+        setSchedules(prev => prev.filter(s => s.id !== schedule.id));
+      } else {
+        alert(result.error || '삭제에 실패했습니다.');
+      }
+    });
   };
 
   const handleApprove = async (scheduleId: string) => {
@@ -472,48 +531,69 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                     )}
                   </div>
                 </div>
-                <div className="text-right text-sm">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Clock className="w-4 h-4" />
-                    <span className="font-medium">
-                      {formatTimeRange(schedule.start_time, schedule.end_time)}
-                    </span>
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditModal(schedule)}
+                      className="h-8 w-8 p-0 text-gray-400 hover:text-primary"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(schedule)}
+                      disabled={isPending}
+                      className="h-8 w-8 p-0 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    면제: {formatExemptionRange(
-                      schedule.start_time, 
-                      schedule.end_time, 
-                      schedule.buffer_minutes
-                    )}
-                  </div>
-                  {schedule.is_recurring ? (
-                    <div className="flex items-center gap-2 text-gray-500 mt-2">
-                      <Calendar className="w-4 h-4" />
-                      <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-gray-500 mt-2">
-                      <Calendar className="w-4 h-4" />
-                      <span>
-                        {schedule.specific_date 
-                          ? format(new Date(schedule.specific_date), 'yyyy년 M월 d일 (eee)', { locale: ko })
-                          : '-'
-                        }
+                  <div className="text-right text-sm">
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Clock className="w-4 h-4" />
+                      <span className="font-medium">
+                        {formatTimeRange(schedule.start_time, schedule.end_time)}
                       </span>
                     </div>
-                  )}
-                  <div className="mt-1">
-                    <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
-                      !schedule.is_recurring
-                        ? 'bg-amber-100 text-amber-700'
-                        : schedule.date_type === 'semester' 
-                        ? 'bg-blue-100 text-blue-700'
-                        : schedule.date_type === 'vacation'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
-                    </span>
+                    <div className="text-xs text-gray-400 mt-1">
+                      면제: {formatExemptionRange(
+                        schedule.start_time, 
+                        schedule.end_time, 
+                        schedule.buffer_minutes
+                      )}
+                    </div>
+                    {schedule.is_recurring ? (
+                      <div className="flex items-center gap-2 text-gray-500 mt-2">
+                        <Calendar className="w-4 h-4" />
+                        <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-gray-500 mt-2">
+                        <Calendar className="w-4 h-4" />
+                        <span>
+                          {schedule.specific_date 
+                            ? format(new Date(schedule.specific_date), 'yyyy년 M월 d일 (eee)', { locale: ko })
+                            : '-'
+                          }
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-1">
+                      <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
+                        !schedule.is_recurring
+                          ? 'bg-amber-100 text-amber-700'
+                          : schedule.date_type === 'semester' 
+                          ? 'bg-blue-100 text-blue-700'
+                          : schedule.date_type === 'vacation'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -527,7 +607,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md p-5 bg-white max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">부재 스케줄 추가</h3>
+              <h3 className="font-bold text-lg">{editingScheduleId ? '부재 스케줄 수정' : '부재 스케줄 추가'}</h3>
               <Button
                 variant="ghost"
                 size="sm"
@@ -541,24 +621,26 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
             </div>
 
             <div className="space-y-4">
-              {/* 학생 선택 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  학생 선택 *
-                </label>
-                <select
-                  value={formData.studentId}
-                  onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-                  className="w-full h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="">학생을 선택하세요</option>
-                  {students.map(student => (
-                    <option key={student.id} value={student.id}>
-                      {student.seatNumber ? `${student.seatNumber}번 ` : ''}{student.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* 학생 선택 - 수정 모드에서는 숨김 */}
+              {!editingScheduleId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    학생 선택 *
+                  </label>
+                  <select
+                    value={formData.studentId}
+                    onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
+                    className="w-full h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="">학생을 선택하세요</option>
+                    {students.map(student => (
+                      <option key={student.id} value={student.id}>
+                        {student.seatNumber ? `${student.seatNumber}번 ` : ''}{student.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* 제목 */}
               <div>
@@ -711,7 +793,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                   onClick={handleSubmit}
                   disabled={isLoading}
                 >
-                  등록
+                  {editingScheduleId ? '수정' : '등록'}
                 </Button>
               </div>
             </div>

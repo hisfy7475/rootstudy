@@ -375,7 +375,7 @@ export async function getPendingAbsenceSchedulesForAdmin(): Promise<(StudentAbse
   }));
 }
 
-// 부재 스케줄 수정
+// 부재 스케줄 수정 (관리자·학부모 전용)
 export async function updateAbsenceSchedule(
   id: string,
   data: Partial<{
@@ -395,7 +395,39 @@ export async function updateAbsenceSchedule(
   }>
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
-  
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  // 대상 스케줄 조회 (student_id 확인용)
+  const { data: schedule } = await supabase
+    .from('student_absence_schedules')
+    .select('student_id')
+    .eq('id', id)
+    .single();
+
+  if (!schedule) return { success: false, error: '스케줄을 찾을 수 없습니다.' };
+
+  // 관리자 또는 연결된 학부모인지 확인
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  const isAdmin = profile?.role === 'admin';
+
+  if (!isAdmin) {
+    const { data: parentLink } = await supabase
+      .from('parent_student_links')
+      .select('id')
+      .eq('parent_id', user.id)
+      .eq('student_id', schedule.student_id)
+      .single();
+
+    if (!parentLink) return { success: false, error: '수정 권한이 없습니다.' };
+  }
+
   const { error } = await supabase
     .from('student_absence_schedules')
     .update({
@@ -403,31 +435,67 @@ export async function updateAbsenceSchedule(
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);
-  
+
   if (error) {
     console.error('Error updating absence schedule:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/student/schedule');
+  revalidatePath('/parent/schedule');
+  revalidatePath('/admin/schedules');
   return { success: true };
 }
 
-// 부재 스케줄 삭제
+// 부재 스케줄 삭제 (관리자·학부모 전용)
 export async function deleteAbsenceSchedule(id: string): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
-  
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  // 대상 스케줄 조회 (student_id 확인용)
+  const { data: schedule } = await supabase
+    .from('student_absence_schedules')
+    .select('student_id')
+    .eq('id', id)
+    .single();
+
+  if (!schedule) return { success: false, error: '스케줄을 찾을 수 없습니다.' };
+
+  // 관리자 또는 연결된 학부모인지 확인
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  const isAdmin = profile?.role === 'admin';
+
+  if (!isAdmin) {
+    const { data: parentLink } = await supabase
+      .from('parent_student_links')
+      .select('id')
+      .eq('parent_id', user.id)
+      .eq('student_id', schedule.student_id)
+      .single();
+
+    if (!parentLink) return { success: false, error: '삭제 권한이 없습니다.' };
+  }
+
   const { error } = await supabase
     .from('student_absence_schedules')
     .delete()
     .eq('id', id);
-  
+
   if (error) {
     console.error('Error deleting absence schedule:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/student/schedule');
+  revalidatePath('/parent/schedule');
+  revalidatePath('/admin/schedules');
   return { success: true };
 }
 

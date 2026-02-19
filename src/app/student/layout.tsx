@@ -1,6 +1,7 @@
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { StudentHeader } from '@/components/student/header';
 import { createClient } from '@/lib/supabase/server';
+import { getStudentUnreadChatCount } from '@/lib/actions/chat';
 
 export default async function StudentLayout({
   children,
@@ -40,6 +41,8 @@ export default async function StudentLayout({
     unreadNotificationCount = count || 0;
   }
 
+  const { count: initialUnreadChatCount } = await getStudentUnreadChatCount();
+
   return (
     <div className="min-h-screen bg-background">
       <StudentHeader 
@@ -48,7 +51,7 @@ export default async function StudentLayout({
         initialUnreadCount={unreadNotificationCount}
       />
       <main className="pb-24 max-w-lg mx-auto">{children}</main>
-      <BottomNav userType="student" basePath="/student" />
+      <BottomNav userType="student" basePath="/student" initialUnreadChatCount={initialUnreadChatCount} />
     </div>
   );
 }

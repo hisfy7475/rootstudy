@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/shared/sidebar';
 import { SidebarProvider, SidebarMain } from '@/components/shared/sidebar-context';
 import { createClient } from '@/lib/supabase/server';
+import { getAdminUnreadChatCount } from '@/lib/actions/chat';
 
 export default async function AdminLayout({
   children,
@@ -30,10 +31,12 @@ export default async function AdminLayout({
     }
   }
 
+  const { count: initialUnreadChatCount } = await getAdminUnreadChatCount();
+
   return (
     <SidebarProvider>
       <div className="min-h-screen bg-background">
-        <Sidebar basePath="/admin" branchName={branchName} />
+        <Sidebar basePath="/admin" branchName={branchName} initialUnreadChatCount={initialUnreadChatCount} />
         <SidebarMain>{children}</SidebarMain>
       </div>
     </SidebarProvider>

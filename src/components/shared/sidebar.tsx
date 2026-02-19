@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { signOut } from '@/app/(auth)/actions';
 import { useSidebar } from './sidebar-context';
+import { createClient } from '@/lib/supabase/client';
 import {
   LayoutDashboard,
   Brain,
@@ -56,12 +57,43 @@ const adminNavItems: NavItem[] = [
 interface SidebarProps {
   basePath?: string;
   branchName?: string | null;
+  initialUnreadChatCount?: number;
 }
 
-export function Sidebar({ basePath = '', branchName }: SidebarProps) {
+export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
+  const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+
+  useEffect(() => {
+    setUnreadChatCount(initialUnreadChatCount);
+  }, [initialUnreadChatCount]);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchUnreadCount = async () => {
+      const { count } = await supabase
+        .from('chat_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_read_by_admin', false);
+      setUnreadChatCount(count || 0);
+    };
+
+    const channel = supabase
+      .channel('sidebar-chat-unread')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_messages' },
+        () => { fetchUnreadCount(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // 경로 변경 시 모바일 메뉴 닫기
   useEffect(() => {
@@ -118,6 +150,8 @@ export function Sidebar({ basePath = '', branchName }: SidebarProps) {
             const isActive = pathname === fullPath ||
               (item.href !== '' && pathname.startsWith(fullPath));
             const Icon = item.icon;
+            const isChatItem = item.href === '/chat';
+            const showBadge = isChatItem && unreadChatCount > 0;
             return (
               <li key={item.href}>
                 <Link
@@ -131,6 +165,11 @@ export function Sidebar({ basePath = '', branchName }: SidebarProps) {
                 >
                   <Icon className="w-5 h-5 flex-shrink-0" />
                   <span className="text-sm">{item.label}</span>
+                  {showBadge && (
+                    <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none">
+                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
                 </Link>
               </li>
             );
@@ -248,6 +287,8 @@ export function Sidebar({ basePath = '', branchName }: SidebarProps) {
               const isActive = pathname === fullPath ||
                 (item.href !== '' && pathname.startsWith(fullPath));
               const Icon = item.icon;
+              const isChatItem = item.href === '/chat';
+              const showBadge = isChatItem && unreadChatCount > 0;
 
               return (
                 <li key={item.href}>
@@ -264,9 +305,23 @@ export function Sidebar({ basePath = '', branchName }: SidebarProps) {
                         : 'text-text hover:bg-gray-50 hover:text-primary'
                     )}
                   >
-                    <Icon className="w-5 h-5 flex-shrink-0" />
+                    <div className="relative flex-shrink-0">
+                      <Icon className="w-5 h-5" />
+                      {showBadge && collapsed && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                          {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                        </span>
+                      )}
+                    </div>
                     {!collapsed && (
-                      <span className="text-sm whitespace-nowrap">{item.label}</span>
+                      <>
+                        <span className="text-sm whitespace-nowrap">{item.label}</span>
+                        {showBadge && (
+                          <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none">
+                            {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                          </span>
+                        )}
+                      </>
                     )}
                   </Link>
                 </li>

@@ -2,6 +2,7 @@ import { BottomNav } from '@/components/shared/bottom-nav';
 import { ParentHeader } from '@/components/parent/header';
 import { createClient } from '@/lib/supabase/server';
 import { getLinkedStudents } from '@/lib/actions/parent';
+import { getParentUnreadChatCount } from '@/lib/actions/chat';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -33,6 +34,8 @@ export default async function ParentLayout({
     linkedChildren = students.map(s => ({ id: s.id, name: s.name }));
   }
 
+  const { count: initialUnreadChatCount } = await getParentUnreadChatCount();
+
   return (
     <div className="min-h-screen bg-background">
       <ParentHeader 
@@ -40,7 +43,7 @@ export default async function ParentLayout({
         children={linkedChildren}
       />
       <main className="pb-24 max-w-lg mx-auto">{children}</main>
-      <BottomNav userType="parent" basePath="/parent" />
+      <BottomNav userType="parent" basePath="/parent" initialUnreadChatCount={initialUnreadChatCount} />
     </div>
   );
 }

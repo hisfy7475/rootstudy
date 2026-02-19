@@ -15,6 +15,8 @@ import {
   X,
   User,
   AlertCircle,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { DAY_NAMES, ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
 import { format } from 'date-fns';
@@ -24,7 +26,9 @@ import type { LinkedStudent } from '@/lib/actions/parent';
 import { 
   createAbsenceScheduleForChild, 
   approveAbsenceSchedule, 
-  rejectAbsenceSchedule 
+  rejectAbsenceSchedule,
+  updateAbsenceSchedule,
+  deleteAbsenceSchedule,
 } from '@/lib/actions/absence-schedule';
 
 interface AbsenceScheduleWithStudent extends StudentAbsenceSchedule {
@@ -71,6 +75,17 @@ export function ScheduleClient({
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
+  // 수정 모달 상태
+  const [editingSchedule, setEditingSchedule] = useState<AbsenceScheduleWithStudent | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editIsRecurring, setEditIsRecurring] = useState(true);
+  const [editSelectedDays, setEditSelectedDays] = useState<number[]>([]);
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editEndTime, setEditEndTime] = useState('');
+  const [editSpecificDate, setEditSpecificDate] = useState('');
+  const [editError, setEditError] = useState('');
+  const [isEditLoading, setIsEditLoading] = useState(false);
+
   const getCounts = () => ({
     absence: absenceSchedules.filter(s => s.status === 'approved' && s.is_active).length,
     pending: pendingSchedules.length,
@@ -95,6 +110,77 @@ export function ScheduleClient({
   const approvedInactiveSchedules = absenceSchedules.filter(
     s => s.status === 'approved' && !s.is_active
   );
+
+  const openEditModal = (schedule: AbsenceScheduleWithStudent) => {
+    setEditingSchedule(schedule);
+    setEditTitle(schedule.title);
+    setEditIsRecurring(schedule.is_recurring);
+    setEditSelectedDays(schedule.day_of_week || []);
+    setEditStartTime(schedule.start_time.slice(0, 5));
+    setEditEndTime(schedule.end_time.slice(0, 5));
+    setEditSpecificDate(schedule.specific_date || '');
+    setEditError('');
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSchedule) return;
+    setEditError('');
+
+    if (!editTitle.trim()) {
+      setEditError('일정 제목을 입력해주세요.');
+      return;
+    }
+    if (editIsRecurring && editSelectedDays.length === 0) {
+      setEditError('반복 요일을 선택해주세요.');
+      return;
+    }
+    if (!editIsRecurring && !editSpecificDate) {
+      setEditError('날짜를 선택해주세요.');
+      return;
+    }
+    if (!editStartTime || !editEndTime) {
+      setEditError('시작 시간과 종료 시간을 입력해주세요.');
+      return;
+    }
+
+    setIsEditLoading(true);
+    const result = await updateAbsenceSchedule(editingSchedule.id, {
+      title: editTitle.trim(),
+      is_recurring: editIsRecurring,
+      recurrence_type: editIsRecurring ? 'weekly' : 'one_time',
+      day_of_week: editIsRecurring ? editSelectedDays : null,
+      start_time: editStartTime + ':00',
+      end_time: editEndTime + ':00',
+      specific_date: !editIsRecurring ? editSpecificDate : null,
+    });
+
+    if (result.success) {
+      setEditingSchedule(null);
+    } else {
+      setEditError(result.error || '수정에 실패했습니다.');
+    }
+    setIsEditLoading(false);
+  };
+
+  const handleDelete = async (schedule: AbsenceScheduleWithStudent) => {
+    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`)) return;
+
+    startTransition(async () => {
+      const result = await deleteAbsenceSchedule(schedule.id);
+      if (!result.success) {
+        alert(result.error || '삭제에 실패했습니다.');
+      }
+    });
+  };
+
+  const toggleEditDay = (day: number) => {
+    setEditSelectedDays(prev =>
+      prev.includes(day)
+        ? prev.filter(d => d !== day)
+        : [...prev, day].sort()
+    );
+  };
 
   const handleApprove = async (scheduleId: string) => {
     startTransition(async () => {
@@ -258,29 +344,46 @@ export function ScheduleClient({
                           <p className="text-xs text-gray-500 mt-0.5">{schedule.studentName}</p>
                         </div>
                       </div>
-                      <div className="text-right text-sm">
-                        <div className="flex items-center gap-1.5 text-gray-600">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span className="text-sm">
-                            {formatTimeRange(schedule.start_time, schedule.end_time)}
-                          </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            onClick={() => openEditModal(schedule)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(schedule)}
+                            disabled={isPending}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        {schedule.is_recurring ? (
-                          <div className="flex items-center gap-1.5 text-gray-500 mt-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span className="text-xs">{formatDaysOfWeek(schedule.day_of_week)}</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-gray-500 mt-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span className="text-xs">
-                              {schedule.specific_date 
-                                ? format(new Date(schedule.specific_date), 'M월 d일', { locale: ko })
-                                : '-'
-                              }
+                        <div className="text-right text-sm">
+                          <div className="flex items-center gap-1.5 text-gray-600">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span className="text-sm">
+                              {formatTimeRange(schedule.start_time, schedule.end_time)}
                             </span>
                           </div>
-                        )}
+                          {schedule.is_recurring ? (
+                            <div className="flex items-center gap-1.5 text-gray-500 mt-1">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span className="text-xs">{formatDaysOfWeek(schedule.day_of_week)}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-gray-500 mt-1">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span className="text-xs">
+                                {schedule.specific_date 
+                                  ? format(new Date(schedule.specific_date), 'M월 d일', { locale: ko })
+                                  : '-'
+                                }
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </Card>
@@ -303,9 +406,24 @@ export function ScheduleClient({
                         <h4 className="font-medium text-gray-500 text-sm">{schedule.title}</h4>
                         <p className="text-xs text-gray-400">{schedule.studentName}</p>
                       </div>
-                      <span className="text-xs text-gray-400">
-                        {formatTimeRange(schedule.start_time, schedule.end_time)}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditModal(schedule)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(schedule)}
+                          disabled={isPending}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-xs text-gray-400 ml-1">
+                          {formatTimeRange(schedule.start_time, schedule.end_time)}
+                        </span>
+                      </div>
                     </div>
                   </Card>
                 ))}
@@ -407,6 +525,160 @@ export function ScheduleClient({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 수정 모달 */}
+      {editingSchedule && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg">부재 일정 수정</h3>
+              <button
+                onClick={() => setEditingSchedule(null)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              {/* 제목 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  일정 제목
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="예: 학원, 병원 방문"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+
+              {/* 반복 유형 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  일정 유형
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditIsRecurring(true)}
+                    className={cn(
+                      'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      editIsRecurring
+                        ? 'bg-primary text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    )}
+                  >
+                    <Repeat className="w-4 h-4" />
+                    반복 일정
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditIsRecurring(false)}
+                    className={cn(
+                      'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      !editIsRecurring
+                        ? 'bg-primary text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    )}
+                  >
+                    <CalendarDays className="w-4 h-4" />
+                    일회성
+                  </button>
+                </div>
+              </div>
+
+              {/* 반복 요일 */}
+              {editIsRecurring && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    반복 요일
+                  </label>
+                  <div className="flex gap-2">
+                    {DAY_NAMES.map((dayName, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => toggleEditDay(index)}
+                        className={cn(
+                          'w-10 h-10 rounded-full text-sm font-medium transition-all',
+                          editSelectedDays.includes(index)
+                            ? 'bg-primary text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        )}
+                      >
+                        {dayName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 일회성 날짜 */}
+              {!editIsRecurring && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    날짜
+                  </label>
+                  <input
+                    type="date"
+                    value={editSpecificDate}
+                    onChange={(e) => setEditSpecificDate(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+              )}
+
+              {/* 시간 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  부재 시간
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                  <span className="text-gray-500">~</span>
+                  <input
+                    type="time"
+                    value={editEndTime}
+                    onChange={(e) => setEditEndTime(e.target.value)}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {editError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingSchedule(null)}
+                  className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditLoading}
+                  className="flex-1 py-3 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {isEditLoading ? '저장 중...' : '저장'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
