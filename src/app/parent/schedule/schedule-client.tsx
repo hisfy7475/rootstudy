@@ -531,7 +531,7 @@ export function ScheduleClient({
       {/* 수정 모달 */}
       {editingSchedule && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
-          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto pb-28">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">부재 일정 수정</h3>
               <button
@@ -542,7 +542,7 @@ export function ScheduleClient({
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="space-y-4">
+            <form onSubmit={handleEditSubmit} className="space-y-4 pb-8">
               {/* 제목 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -700,7 +700,7 @@ export function ScheduleClient({
               <p className="text-sm">연결된 자녀가 없습니다</p>
             </Card>
           ) : (
-            <form onSubmit={handleCreateSchedule} className="space-y-4">
+            <form onSubmit={handleCreateSchedule} className="space-y-4 pb-8">
               {/* 자녀 선택 */}
               <Card className="p-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">

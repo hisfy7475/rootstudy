@@ -604,8 +604,8 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
       {/* 추가 모달 */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md p-5 bg-white max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4 pb-28 sm:items-center sm:pb-4">
+          <Card className="w-full max-w-md p-5 bg-white max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">{editingScheduleId ? '부재 스케줄 수정' : '부재 스케줄 추가'}</h3>
               <Button
@@ -620,7 +620,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               </Button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 pb-8">
               {/* 학생 선택 - 수정 모드에서는 숨김 */}
               {!editingScheduleId && (
                 <div>
