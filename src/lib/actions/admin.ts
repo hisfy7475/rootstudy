@@ -4,6 +4,14 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
 
+function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
+  return items.reduce((acc, item) => {
+    if (!acc[item.student_id]) acc[item.student_id] = [];
+    acc[item.student_id].push(item);
+    return acc;
+  }, {} as Record<string, T[]>);
+}
+
 // ============================================
 // 학생 현황 관련
 // ============================================
@@ -32,131 +40,133 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
     return [];
   }
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  if (!students || students.length === 0) return [];
+
+  const studentIds = students.map(s => s.id);
   const studyDate = getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
 
-  // 각 학생의 상태와 학습 정보 조회
-  const studentsWithStatus = await Promise.all(
-    (students || []).map(async (student) => {
-      const profile = Array.isArray(student.profiles) 
-        ? student.profiles[0] 
-        : student.profiles;
+  // 배치 쿼리: 모든 학생 데이터를 한 번에 조회
+  const [
+    { data: allAttendance },
+    { data: allSubjects },
+    { data: allFocusScores },
+    { data: allPoints },
+  ] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('student_id, type, timestamp')
+      .in('student_id', studentIds)
+      .gte('timestamp', todayStart.toISOString())
+      .lte('timestamp', todayEnd.toISOString())
+      .order('timestamp', { ascending: true }),
+    supabase
+      .from('subjects')
+      .select('student_id, subject_name')
+      .in('student_id', studentIds)
+      .eq('is_current', true),
+    supabase
+      .from('focus_scores')
+      .select('student_id, score')
+      .in('student_id', studentIds)
+      .gte('recorded_at', todayStart.toISOString())
+      .lte('recorded_at', todayEnd.toISOString()),
+    supabase
+      .from('points')
+      .select('student_id, type, amount')
+      .in('student_id', studentIds)
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString()),
+  ]);
 
-      // 학습일 기준 출석 기록
-      const { data: attendance } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('student_id', student.id)
-        .gte('timestamp', todayStart.toISOString())
-        .lte('timestamp', todayEnd.toISOString())
-        .order('timestamp', { ascending: true });
+  // 학생별로 그룹핑
+  const attendanceByStudent = groupById(allAttendance ?? []);
+  const subjectByStudent: Record<string, string | null> = {};
+  for (const s of allSubjects ?? []) {
+    subjectByStudent[s.student_id] = s.subject_name;
+  }
+  const focusByStudent = groupById(allFocusScores ?? []);
+  const pointsByStudent = groupById(allPoints ?? []);
 
-      // 현재 상태 계산
-      let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
-      let checkInTime: string | null = null;
-      let totalStudySeconds = 0;
+  // 메모리에서 각 학생 데이터 조합
+  const studentsWithStatus = students.map((student) => {
+    const profile = Array.isArray(student.profiles)
+      ? student.profiles[0]
+      : student.profiles;
 
-      if (attendance && attendance.length > 0) {
-        let tempCheckInTime: Date | null = null;
+    const attendance = attendanceByStudent[student.id] ?? [];
 
-        for (const record of attendance) {
-          const timestamp = new Date(record.timestamp);
+    let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
+    let checkInTime: string | null = null;
+    let totalStudySeconds = 0;
 
-          switch (record.type) {
-            case 'check_in':
-              tempCheckInTime = timestamp;
-              status = 'checked_in';
-              break;
-            case 'check_out':
-              if (tempCheckInTime) {
-                totalStudySeconds += Math.floor((timestamp.getTime() - tempCheckInTime.getTime()) / 1000);
-                tempCheckInTime = null;
-              }
-              status = 'checked_out';
-              break;
-            case 'break_start':
-              if (tempCheckInTime) {
-                totalStudySeconds += Math.floor((timestamp.getTime() - tempCheckInTime.getTime()) / 1000);
-                tempCheckInTime = null;
-              }
-              status = 'on_break';
-              break;
-            case 'break_end':
-              tempCheckInTime = timestamp;
-              status = 'checked_in';
-              break;
-          }
-        }
+    if (attendance.length > 0) {
+      let tempCheckInTime: Date | null = null;
 
-        // 현재 입실 중이면 현재까지 시간 추가
-        if (tempCheckInTime) {
-          totalStudySeconds += Math.floor((new Date().getTime() - tempCheckInTime.getTime()) / 1000);
-          checkInTime = tempCheckInTime.toISOString();
-        }
+      for (const record of attendance) {
+        const timestamp = new Date(record.timestamp);
 
-        // 첫 입실 시간 찾기
-        const firstCheckIn = attendance.find(a => a.type === 'check_in');
-        if (firstCheckIn) {
-          checkInTime = firstCheckIn.timestamp;
+        switch (record.type) {
+          case 'check_in':
+            tempCheckInTime = timestamp;
+            status = 'checked_in';
+            break;
+          case 'check_out':
+            if (tempCheckInTime) {
+              totalStudySeconds += Math.floor((timestamp.getTime() - tempCheckInTime.getTime()) / 1000);
+              tempCheckInTime = null;
+            }
+            status = 'checked_out';
+            break;
+          case 'break_start':
+            if (tempCheckInTime) {
+              totalStudySeconds += Math.floor((timestamp.getTime() - tempCheckInTime.getTime()) / 1000);
+              tempCheckInTime = null;
+            }
+            status = 'on_break';
+            break;
+          case 'break_end':
+            tempCheckInTime = timestamp;
+            status = 'checked_in';
+            break;
         }
       }
 
-      // 현재 과목 (입실 상태일 때만 조회)
-      let currentSubjectName: string | null = null;
-      if (status === 'checked_in') {
-        const { data: currentSubject } = await supabase
-          .from('subjects')
-          .select('subject_name')
-          .eq('student_id', student.id)
-          .eq('is_current', true)
-          .single();
-        currentSubjectName = currentSubject?.subject_name || null;
+      if (tempCheckInTime) {
+        totalStudySeconds += Math.floor((new Date().getTime() - tempCheckInTime.getTime()) / 1000);
+        checkInTime = tempCheckInTime.toISOString();
       }
 
-      // 학습일 기준 몰입도 평균
-      const { data: focusScores } = await supabase
-        .from('focus_scores')
-        .select('score')
-        .eq('student_id', student.id)
-        .gte('recorded_at', todayStart.toISOString())
-        .lte('recorded_at', todayEnd.toISOString());
+      const firstCheckIn = attendance.find(a => a.type === 'check_in');
+      if (firstCheckIn) {
+        checkInTime = firstCheckIn.timestamp;
+      }
+    }
 
-      const avgFocus = focusScores && focusScores.length > 0
-        ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
-        : null;
+    const focusScores = focusByStudent[student.id] ?? [];
+    const avgFocus = focusScores.length > 0
+      ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
+      : null;
 
-      // 오늘 상벌점
-      const { data: todayPoints } = await supabase
-        .from('points')
-        .select('type, amount')
-        .eq('student_id', student.id)
-        .gte('created_at', todayStart.toISOString())
-        .lte('created_at', todayEnd.toISOString());
+    const todayPoints = pointsByStudent[student.id] ?? [];
+    const todayReward = todayPoints.filter(p => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
+    const todayPenalty = todayPoints.filter(p => p.type === 'penalty').reduce((sum, p) => sum + p.amount, 0);
 
-      const todayReward = (todayPoints || [])
-        .filter(p => p.type === 'reward')
-        .reduce((sum, p) => sum + p.amount, 0);
-      const todayPenalty = (todayPoints || [])
-        .filter(p => p.type === 'penalty')
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      return {
-        id: student.id,
-        seatNumber: student.seat_number,
-        name: profile?.name || '이름 없음',
-        email: profile?.email || '',
-        phone: profile?.phone || '',
-        status,
-        checkInTime,
-        totalStudySeconds,
-        currentSubject: currentSubjectName,
-        avgFocus,
-        todayReward,
-        todayPenalty,
-      };
-    })
-  );
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      email: profile?.email || '',
+      phone: profile?.phone || '',
+      status,
+      checkInTime,
+      totalStudySeconds,
+      currentSubject: status === 'checked_in' ? (subjectByStudent[student.id] ?? null) : null,
+      avgFocus,
+      todayReward,
+      todayPenalty,
+    };
+  });
 
   // 필터 적용
   if (statusFilter && statusFilter !== 'all') {
@@ -273,10 +283,8 @@ export async function getStudentFocusHistory(studentId: string, startDate: strin
 export async function getWeeklyFocusReport(branchId?: string | null) {
   const supabase = await createClient();
 
-  // 이번 주 시작일 (DAY_CONFIG 기준)
   const startOfWeek = getWeekStart();
 
-  // 학생 목록
   let query = supabase
     .from('student_profiles')
     .select(`
@@ -286,48 +294,52 @@ export async function getWeeklyFocusReport(branchId?: string | null) {
     `)
     .order('seat_number', { ascending: true });
 
-  // 브랜치 필터 적용
   if (branchId) {
     query = query.eq('profiles.branch_id', branchId);
   }
 
   const { data: students } = await query;
 
-  // 각 학생의 주간 몰입도
-  const report = await Promise.all(
-    (students || []).map(async (student) => {
-      const profile = Array.isArray(student.profiles) 
-        ? student.profiles[0] 
-        : student.profiles;
+  if (!students || students.length === 0) return [];
 
-      const { data: scores } = await supabase
-        .from('focus_scores')
-        .select('score, recorded_at')
-        .eq('student_id', student.id)
-        .gte('recorded_at', startOfWeek.toISOString());
+  const studentIds = students.map(s => s.id);
 
-      // 일별 평균 계산
-      const dailyScores: { [key: string]: number[] } = {};
-      (scores || []).forEach(s => {
-        const date = new Date(s.recorded_at).toISOString().split('T')[0];
-        if (!dailyScores[date]) dailyScores[date] = [];
-        dailyScores[date].push(s.score);
-      });
+  // 배치 쿼리: 전체 학생 주간 몰입도 한 번에 조회
+  const { data: allScores } = await supabase
+    .from('focus_scores')
+    .select('student_id, score, recorded_at')
+    .in('student_id', studentIds)
+    .gte('recorded_at', startOfWeek.toISOString());
 
-      const weeklyAvg = scores && scores.length > 0
-        ? Math.round(scores.reduce((sum, s) => sum + s.score, 0) / scores.length * 10) / 10
-        : null;
+  const scoresByStudent = groupById(allScores ?? []);
 
-      return {
-        id: student.id,
-        seatNumber: student.seat_number,
-        name: profile?.name || '이름 없음',
-        dailyScores,
-        weeklyAvg,
-        totalRecords: scores?.length || 0,
-      };
-    })
-  );
+  const report = students.map((student) => {
+    const profile = Array.isArray(student.profiles)
+      ? student.profiles[0]
+      : student.profiles;
+
+    const scores = scoresByStudent[student.id] ?? [];
+
+    const dailyScores: { [key: string]: number[] } = {};
+    scores.forEach(s => {
+      const date = new Date(s.recorded_at).toISOString().split('T')[0];
+      if (!dailyScores[date]) dailyScores[date] = [];
+      dailyScores[date].push(s.score);
+    });
+
+    const weeklyAvg = scores.length > 0
+      ? Math.round(scores.reduce((sum, s) => sum + s.score, 0) / scores.length * 10) / 10
+      : null;
+
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      dailyScores,
+      weeklyAvg,
+      totalRecords: scores.length,
+    };
+  });
 
   return report;
 }
@@ -367,7 +379,7 @@ export async function givePoints(
 
   // 학생에게 알림 발송 (자동 부여가 아닌 경우만 - 자동은 student.ts에서 처리)
   if (!isAuto) {
-    const { createStudentNotification } = await import('./notification');
+    const { createStudentNotification, sendKakaoAlimtalkToParent } = await import('./notification');
     await createStudentNotification({
       studentId,
       type: 'point',
@@ -375,6 +387,36 @@ export async function givePoints(
       message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
       link: '/student/points',
     }).catch(console.error);
+
+    // 학부모에게 카카오 알림톡 발송
+    try {
+      const { data: studentProfile } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', studentId)
+        .single();
+
+      const { data: parentLink } = await supabase
+        .from('parent_student_links')
+        .select('parent_id')
+        .eq('student_id', studentId)
+        .limit(1)
+        .maybeSingle();
+
+      if (parentLink?.parent_id && studentProfile?.name) {
+        const pointTypeText = type === 'reward' ? '상점' : '벌점';
+        const pointSign = type === 'reward' ? '+' : '-';
+        const alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
+        await sendKakaoAlimtalkToParent({
+          parentId: parentLink.parent_id,
+          studentId,
+          message: alimtalkMessage,
+          type: 'point',
+        }).catch(console.error);
+      }
+    } catch (err) {
+      console.error('Failed to send kakao alimtalk for points:', err);
+    }
   }
 
   revalidatePath('/admin');
@@ -386,7 +428,6 @@ export async function givePoints(
 export async function getPointsOverview(branchId?: string | null) {
   const supabase = await createClient();
 
-  // 학생 목록
   let query = supabase
     .from('student_profiles')
     .select(`
@@ -396,43 +437,42 @@ export async function getPointsOverview(branchId?: string | null) {
     `)
     .order('seat_number', { ascending: true });
 
-  // 브랜치 필터 적용
   if (branchId) {
     query = query.eq('profiles.branch_id', branchId);
   }
 
   const { data: students } = await query;
 
-  // 각 학생의 상벌점 합계
-  const overview = await Promise.all(
-    (students || []).map(async (student) => {
-      const profile = Array.isArray(student.profiles) 
-        ? student.profiles[0] 
-        : student.profiles;
+  if (!students || students.length === 0) return [];
 
-      const { data: points } = await supabase
-        .from('points')
-        .select('type, amount')
-        .eq('student_id', student.id);
+  const studentIds = students.map(s => s.id);
 
-      const reward = (points || [])
-        .filter(p => p.type === 'reward')
-        .reduce((sum, p) => sum + p.amount, 0);
+  // 배치 쿼리: 전체 학생 상벌점 한 번에 조회
+  const { data: allPoints } = await supabase
+    .from('points')
+    .select('student_id, type, amount')
+    .in('student_id', studentIds);
 
-      const penalty = (points || [])
-        .filter(p => p.type === 'penalty')
-        .reduce((sum, p) => sum + p.amount, 0);
+  const pointsByStudent = groupById(allPoints ?? []);
 
-      return {
-        id: student.id,
-        seatNumber: student.seat_number,
-        name: profile?.name || '이름 없음',
-        reward,
-        penalty,
-        total: reward - penalty,
-      };
-    })
-  );
+  const overview = students.map((student) => {
+    const profile = Array.isArray(student.profiles)
+      ? student.profiles[0]
+      : student.profiles;
+
+    const points = pointsByStudent[student.id] ?? [];
+    const reward = points.filter(p => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
+    const penalty = points.filter(p => p.type === 'penalty').reduce((sum, p) => sum + p.amount, 0);
+
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      reward,
+      penalty,
+      total: reward - penalty,
+    };
+  });
 
   return overview;
 }
@@ -678,7 +718,6 @@ export async function getAllMembers(userType?: 'student' | 'parent' | 'admin', b
 
 // 학부모 목록 조회 (연결된 학생 정보 포함)
 export async function getAllParentsWithStudents() {
-  // RLS를 우회하여 모든 학부모 조회 (학부모는 branch_id가 null이므로 일반 클라이언트로는 조회 불가)
   const adminClient = createAdminClient();
 
   // 학부모 프로필 조회
@@ -693,47 +732,53 @@ export async function getAllParentsWithStudents() {
     return [];
   }
 
-  // 각 학부모의 연결된 학생 정보 조회
-  const parentsWithStudents = await Promise.all(
-    parents.map(async (parent) => {
-      // parent_student_links 테이블을 통해 연결된 학생들 조회
-      const { data: links } = await adminClient
-        .from('parent_student_links')
-        .select(`
-          student:student_id (
-            id,
-            seat_number,
-            profiles!inner (
-              name
-            )
-          )
-        `)
-        .eq('parent_id', parent.id);
+  if (parents.length === 0) return [];
 
-      const students = (links || []).map((link: any) => {
-        const studentProfile = link.student 
-          ? (Array.isArray(link.student.profiles) ? link.student.profiles[0] : link.student.profiles)
-          : null;
-        return {
-          id: link.student?.id || '',
-          name: studentProfile?.name || '이름 없음',
-          seatNumber: link.student?.seat_number || null,
-        };
-      });
+  const parentIds = parents.map(p => p.id);
 
+  // 배치 쿼리: 전체 학부모의 연결 학생 한 번에 조회
+  const { data: allLinks } = await adminClient
+    .from('parent_student_links')
+    .select(`
+      parent_id,
+      student:student_id (
+        id,
+        seat_number,
+        profiles!inner (name)
+      )
+    `)
+    .in('parent_id', parentIds);
+
+  // parent_id별로 그룹핑
+  const linksByParent: Record<string, typeof allLinks> = {};
+  for (const link of allLinks ?? []) {
+    if (!linksByParent[link.parent_id]) linksByParent[link.parent_id] = [];
+    linksByParent[link.parent_id]!.push(link);
+  }
+
+  return parents.map((parent) => {
+    const links = linksByParent[parent.id] ?? [];
+    const students = links.map((link: any) => {
+      const studentProfile = link.student
+        ? (Array.isArray(link.student.profiles) ? link.student.profiles[0] : link.student.profiles)
+        : null;
       return {
-        id: parent.id,
-        email: parent.email,
-        name: parent.name,
-        phone: parent.phone,
-        user_type: parent.user_type,
-        created_at: parent.created_at,
-        students,
+        id: link.student?.id || '',
+        name: studentProfile?.name || '이름 없음',
+        seatNumber: link.student?.seat_number || null,
       };
-    })
-  );
+    });
 
-  return parentsWithStudents;
+    return {
+      id: parent.id,
+      email: parent.email,
+      name: parent.name,
+      phone: parent.phone,
+      user_type: parent.user_type,
+      created_at: parent.created_at,
+      students,
+    };
+  });
 }
 
 // 학생 상세 정보 조회
@@ -756,14 +801,18 @@ export async function getStudentDetail(studentId: string) {
 
   if (!student) return null;
 
-  // 연결된 학부모
-  const { data: parent } = await supabase
-    .from('parent_profiles')
+  // 연결된 학부모 (parent_student_links → profiles 조회)
+  const { data: parentLink } = await supabase
+    .from('parent_student_links')
     .select(`
-      profiles!inner (*)
+      parent:parent_id (
+        profiles!inner (*)
+      )
     `)
     .eq('student_id', studentId)
-    .single();
+    .limit(1)
+    .maybeSingle();
+  const parent = parentLink?.parent ?? null;
 
   // 학습 통계 (최근 30일)
   const thirtyDaysAgo = new Date();
@@ -790,8 +839,9 @@ export async function getStudentDetail(studentId: string) {
     ? student.profiles[0] 
     : student.profiles;
 
-  const parentProfile = parent 
-    ? (Array.isArray(parent.profiles) ? parent.profiles[0] : parent.profiles)
+  const parentObj = Array.isArray(parent) ? parent[0] : parent;
+  const parentProfile = parentObj
+    ? (Array.isArray(parentObj.profiles) ? parentObj.profiles[0] : parentObj.profiles)
     : null;
 
   return {
@@ -1096,26 +1146,33 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
     `)
     .order('seat_number', { ascending: true });
 
+  if (!students || students.length === 0) return [];
+
+  const studentIds = students.map(s => s.id);
+
+  // 배치 쿼리: 전체 학생 출석 기록 한 번에 조회
+  const { data: allAttendance } = await supabase
+    .from('attendance')
+    .select('student_id, type, timestamp')
+    .in('student_id', studentIds)
+    .gte('timestamp', startDate)
+    .lte('timestamp', endDate)
+    .order('timestamp', { ascending: true });
+
+  const attendanceByStudent = groupById(allAttendance ?? []);
+
   const results = [];
 
-  for (const student of students || []) {
+  for (const student of students) {
     const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+    const attendance = attendanceByStudent[student.id] ?? [];
 
-    const { data: attendance } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('student_id', student.id)
-      .gte('timestamp', startDate)
-      .lte('timestamp', endDate)
-      .order('timestamp', { ascending: true });
-
-    // 날짜별로 그룹화하여 학습시간 계산
     const dailyData: { [key: string]: { checkIn: string | null; checkOut: string | null; studyMinutes: number } } = {};
 
     let currentCheckIn: Date | null = null;
     let currentDate = '';
 
-    for (const record of attendance || []) {
+    for (const record of attendance) {
       const timestamp = new Date(record.timestamp);
       const date = timestamp.toISOString().split('T')[0];
 
@@ -1429,7 +1486,23 @@ export async function deleteAdmin(adminId: string) {
   }
 
   try {
-    // 1. profiles 삭제
+    // 1. student_absence_schedules에서 해당 관리자 참조 NULL 처리
+    await adminClient
+      .from('student_absence_schedules')
+      .update({ created_by: null })
+      .eq('created_by', adminId);
+
+    await adminClient
+      .from('student_absence_schedules')
+      .update({ approved_by: null })
+      .eq('approved_by', adminId);
+
+    await adminClient
+      .from('student_absence_schedules')
+      .update({ rejected_by: null })
+      .eq('rejected_by', adminId);
+
+    // 2. profiles 삭제
     const { error: profileError } = await adminClient
       .from('profiles')
       .delete()
@@ -1440,7 +1513,7 @@ export async function deleteAdmin(adminId: string) {
       return { error: '관리자 정보 삭제에 실패했습니다.' };
     }
 
-    // 2. Auth 사용자 삭제
+    // 3. Auth 사용자 삭제
     const { error: authError } = await adminClient.auth.admin.deleteUser(adminId);
 
     if (authError) {
@@ -1809,118 +1882,149 @@ export async function getAttendanceBoard(
 
   if (error) {
     console.error('Error fetching students:', error);
-    return { data: [], total: 0, page, pageSize };
+    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, notYetArrived: 0 } };
   }
 
-  // 각 학생의 출석부 데이터 생성
-  const attendanceData = await Promise.all(
-    (students || []).map(async (student) => {
-      const profile = Array.isArray(student.profiles) 
-        ? student.profiles[0] 
-        : student.profiles;
+  const studentIds = (students || []).map(s => s.id);
 
-      // 학습일 기준 출석 기록
-      const { data: attendance } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('student_id', student.id)
-        .gte('timestamp', todayStart.toISOString())
-        .lte('timestamp', todayEnd.toISOString())
-        .order('timestamp', { ascending: true });
+  // 전체 학생 ID 조회 (통계 계산용, 페이지네이션 없음)
+  let allStudentsQuery = supabase
+    .from('student_profiles')
+    .select('id, profiles!inner(branch_id)');
+  if (branchId) {
+    allStudentsQuery = allStudentsQuery.eq('profiles.branch_id', branchId);
+  }
+  const { data: allStudentRows } = await allStudentsQuery;
+  const allStudentIds = (allStudentRows || []).map(s => s.id);
 
-      // 현재 상태 계산
-      let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
-      let firstCheckInTime: string | null = null;
-      let lastCheckOutTime: string | null = null;
+  // 배치 쿼리: 해당 페이지 학생들의 모든 데이터를 한 번에 조회
+  // + 전체 학생의 출석 기록도 통계 계산을 위해 함께 조회
+  const [
+    { data: allAttendance },
+    { data: allAbsenceSchedules },
+    { data: allFocusScores },
+    { data: allPenalties },
+    { data: allStudentsAttendance },
+  ] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('student_id, type, timestamp')
+      .in('student_id', studentIds)
+      .gte('timestamp', todayStart.toISOString())
+      .lte('timestamp', todayEnd.toISOString())
+      .order('timestamp', { ascending: true }),
+    supabase
+      .from('student_absence_schedules')
+      .select('student_id, id, title, start_time, end_time, is_recurring, specific_date, day_of_week, valid_from, valid_until')
+      .in('student_id', studentIds)
+      .eq('is_active', true),
+    supabase
+      .from('focus_scores')
+      .select('student_id, score')
+      .in('student_id', studentIds)
+      .gte('recorded_at', todayStart.toISOString())
+      .lte('recorded_at', todayEnd.toISOString()),
+    supabase
+      .from('points')
+      .select('student_id, amount')
+      .in('student_id', studentIds)
+      .eq('type', 'penalty')
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString()),
+    allStudentIds.length > 0
+      ? supabase
+          .from('attendance')
+          .select('student_id, type, timestamp')
+          .in('student_id', allStudentIds)
+          .gte('timestamp', todayStart.toISOString())
+          .lte('timestamp', todayEnd.toISOString())
+          .order('timestamp', { ascending: true })
+      : Promise.resolve({ data: [] }),
+  ]);
 
-      if (attendance && attendance.length > 0) {
-        // 첫 입실 시간 찾기
-        const firstCheckIn = attendance.find(a => a.type === 'check_in');
-        if (firstCheckIn) {
-          firstCheckInTime = firstCheckIn.timestamp;
-        }
+  const attendanceByStudent = groupById(allAttendance ?? []);
+  const absenceByStudent = groupById(allAbsenceSchedules ?? []);
+  const focusByStudent = groupById(allFocusScores ?? []);
+  const penaltyByStudent = groupById(allPenalties ?? []);
 
-        // 마지막 상태 계산
-        const lastRecord = attendance[attendance.length - 1];
-        if (lastRecord.type === 'check_in') status = 'checked_in';
-        else if (lastRecord.type === 'check_out') {
-          status = 'checked_out';
-          lastCheckOutTime = lastRecord.timestamp;
-        }
-        else if (lastRecord.type === 'break_start') status = 'on_break';
-        else if (lastRecord.type === 'break_end') status = 'checked_in';
+  // 전체 학생 기준 통계 계산
+  const allAttendanceByStudent = groupById(allStudentsAttendance ?? []);
+  let globalCheckedIn = 0;
+  let globalNotYetArrived = 0;
+  for (const sid of allStudentIds) {
+    const records = allAttendanceByStudent[sid] ?? [];
+    if (records.length === 0) {
+      globalNotYetArrived++;
+    } else {
+      const lastRecord = records[records.length - 1];
+      if (lastRecord.type === 'check_in' || lastRecord.type === 'break_end') {
+        globalCheckedIn++;
       }
+    }
+  }
+  const globalStats = { checkedIn: globalCheckedIn, notYetArrived: globalNotYetArrived };
 
-      // 오늘 해당하는 부재 스케줄 조회
-      const { data: absenceSchedules } = await supabase
-        .from('student_absence_schedules')
-        .select('*')
-        .eq('student_id', student.id)
-        .eq('is_active', true);
+  // 메모리에서 각 학생 출석부 데이터 조합
+  const attendanceData = (students || []).map((student) => {
+    const profile = Array.isArray(student.profiles)
+      ? student.profiles[0]
+      : student.profiles;
 
-      // 오늘 적용되는 부재 스케줄 필터링
-      const todayAbsenceSchedules = (absenceSchedules || []).filter(schedule => {
-        // 유효 기간 체크
-        if (schedule.valid_from && todayStr < schedule.valid_from) return false;
-        if (schedule.valid_until && todayStr > schedule.valid_until) return false;
+    const attendance = attendanceByStudent[student.id] ?? [];
 
-        // 일회성 스케줄
-        if (!schedule.is_recurring) {
-          return schedule.specific_date === todayStr;
-        }
+    let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
+    let firstCheckInTime: string | null = null;
+    let lastCheckOutTime: string | null = null;
 
-        // 반복 스케줄: 요일 체크
-        if (schedule.day_of_week && !schedule.day_of_week.includes(todayDayOfWeek)) {
-          return false;
-        }
+    if (attendance.length > 0) {
+      const firstCheckIn = attendance.find(a => a.type === 'check_in');
+      if (firstCheckIn) firstCheckInTime = firstCheckIn.timestamp;
 
-        return true;
-      });
+      const lastRecord = attendance[attendance.length - 1];
+      if (lastRecord.type === 'check_in') status = 'checked_in';
+      else if (lastRecord.type === 'check_out') {
+        status = 'checked_out';
+        lastCheckOutTime = lastRecord.timestamp;
+      } else if (lastRecord.type === 'break_start') status = 'on_break';
+      else if (lastRecord.type === 'break_end') status = 'checked_in';
+    }
 
-      // 학습일 기준 몰입도 점수
-      const { data: focusScores } = await supabase
-        .from('focus_scores')
-        .select('score')
-        .eq('student_id', student.id)
-        .gte('recorded_at', todayStart.toISOString())
-        .lte('recorded_at', todayEnd.toISOString());
+    const absenceSchedules = absenceByStudent[student.id] ?? [];
+    const todayAbsenceSchedules = absenceSchedules.filter(schedule => {
+      if (schedule.valid_from && todayStr < schedule.valid_from) return false;
+      if (schedule.valid_until && todayStr > schedule.valid_until) return false;
+      if (!schedule.is_recurring) return schedule.specific_date === todayStr;
+      if (schedule.day_of_week && !schedule.day_of_week.includes(todayDayOfWeek)) return false;
+      return true;
+    });
 
-      const avgFocus = focusScores && focusScores.length > 0
-        ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
-        : null;
+    const focusScores = focusByStudent[student.id] ?? [];
+    const avgFocus = focusScores.length > 0
+      ? Math.round(focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length * 10) / 10
+      : null;
 
-      // 오늘 벌점
-      const { data: todayPoints } = await supabase
-        .from('points')
-        .select('type, amount, reason')
-        .eq('student_id', student.id)
-        .eq('type', 'penalty')
-        .gte('created_at', todayStart.toISOString())
-        .lte('created_at', todayEnd.toISOString());
+    const todayPenalty = (penaltyByStudent[student.id] ?? []).reduce((sum, p) => sum + p.amount, 0);
 
-      const todayPenalty = (todayPoints || []).reduce((sum, p) => sum + p.amount, 0);
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      status,
+      firstCheckInTime,
+      lastCheckOutTime,
+      absenceSchedules: todayAbsenceSchedules.map(s => ({
+        id: s.id,
+        title: s.title,
+        startTime: s.start_time?.slice(0, 5),
+        endTime: s.end_time?.slice(0, 5),
+      })),
+      avgFocus,
+      todayPenalty,
+      focusCount: focusScores.length,
+    };
+  });
 
-      return {
-        id: student.id,
-        seatNumber: student.seat_number,
-        name: profile?.name || '이름 없음',
-        status,
-        firstCheckInTime,
-        lastCheckOutTime,
-        absenceSchedules: todayAbsenceSchedules.map(s => ({
-          id: s.id,
-          title: s.title,
-          startTime: s.start_time?.slice(0, 5),
-          endTime: s.end_time?.slice(0, 5),
-        })),
-        avgFocus,
-        todayPenalty,
-        focusCount: focusScores?.length || 0,
-      };
-    })
-  );
-
-  return { data: attendanceData, total: count || 0, page, pageSize };
+  return { data: attendanceData, total: count || 0, page, pageSize, stats: globalStats };
 }
 
 // 주간 출석 데이터 조회 (학생별 7일간 출석 상태)

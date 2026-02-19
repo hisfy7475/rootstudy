@@ -57,7 +57,7 @@ export function WeeklyStudyProgress({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Target className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold text-text">주간 학습 현황</h3>
+          <h3 className="font-semibold text-text">주간 학습 현황 <span className="text-xs font-normal text-text-muted">(월~일)</span></h3>
         </div>
         {studentTypeName && (
           <span className="text-xs text-text-muted bg-gray-100 px-2 py-1 rounded-lg">
@@ -105,7 +105,7 @@ export function WeeklyStudyProgress({
               <div className="border-t border-gray-100 pt-4 mt-2">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs text-text-muted">일별 출석</span>
-                  <span className="text-xs text-text-muted">{achievedCount}/{totalPastDays}일</span>
+                  <span className="text-xs text-text-muted">출석 {achievedCount}일 / {totalPastDays}일</span>
                 </div>
                 <div className="flex justify-between gap-1">
                   {weekDays.map((day, index) => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,6 +68,7 @@ interface AttendanceClientProps {
     total: number;
     page: number;
     pageSize: number;
+    stats: { checkedIn: number; notYetArrived: number };
   };
   todayPeriods: Period[];
   dateTypeName: string | null;
@@ -176,10 +177,15 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
-  // 페이지네이션 상태 (일별 뷰)
+  // 무한 스크롤 상태 (일별 뷰)
   const [page, setPage] = useState(initialData.page);
-  const [pageSize, setPageSize] = useState(initialData.pageSize);
+  const pageSize = initialData.pageSize;
   const [total, setTotal] = useState(initialData.total);
+  const [hasMore, setHasMore] = useState(initialData.data.length < initialData.total);
+  const [globalStats, setGlobalStats] = useState(initialData.stats);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // 날짜 변경/수동 새로고침 시 page effect 중복 실행 방지용
+  const skipPageEffectRef = useRef(false);
   
   // 주간 뷰 상태
   const [weeklyData, setWeeklyData] = useState<WeeklyStudent[]>([]);
@@ -198,27 +204,54 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     return () => clearInterval(timer);
   }, []);
 
-  // 30초마다 자동 새로고침 (일별 뷰에서만)
+  // 30초마다 자동 새로고침 (일별 뷰에서만, page 1 데이터로 교체)
   useEffect(() => {
     if (viewMode !== 'daily') return;
-    const interval = setInterval(() => handleRefresh(selectedDate, page, pageSize), 30000);
+    const interval = setInterval(() => {
+      skipPageEffectRef.current = true;
+      setPage(1);
+      setHasMore(true);
+      handleRefresh(selectedDate, 1, pageSize, true);
+    }, 30000);
     return () => clearInterval(interval);
-  }, [viewMode, selectedDate, page, pageSize]);
+  }, [viewMode, selectedDate, pageSize]);
 
-  // 날짜 변경 시 데이터 새로고침
+  // 날짜 변경 시 데이터 초기화 및 1페이지 로드
   useEffect(() => {
     if (viewMode === 'daily') {
-      handleRefresh(selectedDate, 1, pageSize); // 날짜 변경 시 1페이지로
+      skipPageEffectRef.current = true;
+      setData([]);
+      setHasMore(true);
       setPage(1);
+      handleRefresh(selectedDate, 1, pageSize, true);
     }
   }, [selectedDate]);
 
-  // 페이지 또는 페이지 사이즈 변경 시 데이터 새로고침
+  // 무한 스크롤: page > 1 변경 시 데이터 추가 로드
   useEffect(() => {
-    if (viewMode === 'daily') {
-      handleRefresh(selectedDate, page, pageSize);
+    if (skipPageEffectRef.current) {
+      skipPageEffectRef.current = false;
+      return;
     }
-  }, [page, pageSize]);
+    if (viewMode === 'daily' && page > 1) {
+      handleRefresh(selectedDate, page, pageSize, false);
+    }
+  }, [page]);
+
+  // IntersectionObserver: 하단 sentinel 감지 시 다음 페이지 로드
+  useEffect(() => {
+    if (viewMode !== 'daily') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          setPage((p) => p + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (sentinelRef.current) observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [viewMode, hasMore, loading]);
 
   // 주간 뷰로 전환 시 데이터 로드
   useEffect(() => {
@@ -227,12 +260,18 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     }
   }, [viewMode, currentWeekMonday, weeklyPage, weeklyPageSize]);
 
-  const handleRefresh = async (date: string, p: number, ps: number) => {
+  const handleRefresh = async (date: string, p: number, ps: number, replace = true) => {
     setLoading(true);
     try {
       const result = await getAttendanceBoard(date, branchId, p, ps);
-      setData(result.data);
+      if (replace || p === 1) {
+        setData(result.data);
+      } else {
+        setData((prev) => [...prev, ...result.data]);
+      }
       setTotal(result.total);
+      setGlobalStats(result.stats);
+      setHasMore((p - 1) * ps + result.data.length < result.total);
       setCurrentTime(new Date());
     } catch (error) {
       console.error('Failed to refresh:', error);
@@ -278,55 +317,42 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     window.print();
   };
 
-  // 페이지 사이즈 변경 핸들러
+  // 주간 뷰 페이지 사이즈 변경 핸들러
   const handlePageSizeChange = (newSize: number) => {
-    if (viewMode === 'daily') {
-      setPageSize(newSize);
-      setPage(1);
-    } else {
-      setWeeklyPageSize(newSize);
-      setWeeklyPage(1);
-    }
+    setWeeklyPageSize(newSize);
+    setWeeklyPage(1);
   };
 
-  // 통계 계산
+  // 통계: 전체/외출/퇴실은 로드된 데이터 기준, 입실/미등원은 서버 전체 기준
   const stats = {
-    total: total,
-    checkedIn: data.filter(s => s.status === 'checked_in').length,
+    total,
+    checkedIn: globalStats.checkedIn,
     checkedOut: data.filter(s => s.status === 'checked_out').length,
     onBreak: data.filter(s => s.status === 'on_break').length,
-    notYetArrived: data.filter(s => s.status === 'checked_out' && !s.firstCheckInTime).length,
+    notYetArrived: globalStats.notYetArrived,
   };
 
   // 오늘인지 확인
   const isToday = selectedDate === todayDate;
 
-  // 페이지네이션 계산
-  const currentTotal = viewMode === 'daily' ? total : weeklyTotal;
-  const currentPage = viewMode === 'daily' ? page : weeklyPage;
-  const currentPageSize = viewMode === 'daily' ? pageSize : weeklyPageSize;
-  const totalPages = Math.ceil(currentTotal / currentPageSize);
-  const startItem = (currentPage - 1) * currentPageSize + 1;
-  const endItem = Math.min(currentPage * currentPageSize, currentTotal);
+  // 주간 뷰 페이지네이션 계산
+  const weeklyTotalPages = Math.ceil(weeklyTotal / weeklyPageSize);
+  const weeklyStartItem = (weeklyPage - 1) * weeklyPageSize + 1;
+  const weeklyEndItem = Math.min(weeklyPage * weeklyPageSize, weeklyTotal);
 
-  // 페이지 변경 핸들러
-  const goToPage = (newPage: number) => {
-    if (newPage < 1 || newPage > totalPages) return;
-    if (viewMode === 'daily') {
-      setPage(newPage);
-    } else {
-      setWeeklyPage(newPage);
-    }
+  const goToWeeklyPage = (newPage: number) => {
+    if (newPage < 1 || newPage > weeklyTotalPages) return;
+    setWeeklyPage(newPage);
   };
 
-  // 페이지네이션 컴포넌트
-  const PaginationControls = () => (
+  // 주간 뷰 전용 페이지네이션 컴포넌트
+  const WeeklyPaginationControls = () => (
     <div className="flex items-center justify-between px-3 py-2 border-t bg-gray-50 print:hidden">
       {/* 페이지 사이즈 선택 */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-gray-600">페이지당</span>
         <select
-          value={currentPageSize}
+          value={weeklyPageSize}
           onChange={(e) => handlePageSizeChange(Number(e.target.value))}
           className="border rounded-md px-1.5 py-0.5 text-xs bg-white"
         >
@@ -339,7 +365,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       {/* 페이지 정보 및 네비게이션 */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-gray-600">
-          총 {currentTotal}명 중 {currentTotal > 0 ? `${startItem}-${endItem}` : '0'}
+          총 {weeklyTotal}명 중 {weeklyTotal > 0 ? `${weeklyStartItem}-${weeklyEndItem}` : '0'}
         </span>
         
         <div className="flex items-center gap-0.5">
@@ -347,8 +373,8 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             variant="outline"
             size="sm"
             className="px-1.5 h-7"
-            onClick={() => goToPage(1)}
-            disabled={currentPage === 1}
+            onClick={() => goToWeeklyPage(1)}
+            disabled={weeklyPage === 1}
           >
             <ChevronsLeft className="w-3.5 h-3.5" />
           </Button>
@@ -356,22 +382,22 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             variant="outline"
             size="sm"
             className="px-1.5 h-7"
-            onClick={() => goToPage(currentPage - 1)}
-            disabled={currentPage === 1}
+            onClick={() => goToWeeklyPage(weeklyPage - 1)}
+            disabled={weeklyPage === 1}
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </Button>
           
           <span className="px-2 text-xs">
-            {currentPage} / {totalPages || 1}
+            {weeklyPage} / {weeklyTotalPages || 1}
           </span>
           
           <Button
             variant="outline"
             size="sm"
             className="px-1.5 h-7"
-            onClick={() => goToPage(currentPage + 1)}
-            disabled={currentPage >= totalPages}
+            onClick={() => goToWeeklyPage(weeklyPage + 1)}
+            disabled={weeklyPage >= weeklyTotalPages}
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </Button>
@@ -379,8 +405,8 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             variant="outline"
             size="sm"
             className="px-1.5 h-7"
-            onClick={() => goToPage(totalPages)}
-            disabled={currentPage >= totalPages}
+            onClick={() => goToWeeklyPage(weeklyTotalPages)}
+            disabled={weeklyPage >= weeklyTotalPages}
           >
             <ChevronsRight className="w-3.5 h-3.5" />
           </Button>
@@ -422,7 +448,17 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             인쇄
           </Button>
           {viewMode === 'daily' && (
-            <Button variant="outline" onClick={() => handleRefresh(selectedDate, page, pageSize)} disabled={loading}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                skipPageEffectRef.current = true;
+                setData([]);
+                setPage(1);
+                setHasMore(true);
+                handleRefresh(selectedDate, 1, pageSize, true);
+              }}
+              disabled={loading}
+            >
               <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
               새로고침
             </Button>
@@ -662,9 +698,21 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                 </tbody>
               </table>
             </div>
-            
-            {/* 페이지네이션 */}
-            <PaginationControls />
+
+            {/* 무한 스크롤 하단 영역 */}
+            <div ref={sentinelRef} className="print:hidden">
+              {loading && data.length > 0 && (
+                <div className="flex items-center justify-center py-3 text-xs text-gray-500 border-t bg-gray-50">
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  불러오는 중...
+                </div>
+              )}
+              {!hasMore && data.length > 0 && (
+                <div className="py-2 text-center text-xs text-gray-400 border-t bg-gray-50">
+                  전체 {total}명 표시 완료
+                </div>
+              )}
+            </div>
           </Card>
         </>
       ) : (
@@ -787,7 +835,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
           </div>
           
           {/* 페이지네이션 */}
-          <PaginationControls />
+          <WeeklyPaginationControls />
         </Card>
       )}
 

@@ -152,7 +152,7 @@ export function getStudyDayBounds(studyDate: Date | string): { start: Date; end:
 }
 
 /**
- * 주의 시작일(일요일) 반환
+ * 주의 시작일(월요일) 반환
  * 
  * @param date - 기준 날짜 (기본값: 현재 날짜)
  * @returns 해당 주의 시작일 (일요일)

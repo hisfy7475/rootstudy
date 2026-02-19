@@ -84,7 +84,7 @@ export const DAY_CONFIG = {
   startMinute: 30,
   endHour: 25,  // 다음날 01:30 = 25:30으로 표현
   endMinute: 30,
-  weekStartsOn: 0,  // 일요일
+  weekStartsOn: 1,  // 월요일
 } as const;
 
 // 날짜 타입

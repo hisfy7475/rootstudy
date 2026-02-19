@@ -476,11 +476,15 @@ export async function getCurrentSubject() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // 현재 학습일 시작 시간 이후에 시작된 과목만 조회 (전날 stale 과목 방어)
+  const { start } = getStudyDayBounds(getStudyDate());
+
   const { data } = await supabase
     .from('subjects')
     .select('*')
     .eq('student_id', user.id)
     .eq('is_current', true)
+    .gte('started_at', start.toISOString())
     .single();
 
   return data;

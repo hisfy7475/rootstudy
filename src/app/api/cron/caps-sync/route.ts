@@ -179,6 +179,26 @@ export async function GET(request: Request) {
         }
 
         recordsSynced = newRecords.length;
+
+        // check_out 기록이 있는 학생의 현재 과목(is_current=true) 종료
+        // 학생별 가장 늦은 check_out 시간을 ended_at으로 사용
+        const checkOutByStudent = new Map<string, string>();
+        for (const r of newRecords) {
+          if (r.type === 'check_out') {
+            const existing = checkOutByStudent.get(r.student_id);
+            if (!existing || r.timestamp > existing) {
+              checkOutByStudent.set(r.student_id, r.timestamp);
+            }
+          }
+        }
+
+        for (const [studentId, endedAt] of checkOutByStudent) {
+          await supabase
+            .from('subjects')
+            .update({ is_current: false, ended_at: endedAt })
+            .eq('student_id', studentId)
+            .eq('is_current', true);
+        }
       }
     }
 

@@ -46,6 +46,7 @@ export function TimerDisplay({ startTime, isActive, initialSeconds = 0, classNam
   };
 
   const time = formatTime(totalElapsed);
+  const sessionTime = formatTime(currentSessionElapsed);
 
   return (
     <div className={cn('flex flex-col items-center', className)}>
@@ -82,10 +83,20 @@ export function TimerDisplay({ startTime, isActive, initialSeconds = 0, classNam
             </span>
           </div>
           <span className="mt-1.5 text-xs text-text-muted">
-            오늘의 순공시간
+            당일 누적 공부시간
           </span>
         </div>
       </div>
+
+      {/* 최종 입실후 공부시간 */}
+      {isActive && (
+        <div className="mt-2 flex items-center gap-1.5 bg-primary/5 rounded-xl px-4 py-2">
+          <span className="text-xs text-text-muted">최종 입실후</span>
+          <span className="text-sm font-semibold text-primary tabular-nums">
+            {sessionTime.hours}:{sessionTime.minutes}:{sessionTime.seconds}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

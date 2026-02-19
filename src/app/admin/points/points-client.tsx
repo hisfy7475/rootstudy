@@ -113,9 +113,12 @@ export function PointsClient({
 
   // 부여 폼 상태
   const [selectedStudent, setSelectedStudent] = useState<string>('');
+  const [studentSearchText, setStudentSearchText] = useState<string>('');
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
   const [pointType, setPointType] = useState<'reward' | 'penalty'>('reward');
   const [amount, setAmount] = useState<string>('1');
   const [reason, setReason] = useState<string>('');
+  const [additionalNote, setAdditionalNote] = useState<string>('');
 
   const filteredHistory = history.filter(h => {
     const typeMatch = filter === 'all' || h.type === filter;
@@ -135,9 +138,13 @@ export function PointsClient({
       return;
     }
 
+    const finalReason = additionalNote.trim()
+      ? `${reason} - ${additionalNote.trim()}`
+      : reason;
+
     setLoading(true);
     try {
-      const result = await givePoints(selectedStudent, pointType, pointAmount, reason);
+      const result = await givePoints(selectedStudent, pointType, pointAmount, finalReason);
       if (result.success) {
         showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
         resetForm();
@@ -171,12 +178,29 @@ export function PointsClient({
     }
   };
 
+  const filteredStudentsForSearch = studentSearchText
+    ? students.filter(s =>
+        s.name.toLowerCase().includes(studentSearchText.toLowerCase()) ||
+        String(s.seatNumber || '').includes(studentSearchText)
+      )
+    : students;
+
+  const handleSelectStudent = (studentId: string) => {
+    setSelectedStudent(studentId);
+    const student = students.find(s => s.id === studentId);
+    setStudentSearchText(student ? `${student.seatNumber || '-'}번 ${student.name}` : '');
+    setShowStudentDropdown(false);
+  };
+
   const resetForm = () => {
     setShowAddForm(false);
     setSelectedStudent('');
+    setStudentSearchText('');
+    setShowStudentDropdown(false);
     setPointType('reward');
     setAmount('1');
     setReason('');
+    setAdditionalNote('');
   };
 
   const showSuccess = (message: string) => {
@@ -540,21 +564,62 @@ export function PointsClient({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* 학생 선택 */}
+            {/* 학생 검색 */}
             <div>
               <label className="block text-sm font-medium mb-2">학생</label>
-              <select
-                value={selectedStudent}
-                onChange={(e) => setSelectedStudent(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="">선택하세요</option>
-                {students.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.seatNumber || '-'}번 {student.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <div className={cn(
+                  'flex items-center border border-gray-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/50',
+                  selectedStudent && 'border-primary/50 bg-primary/5'
+                )}>
+                  <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={studentSearchText}
+                    onChange={(e) => {
+                      setStudentSearchText(e.target.value);
+                      setSelectedStudent('');
+                      setShowStudentDropdown(true);
+                    }}
+                    onFocus={() => setShowStudentDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowStudentDropdown(false), 150)}
+                    placeholder="이름 또는 좌석번호..."
+                    className="flex-1 outline-none text-sm bg-transparent"
+                  />
+                  {studentSearchText && (
+                    <button
+                      type="button"
+                      onClick={() => { setStudentSearchText(''); setSelectedStudent(''); }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                {showStudentDropdown && (
+                  <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-52 overflow-y-auto">
+                    {filteredStudentsForSearch.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-gray-500">검색 결과 없음</div>
+                    ) : (
+                      filteredStudentsForSearch.map((student) => (
+                        <button
+                          key={student.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleSelectStudent(student.id)}
+                          className={cn(
+                            'w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition-colors',
+                            selectedStudent === student.id && 'bg-primary/10'
+                          )}
+                        >
+                          <span className="font-semibold text-primary">{student.seatNumber || '-'}번</span>{' '}
+                          {student.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 유형 선택 */}
@@ -614,7 +679,7 @@ export function PointsClient({
                 onChange={(e) => {
                   const selectedValue = e.target.value;
                   setReason(selectedValue);
-                  // 선택한 프리셋에서 점수 자동 설정
+                  setAdditionalNote('');
                   const presets = pointType === 'reward' ? rewardPresets : penaltyPresets;
                   const selectedPreset = presets.find(p => p.reason === selectedValue);
                   if (selectedPreset && selectedPreset.amount !== 999) {
@@ -632,6 +697,26 @@ export function PointsClient({
               </select>
             </div>
           </div>
+
+          {/* 세부 내용 추가 입력 */}
+          {reason && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium mb-2">
+                세부 내용
+                <span className="text-gray-400 font-normal ml-1">(선택 사항)</span>
+              </label>
+              <Input
+                value={additionalNote}
+                onChange={(e) => setAdditionalNote(e.target.value)}
+                placeholder={`예: ${reason}에 대한 구체적인 내용을 입력하세요`}
+              />
+              {additionalNote && (
+                <p className="text-xs text-gray-500 mt-1">
+                  최종 사유: <span className="font-medium text-gray-700">{reason} - {additionalNote}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={resetForm}>
