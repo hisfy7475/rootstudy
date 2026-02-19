@@ -569,7 +569,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {loading ? (
+                  {loading && data.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-500">
                         로딩 중...

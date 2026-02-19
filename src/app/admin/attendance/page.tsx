@@ -36,7 +36,7 @@ export default async function AttendancePage() {
   const today = formatDate(getStudyDate());
 
   const [attendanceData, todayPeriodsData] = await Promise.all([
-    getAttendanceBoard(undefined, branchId, 1, 20),
+    getAttendanceBoard(undefined, branchId, 1, 100),
     branchId ? getTodayPeriods(branchId) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
   ]);
 

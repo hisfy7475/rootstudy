@@ -411,11 +411,11 @@ export async function updateAbsenceSchedule(
   // 관리자 또는 연결된 학부모인지 확인
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('user_type')
     .eq('id', user.id)
     .single();
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.user_type === 'admin';
 
   if (!isAdmin) {
     const { data: parentLink } = await supabase
@@ -466,11 +466,11 @@ export async function deleteAbsenceSchedule(id: string): Promise<{ success: bool
   // 관리자 또는 연결된 학부모인지 확인
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('user_type')
     .eq('id', user.id)
     .single();
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.user_type === 'admin';
 
   if (!isAdmin) {
     const { data: parentLink } = await supabase

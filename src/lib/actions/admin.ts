@@ -1860,7 +1860,7 @@ export async function getAttendanceBoard(
   targetDate?: string,
   branchId?: string | null,
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 100
 ) {
   const supabase = await createClient();
 
