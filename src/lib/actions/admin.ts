@@ -1868,12 +1868,11 @@ export async function getAttendanceBoard(
   branchId?: string | null,
   page: number = 1,
   pageSize: number = 100,
-  searchQuery?: string
+  searchQuery?: string,
+  statusFilter?: 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived'
 ) {
   const supabase = await createClient();
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
-  // targetDate가 전달되면 해당 날짜 사용, 아니면 오늘 날짜
   const studyDate = targetDate 
     ? new Date(targetDate + 'T12:00:00') 
     : getStudyDate();
@@ -1881,138 +1880,127 @@ export async function getAttendanceBoard(
   const todayStr = studyDate.toISOString().split('T')[0];
   const todayDayOfWeek = studyDate.getDay();
 
-  // 페이지네이션 계산
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  // 학생 프로필 조회 (페이지네이션 적용)
-  let query = supabase
+  // Step 1: 전체 학생 ID + seat_number 조회 (브랜치/검색 필터 포함, seat_number 순)
+  let allStudentsQuery = supabase
     .from('student_profiles')
-    .select(`
-      id,
-      seat_number,
-      profiles!inner (
-        id,
-        name,
-        email,
-        phone,
-        branch_id
-      )
-    `, { count: 'exact' })
+    .select('id, seat_number, profiles!inner(branch_id, name)')
     .order('seat_number', { ascending: true });
+  if (branchId) allStudentsQuery = allStudentsQuery.eq('profiles.branch_id', branchId);
+  if (searchQuery) allStudentsQuery = allStudentsQuery.ilike('profiles.name', `%${searchQuery}%`);
 
-  // 브랜치 필터 적용
-  if (branchId) {
-    query = query.eq('profiles.branch_id', branchId);
+  const { data: allStudentRows, error: allStudentsError } = await allStudentsQuery;
+  if (allStudentsError) {
+    console.error('Error fetching students:', allStudentsError);
+    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
   }
-
-  // 이름 검색 필터 적용
-  if (searchQuery) {
-    query = query.ilike('profiles.name', `%${searchQuery}%`);
-  }
-
-  const { data: students, error, count } = await query.range(from, to);
-
-  if (error) {
-    console.error('Error fetching students:', error);
+  if (!allStudentRows || allStudentRows.length === 0) {
     return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
   }
 
-  const studentIds = (students || []).map(s => s.id);
+  const allStudentIds = allStudentRows.map(s => s.id);
+  // seat_number 순서 인덱스 맵
+  const seatOrderMap = new Map(allStudentRows.map((s, i) => [s.id, i]));
 
-  // 전체 학생 ID 조회 (통계 계산용, 페이지네이션 없음)
-  let allStudentsQuery = supabase
-    .from('student_profiles')
-    .select('id, profiles!inner(branch_id, name)');
-  if (branchId) {
-    allStudentsQuery = allStudentsQuery.eq('profiles.branch_id', branchId);
-  }
-  if (searchQuery) {
-    allStudentsQuery = allStudentsQuery.ilike('profiles.name', `%${searchQuery}%`);
-  }
-  const { data: allStudentRows } = await allStudentsQuery;
-  const allStudentIds = (allStudentRows || []).map(s => s.id);
+  // Step 2: 전체 학생 출석 기록 한 번에 조회 (통계 + 상태 계산에 재사용)
+  const { data: allStudentsAttendance } = await supabase
+    .from('attendance')
+    .select('student_id, type, timestamp')
+    .in('student_id', allStudentIds)
+    .gte('timestamp', todayStart.toISOString())
+    .lte('timestamp', todayEnd.toISOString())
+    .order('timestamp', { ascending: true });
 
-  // 배치 쿼리: 해당 페이지 학생들의 모든 데이터를 한 번에 조회
-  // + 전체 학생의 출석 기록도 통계 계산을 위해 함께 조회
-  const [
-    { data: allAttendance },
-    { data: allAbsenceSchedules },
-    { data: allFocusScores },
-    { data: allPenalties },
-    { data: allStudentsAttendance },
-  ] = await Promise.all([
-    supabase
-      .from('attendance')
-      .select('student_id, type, timestamp')
-      .in('student_id', studentIds)
-      .gte('timestamp', todayStart.toISOString())
-      .lte('timestamp', todayEnd.toISOString())
-      .order('timestamp', { ascending: true }),
-    supabase
-      .from('student_absence_schedules')
-      .select('student_id, id, title, start_time, end_time, is_recurring, specific_date, day_of_week, valid_from, valid_until')
-      .in('student_id', studentIds)
-      .eq('is_active', true),
-    supabase
-      .from('focus_scores')
-      .select('student_id, score')
-      .in('student_id', studentIds)
-      .gte('recorded_at', todayStart.toISOString())
-      .lte('recorded_at', todayEnd.toISOString()),
-    supabase
-      .from('points')
-      .select('student_id, amount')
-      .in('student_id', studentIds)
-      .eq('type', 'penalty')
-      .gte('created_at', todayStart.toISOString())
-      .lte('created_at', todayEnd.toISOString()),
-    allStudentIds.length > 0
-      ? supabase
-          .from('attendance')
-          .select('student_id, type, timestamp')
-          .in('student_id', allStudentIds)
-          .gte('timestamp', todayStart.toISOString())
-          .lte('timestamp', todayEnd.toISOString())
-          .order('timestamp', { ascending: true })
-      : Promise.resolve({ data: [] }),
-  ]);
-
-  const attendanceByStudent = groupById(allAttendance ?? []);
-  const absenceByStudent = groupById(allAbsenceSchedules ?? []);
-  const focusByStudent = groupById(allFocusScores ?? []);
-  const penaltyByStudent = groupById(allPenalties ?? []);
-
-  // 전체 학생 기준 통계 계산
   const allAttendanceByStudent = groupById(allStudentsAttendance ?? []);
-  let globalCheckedIn = 0;
-  let globalCheckedOut = 0;
-  let globalOnBreak = 0;
-  let globalNotYetArrived = 0;
+
+  // Step 3: 전체 학생 상태 계산 + 통계 + 상태별 ID 맵
+  let globalCheckedIn = 0, globalCheckedOut = 0, globalOnBreak = 0, globalNotYetArrived = 0;
+  const statusIdMap: Record<string, string[]> = {
+    checked_in: [],
+    checked_out: [],
+    on_break: [],
+    not_arrived: [],
+  };
+
   for (const sid of allStudentIds) {
     const records = allAttendanceByStudent[sid] ?? [];
     if (records.length === 0) {
       globalNotYetArrived++;
+      statusIdMap['not_arrived'].push(sid);
     } else {
       const lastRecord = records[records.length - 1];
       if (lastRecord.type === 'check_in' || lastRecord.type === 'break_end') {
         globalCheckedIn++;
+        statusIdMap['checked_in'].push(sid);
       } else if (lastRecord.type === 'check_out') {
         globalCheckedOut++;
+        statusIdMap['checked_out'].push(sid);
       } else if (lastRecord.type === 'break_start') {
         globalOnBreak++;
+        statusIdMap['on_break'].push(sid);
+      } else {
+        globalCheckedOut++;
+        statusIdMap['checked_out'].push(sid);
       }
     }
   }
   const globalStats = { checkedIn: globalCheckedIn, checkedOut: globalCheckedOut, onBreak: globalOnBreak, notYetArrived: globalNotYetArrived };
 
-  // 메모리에서 각 학생 출석부 데이터 조합
-  const attendanceData = (students || []).map((student) => {
-    const profile = Array.isArray(student.profiles)
-      ? student.profiles[0]
-      : student.profiles;
+  // Step 4: 상태 필터 적용 후 seat_number 순 정렬
+  const filteredIds = statusFilter ? (statusIdMap[statusFilter] ?? []) : allStudentIds;
+  filteredIds.sort((a, b) => (seatOrderMap.get(a) ?? 999) - (seatOrderMap.get(b) ?? 999));
+  const filteredTotal = filteredIds.length;
 
-    const attendance = attendanceByStudent[student.id] ?? [];
+  // Step 5: 페이지네이션
+  const from = (page - 1) * pageSize;
+  const pageStudentIds = filteredIds.slice(from, from + pageSize);
+
+  if (pageStudentIds.length === 0) {
+    return { data: [], total: filteredTotal, page, pageSize, stats: globalStats };
+  }
+
+  // Step 6: 페이지 학생 프로필 + 상세 데이터 조회
+  const [
+    { data: students },
+    { data: allAbsenceSchedules },
+    { data: allFocusScores },
+    { data: allPenalties },
+  ] = await Promise.all([
+    supabase
+      .from('student_profiles')
+      .select(`
+        id,
+        seat_number,
+        profiles!inner (id, name, email, phone, branch_id)
+      `)
+      .in('id', pageStudentIds),
+    supabase
+      .from('student_absence_schedules')
+      .select('student_id, id, title, start_time, end_time, is_recurring, specific_date, day_of_week, valid_from, valid_until')
+      .in('student_id', pageStudentIds)
+      .eq('is_active', true),
+    supabase
+      .from('focus_scores')
+      .select('student_id, score')
+      .in('student_id', pageStudentIds)
+      .gte('recorded_at', todayStart.toISOString())
+      .lte('recorded_at', todayEnd.toISOString()),
+    supabase
+      .from('points')
+      .select('student_id, amount')
+      .in('student_id', pageStudentIds)
+      .eq('type', 'penalty')
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString()),
+  ]);
+
+  const absenceByStudent = groupById(allAbsenceSchedules ?? []);
+  const focusByStudent = groupById(allFocusScores ?? []);
+  const penaltyByStudent = groupById(allPenalties ?? []);
+
+  // Step 7: 데이터 조합 (출석 기록은 Step 2에서 조회한 전체 데이터 재사용)
+  const attendanceData = (students || []).map((student) => {
+    const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+    const attendance = allAttendanceByStudent[student.id] ?? [];
 
     let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
     let firstCheckInTime: string | null = null;
@@ -2024,10 +2012,8 @@ export async function getAttendanceBoard(
 
       const lastRecord = attendance[attendance.length - 1];
       if (lastRecord.type === 'check_in') status = 'checked_in';
-      else if (lastRecord.type === 'check_out') {
-        status = 'checked_out';
-        lastCheckOutTime = lastRecord.timestamp;
-      } else if (lastRecord.type === 'break_start') status = 'on_break';
+      else if (lastRecord.type === 'check_out') { status = 'checked_out'; lastCheckOutTime = lastRecord.timestamp; }
+      else if (lastRecord.type === 'break_start') status = 'on_break';
       else if (lastRecord.type === 'break_end') status = 'checked_in';
     }
 
@@ -2066,7 +2052,10 @@ export async function getAttendanceBoard(
     };
   });
 
-  return { data: attendanceData, total: count || 0, page, pageSize, stats: globalStats };
+  // seat_number 순으로 정렬
+  attendanceData.sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999));
+
+  return { data: attendanceData, total: filteredTotal, page, pageSize, stats: globalStats };
 }
 
 // 주간 출석 데이터 조회 (학생별 7일간 출석 상태)

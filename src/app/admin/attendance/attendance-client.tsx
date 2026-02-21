@@ -171,6 +171,8 @@ function getWeekRangeText(mondayStr: string): string {
   return `${startMonth}월 ${startDay}일 ~ ${endMonth}월 ${endDay}일`;
 }
 
+type StatusFilter = 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived' | null;
+
 export function AttendanceClient({ initialData, todayPeriods, dateTypeName, todayDate, branchId }: AttendanceClientProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [data, setData] = useState<AttendanceStudent[]>(initialData.data);
@@ -201,6 +203,9 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
+  // 상태 필터
+  const [activeFilter, setActiveFilter] = useState<StatusFilter>(null);
+
   // 현재 시간 업데이트 (1분마다)
   useEffect(() => {
     const timer = setInterval(() => {
@@ -224,7 +229,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       setData([]);
       setHasMore(true);
       setPage(1);
-      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch);
+      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
     } else {
       setWeeklyPage(1);
       loadWeeklyData(currentWeekMonday, 1, weeklyPageSize, debouncedSearch);
@@ -239,10 +244,10 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       skipPageEffectRef.current = true;
       setPage(1);
       setHasMore(true);
-      handleRefresh(selectedDate, 1, pageSize, true);
+      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
     }, 30000);
     return () => clearInterval(interval);
-  }, [viewMode, selectedDate, pageSize]);
+  }, [viewMode, selectedDate, pageSize, activeFilter]);
 
   // 날짜 변경 시 데이터 초기화 및 1페이지 로드
   useEffect(() => {
@@ -251,7 +256,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       setData([]);
       setHasMore(true);
       setPage(1);
-      handleRefresh(selectedDate, 1, pageSize, true);
+      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
     }
   }, [selectedDate]);
 
@@ -262,7 +267,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       return;
     }
     if (viewMode === 'daily' && page > 1) {
-      handleRefresh(selectedDate, page, pageSize, false);
+      handleRefresh(selectedDate, page, pageSize, false, debouncedSearch, activeFilter);
     }
   }, [page]);
 
@@ -289,10 +294,21 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, currentWeekMonday, weeklyPage, weeklyPageSize]);
 
-  const handleRefresh = async (date: string, p: number, ps: number, replace = true, search = debouncedSearch) => {
+  // 상태 필터 클릭 핸들러
+  const handleFilterClick = (filter: StatusFilter) => {
+    const newFilter = activeFilter === filter ? null : filter;
+    setActiveFilter(newFilter);
+    skipPageEffectRef.current = true;
+    setData([]);
+    setHasMore(true);
+    setPage(1);
+    handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, newFilter);
+  };
+
+  const handleRefresh = async (date: string, p: number, ps: number, replace = true, search = debouncedSearch, filter: StatusFilter = activeFilter) => {
     setLoading(true);
     try {
-      const result = await getAttendanceBoard(date, branchId, p, ps, search || undefined);
+      const result = await getAttendanceBoard(date, branchId, p, ps, search || undefined, filter ?? undefined);
       if (replace || p === 1) {
         setData(result.data);
       } else {
@@ -492,6 +508,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               새로고침
             </Button>
           )}
+
         </div>
       </div>
 
@@ -569,29 +586,97 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
       {viewMode === 'daily' ? (
         <>
-          {/* 통계 카드 - 인쇄 시 간소화 */}
+          {/* 통계 카드 - 클릭 시 필터 */}
           <div className="grid grid-cols-5 gap-3 print:grid-cols-5 print:gap-1">
-            <Card className="p-3 print:p-1.5">
+            {/* 전체 - 필터 해제 */}
+            <button
+              onClick={() => { if (activeFilter) handleFilterClick(null); }}
+              className={cn(
+                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                activeFilter === null
+                  ? 'bg-white border-gray-300 shadow-md ring-2 ring-gray-400'
+                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm opacity-70'
+              )}
+            >
               <div className="text-xs text-gray-500 print:text-[10px]">전체</div>
               <div className="text-xl font-bold print:text-base">{stats.total}</div>
-            </Card>
-            <Card className="p-3 print:p-1.5 border-green-200 bg-green-50">
+            </button>
+            {/* 입실 */}
+            <button
+              onClick={() => handleFilterClick('checked_in')}
+              className={cn(
+                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                activeFilter === 'checked_in'
+                  ? 'bg-green-100 border-green-400 shadow-md ring-2 ring-green-400'
+                  : 'bg-green-50 border-green-200 hover:border-green-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'checked_in' && 'opacity-50'
+              )}
+            >
               <div className="text-xs text-green-600 print:text-[10px]">입실</div>
               <div className="text-xl font-bold text-green-600 print:text-base">{stats.checkedIn}</div>
-            </Card>
-            <Card className="p-3 print:p-1.5 border-amber-200 bg-amber-50">
+            </button>
+            {/* 외출 */}
+            <button
+              onClick={() => handleFilterClick('on_break')}
+              className={cn(
+                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                activeFilter === 'on_break'
+                  ? 'bg-amber-100 border-amber-400 shadow-md ring-2 ring-amber-400'
+                  : 'bg-amber-50 border-amber-200 hover:border-amber-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'on_break' && 'opacity-50'
+              )}
+            >
               <div className="text-xs text-amber-600 print:text-[10px]">외출</div>
               <div className="text-xl font-bold text-amber-600 print:text-base">{stats.onBreak}</div>
-            </Card>
-            <Card className="p-3 print:p-1.5">
+            </button>
+            {/* 퇴실 */}
+            <button
+              onClick={() => handleFilterClick('checked_out')}
+              className={cn(
+                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                activeFilter === 'checked_out'
+                  ? 'bg-gray-200 border-gray-400 shadow-md ring-2 ring-gray-400'
+                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'checked_out' && 'opacity-50'
+              )}
+            >
               <div className="text-xs text-gray-500 print:text-[10px]">퇴실</div>
               <div className="text-xl font-bold text-gray-400 print:text-base">{stats.checkedOut}</div>
-            </Card>
-            <Card className="p-3 print:p-1.5 border-red-200 bg-red-50">
+            </button>
+            {/* 미등원 */}
+            <button
+              onClick={() => handleFilterClick('not_arrived')}
+              className={cn(
+                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                activeFilter === 'not_arrived'
+                  ? 'bg-red-100 border-red-400 shadow-md ring-2 ring-red-400'
+                  : 'bg-red-50 border-red-200 hover:border-red-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'not_arrived' && 'opacity-50'
+              )}
+            >
               <div className="text-xs text-red-600 print:text-[10px]">미등원</div>
               <div className="text-xl font-bold text-red-600 print:text-base">{stats.notYetArrived}</div>
-            </Card>
+            </button>
           </div>
+          {/* 필터 활성 안내 */}
+          {activeFilter && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 print:hidden -mt-2">
+              <span>
+                {{
+                  checked_in: '입실',
+                  on_break: '외출',
+                  checked_out: '퇴실',
+                  not_arrived: '미등원',
+                }[activeFilter]} 학생만 표시 중
+              </span>
+              <button
+                onClick={() => handleFilterClick(null)}
+                className="text-primary underline hover:no-underline"
+              >
+                필터 해제
+              </button>
+            </div>
+          )}
 
           {/* 일별 출석부 테이블 */}
           <Card className="overflow-hidden print:shadow-none print:border">
