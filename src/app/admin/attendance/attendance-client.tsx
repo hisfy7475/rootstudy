@@ -69,7 +69,7 @@ interface AttendanceClientProps {
     total: number;
     page: number;
     pageSize: number;
-    stats: { checkedIn: number; notYetArrived: number };
+    stats: { checkedIn: number; checkedOut: number; onBreak: number; notYetArrived: number };
   };
   todayPeriods: Period[];
   dateTypeName: string | null;
@@ -352,12 +352,12 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     setWeeklyPage(1);
   };
 
-  // 통계: 전체/외출/퇴실은 로드된 데이터 기준, 입실/미등원은 서버 전체 기준
+  // 통계: 모두 서버 전체 기준
   const stats = {
     total,
     checkedIn: globalStats.checkedIn,
-    checkedOut: data.filter(s => s.status === 'checked_out').length,
-    onBreak: data.filter(s => s.status === 'on_break').length,
+    checkedOut: globalStats.checkedOut,
+    onBreak: globalStats.onBreak,
     notYetArrived: globalStats.notYetArrived,
   };
 

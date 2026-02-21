@@ -1915,7 +1915,7 @@ export async function getAttendanceBoard(
 
   if (error) {
     console.error('Error fetching students:', error);
-    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, notYetArrived: 0 } };
+    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
   }
 
   const studentIds = (students || []).map(s => s.id);
@@ -1986,6 +1986,8 @@ export async function getAttendanceBoard(
   // 전체 학생 기준 통계 계산
   const allAttendanceByStudent = groupById(allStudentsAttendance ?? []);
   let globalCheckedIn = 0;
+  let globalCheckedOut = 0;
+  let globalOnBreak = 0;
   let globalNotYetArrived = 0;
   for (const sid of allStudentIds) {
     const records = allAttendanceByStudent[sid] ?? [];
@@ -1995,10 +1997,14 @@ export async function getAttendanceBoard(
       const lastRecord = records[records.length - 1];
       if (lastRecord.type === 'check_in' || lastRecord.type === 'break_end') {
         globalCheckedIn++;
+      } else if (lastRecord.type === 'check_out') {
+        globalCheckedOut++;
+      } else if (lastRecord.type === 'break_start') {
+        globalOnBreak++;
       }
     }
   }
-  const globalStats = { checkedIn: globalCheckedIn, notYetArrived: globalNotYetArrived };
+  const globalStats = { checkedIn: globalCheckedIn, checkedOut: globalCheckedOut, onBreak: globalOnBreak, notYetArrived: globalNotYetArrived };
 
   // 메모리에서 각 학생 출석부 데이터 조합
   const attendanceData = (students || []).map((student) => {
