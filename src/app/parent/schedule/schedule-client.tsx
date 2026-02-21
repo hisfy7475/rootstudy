@@ -530,8 +530,8 @@ export function ScheduleClient({
 
       {/* 수정 모달 */}
       {editingSchedule && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
-          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto pb-28">
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 pb-24 sm:pb-0 sm:items-center">
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">부재 일정 수정</h3>
               <button

@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
@@ -483,9 +483,10 @@ export async function deleteAbsenceSchedule(id: string): Promise<{ success: bool
     if (!parentLink) return { success: false, error: '삭제 권한이 없습니다.' };
   }
 
-  const { error } = await supabase
+  const adminClient = createAdminClient();
+  const { error, count } = await adminClient
     .from('student_absence_schedules')
-    .delete()
+    .delete({ count: 'exact' })
     .eq('id', id);
 
   if (error) {

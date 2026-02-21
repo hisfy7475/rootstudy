@@ -24,6 +24,7 @@ interface Student {
 
 interface DashboardClientProps {
   initialStudents: Student[];
+  branchId: string | null;
 }
 
 const filterButtons: { value: StatusFilter; label: string }[] = [
@@ -33,7 +34,7 @@ const filterButtons: { value: StatusFilter; label: string }[] = [
   { value: 'on_break', label: '외출' },
 ];
 
-export function DashboardClient({ initialStudents }: DashboardClientProps) {
+export function DashboardClient({ initialStudents, branchId }: DashboardClientProps) {
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,7 @@ export function DashboardClient({ initialStudents }: DashboardClientProps) {
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      const data = await getAllStudents();
+      const data = await getAllStudents(undefined, branchId);
       setStudents(data);
     } catch (error) {
       console.error('Failed to refresh:', error);

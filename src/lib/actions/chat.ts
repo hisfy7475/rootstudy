@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
 // ============================================
@@ -27,8 +27,9 @@ export async function getOrCreateChatRoom(studentId: string) {
     return { data: existingRoom };
   }
 
-  // 없으면 새로 생성
-  const { data: newRoom, error: insertError } = await supabase
+  // 없으면 새로 생성 (RLS 우회를 위해 admin 클라이언트 사용)
+  const adminSupabase = createAdminClient();
+  const { data: newRoom, error: insertError } = await adminSupabase
     .from('chat_rooms')
     .insert({ student_id: studentId })
     .select()

@@ -406,7 +406,7 @@ export function FocusClient({
     setLoading(true);
     try {
       const [newStudents, newReport, newScores, periodsResult] = await Promise.all([
-        getAllStudents('all'),
+        getAllStudents('all', branchId ?? undefined),
         getWeeklyFocusReport(branchId),
         getTodayFocusScoresByPeriod(branchId, selectedDate),
         branchId ? getTodayPeriods(branchId, selectedDate) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),

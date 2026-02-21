@@ -17,11 +17,11 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
 // ============================================
 
 // 전체 학생 목록 조회 (현황 포함)
-export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'checked_out' | 'on_break') {
+export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'checked_out' | 'on_break', branchId?: string | null) {
   const supabase = await createClient();
 
   // 학생 프로필 조회
-  const { data: students, error } = await supabase
+  let studentsQuery = supabase
     .from('student_profiles')
     .select(`
       id,
@@ -30,10 +30,17 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
         id,
         name,
         email,
-        phone
+        phone,
+        branch_id
       )
     `)
     .order('seat_number', { ascending: true });
+
+  if (branchId) {
+    studentsQuery = studentsQuery.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students, error } = await studentsQuery;
 
   if (error) {
     console.error('Error fetching students:', error);
@@ -1148,7 +1155,7 @@ export async function getStudentDataForExport() {
       이메일: profile?.email || '',
       전화번호: profile?.phone || '',
       학부모연결코드: s.parent_code || '',
-      가입일: s.created_at ? new Date(s.created_at).toLocaleDateString('ko-KR') : '',
+      가입일: s.created_at ? new Date(s.created_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' }) : '',
     };
   });
 }
@@ -1194,7 +1201,7 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
 
     for (const record of attendance) {
       const timestamp = new Date(record.timestamp);
-      const date = timestamp.toISOString().split('T')[0];
+      const date = timestamp.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD in KST
 
       if (!dailyData[date]) {
         dailyData[date] = { checkIn: null, checkOut: null, studyMinutes: 0 };
@@ -1203,13 +1210,13 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
       switch (record.type) {
         case 'check_in':
           if (!dailyData[date].checkIn) {
-            dailyData[date].checkIn = timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            dailyData[date].checkIn = timestamp.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
           }
           currentCheckIn = timestamp;
           currentDate = date;
           break;
         case 'check_out':
-          dailyData[date].checkOut = timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          dailyData[date].checkOut = timestamp.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
           if (currentCheckIn && currentDate === date) {
             dailyData[date].studyMinutes += Math.floor((timestamp.getTime() - currentCheckIn.getTime()) / 60000);
           }
@@ -1267,8 +1274,8 @@ export async function getFocusDataForExport(startDate: string, endDate: string) 
       : null;
 
     return {
-      날짜: new Date(f.recorded_at).toLocaleDateString('ko-KR'),
-      시간: new Date(f.recorded_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      날짜: new Date(f.recorded_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' }),
+      시간: new Date(f.recorded_at).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' }),
       좌석번호: f.student?.seat_number || '',
       이름: studentProfile?.name || '',
       점수: f.score,
@@ -1302,7 +1309,7 @@ export async function getPointsDataForExport(startDate: string, endDate: string)
       : null;
 
     return {
-      날짜: new Date(p.created_at).toLocaleDateString('ko-KR'),
+      날짜: new Date(p.created_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' }),
       좌석번호: p.student?.seat_number || '',
       이름: studentProfile?.name || '',
       구분: p.type === 'reward' ? '상점' : '벌점',
@@ -1860,7 +1867,8 @@ export async function getAttendanceBoard(
   targetDate?: string,
   branchId?: string | null,
   page: number = 1,
-  pageSize: number = 100
+  pageSize: number = 100,
+  searchQuery?: string
 ) {
   const supabase = await createClient();
 
@@ -1898,6 +1906,11 @@ export async function getAttendanceBoard(
     query = query.eq('profiles.branch_id', branchId);
   }
 
+  // 이름 검색 필터 적용
+  if (searchQuery) {
+    query = query.ilike('profiles.name', `%${searchQuery}%`);
+  }
+
   const { data: students, error, count } = await query.range(from, to);
 
   if (error) {
@@ -1910,9 +1923,12 @@ export async function getAttendanceBoard(
   // 전체 학생 ID 조회 (통계 계산용, 페이지네이션 없음)
   let allStudentsQuery = supabase
     .from('student_profiles')
-    .select('id, profiles!inner(branch_id)');
+    .select('id, profiles!inner(branch_id, name)');
   if (branchId) {
     allStudentsQuery = allStudentsQuery.eq('profiles.branch_id', branchId);
+  }
+  if (searchQuery) {
+    allStudentsQuery = allStudentsQuery.ilike('profiles.name', `%${searchQuery}%`);
   }
   const { data: allStudentRows } = await allStudentsQuery;
   const allStudentIds = (allStudentRows || []).map(s => s.id);
@@ -2052,7 +2068,8 @@ export async function getWeeklyAttendance(
   weekStartDate: string,
   branchId?: string | null,
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 20,
+  searchQuery?: string
 ) {
   const supabase = await createClient();
 
@@ -2086,6 +2103,11 @@ export async function getWeeklyAttendance(
   // 브랜치 필터 적용
   if (branchId) {
     query = query.eq('profiles.branch_id', branchId);
+  }
+
+  // 이름 검색 필터 적용
+  if (searchQuery) {
+    query = query.ilike('profiles.name', `%${searchQuery}%`);
   }
 
   const { data: students, error, count } = await query.range(from, to);

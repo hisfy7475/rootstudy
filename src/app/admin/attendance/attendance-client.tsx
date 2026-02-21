@@ -21,6 +21,7 @@ import {
   List,
   ChevronsLeft,
   ChevronsRight,
+  Search,
 } from 'lucide-react';
 import { cn, getTodayKST, formatDateKST } from '@/lib/utils';
 
@@ -196,6 +197,10 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const [weeklyPageSize, setWeeklyPageSize] = useState(20);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
 
+  // 검색 상태
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
   // 현재 시간 업데이트 (1분마다)
   useEffect(() => {
     const timer = setInterval(() => {
@@ -203,6 +208,29 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     }, 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // 검색어 디바운스 (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // 검색어 변경 시 데이터 리셋 및 재조회
+  useEffect(() => {
+    if (viewMode === 'daily') {
+      skipPageEffectRef.current = true;
+      setData([]);
+      setHasMore(true);
+      setPage(1);
+      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch);
+    } else {
+      setWeeklyPage(1);
+      loadWeeklyData(currentWeekMonday, 1, weeklyPageSize, debouncedSearch);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
 
   // 30초마다 자동 새로고침 (일별 뷰에서만, page 1 데이터로 교체)
   useEffect(() => {
@@ -256,14 +284,15 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   // 주간 뷰로 전환 시 데이터 로드
   useEffect(() => {
     if (viewMode === 'weekly') {
-      loadWeeklyData(currentWeekMonday, weeklyPage, weeklyPageSize);
+      loadWeeklyData(currentWeekMonday, weeklyPage, weeklyPageSize, debouncedSearch);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, currentWeekMonday, weeklyPage, weeklyPageSize]);
 
-  const handleRefresh = async (date: string, p: number, ps: number, replace = true) => {
+  const handleRefresh = async (date: string, p: number, ps: number, replace = true, search = debouncedSearch) => {
     setLoading(true);
     try {
-      const result = await getAttendanceBoard(date, branchId, p, ps);
+      const result = await getAttendanceBoard(date, branchId, p, ps, search || undefined);
       if (replace || p === 1) {
         setData(result.data);
       } else {
@@ -280,10 +309,10 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     }
   };
 
-  const loadWeeklyData = async (mondayDate: string, p: number, ps: number) => {
+  const loadWeeklyData = async (mondayDate: string, p: number, ps: number, search = debouncedSearch) => {
     setWeeklyLoading(true);
     try {
-      const result = await getWeeklyAttendance(mondayDate, branchId, p, ps);
+      const result = await getWeeklyAttendance(mondayDate, branchId, p, ps, search || undefined);
       setWeeklyData(result.students);
       setWeekDates(result.dates);
       setWeeklyTotal(result.total);
@@ -496,6 +525,18 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
           </button>
         </div>
 
+        {/* 학생 이름 검색 */}
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="학생 이름 검색..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 h-9"
+          />
+        </div>
+
         {/* 날짜/주 선택 */}
         {viewMode === 'daily' ? (
           <div className="flex items-center gap-2">
@@ -578,7 +619,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                   ) : data.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-500">
-                        등록된 학생이 없습니다.
+                        {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
@@ -758,7 +799,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                 ) : weeklyData.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-2 py-6 text-center text-xs text-gray-500">
-                      등록된 학생이 없습니다.
+                      {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                     </td>
                   </tr>
                 ) : (
