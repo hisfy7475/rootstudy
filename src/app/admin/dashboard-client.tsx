@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { DashboardStats } from '@/components/admin/dashboard-stats';
 import { StudentTable } from '@/components/admin/student-table';
 import { getAllStudents } from '@/lib/actions/admin';
+import { createClient } from '@/lib/supabase/client';
 import { RefreshCw } from 'lucide-react';
 
 type StatusFilter = 'all' | 'checked_in' | 'checked_out' | 'on_break';
@@ -52,8 +53,9 @@ export function DashboardClient({ initialStudents, branchId }: DashboardClientPr
     onBreak: students.filter(s => s.status === 'on_break').length,
   };
 
-  // 새로고침
-  const handleRefresh = async () => {
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleRefresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getAllStudents(undefined, branchId);
@@ -63,13 +65,23 @@ export function DashboardClient({ initialStudents, branchId }: DashboardClientPr
     } finally {
       setLoading(false);
     }
-  };
+  }, [branchId]);
 
-  // 30초마다 자동 새로고침
   useEffect(() => {
-    const interval = setInterval(handleRefresh, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-dashboard-attendance')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => handleRefresh(), 500);
+      })
+      .subscribe();
+
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [handleRefresh]);
 
   return (
     <div className="p-6 space-y-6">

@@ -62,14 +62,15 @@ export default async function ParentChatPage({ searchParams }: PageProps) {
 
   const room = roomResult.data;
 
-  // 메시지 목록 조회
-  const messagesResult = await getChatMessages(room.id);
+  // 최근 메시지 조회 (최대 50개)
+  const messagesResult = await getChatMessages(room.id, 50);
   const messages = messagesResult.data || [];
 
   return (
     <ParentChatClient
       roomId={room.id}
       initialMessages={messages}
+      initialHasMore={messagesResult.hasMore ?? false}
       currentUserId={user.id}
       currentUserName={parentProfile?.name || '나'}
       studentName={studentName}

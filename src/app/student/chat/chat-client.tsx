@@ -6,6 +6,7 @@ import { ChatMessageData } from '@/components/shared/chat';
 interface StudentChatClientProps {
   roomId: string;
   initialMessages: ChatMessageData[];
+  initialHasMore: boolean;
   currentUserId: string;
   currentUserName: string;
 }
@@ -13,6 +14,7 @@ interface StudentChatClientProps {
 export function StudentChatClient({
   roomId,
   initialMessages,
+  initialHasMore,
   currentUserId,
   currentUserName,
 }: StudentChatClientProps) {
@@ -22,6 +24,7 @@ export function StudentChatClient({
         <ChatRoom
           roomId={roomId}
           initialMessages={initialMessages}
+          initialHasMore={initialHasMore}
           currentUserId={currentUserId}
           currentUserType="student"
           currentUserName={currentUserName}

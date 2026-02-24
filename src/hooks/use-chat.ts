@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { getChatMessages, sendMessage as sendMessageAction, markAsRead } from '@/lib/actions/chat';
 import { ChatMessageData } from '@/components/shared/chat';
@@ -10,6 +10,8 @@ interface UseChatOptions {
   currentUserId: string;
   autoMarkAsRead?: boolean;
 }
+
+type ProfileCache = Map<string, { name: string; user_type: string }>;
 
 interface UseChatReturn {
   messages: ChatMessageData[];
@@ -29,6 +31,7 @@ export function useChat({
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const profileCacheRef = useRef<ProfileCache>(new Map());
 
   // 메시지 목록 로드
   const refreshMessages = useCallback(async () => {
@@ -63,7 +66,7 @@ export function useChat({
     refreshMessages();
   }, [refreshMessages]);
 
-  // Realtime 구독
+  // Realtime 구독 (프로필 캐시 활용)
   useEffect(() => {
     if (!roomId) return;
 
@@ -80,24 +83,32 @@ export function useChat({
           filter: `room_id=eq.${roomId}`,
         },
         async (payload) => {
-          // 새 메시지의 발신자 정보 가져오기
-          const { data: senderProfile } = await supabase
-            .from('profiles')
-            .select('name, user_type')
-            .eq('id', payload.new.sender_id)
-            .single();
+          const senderId = payload.new.sender_id as string;
+          let cached = profileCacheRef.current.get(senderId);
 
-          // 관리자인 경우 '루트스터디센터'로 표시
-          const senderName = senderProfile?.user_type === 'admin'
+          if (!cached) {
+            const { data: senderProfile } = await supabase
+              .from('profiles')
+              .select('name, user_type')
+              .eq('id', senderId)
+              .single();
+            cached = {
+              name: senderProfile?.name || '알 수 없음',
+              user_type: senderProfile?.user_type || 'unknown',
+            };
+            profileCacheRef.current.set(senderId, cached);
+          }
+
+          const senderName = cached.user_type === 'admin'
             ? '루트스터디센터'
-            : (senderProfile?.name || '알 수 없음');
+            : cached.name;
 
           const newMessage: ChatMessageData = {
             id: payload.new.id,
             room_id: payload.new.room_id,
-            sender_id: payload.new.sender_id,
+            sender_id: senderId,
             sender_name: senderName,
-            sender_type: senderProfile?.user_type || 'unknown',
+            sender_type: cached.user_type,
             content: payload.new.content,
             is_read_by_student: payload.new.is_read_by_student,
             is_read_by_parent: payload.new.is_read_by_parent,
@@ -105,13 +116,15 @@ export function useChat({
             created_at: payload.new.created_at,
           };
 
-          // 중복 방지
           setMessages((prev) => {
-            if (prev.some((m) => m.id === newMessage.id)) {
-              return prev;
-            }
+            if (prev.some((m) => m.id === newMessage.id)) return prev;
             return [...prev, newMessage];
           });
+
+          // 타인 메시지 수신 시 읽음 처리
+          if (autoMarkAsRead && senderId !== currentUserId) {
+            markAsRead(roomId);
+          }
         }
       )
       .on(
@@ -123,7 +136,6 @@ export function useChat({
           filter: `room_id=eq.${roomId}`,
         },
         (payload) => {
-          // 읽음 상태 업데이트
           setMessages((prev) =>
             prev.map((m) =>
               m.id === payload.new.id
@@ -143,14 +155,14 @@ export function useChat({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomId]);
+  }, [roomId, autoMarkAsRead, currentUserId]);
 
-  // 자동 읽음 표시
+  // 진입 시 1회 읽음 처리
   useEffect(() => {
-    if (autoMarkAsRead && roomId && messages.length > 0) {
+    if (autoMarkAsRead && roomId) {
       markAsRead(roomId);
     }
-  }, [autoMarkAsRead, roomId, messages.length]);
+  }, [autoMarkAsRead, roomId]);
 
   // 메시지 전송
   const sendMessage = useCallback(
@@ -250,7 +262,7 @@ export function useChatRooms({ enabled = true }: UseChatRoomsOptions = {}): UseC
     refreshRooms();
   }, [refreshRooms]);
 
-  // Realtime 구독 (새 메시지 감지)
+  // Realtime 구독 (부분 갱신 + 새 채팅방만 전체 재조회)
   useEffect(() => {
     if (!enabled) return;
 
@@ -265,9 +277,31 @@ export function useChatRooms({ enabled = true }: UseChatRoomsOptions = {}): UseC
           schema: 'public',
           table: 'chat_messages',
         },
-        () => {
-          // 새 메시지가 오면 목록 새로고침
-          refreshRooms();
+        (payload) => {
+          const msgRoomId = payload.new.room_id as string;
+          const msgContent = payload.new.content as string;
+          const msgCreatedAt = payload.new.created_at as string;
+
+          setRooms((prev) => {
+            const exists = prev.some((r) => r.id === msgRoomId);
+            if (!exists) {
+              refreshRooms();
+              return prev;
+            }
+            const updated = prev.map((r) =>
+              r.id === msgRoomId
+                ? {
+                    ...r,
+                    last_message: msgContent,
+                    last_message_at: msgCreatedAt,
+                    unread_count: r.unread_count + 1,
+                  }
+                : r
+            );
+            return updated.sort(
+              (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+            );
+          });
         }
       )
       .on(
@@ -278,7 +312,6 @@ export function useChatRooms({ enabled = true }: UseChatRoomsOptions = {}): UseC
           table: 'chat_rooms',
         },
         () => {
-          // 새 채팅방이 생성되면 목록 새로고침
           refreshRooms();
         }
       )

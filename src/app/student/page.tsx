@@ -18,6 +18,7 @@ export default async function StudentDashboard() {
 
   return (
     <StudentDashboardClient
+      userId={user?.id ?? ''}
       initialStatus={attendanceData.status}
       initialStudyTime={studyTimeData.totalSeconds}
       checkInTime={studyTimeData.checkInTime}

@@ -25,6 +25,7 @@ import {
 } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { getSubjectsForStudent } from '@/lib/actions/student-type';
+import { createClient } from '@/lib/supabase/client';
 import {
   Brain,
   User,
@@ -324,6 +325,9 @@ export function FocusClient({
   const [newFocusColor, setNewFocusColor] = useState(FOCUS_COLOR_PALETTE[0].bgClass);
   const [editingColorPresetId, setEditingColorPresetId] = useState<string | null>(null);
 
+  // Show checked-out students toggle
+  const [showCheckedOut, setShowCheckedOut] = useState(false);
+
   // Penalty state
   const [customPenaltyReason, setCustomPenaltyReason] = useState('');
   const [customPenaltyAmount, setCustomPenaltyAmount] = useState('1');
@@ -383,6 +387,13 @@ export function FocusClient({
     [students]
   );
 
+  const displayStudents = useMemo(() => {
+    if (!showCheckedOut) return checkedInStudents;
+    return students
+      .filter(s => s.status === 'checked_in' || s.status === 'checked_out')
+      .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999));
+  }, [students, showCheckedOut, checkedInStudents]);
+
   // Active presets
   const activePenaltyPresets = penaltyPresets.length > 0 
     ? penaltyPresets.filter(p => p.amount < 999)
@@ -420,6 +431,24 @@ export function FocusClient({
       setLoading(false);
     }
   }, [branchId, selectedDate]);
+
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-focus-attendance')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+        if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+        realtimeTimerRef.current = setTimeout(() => refreshData(), 500);
+      })
+      .subscribe();
+
+    return () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [refreshData]);
 
   // Quick input: record a single student's focus score for selected period
   // 같은 버튼을 다시 누르면 점수 취소
@@ -812,7 +841,7 @@ export function FocusClient({
       </Card>
 
       {/* 탭 네비게이션 */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex items-center border-b border-gray-200">
         {([
           { key: 'quick' as TabType, label: '빠른 입력', icon: Zap },
           { key: 'period' as TabType, label: '교시별', icon: Table2 },
@@ -832,12 +861,23 @@ export function FocusClient({
             {label}
           </button>
         ))}
+        {activeTab !== 'report' && (
+          <label className="ml-auto flex items-center gap-1.5 px-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showCheckedOut}
+              onChange={(e) => setShowCheckedOut(e.target.checked)}
+              className="rounded border-gray-300 text-primary focus:ring-primary/50 w-3.5 h-3.5"
+            />
+            <span className="text-[11px] text-gray-500 whitespace-nowrap">퇴실 학생 포함</span>
+          </label>
+        )}
       </div>
 
       {/* 탭 내용 */}
       {activeTab === 'quick' && (
         <QuickInputView
-          students={checkedInStudents}
+          students={displayStudents}
           presets={activeFocusPresets}
           selectedPeriodId={selectedPeriodId}
           selectedPeriod={selectedPeriod}
@@ -850,7 +890,7 @@ export function FocusClient({
 
       {activeTab === 'period' && (
         <PeriodTableView
-          students={checkedInStudents}
+          students={displayStudents}
           periods={periods}
           presets={activeFocusPresets}
           focusScoresByPeriod={focusScoresByPeriod}
@@ -966,21 +1006,33 @@ function QuickInputView({
             {students.map((student) => {
               const studentScores = focusScoresByPeriod[student.id] || {};
               const currentScore = studentScores[selectedPeriodId];
+              const isCheckedOut = student.status === 'checked_out';
               
               return (
-                <tr key={student.id} className="hover:bg-gray-50/50">
+                <tr key={student.id} className={cn(
+                  isCheckedOut ? 'opacity-40 bg-gray-50' : 'hover:bg-gray-50/50'
+                )}>
                   <td className="px-2 py-1">
-                    <span className="font-semibold text-primary text-xs">{student.seatNumber ?? '-'}</span>
+                    <span className={cn('font-semibold text-xs', isCheckedOut ? 'text-gray-400' : 'text-primary')}>{student.seatNumber ?? '-'}</span>
                   </td>
                   <td className="px-2 py-1">
-                    <span className="font-medium text-xs truncate">{student.name}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-xs truncate">{student.name}</span>
+                      {isCheckedOut && (
+                        <span className="text-[9px] text-gray-400 bg-gray-200 px-1 py-0.5 rounded shrink-0">퇴실</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-1 py-1">
-                    <SubjectDropdown
-                      studentId={student.id}
-                      currentSubject={student.currentSubject}
-                      onSubjectChange={onSubjectChange}
-                    />
+                    {isCheckedOut ? (
+                      <span className="text-[10px] text-gray-300 px-1.5">-</span>
+                    ) : (
+                      <SubjectDropdown
+                        studentId={student.id}
+                        currentSubject={student.currentSubject}
+                        onSubjectChange={onSubjectChange}
+                      />
+                    )}
                   </td>
                   {presets.map((preset) => {
                     const cellKey = `${student.id}-${selectedPeriodId}`;
@@ -994,20 +1046,22 @@ function QuickInputView({
                           className={cn(
                             'w-full min-h-[28px] px-1.5 py-1 rounded-md text-[10px] font-semibold transition-all',
                             'active:scale-95 disabled:opacity-40',
-                            isActive
-                              ? 'ring-2 ring-offset-1 ring-primary bg-primary text-white shadow-md'
-                              : hasOtherSelection
-                                ? cn(
-                                    'text-white/70 shadow-sm opacity-50 hover:opacity-80',
-                                    preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
-                                  )
-                                : cn(
-                                    'text-white shadow-sm hover:opacity-90',
-                                    preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
-                                  )
+                            isCheckedOut
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : isActive
+                                ? 'ring-2 ring-offset-1 ring-primary bg-primary text-white shadow-md'
+                                : hasOtherSelection
+                                  ? cn(
+                                      'text-white/70 shadow-sm opacity-50 hover:opacity-80',
+                                      preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
+                                    )
+                                  : cn(
+                                      'text-white shadow-sm hover:opacity-90',
+                                      preset.color || (preset.score >= 9 ? 'bg-emerald-600' : preset.score >= 7 ? 'bg-blue-500' : 'bg-amber-500')
+                                    )
                           )}
                           onClick={() => onQuickScore(student.id, preset.score, preset.label)}
-                          disabled={isSaving}
+                          disabled={isSaving || isCheckedOut}
                         >
                           {isSaving ? (
                             <RefreshCw className="w-3 h-3 animate-spin mx-auto" />
@@ -1122,14 +1176,22 @@ function PeriodTableView({
               const studentScores = focusScoresByPeriod[student.id] || {};
               const scores = periods.map(p => studentScores[p.id]?.score ?? null).filter((s): s is number => s !== null);
               const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10 : null;
+              const isCheckedOut = student.status === 'checked_out';
 
               return (
-                <tr key={student.id} className="hover:bg-gray-50/50">
-                  <td className="sticky left-0 z-10 bg-white px-2 py-1 border-r">
-                    <span className="font-semibold text-primary text-xs">{student.seatNumber ?? '-'}</span>
+                <tr key={student.id} className={cn(
+                  isCheckedOut ? 'opacity-40 bg-gray-50' : 'hover:bg-gray-50/50'
+                )}>
+                  <td className={cn('sticky left-0 z-10 px-2 py-1 border-r', isCheckedOut ? 'bg-gray-50' : 'bg-white')}>
+                    <span className={cn('font-semibold text-xs', isCheckedOut ? 'text-gray-400' : 'text-primary')}>{student.seatNumber ?? '-'}</span>
                   </td>
-                  <td className="sticky left-10 z-10 bg-white px-2 py-1 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                    <span className="font-medium text-xs truncate block max-w-[60px]">{student.name}</span>
+                  <td className={cn('sticky left-10 z-10 px-2 py-1 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]', isCheckedOut ? 'bg-gray-50' : 'bg-white')}>
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-xs truncate block max-w-[60px]">{student.name}</span>
+                      {isCheckedOut && (
+                        <span className="text-[9px] text-gray-400 bg-gray-200 px-1 py-0.5 rounded shrink-0">퇴실</span>
+                      )}
+                    </div>
                   </td>
                   {periods.map((period) => {
                     const cellKey = `${student.id}-${period.id}`;
@@ -1142,34 +1204,46 @@ function PeriodTableView({
                         key={period.id}
                         className={cn(
                           'px-0.5 py-1 text-center',
-                          isCurrentPeriod && 'bg-primary/5',
-                          scoreData && getScoreBgOnly(scoreData.score)
+                          !isCheckedOut && isCurrentPeriod && 'bg-primary/5',
+                          !isCheckedOut && scoreData && getScoreBgOnly(scoreData.score)
                         )}
                       >
-                        <div className="relative">
-                          <select
-                            value={scoreData ? `${scoreData.score}:${scoreData.note || ''}` : ''}
-                            onChange={(e) => onScoreChange(student.id, period.id, e.target.value)}
-                            disabled={isSaving}
-                            className={cn(
-                              'w-full min-h-[28px] px-0.5 py-0.5 rounded-md border text-[10px] font-medium text-center appearance-none cursor-pointer',
-                              'focus:outline-none focus:ring-2 focus:ring-primary/50',
-                              scoreData
-                                ? cn('border-transparent font-bold', getScoreColor(scoreData.score))
-                                : 'border-gray-200 text-gray-400',
-                              isSaving && 'opacity-50'
+                        {isCheckedOut ? (
+                          <div className="w-full min-h-[28px] flex items-center justify-center">
+                            {scoreData ? (
+                              <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold', getScoreColor(scoreData.score))}>
+                                {scoreData.score}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">-</span>
                             )}
-                          >
-                            {scoreOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                          {isSaving && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-md">
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin text-primary" />
-                            </div>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <select
+                              value={scoreData ? `${scoreData.score}:${scoreData.note || ''}` : ''}
+                              onChange={(e) => onScoreChange(student.id, period.id, e.target.value)}
+                              disabled={isSaving}
+                              className={cn(
+                                'w-full min-h-[28px] px-0.5 py-0.5 rounded-md border text-[10px] font-medium text-center appearance-none cursor-pointer',
+                                'focus:outline-none focus:ring-2 focus:ring-primary/50',
+                                scoreData
+                                  ? cn('border-transparent font-bold', getScoreColor(scoreData.score))
+                                  : 'border-gray-200 text-gray-400',
+                                isSaving && 'opacity-50'
+                              )}
+                            >
+                              {scoreOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                            {isSaving && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-md">
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin text-primary" />
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     );
                   })}

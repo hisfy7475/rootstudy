@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getAttendanceBoard, getWeeklyAttendance } from '@/lib/actions/admin';
+import { createClient } from '@/lib/supabase/client';
 import {
   RefreshCw,
   Printer,
@@ -237,17 +238,31 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  // 30초마다 자동 새로고침 (일별 뷰에서만, page 1 데이터로 교체)
+  // Realtime: attendance 테이블 변경 감지 → 즉시 새로고침 (일별 뷰에서만)
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (viewMode !== 'daily') return;
-    const interval = setInterval(() => {
-      skipPageEffectRef.current = true;
-      setPage(1);
-      setHasMore(true);
-      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [viewMode, selectedDate, pageSize, activeFilter]);
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-attendance-board')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+        if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+        realtimeTimerRef.current = setTimeout(() => {
+          skipPageEffectRef.current = true;
+          setPage(1);
+          setHasMore(true);
+          handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
+        }, 500);
+      })
+      .subscribe();
+
+    return () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch]);
 
   // 날짜 변경 시 데이터 초기화 및 1페이지 로드
   useEffect(() => {

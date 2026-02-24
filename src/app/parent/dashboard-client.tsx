@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useEffect, useTransition, useCallback } from 'react';
 import { StudentInfoCard } from '@/components/parent/student-info-card';
 import { StudentStatusCard } from '@/components/parent/student-status-card';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
@@ -26,6 +26,8 @@ import { ko } from 'date-fns/locale';
 import { DAY_NAMES } from '@/lib/constants';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { approveAbsenceSchedule, rejectAbsenceSchedule } from '@/lib/actions/absence-schedule';
+import { getParentDashboardData } from '@/lib/actions/parent';
+import { createClient } from '@/lib/supabase/client';
 
 type AttendanceStatus = 'checked_in' | 'checked_out' | 'on_break';
 
@@ -72,10 +74,48 @@ interface DashboardProps {
 }
 
 export function ParentDashboardClient({
-  students,
+  students: initialStudents,
   pendingSchedules,
 }: DashboardProps) {
+  const [students, setStudents] = useState(initialStudents);
   const [isPending, startTransition] = useTransition();
+
+  const refreshStudents = useCallback(async () => {
+    try {
+      const data = await getParentDashboardData();
+      setStudents(data.students);
+    } catch (error) {
+      console.error('Failed to refresh students:', error);
+    }
+  }, []);
+
+  // attendance 테이블 변경 시 자녀 상태 실시간 갱신
+  useEffect(() => {
+    if (initialStudents.length === 0) return;
+
+    const studentIds = initialStudents.map(s => s.student.id);
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('parent-attendance')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendance',
+          filter: `student_id=in.(${studentIds.join(',')})`,
+        },
+        () => {
+          refreshStudents();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [initialStudents, refreshStudents]);
 
   const formatTimeRange = (start: string, end: string) => {
     return `${start.slice(0, 5)} ~ ${end.slice(0, 5)}`;

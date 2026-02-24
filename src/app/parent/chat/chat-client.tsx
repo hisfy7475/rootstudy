@@ -6,6 +6,7 @@ import { ChatMessageData } from '@/components/shared/chat';
 interface ParentChatClientProps {
   roomId: string;
   initialMessages: ChatMessageData[];
+  initialHasMore: boolean;
   currentUserId: string;
   currentUserName: string;
   studentName: string;
@@ -14,6 +15,7 @@ interface ParentChatClientProps {
 export function ParentChatClient({
   roomId,
   initialMessages,
+  initialHasMore,
   currentUserId,
   currentUserName,
   studentName,
@@ -24,6 +26,7 @@ export function ParentChatClient({
         <ChatRoom
           roomId={roomId}
           initialMessages={initialMessages}
+          initialHasMore={initialHasMore}
           currentUserId={currentUserId}
           currentUserType="parent"
           currentUserName={currentUserName}

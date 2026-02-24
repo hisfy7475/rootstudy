@@ -175,7 +175,7 @@ export async function getAdminUnreadChatCount() {
   return { count: count || 0 };
 }
 
-// 관리자용 채팅방 목록 조회
+// 관리자용 채팅방 목록 조회 (단일 RPC로 N+1 해소)
 export async function getChatRoomList() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -184,7 +184,6 @@ export async function getChatRoomList() {
     return { error: '로그인이 필요합니다.' };
   }
 
-  // 관리자 확인
   const { data: profile } = await supabase
     .from('profiles')
     .select('user_type')
@@ -195,78 +194,70 @@ export async function getChatRoomList() {
     return { error: '관리자 권한이 필요합니다.' };
   }
 
-  // 모든 채팅방 조회 (학생 정보 포함)
-  const { data: rooms, error } = await supabase
-    .from('chat_rooms')
-    .select(`
-      *,
-      student_profiles!inner (
-        id,
-        seat_number,
-        profiles!inner (
-          name
-        )
-      )
-    `)
-    .order('created_at', { ascending: false });
+  const { data: rooms, error } = await supabase.rpc('get_chat_room_list');
 
   if (error) {
     console.error('Error fetching chat rooms:', error);
     return { error: '채팅방 목록을 가져오는데 실패했습니다.' };
   }
 
-  // 각 채팅방의 읽지 않은 메시지 수 계산
-  const roomsWithUnread = await Promise.all(
-    (rooms || []).map(async (room) => {
-      const { count } = await supabase
-        .from('chat_messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('room_id', room.id)
-        .eq('is_read_by_admin', false);
+  const formatted = (rooms || []).map((room: {
+    id: string;
+    student_id: string;
+    created_at: string;
+    student_name: string;
+    seat_number: number | null;
+    unread_count: number;
+    last_message: string | null;
+    last_message_at: string;
+  }) => ({
+    id: room.id,
+    student_id: room.student_id,
+    student_name: room.student_name || '알 수 없음',
+    seat_number: room.seat_number,
+    unread_count: Number(room.unread_count) || 0,
+    last_message: room.last_message,
+    last_message_at: room.last_message_at || room.created_at,
+    created_at: room.created_at,
+  }));
 
-      // 마지막 메시지 조회
-      const { data: lastMessage } = await supabase
-        .from('chat_messages')
-        .select('content, created_at, sender_id')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      const studentProfile = Array.isArray(room.student_profiles)
-        ? room.student_profiles[0]
-        : room.student_profiles;
-
-      const profile = studentProfile?.profiles;
-      const profileData = Array.isArray(profile) ? profile[0] : profile;
-
-      return {
-        id: room.id,
-        student_id: room.student_id,
-        student_name: profileData?.name || '알 수 없음',
-        seat_number: studentProfile?.seat_number || null,
-        unread_count: count || 0,
-        last_message: lastMessage?.content || null,
-        last_message_at: lastMessage?.created_at || room.created_at,
-        created_at: room.created_at,
-      };
-    })
-  );
-
-  // 마지막 메시지 시간순 정렬
-  roomsWithUnread.sort((a, b) => 
-    new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
-  );
-
-  return { data: roomsWithUnread };
+  return { data: formatted };
 }
 
 // ============================================
 // 메시지 관련
 // ============================================
 
-// 채팅 메시지 목록 조회
-export async function getChatMessages(roomId: string) {
+// 메시지 포맷 변환 헬퍼
+function formatMessages(messages: Array<Record<string, unknown>>) {
+  return messages.map((msg) => {
+    const senderProfile = Array.isArray(msg.profiles)
+      ? msg.profiles[0]
+      : msg.profiles;
+
+    const sp = senderProfile as { user_type?: string; name?: string } | null;
+    const senderName = sp?.user_type === 'admin'
+      ? '루트스터디센터'
+      : (sp?.name || '알 수 없음');
+
+    return {
+      id: msg.id as string,
+      room_id: msg.room_id as string,
+      sender_id: msg.sender_id as string,
+      sender_name: senderName,
+      sender_type: sp?.user_type || 'unknown',
+      content: msg.content as string,
+      image_url: msg.image_url as string | null,
+      is_read_by_student: msg.is_read_by_student as boolean,
+      is_read_by_parent: msg.is_read_by_parent as boolean,
+      is_read_by_admin: msg.is_read_by_admin as boolean,
+      created_at: msg.created_at as string,
+    };
+  });
+}
+
+// 채팅 메시지 목록 조회 (최근 N개, 페이지네이션)
+export async function getChatMessages(roomId: string, limit = 50) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -284,40 +275,48 @@ export async function getChatMessages(roomId: string) {
       )
     `)
     .eq('room_id', roomId)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
   if (error) {
     console.error('Error fetching messages:', error);
     return { error: '메시지를 가져오는데 실패했습니다.' };
   }
 
-  // 메시지 형식 변환
-  const formattedMessages = (messages || []).map((msg) => {
-    const senderProfile = Array.isArray(msg.profiles) 
-      ? msg.profiles[0] 
-      : msg.profiles;
+  const reversed = (messages || []).reverse();
+  return { data: formatMessages(reversed), hasMore: (messages || []).length >= limit };
+}
 
-    // 관리자인 경우 '루트스터디센터'로 표시
-    const senderName = senderProfile?.user_type === 'admin'
-      ? '루트스터디센터'
-      : (senderProfile?.name || '알 수 없음');
+// 이전 메시지 조회 (커서 기반 페이지네이션)
+export async function getOlderMessages(roomId: string, before: string, limit = 50) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-    return {
-      id: msg.id,
-      room_id: msg.room_id,
-      sender_id: msg.sender_id,
-      sender_name: senderName,
-      sender_type: senderProfile?.user_type || 'unknown',
-      content: msg.content,
-      image_url: msg.image_url,
-      is_read_by_student: msg.is_read_by_student,
-      is_read_by_parent: msg.is_read_by_parent,
-      is_read_by_admin: msg.is_read_by_admin,
-      created_at: msg.created_at,
-    };
-  });
+  if (!user) {
+    return { error: '로그인이 필요합니다.' };
+  }
 
-  return { data: formattedMessages };
+  const { data: messages, error } = await supabase
+    .from('chat_messages')
+    .select(`
+      *,
+      profiles:sender_id (
+        name,
+        user_type
+      )
+    `)
+    .eq('room_id', roomId)
+    .lt('created_at', before)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Error fetching older messages:', error);
+    return { error: '이전 메시지를 가져오는데 실패했습니다.' };
+  }
+
+  const reversed = (messages || []).reverse();
+  return { data: formatMessages(reversed), hasMore: (messages || []).length >= limit };
 }
 
 // 이미지 업로드

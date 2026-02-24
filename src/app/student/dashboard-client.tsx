@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useEffect, useTransition, useCallback } from 'react';
 import { TimerDisplay } from '@/components/student/timer-display';
 import { ExamTimer } from '@/components/student/exam-timer';
 import { SwipeableTimer } from '@/components/student/swipeable-timer';
 import { StatusBadge, type AttendanceStatus } from '@/components/student/status-badge';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
-import { changeSubject } from '@/lib/actions/student';
+import { changeSubject, getTodayAttendance, getTodayStudyTime } from '@/lib/actions/student';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 
 interface WeeklyProgressData {
   goalHours: number;
@@ -17,6 +18,7 @@ interface WeeklyProgressData {
 }
 
 interface DashboardProps {
+  userId: string;
   initialStatus: AttendanceStatus;
   initialStudyTime: number;
   checkInTime: string | null;
@@ -27,17 +29,59 @@ interface DashboardProps {
 }
 
 export function StudentDashboardClient({
+  userId,
   initialStatus,
   initialStudyTime,
-  checkInTime,
+  checkInTime: initialCheckInTime,
   weeklyGoals,
   currentSubject,
   weeklyProgress,
   availableSubjects,
 }: DashboardProps) {
-  const status: AttendanceStatus = initialStatus;
+  const [status, setStatus] = useState<AttendanceStatus>(initialStatus);
+  const [studyTime, setStudyTime] = useState(initialStudyTime);
+  const [checkInTime, setCheckInTime] = useState(initialCheckInTime);
   const [selectedSubject, setSelectedSubject] = useState<string | null>(currentSubject);
   const [isPending, startTransition] = useTransition();
+
+  const refreshAttendance = useCallback(async () => {
+    try {
+      const [attendanceData, studyTimeData] = await Promise.all([
+        getTodayAttendance(),
+        getTodayStudyTime(),
+      ]);
+      setStatus(attendanceData.status);
+      setStudyTime(studyTimeData.totalSeconds);
+      setCheckInTime(studyTimeData.checkInTime);
+    } catch (error) {
+      console.error('Failed to refresh attendance:', error);
+    }
+  }, []);
+
+  // 본인 attendance 변경 시 실시간 갱신
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('student-attendance')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendance',
+          filter: `student_id=eq.${userId}`,
+        },
+        () => {
+          refreshAttendance();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, refreshAttendance]);
 
   // 주간 목표 데이터 변환
   const weekDays = weeklyGoals.map(g => ({
@@ -45,7 +89,6 @@ export function StudentDashboardClient({
     achieved: g.achieved,
   }));
 
-  // 타이머 시작 시간 계산
   const startTime = checkInTime ? new Date(checkInTime) : null;
   const isTimerActive = status === 'checked_in';
 
@@ -95,7 +138,7 @@ export function StudentDashboardClient({
         <TimerDisplay
           startTime={startTime}
           isActive={isTimerActive}
-          initialSeconds={initialStudyTime}
+          initialSeconds={studyTime}
           className="py-4"
         />
         <ExamTimer className="py-4" />

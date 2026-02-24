@@ -35,10 +35,11 @@ export function AdminChatClient({
   const [rooms, setRooms] = useState<ChatRoomItem[]>(initialRooms);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoomItem | null>(null);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
+  const [messagesHasMore, setMessagesHasMore] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 채팅방 목록 Realtime 업데이트
+  // 채팅방 목록 Realtime 업데이트 (부분 갱신)
   useEffect(() => {
     const supabase = createClient();
 
@@ -51,12 +52,27 @@ export function AdminChatClient({
           schema: 'public',
           table: 'chat_messages',
         },
-        async () => {
-          // 새 메시지가 오면 목록 새로고침
-          const result = await getChatRoomList();
-          if (result.data) {
-            setRooms(result.data);
-          }
+        (payload) => {
+          const msgRoomId = payload.new.room_id as string;
+          const msgContent = payload.new.content as string;
+          const msgCreatedAt = payload.new.created_at as string;
+          const isCurrentRoom = selectedRoom?.id === msgRoomId;
+
+          setRooms((prev) => {
+            const updated = prev.map((r) =>
+              r.id === msgRoomId
+                ? {
+                    ...r,
+                    last_message: msgContent,
+                    last_message_at: msgCreatedAt,
+                    unread_count: isCurrentRoom ? r.unread_count : r.unread_count + 1,
+                  }
+                : r
+            );
+            return updated.sort(
+              (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+            );
+          });
         }
       )
       .on(
@@ -67,7 +83,6 @@ export function AdminChatClient({
           table: 'chat_rooms',
         },
         async () => {
-          // 새 채팅방이 생성되면 목록 새로고침
           const result = await getChatRoomList();
           if (result.data) {
             setRooms(result.data);
@@ -79,17 +94,18 @@ export function AdminChatClient({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [selectedRoom?.id]);
 
-  // 채팅방 선택 시 메시지 로드
+  // 채팅방 선택 시 메시지 로드 (최근 50개)
   const handleSelectRoom = async (room: ChatRoomItem) => {
     setSelectedRoom(room);
     setIsLoadingMessages(true);
 
     try {
-      const result = await getChatMessages(room.id);
+      const result = await getChatMessages(room.id, 50);
       if (result.data) {
         setMessages(result.data);
+        setMessagesHasMore(result.hasMore ?? false);
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
@@ -97,11 +113,10 @@ export function AdminChatClient({
       setIsLoadingMessages(false);
     }
 
-    // 읽음 처리 후 목록 업데이트
-    const result = await getChatRoomList();
-    if (result.data) {
-      setRooms(result.data);
-    }
+    // 읽음 처리 후 해당 방의 unread만 0으로 갱신
+    setRooms((prev) =>
+      prev.map((r) => r.id === room.id ? { ...r, unread_count: 0 } : r)
+    );
   };
 
   // 채팅방 목록으로 돌아가기
@@ -269,6 +284,7 @@ export function AdminChatClient({
             <ChatRoom
               roomId={selectedRoom.id}
               initialMessages={messages}
+              initialHasMore={messagesHasMore}
               currentUserId={currentUserId}
               currentUserType="admin"
               currentUserName={currentUserName}

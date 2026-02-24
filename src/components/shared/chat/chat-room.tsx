@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatMessageList, ChatMessageData } from './chat-message-list';
 import { ChatInput } from './chat-input';
-import { sendMessage, markAsRead, uploadChatImage } from '@/lib/actions/chat';
+import { sendMessage, markAsRead, uploadChatImage, getOlderMessages } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft } from 'lucide-react';
 
 interface ChatRoomProps {
   roomId: string;
   initialMessages: ChatMessageData[];
+  initialHasMore?: boolean;
   currentUserId: string;
   currentUserType: 'student' | 'parent' | 'admin';
   currentUserName?: string;
@@ -19,15 +20,13 @@ interface ChatRoomProps {
   showBackButton?: boolean;
 }
 
-const userTypeLabels: Record<string, string> = {
-  student: '학생',
-  parent: '학부모',
-  admin: '관리자',
-};
+// 참여자 프로필 캐시 (Realtime에서 추가 쿼리 방지)
+type ProfileCache = Map<string, { name: string; user_type: string }>;
 
 export function ChatRoom({
   roomId,
   initialMessages,
+  initialHasMore = false,
   currentUserId,
   currentUserType,
   currentUserName = '나',
@@ -37,15 +36,60 @@ export function ChatRoom({
   showBackButton = false,
 }: ChatRoomProps) {
   const [messages, setMessages] = useState<ChatMessageData[]>(initialMessages);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const pendingMessageIds = useRef<Set<string>>(new Set());
+  const profileCacheRef = useRef<ProfileCache>(new Map());
+
+  // initialMessages로부터 프로필 캐시 구성
+  useEffect(() => {
+    const cache = profileCacheRef.current;
+    initialMessages.forEach((msg) => {
+      if (!cache.has(msg.sender_id)) {
+        cache.set(msg.sender_id, {
+          name: msg.sender_name,
+          user_type: msg.sender_type,
+        });
+      }
+    });
+  }, [initialMessages]);
 
   // initialMessages가 변경되면 state 동기화 (관리자가 다른 채팅방 선택 시)
   useEffect(() => {
     setMessages(initialMessages);
-  }, [initialMessages]);
+    setHasMore(initialHasMore);
+  }, [initialMessages, initialHasMore]);
 
-  // Realtime 구독
+  // 이전 메시지 로드 (상단 무한스크롤)
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore || messages.length === 0) return;
+    setIsLoadingMore(true);
+    try {
+      const oldestMessage = messages[0];
+      const result = await getOlderMessages(roomId, oldestMessage.created_at);
+      if (result.data && result.data.length > 0) {
+        result.data.forEach((msg) => {
+          if (!profileCacheRef.current.has(msg.sender_id)) {
+            profileCacheRef.current.set(msg.sender_id, {
+              name: msg.sender_name,
+              user_type: msg.sender_type,
+            });
+          }
+        });
+        setMessages((prev) => [...result.data!, ...prev]);
+        setHasMore(result.hasMore ?? false);
+      } else {
+        setHasMore(false);
+      }
+    } catch {
+      console.error('Failed to load older messages');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, hasMore, messages, roomId]);
+
+  // Realtime 구독 (프로필 캐시 활용)
   useEffect(() => {
     const supabase = createClient();
 
@@ -60,30 +104,37 @@ export function ChatRoom({
           filter: `room_id=eq.${roomId}`,
         },
         async (payload) => {
-          // 이미 로컬에 추가된 메시지면 스킵 (본인이 보낸 메시지)
           if (pendingMessageIds.current.has(payload.new.id)) {
             pendingMessageIds.current.delete(payload.new.id);
             return;
           }
 
-          // 새 메시지의 발신자 정보 가져오기
-          const { data: senderProfile } = await supabase
-            .from('profiles')
-            .select('name, user_type')
-            .eq('id', payload.new.sender_id)
-            .single();
+          const senderId = payload.new.sender_id as string;
+          let cached = profileCacheRef.current.get(senderId);
 
-          // 관리자인 경우 '루트스터디센터'로 표시
-          const senderName = senderProfile?.user_type === 'admin'
+          if (!cached) {
+            const { data: senderProfile } = await supabase
+              .from('profiles')
+              .select('name, user_type')
+              .eq('id', senderId)
+              .single();
+            cached = {
+              name: senderProfile?.name || '알 수 없음',
+              user_type: senderProfile?.user_type || 'unknown',
+            };
+            profileCacheRef.current.set(senderId, cached);
+          }
+
+          const senderName = cached.user_type === 'admin'
             ? '루트스터디센터'
-            : (senderProfile?.name || '알 수 없음');
+            : cached.name;
 
           const newMessage: ChatMessageData = {
             id: payload.new.id,
             room_id: payload.new.room_id,
-            sender_id: payload.new.sender_id,
+            sender_id: senderId,
             sender_name: senderName,
-            sender_type: senderProfile?.user_type || 'unknown',
+            sender_type: cached.user_type,
             content: payload.new.content,
             image_url: payload.new.image_url,
             is_read_by_student: payload.new.is_read_by_student,
@@ -92,13 +143,15 @@ export function ChatRoom({
             created_at: payload.new.created_at,
           };
 
-          // 중복 방지
           setMessages((prev) => {
-            if (prev.some((m) => m.id === newMessage.id)) {
-              return prev;
-            }
+            if (prev.some((m) => m.id === newMessage.id)) return prev;
             return [...prev, newMessage];
           });
+
+          // 타인 메시지 수신 시 읽음 처리
+          if (senderId !== currentUserId) {
+            markAsRead(roomId);
+          }
         }
       )
       .subscribe();
@@ -106,12 +159,12 @@ export function ChatRoom({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomId]);
+  }, [roomId, currentUserId]);
 
-  // 읽음 표시
+  // 채팅방 진입 시 1회 읽음 처리
   useEffect(() => {
     markAsRead(roomId);
-  }, [roomId, messages]);
+  }, [roomId]);
 
   // 메시지 전송
   const handleSend = useCallback(
@@ -121,9 +174,7 @@ export function ChatRoom({
       let imageUrl: string | null = null;
       let tempImagePreview: string | null = null;
 
-      // 이미지가 있으면 먼저 업로드
       if (imageFile) {
-        // 임시 미리보기 URL 생성
         tempImagePreview = URL.createObjectURL(imageFile);
 
         const formData = new FormData();
@@ -140,7 +191,6 @@ export function ChatRoom({
         imageUrl = uploadResult.data?.url || null;
       }
       
-      // 낙관적 업데이트: 즉시 메시지를 로컬에 추가
       const tempId = `temp-${Date.now()}`;
       const optimisticMessage: ChatMessageData = {
         id: tempId,
@@ -161,12 +211,10 @@ export function ChatRoom({
       try {
         const result = await sendMessage(roomId, content, imageUrl);
         if (result.error) {
-          // 실패 시 낙관적 메시지 제거
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           console.error('Send message error:', result.error);
           alert(result.error);
         } else if (result.data) {
-          // 성공 시 임시 ID를 실제 ID로 교체하고, Realtime에서 중복 방지
           pendingMessageIds.current.add(result.data.id);
           setMessages((prev) =>
             prev.map((m) =>
@@ -182,7 +230,6 @@ export function ChatRoom({
           );
         }
       } catch (error) {
-        // 실패 시 낙관적 메시지 제거
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
         console.error('Send message error:', error);
         alert('메시지 전송에 실패했습니다.');
@@ -215,7 +262,13 @@ export function ChatRoom({
       </div>
 
       {/* 메시지 목록 */}
-      <ChatMessageList messages={messages} currentUserId={currentUserId} />
+      <ChatMessageList
+        messages={messages}
+        currentUserId={currentUserId}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={handleLoadMore}
+      />
 
       {/* 입력창 */}
       <ChatInput onSend={handleSend} disabled={isSending} />
