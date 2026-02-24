@@ -2457,6 +2457,21 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
         .from('chat_messages')
         .update({ sender_id: null })
         .eq('sender_id', userId);
+
+      await adminClient
+        .from('student_absence_schedules')
+        .update({ created_by: null })
+        .eq('created_by', userId);
+
+      await adminClient
+        .from('student_absence_schedules')
+        .update({ approved_by: null })
+        .eq('approved_by', userId);
+
+      await adminClient
+        .from('student_absence_schedules')
+        .update({ rejected_by: null })
+        .eq('rejected_by', userId);
     }
 
     // 2. profiles 삭제 (CASCADE로 student_profiles/parent_profiles 및 관련 데이터 자동 삭제)
