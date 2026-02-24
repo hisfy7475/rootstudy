@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // 인증이 필요없는 경로
-  const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password', '/api/cron'];
+  const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   // 사용자 타입별 경로 매핑

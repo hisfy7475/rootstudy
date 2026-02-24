@@ -229,7 +229,7 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * 비밀번호 재설정 이메일 발송
+ * 비밀번호 재설정 이메일 발송 (6자리 OTP 코드)
  */
 export async function resetPassword(formData: FormData): Promise<AuthResult> {
   const email = formData.get('email') as string;
@@ -240,13 +240,64 @@ export async function resetPassword(formData: FormData): Promise<AuthResult> {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/reset-password`,
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
+ * 비밀번호 재설정 OTP 코드 검증
+ */
+export async function verifyResetCode(email: string, token: string): Promise<AuthResult> {
+  if (!email || !token) {
+    return { success: false, error: '이메일과 인증 코드를 입력해주세요.' };
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'recovery',
+  });
+
+  if (error) {
+    if (error.message.includes('expired')) {
+      return { success: false, error: '인증 코드가 만료되었습니다. 다시 요청해주세요.' };
+    }
+    return { success: false, error: '인증 코드가 올바르지 않습니다.' };
+  }
+
+  return { success: true };
+}
+
+/**
+ * OTP 인증 후 새 비밀번호 설정
+ */
+export async function resetUpdatePassword(newPassword: string): Promise<AuthResult> {
+  if (!newPassword) {
+    return { success: false, error: '새 비밀번호를 입력해주세요.' };
+  }
+
+  if (newPassword.length < 6) {
+    return { success: false, error: '비밀번호는 6자 이상이어야 합니다.' };
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
   });
 
   if (error) {
     return { success: false, error: error.message };
   }
+
+  await supabase.auth.signOut();
 
   return { success: true };
 }
