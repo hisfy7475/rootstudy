@@ -2428,9 +2428,8 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
   }
 
   try {
-    // 1. NO ACTION FK 테이블 처리 (학생인 경우)
+    // 1. NO ACTION FK 테이블 처리
     if (userType === 'student') {
-      // student_profiles에서 student_id 조회
       const { data: studentProfile } = await adminClient
         .from('student_profiles')
         .select('id')
@@ -2438,18 +2437,26 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
         .single();
 
       if (studentProfile) {
-        // notifications.student_id → NULL로 설정
         await adminClient
           .from('notifications')
           .update({ student_id: null })
           .eq('student_id', studentProfile.id);
 
-        // chat_messages.sender_id → NULL로 설정
         await adminClient
           .from('chat_messages')
           .update({ sender_id: null })
           .eq('sender_id', userId);
       }
+    } else if (userType === 'parent') {
+      await adminClient
+        .from('notifications')
+        .update({ parent_id: null })
+        .eq('parent_id', userId);
+
+      await adminClient
+        .from('chat_messages')
+        .update({ sender_id: null })
+        .eq('sender_id', userId);
     }
 
     // 2. profiles 삭제 (CASCADE로 student_profiles/parent_profiles 및 관련 데이터 자동 삭제)
