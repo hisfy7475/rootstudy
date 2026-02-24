@@ -450,6 +450,27 @@ export function FocusClient({
     };
   }, [refreshData]);
 
+  // 브라우저 탭이 다시 포커스될 때 데이터 새로고침 (WebSocket 끊김 대비)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [refreshData]);
+
+  // 주기적 자동 새로고침 (30초 간격, Realtime 끊김 안전망)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshData();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [refreshData]);
+
   // Quick input: record a single student's focus score for selected period
   // 같은 버튼을 다시 누르면 점수 취소
   const handleQuickFocusScore = useCallback(async (studentId: string, score: number, label: string) => {
