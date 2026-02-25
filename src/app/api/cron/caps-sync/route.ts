@@ -152,35 +152,33 @@ export async function GET(request: Request) {
 
     // attendance 테이블에 저장 (중복 방지)
     if (attendanceRecords.length > 0) {
-      // 개별 레코드 키로 중복 체크 (교차곱 방지)
-      const recordKeys = attendanceRecords.map(
-        (r) => `${r.student_id}_${r.timestamp}`
-      );
-      const uniqueKeys = [...new Set(recordKeys)];
+      // 타임스탬프를 UTC ISO로 정규화하는 헬퍼 (KST/UTC 형식 차이 해결)
+      const normalizeTimestamp = (ts: string) => new Date(ts).toISOString();
 
-      // 배치로 나누어 기존 기록 조회 (Supabase 1000행 제한 대응)
+      const studentIds = [...new Set(attendanceRecords.map((r) => r.student_id))];
+      const timestamps = [...new Set(attendanceRecords.map((r) => r.timestamp))];
+
+      // 기존 기록 조회 (배치 처리로 Supabase 행 제한 대응)
       const existingSet = new Set<string>();
-      const BATCH_SIZE = 200;
-      for (let i = 0; i < uniqueKeys.length; i += BATCH_SIZE) {
-        const batch = uniqueKeys.slice(i, i + BATCH_SIZE);
-        const batchStudentIds = [...new Set(batch.map((k) => k.split('_')[0]))];
-        const batchTimestamps = [...new Set(batch.map((k) => k.substring(k.indexOf('_') + 1)))];
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
+        const batchStudentIds = studentIds.slice(i, i + BATCH_SIZE);
 
         const { data: existingRecords } = await supabase
           .from('attendance')
           .select('student_id, timestamp')
           .in('student_id', batchStudentIds)
-          .in('timestamp', batchTimestamps)
+          .in('timestamp', timestamps)
           .eq('source', 'caps')
           .limit(10000);
 
         existingRecords?.forEach((r) => {
-          existingSet.add(`${r.student_id}_${r.timestamp}`);
+          existingSet.add(`${r.student_id}_${normalizeTimestamp(r.timestamp)}`);
         });
       }
 
       const newRecords = attendanceRecords.filter(
-        (r) => !existingSet.has(`${r.student_id}_${r.timestamp}`)
+        (r) => !existingSet.has(`${r.student_id}_${normalizeTimestamp(r.timestamp)}`)
       );
 
       if (newRecords.length > 0) {
