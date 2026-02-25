@@ -47,6 +47,7 @@ export async function getGates(): Promise<CapsGate[]> {
 }
 
 // 특정 시점 이후의 출입 기록 조회
+// >= 사용: 같은 초의 레코드 누락 방지 (중복은 route 측에서 처리)
 export async function getEnterRecordsAfter(
   afterDatetime: string | null
 ): Promise<CapsEnterRecord[]> {
@@ -56,19 +57,17 @@ export async function getEnterRecordsAfter(
   const request = pool.request();
   
   if (afterDatetime) {
-    // 마지막 동기화 시점 이후 기록만 조회
     query = `
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
       FROM tenter 
-      WHERE CONCAT(e_date, e_time) > @afterDatetime 
+      WHERE CONCAT(e_date, e_time) >= @afterDatetime 
         AND e_id > 0
       ORDER BY e_date, e_time
     `;
     request.input('afterDatetime', sql.VarChar, afterDatetime);
   } else {
-    // 최근 2분간의 기록만 조회 (첫 동기화 시)
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-    const sdate = formatCapsDatetime(twoMinutesAgo);
+    const sdate = formatCapsDatetimeKST(twoMinutesAgo);
     
     query = `
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
@@ -84,14 +83,16 @@ export async function getEnterRecordsAfter(
   return result.recordset;
 }
 
-// Date를 CAPS 형식(YYYYMMDDHHmmss)으로 변환
-function formatCapsDatetime(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
+// Date를 CAPS 형식(YYYYMMDDHHmmss)으로 변환 (KST 기준)
+function formatCapsDatetimeKST(date: Date): string {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  const year = kst.getUTCFullYear();
+  const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(kst.getUTCDate()).padStart(2, '0');
+  const hours = String(kst.getUTCHours()).padStart(2, '0');
+  const minutes = String(kst.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(kst.getUTCSeconds()).padStart(2, '0');
   return `${year}${month}${day}${hours}${minutes}${seconds}`;
 }
 

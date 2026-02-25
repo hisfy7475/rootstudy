@@ -101,7 +101,13 @@ export async function GET(request: Request) {
       }
     });
 
-    // 6. 출입 기록 처리
+    // 6. 전체 레코드 기준 lastCapsDatetime 갱신 (매칭 여부 무관)
+    if (enterRecords.length > 0) {
+      const lastRecord = enterRecords[enterRecords.length - 1];
+      lastCapsDatetime = getCapsDatetimeString(lastRecord.e_date, lastRecord.e_time);
+    }
+
+    // 7. 출입 기록 처리
     const attendanceRecords: {
       student_id: string;
       type: 'check_in' | 'check_out';
@@ -112,7 +118,6 @@ export async function GET(request: Request) {
     for (const record of enterRecords) {
       const student = studentMap.get(String(record.e_id));
       if (!student) {
-        // 매칭되는 학생 없음 - 스킵
         continue;
       }
 
@@ -128,9 +133,13 @@ export async function GET(request: Request) {
 
       const timestamp = parseCapsDatetime(record.e_date, record.e_time);
 
-      // caps_id 설정(승인) 시점 이전의 기록은 무시
-      if (student.capsIdSetAt && timestamp < student.capsIdSetAt) {
-        continue;
+      // caps_id 설정(승인) 시점 이전의 기록은 무시 (Date 객체로 비교하여 타임존 정확 처리)
+      if (student.capsIdSetAt) {
+        const recordTime = new Date(timestamp);
+        const setAtTime = new Date(student.capsIdSetAt);
+        if (recordTime < setAtTime) {
+          continue;
+        }
       }
 
       attendanceRecords.push({
@@ -139,32 +148,37 @@ export async function GET(request: Request) {
         timestamp,
         source: 'caps',
       });
-
-      // 마지막 처리된 CAPS datetime 업데이트
-      const currentDatetime = getCapsDatetimeString(record.e_date, record.e_time);
-      if (!lastCapsDatetime || currentDatetime > lastCapsDatetime) {
-        lastCapsDatetime = currentDatetime;
-      }
     }
 
-    // 7. attendance 테이블에 저장 (중복 방지)
+    // attendance 테이블에 저장 (중복 방지)
     if (attendanceRecords.length > 0) {
-      // 중복 체크를 위해 기존 기록 조회
-      const timestamps = attendanceRecords.map((r) => r.timestamp);
-      const studentIds = [...new Set(attendanceRecords.map((r) => r.student_id))];
-
-      const { data: existingRecords } = await supabase
-        .from('attendance')
-        .select('student_id, timestamp')
-        .in('student_id', studentIds)
-        .in('timestamp', timestamps)
-        .eq('source', 'caps');
-
-      const existingSet = new Set(
-        existingRecords?.map((r) => `${r.student_id}_${r.timestamp}`) || []
+      // 개별 레코드 키로 중복 체크 (교차곱 방지)
+      const recordKeys = attendanceRecords.map(
+        (r) => `${r.student_id}_${r.timestamp}`
       );
+      const uniqueKeys = [...new Set(recordKeys)];
 
-      // 중복 제외하고 삽입
+      // 배치로 나누어 기존 기록 조회 (Supabase 1000행 제한 대응)
+      const existingSet = new Set<string>();
+      const BATCH_SIZE = 200;
+      for (let i = 0; i < uniqueKeys.length; i += BATCH_SIZE) {
+        const batch = uniqueKeys.slice(i, i + BATCH_SIZE);
+        const batchStudentIds = [...new Set(batch.map((k) => k.split('_')[0]))];
+        const batchTimestamps = [...new Set(batch.map((k) => k.substring(k.indexOf('_') + 1)))];
+
+        const { data: existingRecords } = await supabase
+          .from('attendance')
+          .select('student_id, timestamp')
+          .in('student_id', batchStudentIds)
+          .in('timestamp', batchTimestamps)
+          .eq('source', 'caps')
+          .limit(10000);
+
+        existingRecords?.forEach((r) => {
+          existingSet.add(`${r.student_id}_${r.timestamp}`);
+        });
+      }
+
       const newRecords = attendanceRecords.filter(
         (r) => !existingSet.has(`${r.student_id}_${r.timestamp}`)
       );
@@ -180,8 +194,6 @@ export async function GET(request: Request) {
 
         recordsSynced = newRecords.length;
 
-        // check_out 기록이 있는 학생의 현재 과목(is_current=true) 종료
-        // 학생별 가장 늦은 check_out 시간을 ended_at으로 사용
         const checkOutByStudent = new Map<string, string>();
         for (const r of newRecords) {
           if (r.type === 'check_out') {
@@ -202,7 +214,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // 8. 동기화 로그 기록
+    // 9. 동기화 로그 기록
     await supabase.from('caps_sync_log').insert({
       synced_at: new Date().toISOString(),
       records_synced: recordsSynced,
