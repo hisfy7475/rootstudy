@@ -53,20 +53,34 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
   const studyDate = getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
 
-  // 배치 쿼리: 모든 학생 데이터를 한 번에 조회
-  const [
-    { data: allAttendance },
-    { data: allSubjects },
-    { data: allFocusScores },
-    { data: allPoints },
-  ] = await Promise.all([
-    supabase
+  // Supabase max-rows(1000) 제한 우회 페이지네이션
+  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  let allAttendance: AttendanceRecord[] = [];
+  {
+    const baseQuery = () => supabase
       .from('attendance')
       .select('student_id, type, timestamp')
       .in('student_id', studentIds)
       .gte('timestamp', todayStart.toISOString())
       .lte('timestamp', todayEnd.toISOString())
-      .order('timestamp', { ascending: true }),
+      .order('timestamp', { ascending: true });
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await baseQuery().range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allAttendance = allAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+
+  // 배치 쿼리: 나머지 데이터 조회
+  const [
+    { data: allSubjects },
+    { data: allFocusScores },
+    { data: allPoints },
+  ] = await Promise.all([
     supabase
       .from('subjects')
       .select('student_id, subject_name')
@@ -1177,16 +1191,28 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
 
   const studentIds = students.map(s => s.id);
 
-  // 배치 쿼리: 전체 학생 출석 기록 한 번에 조회
-  const { data: allAttendance } = await supabase
-    .from('attendance')
-    .select('student_id, type, timestamp')
-    .in('student_id', studentIds)
-    .gte('timestamp', startDate)
-    .lte('timestamp', endDate)
-    .order('timestamp', { ascending: true });
+  // 배치 쿼리: 전체 학생 출석 기록 한 번에 조회 (페이지네이션)
+  let allExportAttendance: { student_id: string; type: string; timestamp: string }[] = [];
+  {
+    const baseQ = () => supabase
+      .from('attendance')
+      .select('student_id, type, timestamp')
+      .in('student_id', studentIds)
+      .gte('timestamp', startDate)
+      .lte('timestamp', endDate)
+      .order('timestamp', { ascending: true });
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await baseQ().range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allExportAttendance = allExportAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
-  const attendanceByStudent = groupById(allAttendance ?? []);
+  const attendanceByStudent = groupById(allExportAttendance);
 
   const results = [];
 
@@ -1902,15 +1928,27 @@ export async function getAttendanceBoard(
   const seatOrderMap = new Map(allStudentRows.map((s, i) => [s.id, i]));
 
   // Step 2: 전체 학생 출석 기록 한 번에 조회 (통계 + 상태 계산에 재사용)
-  const { data: allStudentsAttendance } = await supabase
-    .from('attendance')
-    .select('student_id, type, timestamp')
-    .in('student_id', allStudentIds)
-    .gte('timestamp', todayStart.toISOString())
-    .lte('timestamp', todayEnd.toISOString())
-    .order('timestamp', { ascending: true });
+  let allStudentsAttendance: { student_id: string; type: string; timestamp: string }[] = [];
+  {
+    const baseQ = () => supabase
+      .from('attendance')
+      .select('student_id, type, timestamp')
+      .in('student_id', allStudentIds)
+      .gte('timestamp', todayStart.toISOString())
+      .lte('timestamp', todayEnd.toISOString())
+      .order('timestamp', { ascending: true });
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await baseQ().range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allStudentsAttendance = allStudentsAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
-  const allAttendanceByStudent = groupById(allStudentsAttendance ?? []);
+  const allAttendanceByStudent = groupById(allStudentsAttendance);
 
   // Step 3: 전체 학생 상태 계산 + 통계 + 상태별 ID 맵
   let globalCheckedIn = 0, globalCheckedOut = 0, globalOnBreak = 0, globalNotYetArrived = 0;
@@ -2116,15 +2154,27 @@ export async function getWeeklyAttendance(
   const weekStart = getStudyDayBounds(dates[0]).start;
   const weekEnd = getStudyDayBounds(dates[6]).end;
 
-  // 해당 기간의 모든 출석 기록 조회
+  // 해당 기간의 모든 출석 기록 조회 (페이지네이션)
   const studentIds = (students || []).map(s => s.id);
-  const { data: allAttendance } = await supabase
-    .from('attendance')
-    .select('*')
-    .in('student_id', studentIds)
-    .gte('timestamp', weekStart.toISOString())
-    .lte('timestamp', weekEnd.toISOString())
-    .order('timestamp', { ascending: true });
+  let allAttendance: any[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabase
+        .from('attendance')
+        .select('*')
+        .in('student_id', studentIds)
+        .gte('timestamp', weekStart.toISOString())
+        .lte('timestamp', weekEnd.toISOString())
+        .order('timestamp', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allAttendance = allAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
   // 각 학생별 주간 데이터 생성
   const weeklyData = (students || []).map((student) => {
