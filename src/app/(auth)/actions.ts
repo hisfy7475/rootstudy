@@ -81,6 +81,15 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
     return { success: false, error: '학생 프로필 생성에 실패했습니다: ' + studentError.message };
   }
 
+  // 5. 채팅방 자동 생성
+  const { error: chatRoomError } = await supabaseAdmin
+    .from('chat_rooms')
+    .insert({ student_id: userId });
+
+  if (chatRoomError) {
+    console.error('채팅방 자동 생성 실패:', chatRoomError.message);
+  }
+
   return {
     success: true,
     data: { parentCode },

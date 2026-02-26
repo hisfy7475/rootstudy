@@ -22,13 +22,15 @@ export default async function AdminChatPage() {
     redirect('/');
   }
 
-  // 채팅방 목록 조회
-  const roomsResult = await getChatRoomList();
+  // 채팅방 목록 조회 (첫 30개)
+  const roomsResult = await getChatRoomList({ limit: 30, offset: 0 });
   const rooms = roomsResult.data || [];
+  const hasMore = roomsResult.hasMore ?? false;
 
   return (
     <AdminChatClient
       initialRooms={rooms}
+      initialHasMore={hasMore}
       currentUserId={user.id}
       currentUserName={profile.name || '관리자'}
     />

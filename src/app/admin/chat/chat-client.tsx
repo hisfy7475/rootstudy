@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatRoom } from '@/components/shared/chat';
 import { ChatMessageData } from '@/components/shared/chat';
 import { getChatMessages, getChatRoomList } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
-import { MessageCircle, User, Clock, ChevronRight, Search, X } from 'lucide-react';
+import { MessageCircle, User, Clock, ChevronRight, Search, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
+
+const PAGE_SIZE = 30;
 
 interface ChatRoomItem {
   id: string;
@@ -23,23 +25,103 @@ interface ChatRoomItem {
 
 interface AdminChatClientProps {
   initialRooms: ChatRoomItem[];
+  initialHasMore: boolean;
   currentUserId: string;
   currentUserName: string;
 }
 
 export function AdminChatClient({
   initialRooms,
+  initialHasMore,
   currentUserId,
   currentUserName,
 }: AdminChatClientProps) {
   const [rooms, setRooms] = useState<ChatRoomItem[]>(initialRooms);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoomItem | null>(null);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [messagesHasMore, setMessagesHasMore] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
-  // 채팅방 목록 Realtime 업데이트 (부분 갱신)
+  const sentinelRef = useRef<HTMLLIElement>(null);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+
+  // 검색 debounce (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // 검색어 변경 시 서버 재조회
+  useEffect(() => {
+    if (debouncedSearch === '' && rooms === initialRooms) return;
+
+    let cancelled = false;
+    const fetchSearchResults = async () => {
+      setIsSearching(true);
+      const result = await getChatRoomList({
+        limit: PAGE_SIZE,
+        offset: 0,
+        search: debouncedSearch || undefined,
+      });
+      if (!cancelled && result.data) {
+        setRooms(result.data);
+        setHasMore(result.hasMore ?? false);
+      }
+      if (!cancelled) setIsSearching(false);
+    };
+
+    fetchSearchResults();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  // 무한 스크롤: IntersectionObserver
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || !hasMore) return;
+    loadingRef.current = true;
+    setIsLoadingMore(true);
+
+    const result = await getChatRoomList({
+      limit: PAGE_SIZE,
+      offset: rooms.length,
+      search: debouncedSearch || undefined,
+    });
+
+    if (result.data) {
+      setRooms((prev) => [...prev, ...result.data!]);
+      setHasMore(result.hasMore ?? false);
+    }
+
+    setIsLoadingMore(false);
+    loadingRef.current = false;
+  }, [hasMore, rooms.length, debouncedSearch]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { root: listContainerRef.current, threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
+
+  // Realtime 업데이트
   useEffect(() => {
     const supabase = createClient();
 
@@ -82,10 +164,17 @@ export function AdminChatClient({
           schema: 'public',
           table: 'chat_rooms',
         },
-        async () => {
-          const result = await getChatRoomList();
+        async (payload) => {
+          const newRoomId = payload.new.id as string;
+          const result = await getChatRoomList({ limit: 1, offset: 0, search: undefined });
           if (result.data) {
-            setRooms(result.data);
+            const newRoom = result.data.find((r: ChatRoomItem) => r.id === newRoomId);
+            if (newRoom) {
+              setRooms((prev) => {
+                if (prev.some((r) => r.id === newRoomId)) return prev;
+                return [newRoom, ...prev];
+              });
+            }
           }
         }
       )
@@ -96,7 +185,6 @@ export function AdminChatClient({
     };
   }, [selectedRoom?.id]);
 
-  // 채팅방 선택 시 메시지 로드 (최근 50개)
   const handleSelectRoom = async (room: ChatRoomItem) => {
     setSelectedRoom(room);
     setIsLoadingMessages(true);
@@ -113,19 +201,16 @@ export function AdminChatClient({
       setIsLoadingMessages(false);
     }
 
-    // 읽음 처리 후 해당 방의 unread만 0으로 갱신
     setRooms((prev) =>
       prev.map((r) => r.id === room.id ? { ...r, unread_count: 0 } : r)
     );
   };
 
-  // 채팅방 목록으로 돌아가기
   const handleBack = () => {
     setSelectedRoom(null);
     setMessages([]);
   };
 
-  // 시간 포맷팅
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -142,14 +227,10 @@ export function AdminChatClient({
     }
   };
 
-  // 검색어로 채팅방 필터링
-  const filteredRooms = searchQuery.trim()
-    ? rooms.filter((room) =>
-        room.student_name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : rooms;
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
 
-  // 모바일에서는 목록/채팅 분리, PC에서는 나란히 표시
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -170,9 +251,7 @@ export function AdminChatClient({
             <div>
               <h2 className="font-semibold text-text">채팅방 목록</h2>
               <p className="text-sm text-text-muted mt-0.5">
-                {searchQuery.trim()
-                  ? `${filteredRooms.length} / ${rooms.length}개의 채팅방`
-                  : `${rooms.length}개의 채팅방`}
+                {rooms.length}개{hasMore ? '+' : ''}의 채팅방
               </p>
             </div>
             <div className="relative">
@@ -186,7 +265,7 @@ export function AdminChatClient({
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={handleClearSearch}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
                 >
                   <X className="w-4 h-4" />
@@ -195,26 +274,35 @@ export function AdminChatClient({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {rooms.length === 0 ? (
+          <div ref={listContainerRef} className="flex-1 overflow-y-auto">
+            {isSearching ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
-                <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-center">아직 채팅방이 없습니다</p>
-                <p className="text-sm text-center mt-1">
-                  학생이 채팅을 시작하면 표시됩니다
-                </p>
+                <Loader2 className="w-8 h-8 mb-3 animate-spin opacity-50" />
+                <p className="text-sm">검색 중...</p>
               </div>
-            ) : filteredRooms.length === 0 ? (
+            ) : rooms.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
-                <Search className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-center">검색 결과가 없습니다</p>
-                <p className="text-sm text-center mt-1">
-                  다른 이름으로 검색해보세요
-                </p>
+                {debouncedSearch ? (
+                  <>
+                    <Search className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-center">검색 결과가 없습니다</p>
+                    <p className="text-sm text-center mt-1">
+                      다른 이름으로 검색해보세요
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-center">아직 채팅방이 없습니다</p>
+                    <p className="text-sm text-center mt-1">
+                      학생이 채팅을 시작하면 표시됩니다
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <ul className="divide-y divide-gray-100">
-                {filteredRooms.map((room) => (
+                {rooms.map((room) => (
                   <li key={room.id}>
                     <button
                       onClick={() => handleSelectRoom(room)}
@@ -224,13 +312,11 @@ export function AdminChatClient({
                       )}
                     >
                       <div className="flex items-start gap-3">
-                        {/* 프로필 아이콘 */}
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                           <User className="w-5 h-5 text-primary" />
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          {/* 학생 이름 + 좌석번호 */}
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium text-text truncate">
                               {room.student_name}
@@ -249,12 +335,10 @@ export function AdminChatClient({
                             )}
                           </div>
 
-                          {/* 마지막 메시지 */}
                           <p className="text-sm text-text-muted truncate mt-0.5">
                             {room.last_message || '새로운 채팅방'}
                           </p>
 
-                          {/* 시간 */}
                           <div className="flex items-center gap-1 mt-1">
                             <Clock className="w-3 h-3 text-text-muted" />
                             <span className="text-xs text-text-muted">
@@ -268,6 +352,14 @@ export function AdminChatClient({
                     </button>
                   </li>
                 ))}
+                {/* 무한 스크롤 sentinel */}
+                {hasMore && (
+                  <li ref={sentinelRef} className="py-4 flex justify-center">
+                    {isLoadingMore && (
+                      <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
+                    )}
+                  </li>
+                )}
               </ul>
             )}
           </div>

@@ -175,8 +175,12 @@ export async function getAdminUnreadChatCount() {
   return { count: count || 0 };
 }
 
-// 관리자용 채팅방 목록 조회 (단일 RPC로 N+1 해소)
-export async function getChatRoomList() {
+// 관리자용 채팅방 목록 조회 (페이지네이션 + 서버사이드 검색)
+export async function getChatRoomList(options?: {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -194,14 +198,26 @@ export async function getChatRoomList() {
     return { error: '관리자 권한이 필요합니다.' };
   }
 
-  const { data: rooms, error } = await supabase.rpc('get_chat_room_list');
+  const limit = options?.limit ?? 30;
+  const offset = options?.offset ?? 0;
+  const search = options?.search?.trim() || null;
+
+  const { data: rooms, error } = await supabase.rpc('get_chat_room_list', {
+    p_limit: limit + 1,
+    p_offset: offset,
+    p_search: search,
+  });
 
   if (error) {
     console.error('Error fetching chat rooms:', error);
     return { error: '채팅방 목록을 가져오는데 실패했습니다.' };
   }
 
-  const formatted = (rooms || []).map((room: {
+  const allRows = rooms || [];
+  const hasMore = allRows.length > limit;
+  const sliced = hasMore ? allRows.slice(0, limit) : allRows;
+
+  const formatted = sliced.map((room: {
     id: string;
     student_id: string;
     created_at: string;
@@ -221,7 +237,7 @@ export async function getChatRoomList() {
     created_at: room.created_at,
   }));
 
-  return { data: formatted };
+  return { data: formatted, hasMore };
 }
 
 // ============================================
