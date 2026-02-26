@@ -169,9 +169,9 @@ async function calculateWeeklyGoalMinutes(
   if (assignedDays === 7) {
     return {
       goalMinutes: Math.round(totalGoalHours * 60),
-      rewardPoints: Math.round(totalRewardPoints * 7),
+      rewardPoints: Math.round(totalRewardPoints),
       minimumMinutes: Math.round(totalMinimumHours * 60),
-      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints * 7),
+      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints),
     };
   } else if (assignedDays > 0) {
     // 일부만 설정된 경우
