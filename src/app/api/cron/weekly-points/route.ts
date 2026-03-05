@@ -276,30 +276,28 @@ export async function GET(request: Request) {
 
     const processedSet = new Set(existingHistory?.map((h) => h.student_id) || []);
 
-    // 6. 학생별 출석 기록 일괄 조회 (Supabase 기본 1000행 제한을 넘기기 위해 limit 명시)
-    const { data: allAttendance } = await supabase
-      .from('attendance')
-      .select('student_id, type, timestamp')
-      .in('student_id', studentIds)
-      .gte('timestamp', lastWeekStart.toISOString())
-      .lt('timestamp', lastWeekEnd.toISOString())
-      .order('timestamp', { ascending: true })
-      .limit(100000);
-
-    // 학생별 출석 기록 그룹화
+    // 6. 학생별 출석 기록 조회
+    // PostgREST max-rows 제한(기본 1000행)을 우회하기 위해 학생 1명씩 개별 조회
     const attendanceByStudent = new Map<
       string,
       Array<{ type: string; timestamp: string }>
     >();
-    allAttendance?.forEach((a) => {
-      if (!attendanceByStudent.has(a.student_id)) {
-        attendanceByStudent.set(a.student_id, []);
+    for (const studentId of studentIds) {
+      const { data: studentAttendance } = await supabase
+        .from('attendance')
+        .select('type, timestamp')
+        .eq('student_id', studentId)
+        .gte('timestamp', lastWeekStart.toISOString())
+        .lt('timestamp', lastWeekEnd.toISOString())
+        .order('timestamp', { ascending: true })
+        .limit(10000);
+      if (studentAttendance && studentAttendance.length > 0) {
+        attendanceByStudent.set(
+          studentId,
+          studentAttendance.map((a) => ({ type: a.type, timestamp: a.timestamp }))
+        );
       }
-      attendanceByStudent.get(a.student_id)!.push({
-        type: a.type,
-        timestamp: a.timestamp,
-      });
-    });
+    }
 
     // 7. 각 학생별 처리
     for (const student of students) {
