@@ -276,14 +276,15 @@ export async function GET(request: Request) {
 
     const processedSet = new Set(existingHistory?.map((h) => h.student_id) || []);
 
-    // 6. 학생별 출석 기록 일괄 조회
+    // 6. 학생별 출석 기록 일괄 조회 (Supabase 기본 1000행 제한을 넘기기 위해 limit 명시)
     const { data: allAttendance } = await supabase
       .from('attendance')
       .select('student_id, type, timestamp')
       .in('student_id', studentIds)
       .gte('timestamp', lastWeekStart.toISOString())
       .lt('timestamp', lastWeekEnd.toISOString())
-      .order('timestamp', { ascending: true });
+      .order('timestamp', { ascending: true })
+      .limit(100000);
 
     // 학생별 출석 기록 그룹화
     const attendanceByStudent = new Map<
