@@ -49,8 +49,6 @@ export function WeeklyStudyProgress({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const achievedCount = weekDays.filter(d => d.achieved === true).length;
-  // 오늘까지의 날짜 수 (미래 제외)
-  const totalPastDays = weekDays.filter(d => d.date <= today).length;
 
   return (
     <div className={cn('bg-card rounded-3xl p-5 shadow-sm', className)}>
@@ -105,7 +103,7 @@ export function WeeklyStudyProgress({
               <div className="border-t border-gray-100 pt-4 mt-2">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs text-text-muted">일별 출석</span>
-                  <span className="text-xs text-text-muted">출석 {achievedCount}일 / {totalPastDays}일</span>
+                  <span className="text-xs text-text-muted">출석 {achievedCount}일</span>
                 </div>
                 <div className="flex justify-between gap-1">
                   {weekDays.map((day, index) => {

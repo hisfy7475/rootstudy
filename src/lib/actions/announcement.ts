@@ -312,7 +312,8 @@ export async function createAnnouncement(params: CreateAnnouncementParams) {
 
   // 알림 발송 (옵션)
   if (params.sendNotification !== false) {
-    await sendAnnouncementNotifications(announcement.id, params.title, params.targetAudience || 'all', params.branchId);
+    const resolvedBranchIdForNotif = params.branchId !== undefined ? params.branchId : profile.branch_id;
+    await sendAnnouncementNotifications(announcement.id, params.title, params.targetAudience || 'all', resolvedBranchIdForNotif);
   }
 
   revalidatePath('/admin/announcements');

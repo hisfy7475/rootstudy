@@ -152,7 +152,7 @@ export async function getParentUnreadChatCount() {
   return { count: count || 0 };
 }
 
-// 관리자용 미읽음 채팅 총 개수 조회
+// 관리자용 미읽음 채팅 총 개수 조회 (자기 센터 학생만)
 export async function getAdminUnreadChatCount() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -161,15 +161,26 @@ export async function getAdminUnreadChatCount() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('user_type')
+    .select('user_type, branch_id')
     .eq('id', user.id)
     .single();
 
   if (!profile || profile.user_type !== 'admin') return { count: 0 };
 
+  // 자기 센터 학생들의 채팅방 ID 조회
+  const { data: rooms } = await supabase
+    .from('chat_rooms')
+    .select('id, profiles!inner(branch_id)')
+    .eq('profiles.branch_id', profile.branch_id);
+
+  if (!rooms || rooms.length === 0) return { count: 0 };
+
+  const roomIds = rooms.map((r) => r.id);
+
   const { count } = await supabase
     .from('chat_messages')
     .select('*', { count: 'exact', head: true })
+    .in('room_id', roomIds)
     .eq('is_read_by_admin', false);
 
   return { count: count || 0 };
@@ -206,6 +217,7 @@ export async function getChatRoomList(options?: {
     p_limit: limit + 1,
     p_offset: offset,
     p_search: search,
+    p_admin_id: user.id,
   });
 
   if (error) {
@@ -281,7 +293,9 @@ export async function getChatMessages(roomId: string, limit = 50) {
     return { error: '로그인이 필요합니다.' };
   }
 
-  const { data: messages, error } = await supabase
+  // adminClient로 조회: parent 프로필 등 RLS로 막히는 sender profiles도 정상 조인
+  const adminSupabase = createAdminClient();
+  const { data: messages, error } = await adminSupabase
     .from('chat_messages')
     .select(`
       *,
@@ -312,7 +326,9 @@ export async function getOlderMessages(roomId: string, before: string, limit = 5
     return { error: '로그인이 필요합니다.' };
   }
 
-  const { data: messages, error } = await supabase
+  // adminClient로 조회: parent 프로필 등 RLS로 막히는 sender profiles도 정상 조인
+  const adminSupabase = createAdminClient();
+  const { data: messages, error } = await adminSupabase
     .from('chat_messages')
     .select(`
       *,

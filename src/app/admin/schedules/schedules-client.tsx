@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,10 +37,12 @@ import { cn } from '@/lib/utils';
 
 interface ScheduleWithStudent extends StudentAbsenceSchedule {
   student_name?: string;
+  seat_number?: number | null;
 }
 
 interface PendingScheduleWithStudent extends StudentAbsenceSchedule {
   student_name: string;
+  seat_number?: number | null;
 }
 
 interface StudentInfo {
@@ -53,9 +55,10 @@ interface SchedulesClientProps {
   initialSchedules: ScheduleWithStudent[];
   pendingSchedules: PendingScheduleWithStudent[];
   students: StudentInfo[];
+  branchId: string | null;
 }
 
-export default function SchedulesClient({ initialSchedules, pendingSchedules: initialPending, students }: SchedulesClientProps) {
+export default function SchedulesClient({ initialSchedules, pendingSchedules: initialPending, students, branchId }: SchedulesClientProps) {
   const [schedules, setSchedules] = useState(initialSchedules);
   const [pendingList, setPendingList] = useState(initialPending);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,6 +69,11 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  // 학생 검색 상태
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const studentSearchRef = useRef<HTMLDivElement>(null);
 
   // 폼 상태
   const [formData, setFormData] = useState({
@@ -93,7 +101,35 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
     });
     setEditingScheduleId(null);
+    setStudentSearchQuery('');
+    setShowStudentDropdown(false);
   };
+
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (studentSearchRef.current && !studentSearchRef.current.contains(e.target as Node)) {
+        setShowStudentDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 학생 검색 필터
+  const filteredStudentOptions = useMemo(() => {
+    if (!studentSearchQuery.trim()) return students;
+    const q = studentSearchQuery.toLowerCase();
+    return students.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.seatNumber != null && String(s.seatNumber).includes(q))
+    );
+  }, [students, studentSearchQuery]);
+
+  const selectedStudent = useMemo(
+    () => students.find(s => s.id === formData.studentId) ?? null,
+    [students, formData.studentId]
+  );
 
   const openEditModal = (schedule: ScheduleWithStudent) => {
     setFormData({
@@ -153,7 +189,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules();
+        const newSchedules = await getAllAbsenceSchedules(branchId);
         setSchedules(newSchedules);
         setShowAddModal(false);
         resetForm();
@@ -174,7 +210,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules();
+        const newSchedules = await getAllAbsenceSchedules(branchId);
         setSchedules(newSchedules);
         setShowAddModal(false);
         resetForm();
@@ -205,7 +241,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       if (result.success) {
         // 승인 대기 목록에서 제거하고 전체 목록 새로고침
         setPendingList(prev => prev.filter(s => s.id !== scheduleId));
-        const newSchedules = await getAllAbsenceSchedules();
+        const newSchedules = await getAllAbsenceSchedules(branchId);
         setSchedules(newSchedules);
       } else {
         alert(result.error || '승인에 실패했습니다.');
@@ -404,7 +440,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                     <div className="flex items-center gap-3 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <User className="w-3.5 h-3.5" />
-                        {schedule.student_name}
+                        {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}{schedule.student_name}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" />
@@ -524,7 +560,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                     </div>
                     <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
                       <User className="w-4 h-4" />
-                      <span>{schedule.student_name}</span>
+                      <span>{schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}{schedule.student_name}</span>
                     </div>
                     {schedule.description && (
                       <p className="text-sm text-gray-500 mt-1">{schedule.description}</p>
@@ -627,18 +663,63 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     학생 선택 *
                   </label>
-                  <select
-                    value={formData.studentId}
-                    onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-                    className="w-full h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  >
-                    <option value="">학생을 선택하세요</option>
-                    {students.map(student => (
-                      <option key={student.id} value={student.id}>
-                        {student.seatNumber ? `${student.seatNumber}번 ` : ''}{student.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div ref={studentSearchRef} className="relative">
+                    <div
+                      className={cn(
+                        "w-full h-10 px-3 flex items-center gap-2 rounded-xl border cursor-pointer bg-white",
+                        showStudentDropdown
+                          ? "border-primary ring-2 ring-primary/20"
+                          : "border-gray-200"
+                      )}
+                      onClick={() => {
+                        setShowStudentDropdown(true);
+                        setStudentSearchQuery('');
+                      }}
+                    >
+                      <Search className="w-4 h-4 text-gray-400 shrink-0" />
+                      {showStudentDropdown ? (
+                        <input
+                          autoFocus
+                          className="flex-1 outline-none text-sm bg-transparent"
+                          placeholder="이름 또는 좌석번호 검색"
+                          value={studentSearchQuery}
+                          onChange={e => setStudentSearchQuery(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className={cn("flex-1 text-sm truncate", !selectedStudent && "text-gray-400")}>
+                          {selectedStudent
+                            ? `${selectedStudent.seatNumber != null ? `${selectedStudent.seatNumber}번 ` : ''}${selectedStudent.name}`
+                            : '학생을 선택하세요'}
+                        </span>
+                      )}
+                    </div>
+                    {showStudentDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                        {filteredStudentOptions.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-gray-400">검색 결과 없음</div>
+                        ) : (
+                          filteredStudentOptions.map(student => (
+                            <div
+                              key={student.id}
+                              className={cn(
+                                "px-3 py-2 text-sm cursor-pointer hover:bg-primary/5",
+                                formData.studentId === student.id && "bg-primary/10 font-medium"
+                              )}
+                              onMouseDown={e => {
+                                e.preventDefault();
+                                setFormData({ ...formData, studentId: student.id });
+                                setShowStudentDropdown(false);
+                                setStudentSearchQuery('');
+                              }}
+                            >
+                              {student.seatNumber != null ? `${student.seatNumber}번 ` : ''}{student.name}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

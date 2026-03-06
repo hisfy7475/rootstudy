@@ -89,8 +89,8 @@ export function SubjectTimeList({
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <HelpCircle className="w-4 h-4 text-warning" />
-                    <span className="text-sm font-medium text-warning">
+                    <HelpCircle className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-medium text-orange-500">
                       {item.name}
                     </span>
                   </div>
@@ -98,12 +98,12 @@ export function SubjectTimeList({
                     <span className="text-sm text-text-muted">
                       {formatDuration(item.seconds)} ({percentage}%)
                     </span>
-                    <ChevronRight className="w-4 h-4 text-warning opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRight className="w-4 h-4 text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-warning to-warning/70 rounded-full transition-all duration-500"
+                    className="h-full bg-gradient-to-r from-orange-400 to-orange-300 rounded-full transition-all duration-500"
                     style={{ width: `${percentage}%` }}
                   />
                 </div>
@@ -118,7 +118,7 @@ export function SubjectTimeList({
                       onClick={() => onUnclassifiedClick?.(segment)}
                       className={cn(
                         'flex items-center justify-between w-full py-1.5 px-2 rounded-lg',
-                        'text-xs text-text-muted bg-gray-50 hover:bg-warning/10',
+                        'text-xs text-text-muted bg-gray-50 hover:bg-orange-50',
                         'transition-colors group'
                       )}
                     >

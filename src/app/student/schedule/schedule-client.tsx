@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,7 @@ import {
 } from '@/lib/actions/absence-schedule';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { DAY_NAMES, ABSENCE_REASONS } from '@/lib/constants';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import ScheduleTimeline from '@/components/student/schedule-timeline';
 import ScheduleBlock, { ScheduleDetailModal } from '@/components/student/schedule-block';
@@ -34,6 +35,7 @@ interface ScheduleClientProps {
 type ViewMode = 'timeline' | 'list';
 
 export default function ScheduleClient({ initialSchedules }: ScheduleClientProps) {
+  const router = useRouter();
   const [schedules, setSchedules] = useState(initialSchedules);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -50,7 +52,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     dayOfWeek: [] as number[],
     startTime: '09:00',
     endTime: '10:00',
-    specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    specificDate: format(new Date(), 'yyyy-MM-dd'),
     // 매주 반복 시 기간 설정
     recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
     recurringEndDate: '', // 종료일 (비워두면 무기한)
@@ -65,7 +67,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       dayOfWeek: [],
       startTime: '09:00',
       endTime: '10:00',
-      specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      specificDate: format(new Date(), 'yyyy-MM-dd'),
       recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
       recurringEndDate: '',
     });
@@ -88,7 +90,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       dayOfWeek: schedule.day_of_week || [],
       startTime: schedule.start_time.slice(0, 5),
       endTime: schedule.end_time.slice(0, 5),
-      specificDate: schedule.specific_date || format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      specificDate: schedule.specific_date || format(new Date(), 'yyyy-MM-dd'),
       recurringStartDate: schedule.valid_from || format(new Date(), 'yyyy-MM-dd'),
       recurringEndDate: schedule.valid_until || '',
     });
@@ -184,6 +186,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
         ));
         setShowAddForm(false);
         resetForm();
+        router.refresh();
         alert('수정 요청이 완료되었습니다. 승인 후 적용됩니다.');
       } else {
         alert(result.error || '일정 수정에 실패했습니다.');
@@ -208,6 +211,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
         setSchedules([result.data, ...schedules]);
         setShowAddForm(false);
         resetForm();
+        router.refresh();
       } else {
         alert(result.error || '일정 등록에 실패했습니다.');
       }
@@ -233,6 +237,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
     const result = await deleteAbsenceSchedule(id);
     if (result.success) {
       setSchedules(schedules.filter(s => s.id !== id));
+      router.refresh();
     }
     setIsLoading(false);
   };
@@ -247,7 +252,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       dayOfWeek: [dayOfWeek],
       startTime,
       endTime,
-      specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      specificDate: format(new Date(), 'yyyy-MM-dd'),
       recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
       recurringEndDate: '',
     });

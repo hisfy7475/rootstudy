@@ -15,7 +15,6 @@ import {
   XCircle,
   Coffee,
   Calendar,
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   CalendarDays,
@@ -109,25 +108,6 @@ function formatTime(isoString: string | null): string {
   if (!isoString) return '-';
   const date = new Date(isoString);
   return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-// 미등원 경과 시간 계산
-function getElapsedTime(now: Date): string {
-  // 오늘의 기준 시작 시간 (예: 08:00)
-  const todayStart = new Date(now);
-  todayStart.setHours(8, 0, 0, 0);
-  
-  if (now < todayStart) return '-';
-  
-  const elapsedMs = now.getTime() - todayStart.getTime();
-  const elapsedMinutes = Math.floor(elapsedMs / (1000 * 60));
-  const hours = Math.floor(elapsedMinutes / 60);
-  const minutes = elapsedMinutes % 60;
-  
-  if (hours > 0) {
-    return `${hours}시간 ${minutes}분`;
-  }
-  return `${minutes}분`;
 }
 
 // 상태 아이콘 및 색상
@@ -323,7 +303,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
           setPage((p) => p + 1);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '0px 0px 100px 0px' }
     );
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
@@ -731,7 +711,6 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">이름</th>
                     <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">상태</th>
                     <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">입실시간</th>
-                    <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">미등원시간</th>
                     <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">부재일정</th>
                     <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">몰입도</th>
                     <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">벌점</th>
@@ -740,13 +719,13 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                 <tbody className="divide-y divide-gray-100">
                   {loading && data.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-500">
+                      <td colSpan={7} className="px-2 py-6 text-center text-xs text-gray-500">
                         로딩 중...
                       </td>
                     </tr>
                   ) : data.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-500">
+                      <td colSpan={7} className="px-2 py-6 text-center text-xs text-gray-500">
                         {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                       </td>
                     </tr>
@@ -798,18 +777,6 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                             )}>
                               {formatTime(student.firstCheckInTime)}
                             </span>
-                          </td>
-
-                          {/* 미등원 시간 */}
-                          <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
-                            {isNotArrived && isToday ? (
-                              <span className="inline-flex items-center gap-1 text-red-600 font-medium">
-                                <AlertTriangle className="w-3 h-3" />
-                                {getElapsedTime(currentTime)}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
                           </td>
 
                           {/* 부재일정 */}
@@ -869,16 +836,33 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             </div>
 
             {/* 무한 스크롤 하단 영역 */}
-            <div ref={sentinelRef} className="print:hidden">
+            <div className="print:hidden">
+              {/* 추가 로드 중: 스켈레톤 행 */}
               {loading && data.length > 0 && (
-                <div className="flex items-center justify-center py-3 text-xs text-gray-500 border-t bg-gray-50">
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                  불러오는 중...
+                <div className="border-t">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 animate-pulse">
+                      <div className="h-3 w-6 rounded bg-gray-200" />
+                      <div className="h-3 w-16 rounded bg-gray-200" />
+                      <div className="h-5 w-14 rounded-full bg-gray-200 ml-2" />
+                      <div className="h-3 w-10 rounded bg-gray-200 ml-auto" />
+                      <div className="h-3 w-20 rounded bg-gray-100 ml-2" />
+                      <div className="h-3 w-8 rounded bg-gray-100 ml-2" />
+                      <div className="h-3 w-8 rounded bg-gray-100 ml-2" />
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-center gap-1.5 py-3 text-xs text-gray-400 bg-gray-50">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    데이터 불러오는 중…
+                  </div>
                 </div>
               )}
+              {/* 더 불러올 데이터가 있을 때 sentinel (threshold 넉넉히) */}
+              {hasMore && <div ref={sentinelRef} className="h-10" />}
+              {/* 모두 불러왔을 때 */}
               {!hasMore && data.length > 0 && (
-                <div className="py-2 text-center text-xs text-gray-400 border-t bg-gray-50">
-                  전체 {total}명 표시 완료
+                <div className="py-2.5 text-center text-xs text-gray-400 border-t bg-gray-50">
+                  전체 <span className="font-medium text-gray-500">{total}명</span> 표시 완료
                 </div>
               )}
             </div>

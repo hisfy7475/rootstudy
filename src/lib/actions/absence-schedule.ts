@@ -46,28 +46,35 @@ export async function getStudentAbsenceSchedules(studentId: string): Promise<Stu
 }
 
 // 모든 학생의 부재 스케줄 조회 (관리자용)
-export async function getAllAbsenceSchedules(): Promise<(StudentAbsenceSchedule & { student_name?: string })[]> {
+export async function getAllAbsenceSchedules(branchId?: string | null): Promise<(StudentAbsenceSchedule & { student_name?: string; seat_number?: number | null })[]> {
   const supabase = await createClient();
-  
-  const { data, error } = await supabase
+
+  let query = supabase
     .from('student_absence_schedules')
     .select(`
       *,
       student_profiles!inner(
-        profiles!inner(name)
+        seat_number,
+        profiles!inner(name, branch_id)
       )
     `)
     .order('created_at', { ascending: false });
-  
+
+  if (branchId) {
+    query = query.eq('student_profiles.profiles.branch_id', branchId);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
     console.error('Error fetching all absence schedules:', error);
     return [];
   }
-  
-  // 학생 이름 추출
+
   return (data || []).map(schedule => ({
     ...schedule,
     student_name: (schedule.student_profiles as any)?.profiles?.name || '알 수 없음',
+    seat_number: (schedule.student_profiles as any)?.seat_number ?? null,
   }));
 }
 
@@ -350,19 +357,26 @@ export async function getPendingAbsenceSchedulesForParent(): Promise<(StudentAbs
 }
 
 // 승인 대기 중인 부재 스케줄 조회 (관리자용 - 모든 학생)
-export async function getPendingAbsenceSchedulesForAdmin(): Promise<(StudentAbsenceSchedule & { student_name: string })[]> {
+export async function getPendingAbsenceSchedulesForAdmin(branchId?: string | null): Promise<(StudentAbsenceSchedule & { student_name: string; seat_number?: number | null })[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('student_absence_schedules')
     .select(`
       *,
       student_profiles!inner(
-        profiles!inner(name)
+        seat_number,
+        profiles!inner(name, branch_id)
       )
     `)
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
+
+  if (branchId) {
+    query = query.eq('student_profiles.profiles.branch_id', branchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Error fetching pending absence schedules for admin:', error);
@@ -372,6 +386,7 @@ export async function getPendingAbsenceSchedulesForAdmin(): Promise<(StudentAbse
   return (data || []).map(schedule => ({
     ...schedule,
     student_name: (schedule.student_profiles as any)?.profiles?.name || '알 수 없음',
+    seat_number: (schedule.student_profiles as any)?.seat_number ?? null,
   }));
 }
 

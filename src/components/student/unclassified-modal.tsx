@@ -144,8 +144,8 @@ export function UnclassifiedModal({
         <div className="flex-1 overflow-y-auto min-h-0">
           {/* 시간 정보 */}
           <div className="p-4 border-b border-gray-100">
-            <div className="flex items-center gap-3 p-3 bg-warning/10 rounded-xl">
-              <Clock className="w-5 h-5 text-warning flex-shrink-0" />
+            <div className="flex items-center gap-3 p-3 bg-orange-100 rounded-xl">
+              <Clock className="w-5 h-5 text-orange-500 flex-shrink-0" />
               <div>
                 <p className="font-medium text-text">
                   {format(startTime, 'M월 d일', { locale: ko })} {format(startTime, 'HH:mm')} ~ {format(endTime, 'HH:mm')}

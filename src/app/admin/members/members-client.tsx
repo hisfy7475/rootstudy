@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, rejectStudent, deleteMember, createAdmin, deleteAdmin, getAllParentsWithStudents } from '@/lib/actions/admin';
+import { getStudentDetail, updateMember, updateStudentSeat, updateStudentCapsId, getAllMembers, getAllAdmins, updateAdminBranch, updateStudentType, approveStudent, rejectStudent, deleteMember, createAdmin, deleteAdmin, getAllParentsWithStudents, updateStudentApprovalStatus } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import {
   Users,
@@ -65,6 +65,7 @@ interface ParentMember {
     id: string;
     name: string;
     seatNumber: number | null;
+    branchName: string | null;
   }[];
 }
 
@@ -101,7 +102,14 @@ interface StudentDetail {
   email: string;
   phone: string;
   createdAt: string;
+  parents: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+  }[];
   parent: {
+    id: string;
     name: string;
     email: string;
     phone: string;
@@ -133,6 +141,18 @@ interface StudentTypeOption {
 export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [], branchId }: MembersClientProps) {
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<ParentMember[]>(initialParents);
+
+  // 학생 ID → 연결된 학부모 목록 매핑 (parents state 기반)
+  const studentParentMap = useMemo(() => {
+    const map: Record<string, { id: string; name: string; phone: string | null }[]> = {};
+    for (const parent of parents) {
+      for (const student of parent.students) {
+        if (!map[student.id]) map[student.id] = [];
+        map[student.id].push({ id: parent.id, name: parent.name, phone: parent.phone });
+      }
+    }
+    return map;
+  }, [parents]);
   const [admins, setAdmins] = useState<Admin[]>(initialAdmins);
   const [activeTab, setActiveTab] = useState<Tab>('students');
   const [searchQuery, setSearchQuery] = useState('');
@@ -393,6 +413,48 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
     } catch (error) {
       console.error('Failed to reject student:', error);
       alert('비승인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 승인 상태 직접 변경 (셀 드롭다운)
+  const handleUpdateApprovalStatus = async (memberId: string, status: 'approved' | 'pending' | 'rejected') => {
+    setLoading(true);
+    try {
+      const result = await updateStudentApprovalStatus(memberId, status);
+      if (result.success) {
+        const allMembers = await getAllMembers(undefined, branchId);
+        setStudents(allMembers.filter(m => m.user_type === 'student'));
+      } else {
+        alert(result.error || '승인 상태 변경에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to update approval status:', error);
+      alert('승인 상태 변경 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 센터(branch) 직접 변경 (셀 드롭다운)
+  const handleUpdateStudentBranch = async (memberId: string, newBranchId: string) => {
+    setLoading(true);
+    try {
+      const result = await updateMember(memberId, { branch_id: newBranchId || null });
+      if (result.error) {
+        alert('센터 변경에 실패했습니다: ' + result.error);
+        return;
+      }
+      const [allMembers, parentsData] = await Promise.all([
+        getAllMembers(undefined, branchId),
+        getAllParentsWithStudents(),
+      ]);
+      setStudents(allMembers.filter(m => m.user_type === 'student'));
+      setParents(parentsData);
+    } catch (error) {
+      console.error('Failed to update branch:', error);
+      alert('센터 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -831,6 +893,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                       </th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">타입</th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">전화번호</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">학부모</th>
                       <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">상태</th>
                       <th className="px-2 py-2 text-center text-xs font-medium text-gray-600">액션</th>
                     </tr>
@@ -838,7 +901,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   <tbody className="divide-y divide-gray-100">
                     {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-2 py-6 text-center text-xs text-gray-500">
+                        <td colSpan={10} className="px-2 py-6 text-center text-xs text-gray-500">
                           {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : 
                            studentFilter === 'rejected' ? '비승인된 학생이 없습니다.' : '학생이 없습니다.'}
                         </td>
@@ -927,14 +990,22 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                           </td>
                           {/* 센터 */}
                           <td className="px-2 py-1.5">
-                            {member.branch_name ? (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-medium">
-                                <Building2 className="w-2.5 h-2.5" />
-                                {member.branch_name}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
+                            <select
+                              value={member.branch_id || ''}
+                              onChange={(e) => handleUpdateStudentBranch(member.id, e.target.value)}
+                              disabled={loading}
+                              className={cn(
+                                "h-6 px-1.5 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-primary/50",
+                                member.branch_id
+                                  ? "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400 font-medium"
+                                  : "bg-transparent text-gray-400 border-transparent hover:border-gray-200"
+                              )}
+                            >
+                              <option value="">-</option>
+                              {branches.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                              ))}
+                            </select>
                           </td>
                           {/* 학생 타입 */}
                           <td className="px-2 py-1.5">
@@ -952,24 +1023,54 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                           </td>
                           {/* 전화번호 */}
                           <td className="px-2 py-1.5">{member.phone || '-'}</td>
+                          {/* 학부모 */}
+                          <td className="px-2 py-1.5">
+                            {(() => {
+                              const linkedParents = studentParentMap[member.id];
+                              if (!linkedParents || linkedParents.length === 0) {
+                                return <span className="text-gray-400 text-[10px]">-</span>;
+                              }
+                              return (
+                                <div className="flex flex-col gap-0.5">
+                                  {linkedParents.map((p) => (
+                                    <span
+                                      key={p.id}
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-secondary/10 text-secondary rounded text-[10px] font-medium"
+                                      title={p.phone || undefined}
+                                    >
+                                      <UserCheck className="w-2.5 h-2.5 flex-shrink-0" />
+                                      {p.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           {/* 상태 */}
                           <td className="px-2 py-1.5 text-center">
-                            {member.is_approved ? (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-medium">
-                                <CheckCircle2 className="w-2.5 h-2.5" />
-                                승인
-                              </span>
-                            ) : member.is_rejected ? (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium">
-                                <X className="w-2.5 h-2.5" />
-                                비승인
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-[10px] font-medium">
-                                <Clock className="w-2.5 h-2.5" />
-                                대기
-                              </span>
-                            )}
+                            <select
+                              value={
+                                member.is_approved ? 'approved' :
+                                member.is_rejected ? 'rejected' : 'pending'
+                              }
+                              onChange={(e) => handleUpdateApprovalStatus(
+                                member.id,
+                                e.target.value as 'approved' | 'pending' | 'rejected'
+                              )}
+                              disabled={loading}
+                              className={cn(
+                                "h-6 px-1.5 text-[10px] font-medium border rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50",
+                                member.is_approved
+                                  ? "bg-green-50 text-green-700 border-green-200 hover:border-green-400"
+                                  : member.is_rejected
+                                  ? "bg-red-50 text-red-700 border-red-200 hover:border-red-400"
+                                  : "bg-yellow-50 text-yellow-700 border-yellow-200 hover:border-yellow-400"
+                              )}
+                            >
+                              <option value="approved">✓ 승인</option>
+                              <option value="pending">⏱ 대기</option>
+                              <option value="rejected">✕ 비승인</option>
+                            </select>
                           </td>
                           {/* 액션 */}
                           <td className="px-2 py-1.5 text-center">
@@ -988,24 +1089,26 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => handleReject(member.id)}
+                                    onClick={() => handleOpenDeleteModal(member, 'student')}
                                     disabled={loading}
                                     className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
                                   >
-                                    <X className="w-3 h-3" />
+                                    <UserMinus className="w-3 h-3" />
                                   </Button>
                                 </>
-                              ) : member.is_approved ? (
+                              ) : (
                                 <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleViewDetail(member.id)}
-                                    disabled={loading}
-                                    className="h-6 px-1.5"
-                                  >
-                                    <Eye className="w-3 h-3" />
-                                  </Button>
+                                  {member.is_approved && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleViewDetail(member.id)}
+                                      disabled={loading}
+                                      className="h-6 px-1.5"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -1016,16 +1119,6 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                                     <UserMinus className="w-3 h-3" />
                                   </Button>
                                 </>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleOpenDeleteModal(member, 'student')}
-                                  disabled={loading}
-                                  className="h-6 px-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                                >
-                                  <UserMinus className="w-3 h-3" />
-                                </Button>
                               )}
                             </div>
                           </td>
@@ -1045,6 +1138,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     <tr>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이름</th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">연결된 학생</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">지점</th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">이메일</th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">전화번호</th>
                       <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">가입일</th>
@@ -1054,7 +1148,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   <tbody className="divide-y divide-gray-100">
                     {filteredParents.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-2 py-6 text-center text-xs text-gray-500">
+                        <td colSpan={7} className="px-2 py-6 text-center text-xs text-gray-500">
                           학부모가 없습니다.
                         </td>
                       </tr>
@@ -1085,6 +1179,26 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                                     {student.name}
                                   </span>
                                 ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            {!parent.students || parent.students.length === 0 ? (
+                              <span className="text-gray-400">-</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-0.5">
+                                {[...new Set(parent.students.map(s => s.branchName).filter(Boolean))].map((branchName) => (
+                                  <span
+                                    key={branchName}
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] rounded font-medium"
+                                  >
+                                    <Building2 className="w-2.5 h-2.5 flex-shrink-0" />
+                                    {branchName}
+                                  </span>
+                                ))}
+                                {parent.students.every(s => !s.branchName) && (
+                                  <span className="text-gray-400">-</span>
+                                )}
                               </div>
                             )}
                           </td>
@@ -1285,19 +1399,41 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
               </div>
 
               {/* 연결된 학부모 */}
-              {selectedStudent.parent && (
-                <div className="pt-4 border-t">
-                  <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
-                    <UserCheck className="w-4 h-4 text-secondary" />
-                    연결된 학부모
-                  </h4>
-                  <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-                    <p className="font-medium">{selectedStudent.parent.name}</p>
-                    <p className="text-sm text-text-muted">{selectedStudent.parent.email}</p>
-                    <p className="text-sm text-text-muted">{selectedStudent.parent.phone || '-'}</p>
+              <div className="pt-4 border-t">
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
+                  <UserCheck className="w-4 h-4 text-secondary" />
+                  연결된 학부모
+                  {selectedStudent.parents && selectedStudent.parents.length > 1 && (
+                    <span className="ml-1 text-xs bg-secondary/10 text-secondary px-1.5 py-0.5 rounded-full font-normal">
+                      {selectedStudent.parents.length}명
+                    </span>
+                  )}
+                </h4>
+                {(!selectedStudent.parents || selectedStudent.parents.length === 0) ? (
+                  <p className="text-sm text-gray-400 bg-gray-50 rounded-xl p-3">미연결</p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedStudent.parents.map((p, idx) => (
+                      <div key={p.id || idx} className="bg-gray-50 rounded-xl p-3">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0">
+                            <UserCheck className="w-3.5 h-3.5 text-secondary" />
+                          </div>
+                          <p className="font-medium text-sm">{p.name}</p>
+                        </div>
+                        <div className="pl-8 space-y-0.5">
+                          <p className="text-xs text-text-muted flex items-center gap-1">
+                            <Mail className="w-3 h-3" />{p.email}
+                          </p>
+                          <p className="text-xs text-text-muted flex items-center gap-1">
+                            <Phone className="w-3 h-3" />{p.phone || '-'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* 학습 통계 (최근 30일) */}
               <div className="pt-4 border-t">

@@ -785,7 +785,7 @@ export async function getAllParentsWithStudents() {
       student:student_id (
         id,
         seat_number,
-        profiles!inner (name)
+        profiles!inner (name, branch:branch_id (name))
       )
     `)
     .in('parent_id', parentIds);
@@ -807,6 +807,7 @@ export async function getAllParentsWithStudents() {
         id: link.student?.id || '',
         name: studentProfile?.name || '이름 없음',
         seatNumber: link.student?.seat_number || null,
+        branchName: studentProfile?.branch?.name || null,
       };
     });
 
@@ -842,18 +843,16 @@ export async function getStudentDetail(studentId: string) {
 
   if (!student) return null;
 
-  // 연결된 학부모 (parent_student_links → profiles 조회)
-  const { data: parentLink } = await supabase
+  // 연결된 학부모 목록 (parent_student_links → profiles 조회, 복수 지원)
+  const { data: parentLinks } = await supabase
     .from('parent_student_links')
     .select(`
       parent:parent_id (
+        id,
         profiles!inner (*)
       )
     `)
-    .eq('student_id', studentId)
-    .limit(1)
-    .maybeSingle();
-  const parent = parentLink?.parent ?? null;
+    .eq('student_id', studentId);
 
   // 학습 통계 (최근 30일)
   const thirtyDaysAgo = new Date();
@@ -880,10 +879,20 @@ export async function getStudentDetail(studentId: string) {
     ? student.profiles[0] 
     : student.profiles;
 
-  const parentObj = Array.isArray(parent) ? parent[0] : parent;
-  const parentProfile = parentObj
-    ? (Array.isArray(parentObj.profiles) ? parentObj.profiles[0] : parentObj.profiles)
-    : null;
+  // 복수 학부모 목록 처리
+  const parents = (parentLinks || []).map((link: any) => {
+    const parentObj = Array.isArray(link.parent) ? link.parent[0] : link.parent;
+    const parentProfile = parentObj
+      ? (Array.isArray(parentObj.profiles) ? parentObj.profiles[0] : parentObj.profiles)
+      : null;
+    if (!parentProfile) return null;
+    return {
+      id: parentObj?.id || '',
+      name: parentProfile.name,
+      email: parentProfile.email,
+      phone: parentProfile.phone,
+    };
+  }).filter(Boolean) as { id: string; name: string; email: string; phone: string }[];
 
   return {
     id: student.id,
@@ -901,11 +910,8 @@ export async function getStudentDetail(studentId: string) {
     phone: profile?.phone || '',
     createdAt: profile?.created_at || '',
     branchId: profile?.branch_id || null,
-    parent: parentProfile ? {
-      name: parentProfile.name,
-      email: parentProfile.email,
-      phone: parentProfile.phone,
-    } : null,
+    parents,
+    parent: parents[0] || null,
     stats: {
       attendanceDays: new Set(
         (attendance || [])
@@ -946,7 +952,7 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
 }
 
 // 회원 정보 수정
-export async function updateMember(userId: string, data: { name?: string; phone?: string; school?: string | null; grade?: number | null }) {
+export async function updateMember(userId: string, data: { name?: string; phone?: string; school?: string | null; grade?: number | null; branch_id?: string | null }) {
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -1067,6 +1073,38 @@ export async function rejectStudent(studentId: string) {
   if (error) {
     console.error('Error rejecting student:', error);
     return { success: false, error: '학생 비승인에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+// 학생 승인 상태 직접 변경 (승인 ↔ 대기 ↔ 비승인)
+export async function updateStudentApprovalStatus(
+  studentId: string,
+  status: 'approved' | 'pending' | 'rejected'
+) {
+  const supabase = await createClient();
+
+  const updateData: {
+    is_approved: boolean;
+    is_rejected: boolean;
+    rejected_at?: string | null;
+  } = {
+    is_approved: status === 'approved',
+    is_rejected: status === 'rejected',
+    rejected_at: status === 'rejected' ? new Date().toISOString() : null,
+  };
+
+  const { error } = await supabase
+    .from('profiles')
+    .update(updateData)
+    .eq('id', studentId);
+
+  if (error) {
+    console.error('Error updating approval status:', error);
+    return { success: false, error: '승인 상태 변경에 실패했습니다.' };
   }
 
   revalidatePath('/admin');
@@ -2496,6 +2534,21 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
           .from('chat_messages')
           .update({ sender_id: null })
           .eq('sender_id', userId);
+
+        await adminClient
+          .from('student_absence_schedules')
+          .update({ created_by: null })
+          .eq('created_by', userId);
+
+        await adminClient
+          .from('student_absence_schedules')
+          .update({ approved_by: null })
+          .eq('approved_by', userId);
+
+        await adminClient
+          .from('student_absence_schedules')
+          .update({ rejected_by: null })
+          .eq('rejected_by', userId);
       }
     } else if (userType === 'parent') {
       await adminClient
