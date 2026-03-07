@@ -173,6 +173,8 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
     const todayReward = todayPoints.filter(p => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
     const todayPenalty = todayPoints.filter(p => p.type === 'penalty').reduce((sum, p) => sum + p.amount, 0);
 
+    const currentSubject = status === 'checked_in' ? (subjectByStudent[student.id] ?? null) : null;
+
     return {
       id: student.id,
       seatNumber: student.seat_number,
@@ -182,7 +184,7 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
       status,
       checkInTime,
       totalStudySeconds,
-      currentSubject: status === 'checked_in' ? (subjectByStudent[student.id] ?? null) : null,
+      currentSubject,
       avgFocus,
       todayReward,
       todayPenalty,
@@ -242,7 +244,6 @@ export async function setStudentSubject(studentId: string, subjectName: string) 
     return { error: '과목 설정에 실패했습니다.' };
   }
 
-  revalidatePath('/admin');
   return { success: true };
 }
 
@@ -580,6 +581,16 @@ export async function deletePoint(pointId: string) {
 
   if (!pointData) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
+  }
+
+  // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제 (deletePoints와 동일)
+  const { error: clearRefError } = await supabase
+    .from('weekly_point_history')
+    .update({ point_id: null })
+    .eq('point_id', pointId);
+
+  if (clearRefError) {
+    console.error('Error clearing point reference:', clearRefError);
   }
 
   const { error } = await supabase
@@ -2532,8 +2543,13 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
 
         await adminClient
           .from('chat_messages')
-          .update({ sender_id: null })
+          .delete()
           .eq('sender_id', userId);
+
+        await adminClient
+          .from('chat_rooms')
+          .delete()
+          .eq('student_id', userId);
 
         await adminClient
           .from('student_absence_schedules')
@@ -2558,7 +2574,7 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
 
       await adminClient
         .from('chat_messages')
-        .update({ sender_id: null })
+        .delete()
         .eq('sender_id', userId);
 
       await adminClient

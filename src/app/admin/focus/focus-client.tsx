@@ -150,7 +150,6 @@ function SubjectDropdown({
       return;
     }
     
-    const scrollY = window.scrollY;
     setSaving(true);
     setIsOpen(false);
     try {
@@ -162,9 +161,6 @@ function SubjectDropdown({
       console.error('Failed to set subject:', error);
     } finally {
       setSaving(false);
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: scrollY, behavior: 'instant' });
-      });
     }
   };
 
@@ -525,14 +521,9 @@ export function FocusClient({
 
   // Subject change handler
   const handleSubjectChange = useCallback((studentId: string, subject: string) => {
-    const scrollY = window.scrollY;
     setStudents(prev => prev.map(s => 
       s.id === studentId ? { ...s, currentSubject: subject } : s
     ));
-    // 낙관적 업데이트 후 스크롤 위치 복원
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: scrollY, behavior: 'instant' });
-    });
     showSuccess(`과목이 "${subject}"(으)로 변경되었습니다.`);
   }, [showSuccess]);
 

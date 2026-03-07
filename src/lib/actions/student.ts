@@ -140,7 +140,7 @@ export async function getTodayAttendance() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { attendance: [], status: 'checked_out' as const };
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
@@ -177,7 +177,7 @@ export async function getTodayStudyTime() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { totalSeconds: 0, checkInTime: null };
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 

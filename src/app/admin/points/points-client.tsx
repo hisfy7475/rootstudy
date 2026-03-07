@@ -1021,19 +1021,18 @@ export function PointsClient({
                         deleteConfirmId === item.id ? (
                           <div className="flex items-center gap-1">
                             <Button
-                              variant="danger"
                               size="sm"
                               onClick={() => handleDeletePoint(item.id)}
                               disabled={loading}
-                              className="text-xs"
+                              className="text-xs bg-red-500 hover:bg-red-600 text-white border-0"
                             >
                               삭제
                             </Button>
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
                               onClick={() => setDeleteConfirmId(null)}
-                              className="text-xs"
+                              className="text-xs bg-white"
                             >
                               취소
                             </Button>

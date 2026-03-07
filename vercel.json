@@ -11,7 +11,7 @@
     },
     {
       "path": "/api/cron/daily-reset",
-      "schedule": "30 16 * * *"
+      "schedule": "0 18 * * *"
     }
   ]
 }

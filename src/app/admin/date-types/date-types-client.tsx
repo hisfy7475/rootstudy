@@ -40,8 +40,8 @@ export default function DateTypesClient({
   const [showTypeForm, setShowTypeForm] = useState(false);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [typeName, setTypeName] = useState('');
-  const [typeStartTime, setTypeStartTime] = useState('07:30');
-  const [typeEndTime, setTypeEndTime] = useState('01:30');
+  const [typeStartTime, setTypeStartTime] = useState('07:00');
+  const [typeEndTime, setTypeEndTime] = useState('01:00');
   const [typeColor, setTypeColor] = useState('#7C9FF5');
 
   // 종료 시간이 시작 시간보다 이르면 익일로 판단
@@ -144,8 +144,8 @@ export default function DateTypesClient({
     setShowTypeForm(false);
     setEditingTypeId(null);
     setTypeName('');
-    setTypeStartTime('07:30');
-    setTypeEndTime('01:30');
+    setTypeStartTime('07:00');
+    setTypeEndTime('01:00');
     setTypeColor('#7C9FF5');
   };
 

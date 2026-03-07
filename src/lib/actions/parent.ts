@@ -96,7 +96,7 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
 export async function getStudentStatus(studentId: string, options?: { forParentView?: boolean }) {
   const supabase = await createClient();
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
@@ -140,7 +140,7 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
 export async function getStudentStudyTime(studentId: string) {
   const supabase = await createClient();
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
@@ -211,7 +211,7 @@ export async function getStudentCurrentSubject(studentId: string) {
 export async function getStudentTodayFocus(studentId: string) {
   const supabase = await createClient();
 
-  // 학습일 기준으로 조회 (07:30 ~ 다음날 01:30)
+  // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 

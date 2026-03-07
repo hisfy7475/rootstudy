@@ -77,13 +77,14 @@ export const COLORS = {
 } as const;
 
 // 학습일 시간 설정
-// 하루 시작: 07:30, 하루 종료: 다음날 01:30
-// 새벽 01:30 이전은 전날의 학습일로 계산
+// 하루 시작: 06:00, 하루 종료: 다음날 03:00
+// 새벽 03:00 이전은 전날의 학습일로 계산
+// 03:00~06:00 = 일일 리셋 구간 (3시간 갭)
 export const DAY_CONFIG = {
-  startHour: 7,
-  startMinute: 30,
-  endHour: 25,  // 다음날 01:30 = 25:30으로 표현
-  endMinute: 30,
+  startHour: 6,
+  startMinute: 0,
+  endHour: 27,  // 다음날 03:00 = 27:00으로 표현
+  endMinute: 0,
   weekStartsOn: 1,  // 월요일
 } as const;
 

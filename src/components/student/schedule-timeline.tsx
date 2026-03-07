@@ -30,7 +30,7 @@ const TIMELINE_CONFIG = {
   endMinute: 0,
 };
 
-// 시간 슬롯 생성 (07:30 ~ 22:00, 30분 단위)
+// 시간 슬롯 생성 (06:00 ~ 22:00, 30분 단위)
 function generateTimeSlots(): TimeSlot[] {
   const slots: TimeSlot[] = [];
   let hour: number = TIMELINE_CONFIG.startHour;

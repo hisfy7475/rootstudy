@@ -23,7 +23,7 @@ import {
   ChevronsRight,
   Search,
 } from 'lucide-react';
-import { cn, getTodayKST, formatDateKST } from '@/lib/utils';
+import { cn, getTodayKST, formatDateKST, getStudyDate } from '@/lib/utils';
 
 interface AbsenceSchedule {
   id: string;
@@ -154,9 +154,15 @@ function getWeekRangeText(mondayStr: string): string {
 
 type StatusFilter = 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived' | null;
 
+function getCurrentStudyDateStr(): string {
+  const sd = getStudyDate();
+  return formatDateKST(sd);
+}
+
 export function AttendanceClient({ initialData, todayPeriods, dateTypeName, todayDate, branchId }: AttendanceClientProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [data, setData] = useState<AttendanceStudent[]>(initialData.data);
+  const [dynamicToday, setDynamicToday] = useState(todayDate);
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -186,6 +192,24 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
   // 상태 필터
   const [activeFilter, setActiveFilter] = useState<StatusFilter>(null);
+
+  // 학습일 변경 감지 (06:00 KST 전후로 날짜가 바뀌는 경우)
+  useEffect(() => {
+    const checkStudyDateChange = () => {
+      const newToday = getCurrentStudyDateStr();
+      if (newToday !== dynamicToday) {
+        const wasViewingOldToday = selectedDate === dynamicToday;
+        setDynamicToday(newToday);
+        if (wasViewingOldToday) {
+          setSelectedDate(newToday);
+        }
+      }
+    };
+
+    checkStudyDateChange();
+    const timer = setInterval(checkStudyDateChange, 30000);
+    return () => clearInterval(timer);
+  }, [dynamicToday, selectedDate]);
 
   // 현재 시간 업데이트 (1분마다)
   useEffect(() => {
@@ -244,19 +268,30 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     };
   }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch]);
 
-  // 브라우저 탭이 다시 포커스될 때 데이터 새로고침 (WebSocket 끊김 대비)
+  // 브라우저 탭이 다시 포커스될 때 학습일 변경 감지 + 데이터 새로고침
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && viewMode === 'daily') {
-        skipPageEffectRef.current = true;
-        setPage(1);
-        setHasMore(true);
-        handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
+      if (document.visibilityState === 'visible') {
+        const newToday = getCurrentStudyDateStr();
+        if (newToday !== dynamicToday) {
+          const wasViewingOldToday = selectedDate === dynamicToday;
+          setDynamicToday(newToday);
+          if (wasViewingOldToday) {
+            setSelectedDate(newToday);
+            return;
+          }
+        }
+        if (viewMode === 'daily') {
+          skipPageEffectRef.current = true;
+          setPage(1);
+          setHasMore(true);
+          handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch]);
+  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch, dynamicToday]);
 
   // 주기적 자동 새로고침 (30초 간격, Realtime 끊김 안전망)
   useEffect(() => {
@@ -401,7 +436,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   };
 
   // 오늘인지 확인
-  const isToday = selectedDate === todayDate;
+  const isToday = selectedDate === dynamicToday;
 
   // 주간 뷰 페이지네이션 계산
   const weeklyTotalPages = Math.ceil(weeklyTotal / weeklyPageSize);
@@ -519,11 +554,21 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             <Button
               variant="outline"
               onClick={() => {
+                const newToday = getCurrentStudyDateStr();
+                let dateToRefresh = selectedDate;
+                if (newToday !== dynamicToday) {
+                  const wasViewingOldToday = selectedDate === dynamicToday;
+                  setDynamicToday(newToday);
+                  if (wasViewingOldToday) {
+                    dateToRefresh = newToday;
+                    setSelectedDate(newToday);
+                  }
+                }
                 skipPageEffectRef.current = true;
                 setData([]);
                 setPage(1);
                 setHasMore(true);
-                handleRefresh(selectedDate, 1, pageSize, true);
+                handleRefresh(dateToRefresh, 1, pageSize, true);
               }}
               disabled={loading}
             >
@@ -587,7 +632,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               className="w-44"
             />
             {!isToday && (
-              <Button variant="outline" size="sm" onClick={() => setSelectedDate(todayDate)}>
+              <Button variant="outline" size="sm" onClick={() => setSelectedDate(dynamicToday)}>
                 오늘
               </Button>
             )}
