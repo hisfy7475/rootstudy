@@ -964,9 +964,9 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
 
 // 회원 정보 수정
 export async function updateMember(userId: string, data: { name?: string; phone?: string; school?: string | null; grade?: number | null; branch_id?: string | null }) {
-  const supabase = await createClient();
+  const adminClient = createAdminClient();
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('profiles')
     .update({
       ...data,
@@ -1467,9 +1467,9 @@ export async function getAllAdmins() {
 
 // 관리자 지점 변경
 export async function updateAdminBranch(adminId: string, branchId: string | null) {
-  const supabase = await createClient();
+  const adminClient = createAdminClient();
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('profiles')
     .update({ branch_id: branchId })
     .eq('id', adminId)
