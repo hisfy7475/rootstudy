@@ -285,17 +285,21 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. 학생별 지점 정보 조회
+    // 4. 학생별 지점 정보 및 가입일 조회
     const studentIds = students.map((s) => s.id);
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, branch_id')
+      .select('id, branch_id, created_at')
       .in('id', studentIds);
 
     const branchMap = new Map<string, string>();
+    const joinedAtMap = new Map<string, Date>();
     profiles?.forEach((p) => {
       if (p.branch_id) {
         branchMap.set(p.id, p.branch_id);
+      }
+      if (p.created_at) {
+        joinedAtMap.set(p.id, new Date(p.created_at));
       }
     });
 
@@ -376,6 +380,11 @@ export async function GET(request: Request) {
         
         const isGoalAchieved = totalStudyMinutes >= goalMinutes;
         const isBelowMinimum = minimumMinutes > 0 && totalStudyMinutes < minimumMinutes;
+
+        // 해당 주차에 가입한 신규 학생은 최소시간 미달 벌점 면제
+        const joinedAt = joinedAtMap.get(student.id);
+        const isNewThisWeek = joinedAt !== undefined && joinedAt >= lastWeekStart && joinedAt < lastWeekEnd;
+        const applyPenalty = isBelowMinimum && !isNewThisWeek;
         
         // 투트랙: 목표 달성 → 상점, 최소 미달 → 벌점, 중간 → 없음
         let pointType: 'reward' | 'penalty' | null = null;
@@ -389,12 +398,15 @@ export async function GET(request: Request) {
           pointAmount = rewardPoints;
           reason = `주간 목표 달성 (${studyHours}시간/${goalHours}시간)`;
           notificationTitle = '주간 목표 달성! 상점이 부여되었습니다';
-        } else if (isBelowMinimum) {
+        } else if (applyPenalty) {
           // 최소 미달 → 벌점
           pointType = 'penalty';
           pointAmount = minimumPenaltyPoints;
           reason = `주간 최소시간 미달 (${studyHours}시간/${minimumHours}시간 미만)`;
           notificationTitle = '주간 최소시간 미달로 벌점이 부여되었습니다';
+        } else if (isNewThisWeek && isBelowMinimum) {
+          // 신규 학생 첫 주 최소 미달 → 벌점 면제
+          reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간, 신규 등록 면제)`;
         } else {
           // 중간 → 상벌점 없음
           reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간)`;
@@ -455,7 +467,7 @@ export async function GET(request: Request) {
         results.processed++;
         if (isGoalAchieved) {
           results.rewarded++;
-        } else if (isBelowMinimum) {
+        } else if (applyPenalty) {
           results.penalized++;
         } else {
           results.neutral++;
