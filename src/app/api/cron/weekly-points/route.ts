@@ -9,39 +9,64 @@ function getSupabaseAdmin() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// 로컬(KST) 날짜를 YYYY-MM-DD 문자열로 변환 (toISOString의 UTC 변환 문제 방지)
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+// KST 오프셋 (UTC+9)
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// UTC Date를 KST 기준 YYYY-MM-DD 문자열로 변환
+function formatKSTDate(utcDate: Date): string {
+  const kst = new Date(utcDate.getTime() + KST_OFFSET_MS);
+  const year = kst.getUTCFullYear();
+  const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(kst.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-// 주의 시작일 계산 (일요일 기준)
-function getWeekStart(date: Date = new Date()): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day - DAY_CONFIG.weekStartsOn;
-  d.setDate(d.getDate() - diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+// KST 기준 이번 주 월요일 날짜(YYYY-MM-DD)를 반환
+// weekParam이 있으면 해당 날짜가 속한 주의 월요일을 계산
+function getThisWeekMondayKST(weekParam?: string): string {
+  // KST 현재 날짜를 YYYY-MM-DD로 구한다
+  let kstDateStr: string;
+  if (weekParam) {
+    kstDateStr = weekParam;
+  } else {
+    const now = new Date(Date.now() + KST_OFFSET_MS);
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(now.getUTCDate()).padStart(2, '0');
+    kstDateStr = `${y}-${m}-${d}`;
+  }
+  // KST 해당 날짜의 요일 계산 (UTC noon으로 파싱해 DST 영향 방지)
+  const refDate = new Date(`${kstDateStr}T12:00:00Z`);
+  const day = refDate.getUTCDay(); // 0=일, 1=월, ...
+  const diff = day - DAY_CONFIG.weekStartsOn; // 월요일(1)까지의 차이
+  const adjustedDiff = diff < 0 ? diff + 7 : diff;
+  refDate.setUTCDate(refDate.getUTCDate() - adjustedDiff);
+  const y = refDate.getUTCFullYear();
+  const m = String(refDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(refDate.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
-// 지난 주 시작일 계산
-function getLastWeekStart(): Date {
-  const thisWeekStart = getWeekStart();
-  const lastWeekStart = new Date(thisWeekStart);
-  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  return lastWeekStart;
+// KST 기준 주 시작일(월요일 00:00 KST = 일요일 15:00 UTC)을 UTC Date로 반환
+// weekParam 있음: 해당 날짜(YYYY-MM-DD)가 속한 주를 직접 처리
+// weekParam 없음: 지난 주(오늘 기준 이전 주)를 처리
+function getTargetWeekStartKST(weekParam?: string): Date {
+  if (weekParam) {
+    const mondayKST = getThisWeekMondayKST(weekParam);
+    return new Date(`${mondayKST}T00:00:00+09:00`);
+  } else {
+    const todayMondayKST = getThisWeekMondayKST();
+    const thisWeekStart = new Date(`${todayMondayKST}T00:00:00+09:00`);
+    return new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  }
 }
 
-// 주간 날짜 배열 생성
-function getWeekDates(weekStart: Date): string[] {
+// 주간 날짜 배열 생성 (KST 기준 YYYY-MM-DD)
+function getWeekDates(weekStartUTC: Date): string[] {
   const dates: string[] = [];
   for (let i = 0; i < 7; i++) {
-    const date = new Date(weekStart);
-    date.setDate(date.getDate() + i);
-    dates.push(formatLocalDate(date));
+    const d = new Date(weekStartUTC.getTime() + i * 24 * 60 * 60 * 1000);
+    dates.push(formatKSTDate(d));
   }
   return dates;
 }
@@ -204,6 +229,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // ?week=YYYY-MM-DD 파라미터: 해당 주차(월요일 날짜)를 직접 지정하여 재계산
+  // 예) ?week=2026-03-02 → 3/2(월)~3/8(일) 주차 처리
+  // 파라미터 없으면 기존처럼 지난 주 자동 계산
+  const url = new URL(request.url);
+  const weekParam = url.searchParams.get('week') ?? undefined;
+
   const supabase = getSupabaseAdmin();
   const results: {
     processed: number;
@@ -222,12 +253,12 @@ export async function GET(request: Request) {
   };
 
   try {
-    // 2. 지난 주 시작일/종료일 계산
-    const lastWeekStart = getLastWeekStart();
+    // 2. 처리할 주 시작일/종료일 계산 (KST 기준)
+    const lastWeekStart = getTargetWeekStartKST(weekParam);
     const lastWeekEnd = new Date(lastWeekStart);
-    lastWeekEnd.setDate(lastWeekEnd.getDate() + 7);
+    lastWeekEnd.setUTCDate(lastWeekEnd.getUTCDate() + 7);
     
-    const weekStartStr = formatLocalDate(lastWeekStart);
+    const weekStartStr = formatKSTDate(lastWeekStart);
     const weekDates = getWeekDates(lastWeekStart);
 
     // 3. 모든 학생 조회 (타입 정보 포함)
