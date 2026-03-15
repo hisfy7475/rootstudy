@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,9 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Search,
+  ChevronsUpDown,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { cn, getTodayKST, formatDateKST, getStudyDate } from '@/lib/utils';
 
@@ -55,6 +58,7 @@ interface WeeklyStudent {
   }>;
   weeklyStudyMinutes: number;
   totalPenalty: number;
+  totalReward: number;
 }
 
 interface Period {
@@ -187,6 +191,10 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const [weeklyPage, setWeeklyPage] = useState(1);
   const [weeklyPageSize, setWeeklyPageSize] = useState(20);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
+  // 주간 뷰 정렬 상태
+  type WeeklySortKey = 'seatNumber' | 'name' | 'weeklyStudyMinutes' | 'totalPenalty' | 'totalReward';
+  const [weeklySortKey, setWeeklySortKey] = useState<WeeklySortKey>('seatNumber');
+  const [weeklySortAsc, setWeeklySortAsc] = useState(true);
 
   // 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
@@ -194,6 +202,55 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
   // 상태 필터
   const [activeFilter, setActiveFilter] = useState<StatusFilter>(null);
+
+  // 주간 뷰 정렬된 데이터
+  const sortedWeeklyData = useMemo(() => {
+    const sorted = [...weeklyData].sort((a, b) => {
+      let aVal: string | number;
+      let bVal: string | number;
+      switch (weeklySortKey) {
+        case 'seatNumber':
+          aVal = a.seatNumber ?? 9999;
+          bVal = b.seatNumber ?? 9999;
+          break;
+        case 'name':
+          aVal = a.name;
+          bVal = b.name;
+          break;
+        case 'weeklyStudyMinutes':
+          aVal = a.weeklyStudyMinutes;
+          bVal = b.weeklyStudyMinutes;
+          break;
+        case 'totalPenalty':
+          aVal = a.totalPenalty;
+          bVal = b.totalPenalty;
+          break;
+        case 'totalReward':
+          aVal = a.totalReward;
+          bVal = b.totalReward;
+          break;
+        default:
+          aVal = a.seatNumber ?? 9999;
+          bVal = b.seatNumber ?? 9999;
+      }
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return weeklySortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return weeklySortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+    });
+    return sorted;
+  }, [weeklyData, weeklySortKey, weeklySortAsc]);
+
+  const handleWeeklySort = useCallback((key: WeeklySortKey) => {
+    setWeeklySortKey(prev => {
+      if (prev === key) {
+        setWeeklySortAsc(asc => !asc);
+        return prev;
+      }
+      setWeeklySortAsc(true);
+      return key;
+    });
+  }, []);
 
   // 학습일 변경 감지 (06:00 KST 전후로 날짜가 바뀌는 경우)
   useEffect(() => {
@@ -922,11 +979,37 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b print:bg-gray-100">
                 <tr>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-0 bg-gray-50 z-10">
-                    번호
+                  {/* 번호 헤더 (정렬 가능) */}
+                  <th
+                    className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-0 bg-gray-50 z-10 cursor-pointer select-none print:cursor-auto"
+                    onClick={() => handleWeeklySort('seatNumber')}
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      번호
+                      <span className="print:hidden">
+                        {weeklySortKey === 'seatNumber' ? (
+                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-gray-300" />
+                        )}
+                      </span>
+                    </span>
                   </th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-10 bg-gray-50 z-10">
-                    이름
+                  {/* 이름 헤더 (정렬 가능) */}
+                  <th
+                    className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-10 bg-gray-50 z-10 cursor-pointer select-none print:cursor-auto"
+                    onClick={() => handleWeeklySort('name')}
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      이름
+                      <span className="print:hidden">
+                        {weeklySortKey === 'name' ? (
+                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-gray-300" />
+                        )}
+                      </span>
+                    </span>
                   </th>
                   {weekDates.map((dateStr) => {
                     const { date, day } = formatShortDate(dateStr);
@@ -946,11 +1029,53 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                       </th>
                     );
                   })}
-                  <th className="px-2 py-2 text-center text-xs font-medium text-blue-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[64px] border-l border-gray-200">
-                    주간 학습
+                  {/* 주간 학습 헤더 (정렬 가능) */}
+                  <th
+                    className="px-2 py-2 text-center text-xs font-medium text-blue-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[64px] border-l border-gray-200 cursor-pointer select-none print:cursor-auto"
+                    onClick={() => handleWeeklySort('weeklyStudyMinutes')}
+                  >
+                    <span className="inline-flex items-center justify-center gap-0.5">
+                      주간 학습
+                      <span className="print:hidden">
+                        {weeklySortKey === 'weeklyStudyMinutes' ? (
+                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-blue-300" />
+                        )}
+                      </span>
+                    </span>
                   </th>
-                  <th className="px-2 py-2 text-center text-xs font-medium text-red-500 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px]">
-                    누적 벌점
+                  {/* 누적 상점 헤더 (정렬 가능) */}
+                  <th
+                    className="px-2 py-2 text-center text-xs font-medium text-emerald-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px] cursor-pointer select-none print:cursor-auto"
+                    onClick={() => handleWeeklySort('totalReward')}
+                  >
+                    <span className="inline-flex items-center justify-center gap-0.5">
+                      누적 상점
+                      <span className="print:hidden">
+                        {weeklySortKey === 'totalReward' ? (
+                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-emerald-300" />
+                        )}
+                      </span>
+                    </span>
+                  </th>
+                  {/* 누적 벌점 헤더 (정렬 가능) */}
+                  <th
+                    className="px-2 py-2 text-center text-xs font-medium text-red-500 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px] cursor-pointer select-none print:cursor-auto"
+                    onClick={() => handleWeeklySort('totalPenalty')}
+                  >
+                    <span className="inline-flex items-center justify-center gap-0.5">
+                      누적 벌점
+                      <span className="print:hidden">
+                        {weeklySortKey === 'totalPenalty' ? (
+                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-red-300" />
+                        )}
+                      </span>
+                    </span>
                   </th>
                 </tr>
               </thead>
@@ -968,7 +1093,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                     </td>
                   </tr>
                 ) : (
-                  weeklyData.map((student) => (
+                  sortedWeeklyData.map((student) => (
                     <tr key={student.id} className="hover:bg-gray-50 print:hover:bg-transparent">
                       {/* 번호 */}
                       <td className="px-2 py-1.5 print:px-1 print:py-0.5 sticky left-0 bg-white z-10">
@@ -1019,6 +1144,17 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                         {student.weeklyStudyMinutes > 0 ? (
                           <span className="text-blue-600 font-medium">
                             {Math.floor(student.weeklyStudyMinutes / 60)}h {student.weeklyStudyMinutes % 60}m
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+
+                      {/* 누적 상점 */}
+                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                        {student.totalReward > 0 ? (
+                          <span className="font-semibold text-emerald-600">
+                            +{student.totalReward}
                           </span>
                         ) : (
                           <span className="text-gray-400">-</span>

@@ -2226,14 +2226,14 @@ export async function getWeeklyAttendance(
     }
   }
 
-  // 전체 누적 벌점 조회 (기간 제한 없이 전체)
-  const { data: allPenalties } = await supabase
+  // 전체 누적 벌점/상점 조회 (기간 제한 없이 전체)
+  const { data: allPoints } = await supabase
     .from('points')
-    .select('student_id, amount')
-    .in('student_id', studentIds)
-    .eq('type', 'penalty');
+    .select('student_id, amount, type')
+    .in('student_id', studentIds);
 
-  const penaltyByStudent = groupById(allPenalties ?? []);
+  const penaltyByStudent = groupById((allPoints ?? []).filter(p => p.type === 'penalty'));
+  const rewardByStudent = groupById((allPoints ?? []).filter(p => p.type === 'reward'));
 
   // 각 학생별 주간 데이터 생성
   const weeklyData = (students || []).map((student) => {
@@ -2306,8 +2306,9 @@ export async function getWeeklyAttendance(
       }
     });
 
-    // 전체 누적 벌점
+    // 전체 누적 벌점 / 상점
     const totalPenalty = (penaltyByStudent[student.id] ?? []).reduce((sum, p) => sum + p.amount, 0);
+    const totalReward = (rewardByStudent[student.id] ?? []).reduce((sum, p) => sum + p.amount, 0);
 
     return {
       id: student.id,
@@ -2316,6 +2317,7 @@ export async function getWeeklyAttendance(
       dailyStatus,
       weeklyStudyMinutes,
       totalPenalty,
+      totalReward,
     };
   });
 
