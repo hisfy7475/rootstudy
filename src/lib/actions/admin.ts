@@ -2203,8 +2203,9 @@ export async function getWeeklyAttendance(
   const weekStart = getStudyDayBounds(dates[0]).start;
   const weekEnd = getStudyDayBounds(dates[6]).end;
 
-  // 해당 기간의 모든 출석 기록 조회 (페이지네이션)
   const studentIds = (students || []).map(s => s.id);
+
+  // 해당 기간의 모든 출석 기록 + 전체 누적 벌점 병렬 조회
   let allAttendance: any[] = [];
   {
     let from = 0;
@@ -2225,6 +2226,15 @@ export async function getWeeklyAttendance(
     }
   }
 
+  // 전체 누적 벌점 조회 (기간 제한 없이 전체)
+  const { data: allPenalties } = await supabase
+    .from('points')
+    .select('student_id, amount')
+    .in('student_id', studentIds)
+    .eq('type', 'penalty');
+
+  const penaltyByStudent = groupById(allPenalties ?? []);
+
   // 각 학생별 주간 데이터 생성
   const weeklyData = (students || []).map((student) => {
     const profile = Array.isArray(student.profiles) 
@@ -2237,12 +2247,38 @@ export async function getWeeklyAttendance(
       checkInTime: string | null;
     }> = {};
 
+    // 해당 주 학습시간 계산 (attendance 기록에서 직접 계산)
+    let weeklyStudyMinutes = 0;
+    let tempCheckIn: Date | null = null;
+
+    const studentWeekAttendance = (allAttendance || []).filter(a => a.student_id === student.id);
+
+    for (const record of studentWeekAttendance) {
+      const ts = new Date(record.timestamp);
+      switch (record.type) {
+        case 'check_in':
+        case 'break_end':
+          tempCheckIn = ts;
+          break;
+        case 'check_out':
+        case 'break_start':
+          if (tempCheckIn) {
+            weeklyStudyMinutes += Math.floor((ts.getTime() - tempCheckIn.getTime()) / 60000);
+            tempCheckIn = null;
+          }
+          break;
+      }
+    }
+    // 아직 퇴실 안 한 경우 현재 시간까지 계산
+    if (tempCheckIn) {
+      weeklyStudyMinutes += Math.floor((new Date().getTime() - tempCheckIn.getTime()) / 60000);
+    }
+
     dates.forEach(dateStr => {
       const { start: dayStart, end: dayEnd } = getStudyDayBounds(dateStr);
       
       // 해당 날짜의 출석 기록 필터링
-      const dayAttendance = (allAttendance || []).filter(a => 
-        a.student_id === student.id &&
+      const dayAttendance = studentWeekAttendance.filter(a => 
         new Date(a.timestamp) >= dayStart &&
         new Date(a.timestamp) <= dayEnd
       );
@@ -2270,11 +2306,16 @@ export async function getWeeklyAttendance(
       }
     });
 
+    // 전체 누적 벌점
+    const totalPenalty = (penaltyByStudent[student.id] ?? []).reduce((sum, p) => sum + p.amount, 0);
+
     return {
       id: student.id,
       seatNumber: student.seat_number,
       name: profile?.name || '이름 없음',
       dailyStatus,
+      weeklyStudyMinutes,
+      totalPenalty,
     };
   });
 
@@ -2620,4 +2661,57 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
     console.error('Error in deleteMember:', error);
     return { error: '회원 탈퇴 처리 중 오류가 발생했습니다.' };
   }
+}
+
+// ============================================
+// 핸드폰 제출 관리
+// ============================================
+
+export type PhoneSubmissionStatus = 'submitted' | 'not_submitted' | 'none';
+
+export type PhoneSubmissionMap = Record<string, PhoneSubmissionStatus>;
+
+export async function getPhoneSubmissions(
+  date: string,
+  branchId?: string | null
+): Promise<PhoneSubmissionMap> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('phone_submissions')
+    .select('student_id, status')
+    .eq('date', date);
+
+  if (error) {
+    console.error('Error fetching phone submissions:', error);
+    return {};
+  }
+
+  const map: PhoneSubmissionMap = {};
+  for (const row of data || []) {
+    map[row.student_id] = row.status as PhoneSubmissionStatus;
+  }
+  return map;
+}
+
+export async function setPhoneSubmission(
+  studentId: string,
+  date: string,
+  status: PhoneSubmissionStatus
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('phone_submissions')
+    .upsert(
+      { student_id: studentId, date, status, updated_at: new Date().toISOString() },
+      { onConflict: 'student_id,date' }
+    );
+
+  if (error) {
+    console.error('Error setting phone submission:', error);
+    return { error: '핸드폰 제출 상태 변경에 실패했습니다.' };
+  }
+
+  return { success: true };
 }

@@ -263,7 +263,7 @@ export async function getWeeklyGoals(studentId?: string) {
   const attendedDates = new Set<string>();
   if (attendanceRecords) {
     for (const record of attendanceRecords) {
-      const dateStr = new Date(record.timestamp).toLocaleDateString('en-CA'); // YYYY-MM-DD
+      const dateStr = new Date(record.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD KST
       attendedDates.add(dateStr);
     }
   }
@@ -276,7 +276,7 @@ export async function getWeeklyGoals(studentId?: string) {
   for (let i = 0; i < 7; i++) {
     const date = new Date(startOfWeek);
     date.setDate(startOfWeek.getDate() + i);
-    const dateStr = date.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const dateStr = date.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD KST
     
     const attended = attendedDates.has(dateStr);
     

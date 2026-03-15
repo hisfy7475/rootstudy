@@ -1,4 +1,4 @@
-import { getAllStudents, getWeeklyFocusReport, getPenaltyPresets, getFocusScorePresets, getTodayFocusScoresByPeriod } from '@/lib/actions/admin';
+import { getAllStudents, getWeeklyFocusReport, getPenaltyPresets, getFocusScorePresets, getTodayFocusScoresByPeriod, getPhoneSubmissions } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { createClient } from '@/lib/supabase/server';
 import { getStudyDate, formatDate } from '@/lib/utils';
@@ -35,13 +35,14 @@ export default async function FocusManagementPage() {
   // 오늘 날짜 (KST 기준)
   const today = formatDate(getStudyDate());
 
-  const [students, report, todayPeriodsData, penaltyPresets, focusPresets, focusScoresByPeriod] = await Promise.all([
+  const [students, report, todayPeriodsData, penaltyPresets, focusPresets, focusScoresByPeriod, phoneSubmissions] = await Promise.all([
     getAllStudents('all', branchId),
     getWeeklyFocusReport(branchId),
     branchId ? getTodayPeriods(branchId) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
     branchId ? getPenaltyPresets(branchId) : Promise.resolve([]),
     branchId ? getFocusScorePresets(branchId) : Promise.resolve([]),
     getTodayFocusScoresByPeriod(branchId),
+    getPhoneSubmissions(today, branchId),
   ]);
 
   return (
@@ -55,6 +56,7 @@ export default async function FocusManagementPage() {
       initialPenaltyPresets={penaltyPresets}
       initialFocusPresets={focusPresets}
       initialFocusScoresByPeriod={focusScoresByPeriod}
+      initialPhoneSubmissions={phoneSubmissions}
     />
   );
 }

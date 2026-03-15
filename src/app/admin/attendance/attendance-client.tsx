@@ -53,6 +53,8 @@ interface WeeklyStudent {
     status: 'attended' | 'not_attended' | 'on_break' | null;
     checkInTime: string | null;
   }>;
+  weeklyStudyMinutes: number;
+  totalPenalty: number;
 }
 
 interface Period {
@@ -944,18 +946,24 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                       </th>
                     );
                   })}
+                  <th className="px-2 py-2 text-center text-xs font-medium text-blue-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[64px] border-l border-gray-200">
+                    주간 학습
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-red-500 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px]">
+                    누적 벌점
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {weeklyLoading ? (
                   <tr>
-                    <td colSpan={9} className="px-2 py-6 text-center text-xs text-gray-500">
+                    <td colSpan={11} className="px-2 py-6 text-center text-xs text-gray-500">
                       로딩 중...
                     </td>
                   </tr>
                 ) : weeklyData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-2 py-6 text-center text-xs text-gray-500">
+                    <td colSpan={11} className="px-2 py-6 text-center text-xs text-gray-500">
                       {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                     </td>
                   </tr>
@@ -1005,6 +1013,28 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                           </td>
                         );
                       })}
+
+                      {/* 주간 학습시간 */}
+                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5 border-l border-gray-100">
+                        {student.weeklyStudyMinutes > 0 ? (
+                          <span className="text-blue-600 font-medium">
+                            {Math.floor(student.weeklyStudyMinutes / 60)}h {student.weeklyStudyMinutes % 60}m
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+
+                      {/* 누적 벌점 */}
+                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                        {student.totalPenalty > 0 ? (
+                          <span className="font-semibold text-red-600">
+                            -{student.totalPenalty}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}

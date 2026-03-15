@@ -390,7 +390,7 @@ export async function getPendingAbsenceSchedulesForAdmin(branchId?: string | nul
   }));
 }
 
-// 부재 스케줄 수정 (관리자·학부모 전용)
+// 부재 스케줄 수정 (학생 본인·학부모·관리자)
 export async function updateAbsenceSchedule(
   id: string,
   data: Partial<{
@@ -423,24 +423,29 @@ export async function updateAbsenceSchedule(
 
   if (!schedule) return { success: false, error: '스케줄을 찾을 수 없습니다.' };
 
-  // 관리자 또는 연결된 학부모인지 확인
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
-    .single();
+  // 학생 본인인지 확인
+  const isOwner = schedule.student_id === user.id;
 
-  const isAdmin = profile?.user_type === 'admin';
-
-  if (!isAdmin) {
-    const { data: parentLink } = await supabase
-      .from('parent_student_links')
-      .select('id')
-      .eq('parent_id', user.id)
-      .eq('student_id', schedule.student_id)
+  if (!isOwner) {
+    // 관리자 또는 연결된 학부모인지 확인
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('user_type')
+      .eq('id', user.id)
       .single();
 
-    if (!parentLink) return { success: false, error: '수정 권한이 없습니다.' };
+    const isAdmin = profile?.user_type === 'admin';
+
+    if (!isAdmin) {
+      const { data: parentLink } = await supabase
+        .from('parent_student_links')
+        .select('id')
+        .eq('parent_id', user.id)
+        .eq('student_id', schedule.student_id)
+        .single();
+
+      if (!parentLink) return { success: false, error: '수정 권한이 없습니다.' };
+    }
   }
 
   const { error } = await supabase
@@ -478,24 +483,29 @@ export async function deleteAbsenceSchedule(id: string): Promise<{ success: bool
 
   if (!schedule) return { success: false, error: '스케줄을 찾을 수 없습니다.' };
 
-  // 관리자 또는 연결된 학부모인지 확인
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
-    .single();
+  // 학생 본인인지 확인
+  const isOwner = schedule.student_id === user.id;
 
-  const isAdmin = profile?.user_type === 'admin';
-
-  if (!isAdmin) {
-    const { data: parentLink } = await supabase
-      .from('parent_student_links')
-      .select('id')
-      .eq('parent_id', user.id)
-      .eq('student_id', schedule.student_id)
+  if (!isOwner) {
+    // 관리자 또는 연결된 학부모인지 확인
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('user_type')
+      .eq('id', user.id)
       .single();
 
-    if (!parentLink) return { success: false, error: '삭제 권한이 없습니다.' };
+    const isAdmin = profile?.user_type === 'admin';
+
+    if (!isAdmin) {
+      const { data: parentLink } = await supabase
+        .from('parent_student_links')
+        .select('id')
+        .eq('parent_id', user.id)
+        .eq('student_id', schedule.student_id)
+        .single();
+
+      if (!parentLink) return { success: false, error: '삭제 권한이 없습니다.' };
+    }
   }
 
   const adminClient = createAdminClient();

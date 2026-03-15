@@ -18,7 +18,8 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { DAY_NAMES, ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
+import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, ABSENCE_REASONS } from '@/lib/constants';
+import { Input } from '@/components/ui/input';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { StudentAbsenceSchedule } from '@/types/database';
@@ -66,23 +67,29 @@ export function ScheduleClient({
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
     linkedStudents[0]?.id || ''
   );
-  const [title, setTitle] = useState('');
+  const [reasonType, setReasonType] = useState('');
+  const [customReason, setCustomReason] = useState('');
   const [isRecurring, setIsRecurring] = useState(true);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [specificDate, setSpecificDate] = useState('');
+  const [specificDate, setSpecificDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [recurringStartDate, setRecurringStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [recurringEndDate, setRecurringEndDate] = useState('');
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
   // 수정 모달 상태
   const [editingSchedule, setEditingSchedule] = useState<AbsenceScheduleWithStudent | null>(null);
-  const [editTitle, setEditTitle] = useState('');
+  const [editReasonType, setEditReasonType] = useState('');
+  const [editCustomReason, setEditCustomReason] = useState('');
   const [editIsRecurring, setEditIsRecurring] = useState(true);
   const [editSelectedDays, setEditSelectedDays] = useState<number[]>([]);
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
   const [editSpecificDate, setEditSpecificDate] = useState('');
+  const [editRecurringStartDate, setEditRecurringStartDate] = useState('');
+  const [editRecurringEndDate, setEditRecurringEndDate] = useState('');
   const [editError, setEditError] = useState('');
   const [isEditLoading, setIsEditLoading] = useState(false);
 
@@ -112,13 +119,20 @@ export function ScheduleClient({
   );
 
   const openEditModal = (schedule: AbsenceScheduleWithStudent) => {
+    const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
+    const resolvedReasonType = foundReason?.value || 'other';
+    const resolvedCustomReason = resolvedReasonType === 'other' ? schedule.title : '';
+
     setEditingSchedule(schedule);
-    setEditTitle(schedule.title);
+    setEditReasonType(resolvedReasonType);
+    setEditCustomReason(resolvedCustomReason);
     setEditIsRecurring(schedule.is_recurring);
     setEditSelectedDays(schedule.day_of_week || []);
     setEditStartTime(schedule.start_time.slice(0, 5));
     setEditEndTime(schedule.end_time.slice(0, 5));
-    setEditSpecificDate(schedule.specific_date || '');
+    setEditSpecificDate(schedule.specific_date || format(new Date(), 'yyyy-MM-dd'));
+    setEditRecurringStartDate(schedule.valid_from || format(new Date(), 'yyyy-MM-dd'));
+    setEditRecurringEndDate(schedule.valid_until || '');
     setEditError('');
   };
 
@@ -127,12 +141,31 @@ export function ScheduleClient({
     if (!editingSchedule) return;
     setEditError('');
 
-    if (!editTitle.trim()) {
-      setEditError('일정 제목을 입력해주세요.');
+    if (!editReasonType) {
+      setEditError('부재 사유를 선택해주세요.');
+      return;
+    }
+    if (editReasonType === 'other' && !editCustomReason.trim()) {
+      setEditError('기타 사유를 입력해주세요.');
+      return;
+    }
+    const editTitle = editReasonType === 'other'
+      ? editCustomReason.trim()
+      : (ABSENCE_REASONS.find(r => r.value === editReasonType)?.label || '');
+    if (!editTitle) {
+      setEditError('부재 사유를 입력해주세요.');
       return;
     }
     if (editIsRecurring && editSelectedDays.length === 0) {
       setEditError('반복 요일을 선택해주세요.');
+      return;
+    }
+    if (editIsRecurring && !editRecurringStartDate) {
+      setEditError('시작일을 선택해주세요.');
+      return;
+    }
+    if (editIsRecurring && editRecurringEndDate && editRecurringStartDate > editRecurringEndDate) {
+      setEditError('종료일은 시작일 이후여야 합니다.');
       return;
     }
     if (!editIsRecurring && !editSpecificDate) {
@@ -152,6 +185,8 @@ export function ScheduleClient({
       day_of_week: editIsRecurring ? editSelectedDays : null,
       start_time: editStartTime + ':00',
       end_time: editEndTime + ':00',
+      valid_from: editIsRecurring ? editRecurringStartDate : null,
+      valid_until: editIsRecurring && editRecurringEndDate ? editRecurringEndDate : null,
       specific_date: !editIsRecurring ? editSpecificDate : null,
     });
 
@@ -211,8 +246,19 @@ export function ScheduleClient({
       setFormError('자녀를 선택해주세요.');
       return;
     }
-    if (!title.trim()) {
-      setFormError('일정 제목을 입력해주세요.');
+    if (!reasonType) {
+      setFormError('부재 사유를 선택해주세요.');
+      return;
+    }
+    if (reasonType === 'other' && !customReason.trim()) {
+      setFormError('기타 사유를 입력해주세요.');
+      return;
+    }
+    const title = reasonType === 'other'
+      ? customReason.trim()
+      : (ABSENCE_REASONS.find(r => r.value === reasonType)?.label || '');
+    if (!title) {
+      setFormError('부재 사유를 입력해주세요.');
       return;
     }
     if (!startTime || !endTime) {
@@ -221,6 +267,14 @@ export function ScheduleClient({
     }
     if (isRecurring && selectedDays.length === 0) {
       setFormError('반복 요일을 선택해주세요.');
+      return;
+    }
+    if (isRecurring && !recurringStartDate) {
+      setFormError('시작일을 선택해주세요.');
+      return;
+    }
+    if (isRecurring && recurringEndDate && recurringStartDate > recurringEndDate) {
+      setFormError('종료일은 시작일 이후여야 합니다.');
       return;
     }
     if (!isRecurring && !specificDate) {
@@ -236,18 +290,21 @@ export function ScheduleClient({
         day_of_week: isRecurring ? selectedDays : undefined,
         start_time: startTime,
         end_time: endTime,
+        valid_from: isRecurring ? recurringStartDate : undefined,
+        valid_until: isRecurring && recurringEndDate ? recurringEndDate : undefined,
         specific_date: !isRecurring ? specificDate : undefined,
       });
 
       if (result.success) {
         setFormSuccess('부재 일정이 등록되었습니다.');
-        // 폼 초기화
-        setTitle('');
+        setReasonType('');
+        setCustomReason('');
         setSelectedDays([]);
         setStartTime('');
         setEndTime('');
-        setSpecificDate('');
-        // 부재 일정 탭으로 이동
+        setSpecificDate(format(new Date(), 'yyyy-MM-dd'));
+        setRecurringStartDate(format(new Date(), 'yyyy-MM-dd'));
+        setRecurringEndDate('');
         setTimeout(() => {
           setActiveTab('absence');
           setFormSuccess('');
@@ -543,19 +600,50 @@ export function ScheduleClient({
             </div>
 
             <form onSubmit={handleEditSubmit} className="space-y-4 pb-8">
-              {/* 제목 */}
+              {/* 부재 사유 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  일정 제목
+                  부재 사유
                 </label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  placeholder="예: 학원, 병원 방문"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                />
+                <div className="space-y-2">
+                  {ABSENCE_REASONS.map((reason) => (
+                    <label
+                      key={reason.value}
+                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        editReasonType === reason.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="absenceReasonParentEdit"
+                        value={reason.value}
+                        checked={editReasonType === reason.value}
+                        onChange={(e) => { setEditReasonType(e.target.value); setEditCustomReason(''); }}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <span className="text-sm text-gray-700">{reason.label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
+
+              {/* 기타 사유 직접 입력 */}
+              {editReasonType === 'other' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    기타 사유 입력
+                  </label>
+                  <input
+                    type="text"
+                    value={editCustomReason}
+                    onChange={(e) => setEditCustomReason(e.target.value)}
+                    placeholder="부재 사유를 입력해주세요"
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+              )}
 
               {/* 반복 유형 */}
               <div>
@@ -614,6 +702,37 @@ export function ScheduleClient({
                         {dayName}
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 반복 기간 설정 */}
+              {editIsRecurring && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    적용 기간
+                  </label>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">시작일 *</label>
+                      <Input
+                        type="date"
+                        value={editRecurringStartDate}
+                        onChange={(e) => setEditRecurringStartDate(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">종료일 (선택)</label>
+                      <Input
+                        type="date"
+                        value={editRecurringEndDate}
+                        onChange={(e) => setEditRecurringEndDate(e.target.value)}
+                        min={editRecurringStartDate}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        종료일을 비워두면 무기한 적용됩니다
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -725,19 +844,50 @@ export function ScheduleClient({
                 </div>
               </Card>
 
-              {/* 제목 */}
+              {/* 부재 사유 */}
               <Card className="p-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  일정 제목
+                  부재 사유
                 </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="예: 학원, 병원 방문"
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                />
+                <div className="space-y-2">
+                  {ABSENCE_REASONS.map((reason) => (
+                    <label
+                      key={reason.value}
+                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        reasonType === reason.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="absenceReasonParent"
+                        value={reason.value}
+                        checked={reasonType === reason.value}
+                        onChange={(e) => { setReasonType(e.target.value); setCustomReason(''); }}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <span className="text-sm text-gray-700">{reason.label}</span>
+                    </label>
+                  ))}
+                </div>
               </Card>
+
+              {/* 기타 사유 직접 입력 */}
+              {reasonType === 'other' && (
+                <Card className="p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    기타 사유 입력
+                  </label>
+                  <input
+                    type="text"
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    placeholder="부재 사유를 입력해주세요"
+                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </Card>
+              )}
 
               {/* 반복 유형 */}
               <Card className="p-4">
@@ -800,6 +950,39 @@ export function ScheduleClient({
                 </Card>
               )}
 
+              {/* 반복 기간 설정 */}
+              {isRecurring && (
+                <Card className="p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    적용 기간
+                  </label>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">시작일 *</label>
+                      <input
+                        type="date"
+                        value={recurringStartDate}
+                        onChange={(e) => setRecurringStartDate(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">종료일 (선택)</label>
+                      <input
+                        type="date"
+                        value={recurringEndDate}
+                        onChange={(e) => setRecurringEndDate(e.target.value)}
+                        min={recurringStartDate}
+                        className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        종료일을 비워두면 무기한 적용됩니다
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
               {/* 일회성 날짜 선택 */}
               {!isRecurring && (
                 <Card className="p-4">
@@ -810,6 +993,7 @@ export function ScheduleClient({
                     type="date"
                     value={specificDate}
                     onChange={(e) => setSpecificDate(e.target.value)}
+                    min={format(new Date(), 'yyyy-MM-dd')}
                     className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                   />
                 </Card>

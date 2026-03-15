@@ -22,7 +22,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { StudentAbsenceSchedule } from '@/types/database';
-import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, SCHEDULE_DATE_TYPES } from '@/lib/constants';
+import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, SCHEDULE_DATE_TYPES, ABSENCE_REASONS } from '@/lib/constants';
 import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { 
@@ -78,27 +78,39 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   // 폼 상태
   const [formData, setFormData] = useState({
     studentId: '',
-    title: '',
+    reasonType: '' as string,
+    customReason: '',
     description: '',
     isRecurring: true,
     dayOfWeek: [] as number[],
     startTime: '09:00',
     endTime: '10:00',
     dateType: 'all' as 'semester' | 'vacation' | 'all',
-    specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    specificDate: format(new Date(), 'yyyy-MM-dd'),
+    recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
+    recurringEndDate: '',
   });
+
+  const getTitle = () => {
+    if (formData.reasonType === 'other') return formData.customReason.trim();
+    const reason = ABSENCE_REASONS.find(r => r.value === formData.reasonType);
+    return reason?.label || '';
+  };
 
   const resetForm = () => {
     setFormData({
       studentId: '',
-      title: '',
+      reasonType: '',
+      customReason: '',
       description: '',
       isRecurring: true,
       dayOfWeek: [],
       startTime: '09:00',
       endTime: '10:00',
       dateType: 'all',
-      specificDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      specificDate: format(new Date(), 'yyyy-MM-dd'),
+      recurringStartDate: format(new Date(), 'yyyy-MM-dd'),
+      recurringEndDate: '',
     });
     setEditingScheduleId(null);
     setStudentSearchQuery('');
@@ -116,9 +128,11 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const MAX_DROPDOWN_ITEMS = 20;
+
   // 학생 검색 필터
   const filteredStudentOptions = useMemo(() => {
-    if (!studentSearchQuery.trim()) return students;
+    if (!studentSearchQuery.trim()) return [];
     const q = studentSearchQuery.toLowerCase();
     return students.filter(s =>
       s.name.toLowerCase().includes(q) ||
@@ -126,22 +140,32 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
     );
   }, [students, studentSearchQuery]);
 
+  const displayedStudentOptions = filteredStudentOptions.slice(0, MAX_DROPDOWN_ITEMS);
+  const hasMoreStudents = filteredStudentOptions.length > MAX_DROPDOWN_ITEMS;
+
   const selectedStudent = useMemo(
     () => students.find(s => s.id === formData.studentId) ?? null,
     [students, formData.studentId]
   );
 
   const openEditModal = (schedule: ScheduleWithStudent) => {
+    const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
+    const reasonType = foundReason?.value || 'other';
+    const customReason = reasonType === 'other' ? schedule.title : '';
+
     setFormData({
       studentId: schedule.student_id,
-      title: schedule.title,
+      reasonType,
+      customReason,
       description: schedule.description || '',
       isRecurring: schedule.is_recurring,
       dayOfWeek: schedule.day_of_week || [],
       startTime: schedule.start_time.slice(0, 5),
       endTime: schedule.end_time.slice(0, 5),
       dateType: (schedule.date_type as 'semester' | 'vacation' | 'all') || 'all',
-      specificDate: schedule.specific_date || format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      specificDate: schedule.specific_date || format(new Date(), 'yyyy-MM-dd'),
+      recurringStartDate: schedule.valid_from || format(new Date(), 'yyyy-MM-dd'),
+      recurringEndDate: schedule.valid_until || '',
     });
     setEditingScheduleId(schedule.id);
     setShowAddModal(true);
@@ -160,12 +184,29 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       alert('학생을 선택해주세요.');
       return;
     }
-    if (!formData.title.trim()) {
-      alert('일정 제목을 입력해주세요.');
+    if (!formData.reasonType) {
+      alert('부재 사유를 선택해주세요.');
+      return;
+    }
+    if (formData.reasonType === 'other' && !formData.customReason.trim()) {
+      alert('기타 사유를 입력해주세요.');
+      return;
+    }
+    const title = getTitle();
+    if (!title) {
+      alert('부재 사유를 입력해주세요.');
       return;
     }
     if (formData.isRecurring && formData.dayOfWeek.length === 0) {
       alert('반복 요일을 선택해주세요.');
+      return;
+    }
+    if (formData.isRecurring && !formData.recurringStartDate) {
+      alert('시작일을 선택해주세요.');
+      return;
+    }
+    if (formData.isRecurring && formData.recurringEndDate && formData.recurringStartDate > formData.recurringEndDate) {
+      alert('종료일은 시작일 이후여야 합니다.');
       return;
     }
     if (formData.startTime >= formData.endTime) {
@@ -177,7 +218,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
     if (editingScheduleId) {
       const result = await updateAbsenceSchedule(editingScheduleId, {
-        title: formData.title.trim(),
+        title: title,
         description: formData.description.trim() || null,
         is_recurring: formData.isRecurring,
         recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
@@ -185,6 +226,8 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         start_time: formData.startTime + ':00',
         end_time: formData.endTime + ':00',
         date_type: formData.dateType,
+        valid_from: formData.isRecurring ? formData.recurringStartDate : null,
+        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
         specific_date: !formData.isRecurring ? formData.specificDate : null,
       });
 
@@ -198,7 +241,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       }
     } else {
       const result = await createAbsenceScheduleForStudent(formData.studentId, {
-        title: formData.title.trim(),
+        title: title,
         description: formData.description.trim() || undefined,
         is_recurring: formData.isRecurring,
         recurrence_type: formData.isRecurring ? 'weekly' : 'one_time',
@@ -206,6 +249,8 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         start_time: formData.startTime + ':00',
         end_time: formData.endTime + ':00',
         date_type: formData.dateType,
+        valid_from: formData.isRecurring ? formData.recurringStartDate : undefined,
+        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
         specific_date: !formData.isRecurring ? formData.specificDate : undefined,
       });
 
@@ -617,7 +662,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                         </span>
                       </div>
                     )}
-                    <div className="mt-1">
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
                       <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
                         !schedule.is_recurring
                           ? 'bg-amber-100 text-amber-700'
@@ -629,6 +674,13 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                       }`}>
                         {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
                       </span>
+                      {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
+                        <span className="text-xs text-gray-400">
+                          {schedule.valid_from ? format(new Date(schedule.valid_from), 'M/d', { locale: ko }) : ''}
+                          {' ~ '}
+                          {schedule.valid_until ? format(new Date(schedule.valid_until), 'M/d', { locale: ko }) : '무기한'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -696,26 +748,35 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                     </div>
                     {showStudentDropdown && (
                       <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
-                        {filteredStudentOptions.length === 0 ? (
+                        {!studentSearchQuery.trim() ? (
+                          <div className="px-3 py-2 text-sm text-gray-400">이름 또는 좌석번호를 입력하세요</div>
+                        ) : filteredStudentOptions.length === 0 ? (
                           <div className="px-3 py-2 text-sm text-gray-400">검색 결과 없음</div>
                         ) : (
-                          filteredStudentOptions.map(student => (
-                            <div
-                              key={student.id}
-                              className={cn(
-                                "px-3 py-2 text-sm cursor-pointer hover:bg-primary/5",
-                                formData.studentId === student.id && "bg-primary/10 font-medium"
-                              )}
-                              onMouseDown={e => {
-                                e.preventDefault();
-                                setFormData({ ...formData, studentId: student.id });
-                                setShowStudentDropdown(false);
-                                setStudentSearchQuery('');
-                              }}
-                            >
-                              {student.seatNumber != null ? `${student.seatNumber}번 ` : ''}{student.name}
-                            </div>
-                          ))
+                          <>
+                            {displayedStudentOptions.map(student => (
+                              <div
+                                key={student.id}
+                                className={cn(
+                                  "px-3 py-2 text-sm cursor-pointer hover:bg-primary/5",
+                                  formData.studentId === student.id && "bg-primary/10 font-medium"
+                                )}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  setFormData({ ...formData, studentId: student.id });
+                                  setShowStudentDropdown(false);
+                                  setStudentSearchQuery('');
+                                }}
+                              >
+                                {student.seatNumber != null ? `${student.seatNumber}번 ` : ''}{student.name}
+                              </div>
+                            ))}
+                            {hasMoreStudents && (
+                              <div className="px-3 py-2 text-xs text-gray-400 text-center border-t">
+                                외 {filteredStudentOptions.length - MAX_DROPDOWN_ITEMS}명 — 검색어를 더 입력하세요
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -723,17 +784,48 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                 </div>
               )}
 
-              {/* 제목 */}
+              {/* 부재 사유 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  일정 제목 *
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  부재 사유 *
                 </label>
-                <Input
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="예: 학원 수업"
-                />
+                <div className="space-y-2">
+                  {ABSENCE_REASONS.map((reason) => (
+                    <label
+                      key={reason.value}
+                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        formData.reasonType === reason.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="absenceReasonAdmin"
+                        value={reason.value}
+                        checked={formData.reasonType === reason.value}
+                        onChange={(e) => setFormData({ ...formData, reasonType: e.target.value, customReason: '' })}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <span className="text-sm text-gray-700">{reason.label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
+
+              {/* 기타 사유 직접 입력 */}
+              {formData.reasonType === 'other' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    기타 사유 입력 *
+                  </label>
+                  <Input
+                    value={formData.customReason}
+                    onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
+                    placeholder="부재 사유를 입력해주세요"
+                  />
+                </div>
+              )}
 
               {/* 설명 */}
               <div>
@@ -839,7 +931,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {formData.isRecurring && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    적용 기간
+                    적용 구분
                   </label>
                   <div className="flex gap-2">
                     {Object.entries(SCHEDULE_DATE_TYPES).map(([key, value]) => (
@@ -853,6 +945,41 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                         {value === 'semester' ? '학기중' : value === 'vacation' ? '방학' : '항상'}
                       </Button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 반복 기간 설정 (시작일/종료일) */}
+              {formData.isRecurring && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    적용 기간
+                  </label>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        시작일 *
+                      </label>
+                      <Input
+                        type="date"
+                        value={formData.recurringStartDate}
+                        onChange={(e) => setFormData({ ...formData, recurringStartDate: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        종료일 (선택)
+                      </label>
+                      <Input
+                        type="date"
+                        value={formData.recurringEndDate}
+                        onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
+                        min={formData.recurringStartDate}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        종료일을 비워두면 무기한 적용됩니다
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}

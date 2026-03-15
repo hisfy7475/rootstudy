@@ -20,8 +20,12 @@ import {
   getFocusScorePresets,
   updateFocusScorePreset,
   setStudentSubject,
+  getPhoneSubmissions,
+  setPhoneSubmission,
   type PenaltyPreset,
   type FocusScorePreset,
+  type PhoneSubmissionStatus,
+  type PhoneSubmissionMap,
 } from '@/lib/actions/admin';
 import { getTodayPeriods } from '@/lib/actions/period';
 import { getSubjectsForStudent } from '@/lib/actions/student-type';
@@ -43,6 +47,7 @@ import {
   Zap,
   Table2,
   BarChart3,
+  Smartphone,
 } from 'lucide-react';
 import { cn, formatDateKST, getTodayKST } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -93,13 +98,14 @@ interface FocusClientProps {
   initialPenaltyPresets: PenaltyPreset[];
   initialFocusPresets: FocusScorePreset[];
   initialFocusScoresByPeriod: FocusScoreMap;
+  initialPhoneSubmissions: PhoneSubmissionMap;
 }
 
 // ============================================
-// Subject Dropdown Component
+// Subject Inline Component
 // ============================================
 
-function SubjectDropdown({
+function SubjectInline({
   studentId,
   currentSubject,
   onSubjectChange,
@@ -108,55 +114,26 @@ function SubjectDropdown({
   currentSubject: string | null;
   onSubjectChange: (studentId: string, subject: string) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleOpen = async () => {
-    if (isOpen) {
-      setIsOpen(false);
-      return;
-    }
-    
-    setIsOpen(true);
+    let cancelled = false;
     setLoading(true);
-    
-    try {
-      const subjectList = await getSubjectsForStudent(studentId);
-      setSubjects(subjectList);
-    } catch (error) {
-      console.error('Failed to load subjects:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    getSubjectsForStudent(studentId)
+      .then((list) => { if (!cancelled) setSubjects(list); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [studentId]);
 
   const handleSelect = async (subject: string) => {
-    if (subject === currentSubject) {
-      setIsOpen(false);
-      return;
-    }
-    
+    if (subject === currentSubject || saving) return;
     setSaving(true);
-    setIsOpen(false);
     try {
       const result = await setStudentSubject(studentId, subject);
-      if (result.success) {
-        onSubjectChange(studentId, subject);
-      }
+      if (result.success) onSubjectChange(studentId, subject);
     } catch (error) {
       console.error('Failed to set subject:', error);
     } finally {
@@ -164,54 +141,31 @@ function SubjectDropdown({
     }
   };
 
+  if (loading) {
+    return <RefreshCw className="w-3 h-3 animate-spin text-gray-300 mx-auto" />;
+  }
+
+  if (subjects.length === 0) {
+    return <span className="text-[10px] text-gray-300">-</span>;
+  }
+
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={handleOpen}
-        disabled={saving}
-        className={cn(
-          'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-all',
-          'hover:bg-gray-100 cursor-pointer',
-          currentSubject ? 'text-primary font-medium' : 'text-gray-400',
-          saving && 'opacity-50'
-        )}
-      >
-        {saving ? (
-          <RefreshCw className="w-3 h-3 animate-spin" />
-        ) : (
-          <>
-            <span className="truncate max-w-[60px]">{currentSubject || '-'}</span>
-            <ChevronDown className={cn('w-3 h-3 transition-transform', isOpen && 'rotate-180')} />
-          </>
-        )}
-      </button>
-      
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-white border rounded-md shadow-lg min-w-[120px] max-h-[200px] overflow-y-auto">
-          {loading ? (
-            <div className="p-2 text-center">
-              <RefreshCw className="w-4 h-4 animate-spin mx-auto text-gray-400" />
-            </div>
-          ) : subjects.length === 0 ? (
-            <div className="p-2 text-center text-[10px] text-gray-400">
-              과목이 없습니다
-            </div>
-          ) : (
-            subjects.map((subject) => (
-              <button
-                key={subject}
-                onClick={() => handleSelect(subject)}
-                className={cn(
-                  'w-full px-3 py-1.5 text-left text-[11px] hover:bg-gray-50 transition-colors',
-                  subject === currentSubject && 'bg-primary/10 text-primary font-medium'
-                )}
-              >
-                {subject}
-              </button>
-            ))
+    <div className="flex flex-wrap gap-0.5">
+      {subjects.map((subject) => (
+        <button
+          key={subject}
+          onClick={() => handleSelect(subject)}
+          disabled={saving}
+          className={cn(
+            'px-1 py-0.5 rounded text-[9px] leading-tight transition-all disabled:opacity-50',
+            subject === currentSubject
+              ? 'bg-primary text-white font-semibold'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
           )}
-        </div>
-      )}
+        >
+          {subject}
+        </button>
+      ))}
     </div>
   );
 }
@@ -297,6 +251,7 @@ export function FocusClient({
   initialPenaltyPresets,
   initialFocusPresets,
   initialFocusScoresByPeriod,
+  initialPhoneSubmissions,
 }: FocusClientProps) {
   // Core state
   const [students, setStudents] = useState<Student[]>(initialStudents);
@@ -325,6 +280,9 @@ export function FocusClient({
   const [newFocusColor, setNewFocusColor] = useState(FOCUS_COLOR_PALETTE[0].bgClass);
   const [editingColorPresetId, setEditingColorPresetId] = useState<string | null>(null);
 
+  // Phone submission state
+  const [phoneSubmissions, setPhoneSubmissions] = useState<PhoneSubmissionMap>(initialPhoneSubmissions);
+
   // Show checked-out students toggle
   const [showCheckedOut, setShowCheckedOut] = useState(false);
 
@@ -336,26 +294,27 @@ export function FocusClient({
   // 날짜 변경 시 교시/몰입도 데이터 새로 로드
   useEffect(() => {
     if (selectedDate === todayDate) {
-      // 오늘 날짜면 초기 데이터 복원
       setPeriods(todayPeriods);
       setCurrentDateTypeName(dateTypeName);
       setFocusScoresByPeriod(initialFocusScoresByPeriod);
+      setPhoneSubmissions(initialPhoneSubmissions);
       setSelectedPeriodId('');
       return;
     }
-    // 다른 날짜면 서버에서 새로 로드
     let cancelled = false;
     const loadDateData = async () => {
       setLoading(true);
       try {
-        const [periodsResult, scoresResult] = await Promise.all([
+        const [periodsResult, scoresResult, phoneResult] = await Promise.all([
           branchId ? getTodayPeriods(branchId, selectedDate) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
           getTodayFocusScoresByPeriod(branchId, selectedDate),
+          getPhoneSubmissions(selectedDate, branchId),
         ]);
         if (!cancelled) {
           setPeriods(periodsResult.periods);
           setCurrentDateTypeName(periodsResult.dateTypeName);
           setFocusScoresByPeriod(scoresResult);
+          setPhoneSubmissions(phoneResult);
           setSelectedPeriodId('');
         }
       } finally {
@@ -364,7 +323,7 @@ export function FocusClient({
     };
     loadDateData();
     return () => { cancelled = true; };
-  }, [selectedDate, todayDate, todayPeriods, dateTypeName, initialFocusScoresByPeriod, branchId]);
+  }, [selectedDate, todayDate, todayPeriods, dateTypeName, initialFocusScoresByPeriod, initialPhoneSubmissions, branchId]);
 
   // Current period auto-select
   const currentPeriod = useMemo(() => isToday ? findCurrentPeriod(periods) : null, [periods, isToday]);
@@ -416,17 +375,19 @@ export function FocusClient({
   const refreshData = useCallback(async () => {
     setLoading(true);
     try {
-      const [newStudents, newReport, newScores, periodsResult] = await Promise.all([
+      const [newStudents, newReport, newScores, periodsResult, newPhoneSubmissions] = await Promise.all([
         getAllStudents('all', branchId ?? undefined),
         getWeeklyFocusReport(branchId),
         getTodayFocusScoresByPeriod(branchId, selectedDate),
         branchId ? getTodayPeriods(branchId, selectedDate) : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
+        getPhoneSubmissions(selectedDate, branchId),
       ]);
       setStudents(newStudents);
       setReport(newReport);
       setFocusScoresByPeriod(newScores);
       setPeriods(periodsResult.periods);
       setCurrentDateTypeName(periodsResult.dateTypeName);
+      setPhoneSubmissions(newPhoneSubmissions);
     } finally {
       setLoading(false);
     }
@@ -518,6 +479,24 @@ export function FocusClient({
       setSavingCell(null);
     }
   }, [selectedPeriodId, showSuccess, focusScoresByPeriod]);
+
+  // Phone submission handler
+  const handlePhoneSubmission = useCallback(async (studentId: string, status: PhoneSubmissionStatus) => {
+    const prev = phoneSubmissions[studentId] || 'submitted';
+    setPhoneSubmissions(old => ({ ...old, [studentId]: status }));
+    try {
+      const result = await setPhoneSubmission(studentId, selectedDate, status);
+      if (result.success) {
+        const labels: Record<PhoneSubmissionStatus, string> = { submitted: '제출', not_submitted: '미제출', none: '없음' };
+        showSuccess(`핸드폰 ${labels[status]}`);
+      } else {
+        setPhoneSubmissions(old => ({ ...old, [studentId]: prev }));
+        alert(result.error);
+      }
+    } catch {
+      setPhoneSubmissions(old => ({ ...old, [studentId]: prev }));
+    }
+  }, [phoneSubmissions, selectedDate, showSuccess]);
 
   // Subject change handler
   const handleSubjectChange = useCallback((studentId: string, subject: string) => {
@@ -906,6 +885,8 @@ export function FocusClient({
           savingCell={savingCell}
           onQuickScore={handleQuickFocusScore}
           onSubjectChange={handleSubjectChange}
+          phoneSubmissions={phoneSubmissions}
+          onPhoneSubmission={handlePhoneSubmission}
         />
       )}
 
@@ -918,6 +899,8 @@ export function FocusClient({
           savingCell={savingCell}
           onScoreChange={handlePeriodScoreChange}
           currentPeriod={currentPeriod}
+          phoneSubmissions={phoneSubmissions}
+          onPhoneSubmission={handlePhoneSubmission}
         />
       )}
 
@@ -959,6 +942,12 @@ export function FocusClient({
 // Quick Input View
 // ============================================
 
+const PHONE_STATUS_OPTIONS: { value: PhoneSubmissionStatus; label: string; color: string; activeColor: string }[] = [
+  { value: 'submitted', label: '제출', color: 'bg-gray-100 text-gray-500 hover:bg-emerald-50', activeColor: 'bg-emerald-500 text-white ring-2 ring-emerald-300' },
+  { value: 'not_submitted', label: '미제출', color: 'bg-gray-100 text-gray-500 hover:bg-red-50', activeColor: 'bg-red-500 text-white ring-2 ring-red-300' },
+  { value: 'none', label: '없음', color: 'bg-gray-100 text-gray-500 hover:bg-gray-200', activeColor: 'bg-gray-500 text-white ring-2 ring-gray-300' },
+];
+
 function QuickInputView({
   students,
   presets,
@@ -968,6 +957,8 @@ function QuickInputView({
   savingCell,
   onQuickScore,
   onSubjectChange,
+  phoneSubmissions,
+  onPhoneSubmission,
 }: {
   students: Student[];
   presets: FocusScorePreset[];
@@ -977,6 +968,8 @@ function QuickInputView({
   savingCell: string | null;
   onQuickScore: (studentId: string, score: number, label: string) => void;
   onSubjectChange: (studentId: string, subject: string) => void;
+  phoneSubmissions: PhoneSubmissionMap;
+  onPhoneSubmission: (studentId: string, status: PhoneSubmissionStatus) => void;
 }) {
   if (students.length === 0) {
     return (
@@ -1013,9 +1006,15 @@ function QuickInputView({
             <tr>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10">번호</th>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px]">이름</th>
-              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[70px]">과목</th>
+              <th className="px-1 py-1.5 text-left text-xs font-medium text-gray-500">과목</th>
+              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[32px] lg:min-w-[70px]">
+                <div className="flex items-center justify-center gap-0.5">
+                  <Smartphone className="w-3 h-3" />
+                  <span className="hidden lg:inline">폰</span>
+                </div>
+              </th>
               {presets.map((preset) => (
-                <th key={preset.id} className="px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[44px]">
+                <th key={preset.id} className="px-0.5 py-1 text-center text-xs font-medium text-gray-500 min-w-[36px]">
                   <div>{preset.label}</div>
                   <div className="text-gray-400 font-normal text-[10px]">({preset.score})</div>
                 </th>
@@ -1028,6 +1027,7 @@ function QuickInputView({
               const studentScores = focusScoresByPeriod[student.id] || {};
               const currentScore = studentScores[selectedPeriodId];
               const isCheckedOut = student.status === 'checked_out';
+              const phoneStatus = phoneSubmissions[student.id] || 'submitted';
               
               return (
                 <tr key={student.id} className={cn(
@@ -1046,13 +1046,33 @@ function QuickInputView({
                   </td>
                   <td className="px-1 py-1">
                     {isCheckedOut ? (
-                      <span className="text-[10px] text-gray-300 px-1.5">-</span>
+                      <span className="text-[10px] text-gray-300 px-1">-</span>
                     ) : (
-                      <SubjectDropdown
+                      <SubjectInline
                         studentId={student.id}
                         currentSubject={student.currentSubject}
                         onSubjectChange={onSubjectChange}
                       />
+                    )}
+                  </td>
+                  <td className="px-0.5 py-0.5 text-center">
+                    {isCheckedOut ? (
+                      <span className="text-[9px] text-gray-300">-</span>
+                    ) : (
+                      <div className="flex flex-col lg:flex-row gap-0.5 justify-center items-center">
+                        {PHONE_STATUS_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => onPhoneSubmission(student.id, opt.value)}
+                            className={cn(
+                              'px-0.5 lg:px-1 py-0.5 rounded text-[7px] lg:text-[8px] font-semibold transition-all leading-tight w-full lg:w-auto',
+                              phoneStatus === opt.value ? opt.activeColor : opt.color
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </td>
                   {presets.map((preset) => {
@@ -1062,10 +1082,10 @@ function QuickInputView({
                     const hasOtherSelection = currentScore && !isActive;
 
                     return (
-                      <td key={preset.id} className="px-0.5 py-1 text-center">
+                      <td key={preset.id} className="px-0.5 py-0.5 text-center">
                         <button
                           className={cn(
-                            'w-full min-h-[28px] px-1.5 py-1 rounded-md text-[10px] font-semibold transition-all',
+                            'w-full min-h-[22px] px-1 py-0.5 rounded text-[9px] font-semibold transition-all',
                             'active:scale-95 disabled:opacity-40',
                             isCheckedOut
                               ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1085,10 +1105,10 @@ function QuickInputView({
                           disabled={isSaving || isCheckedOut}
                         >
                           {isSaving ? (
-                            <RefreshCw className="w-3 h-3 animate-spin mx-auto" />
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin mx-auto" />
                           ) : isActive ? (
                             <span className="flex items-center justify-center gap-0.5">
-                              <Check className="w-3 h-3" />
+                              <Check className="w-2.5 h-2.5" />
                               {preset.label}
                             </span>
                           ) : (
@@ -1129,6 +1149,8 @@ function PeriodTableView({
   savingCell,
   onScoreChange,
   currentPeriod,
+  phoneSubmissions,
+  onPhoneSubmission,
 }: {
   students: Student[];
   periods: Period[];
@@ -1137,6 +1159,8 @@ function PeriodTableView({
   savingCell: string | null;
   onScoreChange: (studentId: string, periodId: string, value: string) => void;
   currentPeriod: Period | null;
+  phoneSubmissions: PhoneSubmissionMap;
+  onPhoneSubmission: (studentId: string, status: PhoneSubmissionStatus) => void;
 }) {
   if (students.length === 0) {
     return (
@@ -1177,6 +1201,12 @@ function PeriodTableView({
             <tr className="bg-gray-50 border-b">
               <th className="sticky left-0 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10 border-r">번호</th>
               <th className="sticky left-10 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px] border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">이름</th>
+              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[32px] lg:min-w-[70px]">
+                <div className="flex items-center justify-center gap-0.5">
+                  <Smartphone className="w-3 h-3" />
+                  <span className="hidden lg:inline">폰</span>
+                </div>
+              </th>
               {periods.map((period) => (
                 <th
                   key={period.id}
@@ -1213,6 +1243,26 @@ function PeriodTableView({
                         <span className="text-[9px] text-gray-400 bg-gray-200 px-1 py-0.5 rounded shrink-0">퇴실</span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-0.5 py-0.5 text-center">
+                    {isCheckedOut ? (
+                      <span className="text-[9px] text-gray-300">-</span>
+                    ) : (
+                      <div className="flex flex-col lg:flex-row gap-0.5 justify-center items-center">
+                        {PHONE_STATUS_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => onPhoneSubmission(student.id, opt.value)}
+                            className={cn(
+                              'px-0.5 lg:px-1 py-0.5 rounded text-[7px] lg:text-[8px] font-semibold transition-all leading-tight w-full lg:w-auto',
+                              (phoneSubmissions[student.id] || 'submitted') === opt.value ? opt.activeColor : opt.color
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   {periods.map((period) => {
                     const cellKey = `${student.id}-${period.id}`;
