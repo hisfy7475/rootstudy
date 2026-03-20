@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition, useCallback } from 'react';
+import { useState, useEffect, useTransition, useCallback, useMemo } from 'react';
 import { StudentInfoCard } from '@/components/parent/student-info-card';
 import { StudentStatusCard } from '@/components/parent/student-status-card';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
@@ -28,6 +28,7 @@ import type { StudentAbsenceSchedule } from '@/types/database';
 import { approveAbsenceSchedule, rejectAbsenceSchedule } from '@/lib/actions/absence-schedule';
 import { getParentDashboardData } from '@/lib/actions/parent';
 import { createClient } from '@/lib/supabase/client';
+import { isPastOneTimeAbsenceSchedule } from '@/lib/utils';
 
 type AttendanceStatus = 'checked_in' | 'checked_out' | 'on_break';
 
@@ -79,6 +80,14 @@ export function ParentDashboardClient({
 }: DashboardProps) {
   const [students, setStudents] = useState(initialStudents);
   const [isPending, startTransition] = useTransition();
+
+  const visiblePendingSchedules = useMemo(
+    () =>
+      pendingSchedules.filter(
+        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+      ),
+    [pendingSchedules]
+  );
 
   const refreshStudents = useCallback(async () => {
     try {
@@ -178,17 +187,17 @@ export function ParentDashboardClient({
   return (
     <div className="p-4 space-y-4">
       {/* 승인 대기 스케줄 */}
-      {pendingSchedules.length > 0 && (
+      {visiblePendingSchedules.length > 0 && (
         <Card className="p-4 border-amber-200 bg-amber-50/50">
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="w-5 h-5 text-amber-500" />
             <h2 className="font-semibold text-gray-800">승인 대기 중인 부재 일정</h2>
             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
-              {pendingSchedules.length}건
+              {visiblePendingSchedules.length}건
             </span>
           </div>
           <div className="space-y-2">
-            {pendingSchedules.map(schedule => (
+            {visiblePendingSchedules.map(schedule => (
               <div
                 key={schedule.id}
                 className="p-3 bg-white rounded-xl border border-amber-100"

@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getAttendanceBoard, getWeeklyAttendance } from '@/lib/actions/admin';
-import { createClient } from '@/lib/supabase/client';
 import {
   RefreshCw,
   Printer,
@@ -19,14 +18,12 @@ import {
   ChevronRight,
   CalendarDays,
   List,
-  ChevronsLeft,
-  ChevronsRight,
   Search,
   ChevronsUpDown,
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
-import { cn, getTodayKST, formatDateKST, getStudyDate } from '@/lib/utils';
+import { cn, formatDateKST, getStudyDate } from '@/lib/utils';
 
 interface AbsenceSchedule {
   id: string;
@@ -73,8 +70,6 @@ interface AttendanceClientProps {
   initialData: {
     data: AttendanceStudent[];
     total: number;
-    page: number;
-    pageSize: number;
     stats: { checkedIn: number; checkedOut: number; onBreak: number; notYetArrived: number };
   };
   todayPeriods: Period[];
@@ -84,8 +79,6 @@ interface AttendanceClientProps {
 }
 
 type ViewMode = 'daily' | 'weekly';
-
-const PAGE_SIZE_OPTIONS = [10, 20, 30, 50];
 
 // 날짜 포맷팅 (YYYY-MM-DD → M월 D일 (요일))
 function formatDate(dateStr: string): string {
@@ -172,25 +165,15 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  
-  // 무한 스크롤 상태 (일별 뷰)
-  const [page, setPage] = useState(initialData.page);
-  const pageSize = initialData.pageSize;
+
   const [total, setTotal] = useState(initialData.total);
-  const [hasMore, setHasMore] = useState(initialData.data.length < initialData.total);
   const [globalStats, setGlobalStats] = useState(initialData.stats);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  // 날짜 변경/수동 새로고침 시 page effect 중복 실행 방지용
-  const skipPageEffectRef = useRef(false);
-  
+
   // 주간 뷰 상태
   const [weeklyData, setWeeklyData] = useState<WeeklyStudent[]>([]);
   const [weekDates, setWeekDates] = useState<string[]>([]);
   const [currentWeekMonday, setCurrentWeekMonday] = useState(getWeekMonday(new Date()));
   const [weeklyLoading, setWeeklyLoading] = useState(false);
-  const [weeklyPage, setWeeklyPage] = useState(1);
-  const [weeklyPageSize, setWeeklyPageSize] = useState(20);
-  const [weeklyTotal, setWeeklyTotal] = useState(0);
   // 주간 뷰 정렬 상태
   type WeeklySortKey = 'seatNumber' | 'name' | 'weeklyStudyMinutes' | 'totalPenalty' | 'totalReward';
   const [weeklySortKey, setWeeklySortKey] = useState<WeeklySortKey>('seatNumber');
@@ -202,6 +185,9 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
   // 상태 필터
   const [activeFilter, setActiveFilter] = useState<StatusFilter>(null);
+
+  const skipInitialDailyListRef = useRef(true);
+  const prevViewModeRef = useRef<ViewMode>(viewMode);
 
   // 주간 뷰 정렬된 데이터
   const sortedWeeklyData = useMemo(() => {
@@ -286,48 +272,36 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // 검색어 변경 시 데이터 리셋 및 재조회
+  // 일별: 날짜·검색 변경 및 주간→일별 전환 시 전체 재조회 (최초 마운트는 SSR 데이터 사용)
   useEffect(() => {
-    if (viewMode === 'daily') {
-      skipPageEffectRef.current = true;
-      setData([]);
-      setHasMore(true);
-      setPage(1);
-      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-    } else {
-      setWeeklyPage(1);
-      loadWeeklyData(currentWeekMonday, 1, weeklyPageSize, debouncedSearch);
+    if (viewMode !== 'daily') {
+      prevViewModeRef.current = viewMode;
+      return;
     }
+
+    const fromWeekly = prevViewModeRef.current === 'weekly';
+    prevViewModeRef.current = 'daily';
+
+    if (fromWeekly) {
+      setData([]);
+      handleRefresh(selectedDate, debouncedSearch, activeFilter);
+      return;
+    }
+
+    if (skipInitialDailyListRef.current) {
+      skipInitialDailyListRef.current = false;
+      return;
+    }
+
+    setData([]);
+    handleRefresh(selectedDate, debouncedSearch, activeFilter);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [viewMode, selectedDate, debouncedSearch]);
 
-  // Realtime: attendance 테이블 변경 감지 → 즉시 새로고침 (일별 뷰에서만)
-  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 일별 출석부는 자동 갱신하지 않음 (Realtime/주기/탭 포커스 시 목록이 줄어들며 스크롤이 튀는 문제 방지).
+  // 최신 데이터는 상단 「새로고침」, 날짜·필터·검색 변경 시에만 반영된다.
 
-  useEffect(() => {
-    if (viewMode !== 'daily') return;
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel('admin-attendance-board')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
-        if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
-        realtimeTimerRef.current = setTimeout(() => {
-          skipPageEffectRef.current = true;
-          setPage(1);
-          setHasMore(true);
-          handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-        }, 500);
-      })
-      .subscribe();
-
-    return () => {
-      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
-      supabase.removeChannel(channel);
-    };
-  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch]);
-
-  // 브라우저 탭이 다시 포커스될 때 학습일 변경 감지 + 데이터 새로고침
+  // 브라우저 탭이 다시 포커스될 때 학습일 변경 감지
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -340,100 +314,38 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             return;
           }
         }
-        if (viewMode === 'daily') {
-          skipPageEffectRef.current = true;
-          setPage(1);
-          setHasMore(true);
-          handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch, dynamicToday]);
+  }, [dynamicToday, selectedDate]);
 
-  // 주기적 자동 새로고침 (30초 간격, Realtime 끊김 안전망)
+  // 주간 뷰 데이터
   useEffect(() => {
-    if (viewMode !== 'daily') return;
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        skipPageEffectRef.current = true;
-        setPage(1);
-        setHasMore(true);
-        handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [viewMode, selectedDate, pageSize, activeFilter, debouncedSearch]);
-
-  // 날짜 변경 시 데이터 초기화 및 1페이지 로드
-  useEffect(() => {
-    if (viewMode === 'daily') {
-      skipPageEffectRef.current = true;
-      setData([]);
-      setHasMore(true);
-      setPage(1);
-      handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, activeFilter);
-    }
-  }, [selectedDate]);
-
-  // 무한 스크롤: page > 1 변경 시 데이터 추가 로드
-  useEffect(() => {
-    if (skipPageEffectRef.current) {
-      skipPageEffectRef.current = false;
-      return;
-    }
-    if (viewMode === 'daily' && page > 1) {
-      handleRefresh(selectedDate, page, pageSize, false, debouncedSearch, activeFilter);
-    }
-  }, [page]);
-
-  // IntersectionObserver: 하단 sentinel 감지 시 다음 페이지 로드
-  useEffect(() => {
-    if (viewMode !== 'daily') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          setPage((p) => p + 1);
-        }
-      },
-      { threshold: 0.1, rootMargin: '0px 0px 100px 0px' }
-    );
-    if (sentinelRef.current) observer.observe(sentinelRef.current);
-    return () => observer.disconnect();
-  }, [viewMode, hasMore, loading]);
-
-  // 주간 뷰로 전환 시 데이터 로드
-  useEffect(() => {
-    if (viewMode === 'weekly') {
-      loadWeeklyData(currentWeekMonday, weeklyPage, weeklyPageSize, debouncedSearch);
-    }
+    if (viewMode !== 'weekly') return;
+    loadWeeklyData(currentWeekMonday, debouncedSearch);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, currentWeekMonday, weeklyPage, weeklyPageSize]);
+  }, [viewMode, currentWeekMonday, debouncedSearch]);
 
   // 상태 필터 클릭 핸들러
   const handleFilterClick = (filter: StatusFilter) => {
     const newFilter = activeFilter === filter ? null : filter;
     setActiveFilter(newFilter);
-    skipPageEffectRef.current = true;
     setData([]);
-    setHasMore(true);
-    setPage(1);
-    handleRefresh(selectedDate, 1, pageSize, true, debouncedSearch, newFilter);
+    handleRefresh(selectedDate, debouncedSearch, newFilter);
   };
 
-  const handleRefresh = async (date: string, p: number, ps: number, replace = true, search = debouncedSearch, filter: StatusFilter = activeFilter) => {
+  const handleRefresh = async (
+    date: string,
+    search = debouncedSearch,
+    filter: StatusFilter = activeFilter
+  ) => {
     setLoading(true);
     try {
-      const result = await getAttendanceBoard(date, branchId, p, ps, search || undefined, filter ?? undefined);
-      if (replace || p === 1) {
-        setData(result.data);
-      } else {
-        setData((prev) => [...prev, ...result.data]);
-      }
+      const result = await getAttendanceBoard(date, branchId, search || undefined, filter ?? undefined);
+      setData(result.data);
       setTotal(result.total);
       setGlobalStats(result.stats);
-      setHasMore((p - 1) * ps + result.data.length < result.total);
       setCurrentTime(new Date());
     } catch (error) {
       console.error('Failed to refresh:', error);
@@ -442,13 +354,12 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     }
   };
 
-  const loadWeeklyData = async (mondayDate: string, p: number, ps: number, search = debouncedSearch) => {
+  const loadWeeklyData = async (mondayDate: string, search = debouncedSearch) => {
     setWeeklyLoading(true);
     try {
-      const result = await getWeeklyAttendance(mondayDate, branchId, p, ps, search || undefined);
+      const result = await getWeeklyAttendance(mondayDate, branchId, search || undefined);
       setWeeklyData(result.students);
       setWeekDates(result.dates);
-      setWeeklyTotal(result.total);
     } catch (error) {
       console.error('Failed to load weekly data:', error);
     } finally {
@@ -460,29 +371,20 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     const monday = new Date(currentWeekMonday + 'T00:00:00');
     monday.setDate(monday.getDate() - 7);
     setCurrentWeekMonday(formatDateKST(monday));
-    setWeeklyPage(1);
   };
 
   const handleNextWeek = () => {
     const monday = new Date(currentWeekMonday + 'T00:00:00');
     monday.setDate(monday.getDate() + 7);
     setCurrentWeekMonday(formatDateKST(monday));
-    setWeeklyPage(1);
   };
 
   const handleThisWeek = () => {
     setCurrentWeekMonday(getWeekMonday(new Date()));
-    setWeeklyPage(1);
   };
 
   const handlePrint = () => {
     window.print();
-  };
-
-  // 주간 뷰 페이지 사이즈 변경 핸들러
-  const handlePageSizeChange = (newSize: number) => {
-    setWeeklyPageSize(newSize);
-    setWeeklyPage(1);
   };
 
   // 통계: 모두 서버 전체 기준
@@ -496,86 +398,6 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
   // 오늘인지 확인
   const isToday = selectedDate === dynamicToday;
-
-  // 주간 뷰 페이지네이션 계산
-  const weeklyTotalPages = Math.ceil(weeklyTotal / weeklyPageSize);
-  const weeklyStartItem = (weeklyPage - 1) * weeklyPageSize + 1;
-  const weeklyEndItem = Math.min(weeklyPage * weeklyPageSize, weeklyTotal);
-
-  const goToWeeklyPage = (newPage: number) => {
-    if (newPage < 1 || newPage > weeklyTotalPages) return;
-    setWeeklyPage(newPage);
-  };
-
-  // 주간 뷰 전용 페이지네이션 컴포넌트
-  const WeeklyPaginationControls = () => (
-    <div className="flex items-center justify-between px-3 py-2 border-t bg-gray-50 print:hidden">
-      {/* 페이지 사이즈 선택 */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-gray-600">페이지당</span>
-        <select
-          value={weeklyPageSize}
-          onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-          className="border rounded-md px-1.5 py-0.5 text-xs bg-white"
-        >
-          {PAGE_SIZE_OPTIONS.map(size => (
-            <option key={size} value={size}>{size}명</option>
-          ))}
-        </select>
-      </div>
-
-      {/* 페이지 정보 및 네비게이션 */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-gray-600">
-          총 {weeklyTotal}명 중 {weeklyTotal > 0 ? `${weeklyStartItem}-${weeklyEndItem}` : '0'}
-        </span>
-        
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-1.5 h-7"
-            onClick={() => goToWeeklyPage(1)}
-            disabled={weeklyPage === 1}
-          >
-            <ChevronsLeft className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-1.5 h-7"
-            onClick={() => goToWeeklyPage(weeklyPage - 1)}
-            disabled={weeklyPage === 1}
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </Button>
-          
-          <span className="px-2 text-xs">
-            {weeklyPage} / {weeklyTotalPages || 1}
-          </span>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-1.5 h-7"
-            onClick={() => goToWeeklyPage(weeklyPage + 1)}
-            disabled={weeklyPage >= weeklyTotalPages}
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-1.5 h-7"
-            onClick={() => goToWeeklyPage(weeklyTotalPages)}
-            disabled={weeklyPage >= weeklyTotalPages}
-          >
-            <ChevronsRight className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="p-6 space-y-6 print:p-2 print:space-y-2">
@@ -623,11 +445,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                     setSelectedDate(newToday);
                   }
                 }
-                skipPageEffectRef.current = true;
-                setData([]);
-                setPage(1);
-                setHasMore(true);
-                handleRefresh(dateToRefresh, 1, pageSize, true);
+                handleRefresh(dateToRefresh);
               }}
               disabled={loading}
             >
@@ -691,7 +509,12 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               className="w-44"
             />
             {!isToday && (
-              <Button variant="outline" size="sm" onClick={() => setSelectedDate(dynamicToday)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 whitespace-nowrap"
+                onClick={() => setSelectedDate(dynamicToday)}
+              >
                 오늘
               </Button>
             )}
@@ -806,7 +629,19 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
           )}
 
           {/* 일별 출석부 테이블 */}
-          <Card className="overflow-hidden print:shadow-none print:border">
+          <Card className="relative overflow-hidden print:shadow-none print:border">
+            {loading && (
+              <div
+                role="status"
+                aria-live="polite"
+                aria-busy="true"
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/85 backdrop-blur-sm print:hidden"
+              >
+                <RefreshCw className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-base font-semibold text-gray-800">출석부 불러오는 중…</p>
+                <p className="text-xs text-gray-500">전체 명단을 한 번에 가져오고 있습니다</p>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b print:bg-gray-100">
@@ -823,8 +658,11 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                 <tbody className="divide-y divide-gray-100">
                   {loading && data.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-6 text-center text-xs text-gray-500">
-                        로딩 중...
+                      <td colSpan={7} className="px-2 py-16 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3 text-gray-600">
+                          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                          <span className="text-sm font-medium">목록을 불러오는 중입니다…</span>
+                        </div>
                       </td>
                     </tr>
                   ) : data.length === 0 ? (
@@ -937,38 +775,6 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                   )}
                 </tbody>
               </table>
-            </div>
-
-            {/* 무한 스크롤 하단 영역 */}
-            <div className="print:hidden">
-              {/* 추가 로드 중: 스켈레톤 행 */}
-              {loading && data.length > 0 && (
-                <div className="border-t">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 animate-pulse">
-                      <div className="h-3 w-6 rounded bg-gray-200" />
-                      <div className="h-3 w-16 rounded bg-gray-200" />
-                      <div className="h-5 w-14 rounded-full bg-gray-200 ml-2" />
-                      <div className="h-3 w-10 rounded bg-gray-200 ml-auto" />
-                      <div className="h-3 w-20 rounded bg-gray-100 ml-2" />
-                      <div className="h-3 w-8 rounded bg-gray-100 ml-2" />
-                      <div className="h-3 w-8 rounded bg-gray-100 ml-2" />
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-center gap-1.5 py-3 text-xs text-gray-400 bg-gray-50">
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                    데이터 불러오는 중…
-                  </div>
-                </div>
-              )}
-              {/* 더 불러올 데이터가 있을 때 sentinel (threshold 넉넉히) */}
-              {hasMore && <div ref={sentinelRef} className="h-10" />}
-              {/* 모두 불러왔을 때 */}
-              {!hasMore && data.length > 0 && (
-                <div className="py-2.5 text-center text-xs text-gray-400 border-t bg-gray-50">
-                  전체 <span className="font-medium text-gray-500">{total}명</span> 표시 완료
-                </div>
-              )}
             </div>
           </Card>
         </>
@@ -1197,9 +1003,6 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               <span className="text-gray-600">미래 날짜</span>
             </div>
           </div>
-          
-          {/* 페이지네이션 */}
-          <WeeklyPaginationControls />
         </Card>
       )}
 

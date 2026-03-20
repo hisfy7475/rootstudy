@@ -5,7 +5,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
-  recordFocusScoreBatch,
   recordFocusScoreIndividual,
   deleteFocusScore,
   getTodayFocusScoresByPeriod,
@@ -22,6 +21,8 @@ import {
   setStudentSubject,
   getPhoneSubmissions,
   setPhoneSubmission,
+  clearPhoneSubmissionsForDate,
+  getStudentsPresentDuringPeriod,
   type PenaltyPreset,
   type FocusScorePreset,
   type PhoneSubmissionStatus,
@@ -112,7 +113,7 @@ function SubjectInline({
 }: {
   studentId: string;
   currentSubject: string | null;
-  onSubjectChange: (studentId: string, subject: string) => void;
+  onSubjectChange: (studentId: string, subject: string | null) => void;
 }) {
   const [subjects, setSubjects] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -129,11 +130,13 @@ function SubjectInline({
   }, [studentId]);
 
   const handleSelect = async (subject: string) => {
-    if (subject === currentSubject || saving) return;
+    if (saving) return;
+    const clearing = subject === currentSubject;
     setSaving(true);
     try {
-      const result = await setStudentSubject(studentId, subject);
-      if (result.success) onSubjectChange(studentId, subject);
+      const result = await setStudentSubject(studentId, clearing ? null : subject);
+      if (result.success) onSubjectChange(studentId, clearing ? null : subject);
+      else if (result.error) alert(result.error);
     } catch (error) {
       console.error('Failed to set subject:', error);
     } finally {
@@ -282,9 +285,14 @@ export function FocusClient({
 
   // Phone submission state
   const [phoneSubmissions, setPhoneSubmissions] = useState<PhoneSubmissionMap>(initialPhoneSubmissions);
+  const [resettingPhoneSubmissions, setResettingPhoneSubmissions] = useState(false);
 
   // Show checked-out students toggle
   const [showCheckedOut, setShowCheckedOut] = useState(false);
+
+  // 과거 날짜: 선택 교시에 재실했던 학생 (출석 이벤트 기반)
+  const [pastPeriodStudents, setPastPeriodStudents] = useState<Student[] | null>(null);
+  const [loadingPastPeriodStudents, setLoadingPastPeriodStudents] = useState(false);
 
   // Penalty state
   const [customPenaltyReason, setCustomPenaltyReason] = useState('');
@@ -325,6 +333,58 @@ export function FocusClient({
     return () => { cancelled = true; };
   }, [selectedDate, todayDate, todayPeriods, dateTypeName, initialFocusScoresByPeriod, initialPhoneSubmissions, branchId]);
 
+  // 과거 학습일 + 교시 선택 시 해당 시간대 재실 학생 조회
+  useEffect(() => {
+    if (isToday) {
+      setPastPeriodStudents(null);
+      setLoadingPastPeriodStudents(false);
+      return;
+    }
+    if (!branchId || !selectedPeriodId) {
+      setPastPeriodStudents(null);
+      setLoadingPastPeriodStudents(false);
+      return;
+    }
+    const period = periods.find((p) => p.id === selectedPeriodId);
+    if (!period) {
+      setPastPeriodStudents(null);
+      setLoadingPastPeriodStudents(false);
+      return;
+    }
+    let cancelled = false;
+    setPastPeriodStudents(null);
+    setLoadingPastPeriodStudents(true);
+    getStudentsPresentDuringPeriod(
+      selectedDate,
+      period.start_time,
+      period.end_time,
+      branchId
+    )
+      .then((list) => {
+        if (cancelled) return;
+        const mapped: Student[] = list.map((s) => ({
+          id: s.id,
+          seatNumber: s.seatNumber,
+          name: s.name,
+          status: 'checked_in' as const,
+          currentSubject: null,
+          avgFocus: null,
+          todayReward: 0,
+          todayPenalty: 0,
+        }));
+        setPastPeriodStudents(mapped);
+      })
+      .catch(() => {
+        if (!cancelled) setPastPeriodStudents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPastPeriodStudents(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isToday, selectedDate, selectedPeriodId, periods, branchId]);
+
   // Current period auto-select
   const currentPeriod = useMemo(() => isToday ? findCurrentPeriod(periods) : null, [periods, isToday]);
   
@@ -347,11 +407,16 @@ export function FocusClient({
   );
 
   const displayStudents = useMemo(() => {
+    if (!isToday) {
+      return (pastPeriodStudents ?? []).sort(
+        (a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999)
+      );
+    }
     if (!showCheckedOut) return checkedInStudents;
     return students
       .filter(s => s.status === 'checked_in' || s.status === 'checked_out')
       .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999));
-  }, [students, showCheckedOut, checkedInStudents]);
+  }, [isToday, pastPeriodStudents, students, showCheckedOut, checkedInStudents]);
 
   // Active presets
   const activePenaltyPresets = penaltyPresets.length > 0 
@@ -447,7 +512,11 @@ export function FocusClient({
     
     try {
       if (isToggleOff) {
-        const result = await deleteFocusScore(studentId, selectedPeriodId);
+        const result = await deleteFocusScore(
+          studentId,
+          selectedPeriodId,
+          isToday ? undefined : selectedDate
+        );
         if (result.success) {
           setFocusScoresByPeriod(prev => {
             const studentScores = { ...(prev[studentId] || {}) };
@@ -459,7 +528,13 @@ export function FocusClient({
           alert(result.error);
         }
       } else {
-        const result = await recordFocusScoreIndividual(studentId, selectedPeriodId, score, label);
+        const result = await recordFocusScoreIndividual(
+          studentId,
+          selectedPeriodId,
+          score,
+          label,
+          isToday ? undefined : selectedDate
+        );
         if (result.success) {
           setFocusScoresByPeriod(prev => ({
             ...prev,
@@ -478,7 +553,7 @@ export function FocusClient({
     } finally {
       setSavingCell(null);
     }
-  }, [selectedPeriodId, showSuccess, focusScoresByPeriod]);
+  }, [selectedPeriodId, showSuccess, focusScoresByPeriod, isToday, selectedDate]);
 
   // Phone submission handler
   const handlePhoneSubmission = useCallback(async (studentId: string, status: PhoneSubmissionStatus) => {
@@ -498,12 +573,37 @@ export function FocusClient({
     }
   }, [phoneSubmissions, selectedDate, showSuccess]);
 
+  const handleClearPhoneSubmissions = useCallback(async () => {
+    const ok = window.confirm(
+      `선택한 학습일(${selectedDate})의 휴대폰 제출 기록을 모두 삭제합니다.\n계속하시겠습니까?`
+    );
+    if (!ok) return;
+    setResettingPhoneSubmissions(true);
+    try {
+      const result = await clearPhoneSubmissionsForDate(selectedDate);
+      if (result.success) {
+        setPhoneSubmissions({});
+        showSuccess(
+          result.deleted && result.deleted > 0
+            ? `휴대폰 제출 ${result.deleted}건을 초기화했습니다.`
+            : '휴대폰 제출 기록이 없습니다.'
+        );
+      } else {
+        alert(result.error ?? '초기화에 실패했습니다.');
+      }
+    } catch {
+      alert('초기화에 실패했습니다.');
+    } finally {
+      setResettingPhoneSubmissions(false);
+    }
+  }, [selectedDate, showSuccess]);
+
   // Subject change handler
-  const handleSubjectChange = useCallback((studentId: string, subject: string) => {
+  const handleSubjectChange = useCallback((studentId: string, subject: string | null) => {
     setStudents(prev => prev.map(s => 
       s.id === studentId ? { ...s, currentSubject: subject } : s
     ));
-    showSuccess(`과목이 "${subject}"(으)로 변경되었습니다.`);
+    showSuccess(subject === null ? '과목 선택을 취소했습니다.' : `과목이 "${subject}"(으)로 변경되었습니다.`);
   }, [showSuccess]);
 
   // Period view: individual dropdown change
@@ -522,7 +622,13 @@ export function FocusClient({
     const cellKey = `${studentId}-${periodId}`;
     setSavingCell(cellKey);
     try {
-      const result = await recordFocusScoreIndividual(studentId, periodId, score, note);
+      const result = await recordFocusScoreIndividual(
+        studentId,
+        periodId,
+        score,
+        note,
+        isToday ? undefined : selectedDate
+      );
       if (result.success) {
         setFocusScoresByPeriod(prev => ({
           ...prev,
@@ -539,7 +645,7 @@ export function FocusClient({
     } finally {
       setSavingCell(null);
     }
-  }, []);
+  }, [isToday, selectedDate]);
 
   // Penalty handlers
   const handleTogglePenaltyStudent = (studentId: string) => {
@@ -672,6 +778,17 @@ export function FocusClient({
           <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={() => setShowPresetManager(!showPresetManager)}>
             <Settings className="w-3.5 h-3.5 mr-1" />
             <span className="hidden sm:inline">프리셋</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs px-2"
+            onClick={handleClearPhoneSubmissions}
+            disabled={loading || resettingPhoneSubmissions}
+            title="선택한 학습일의 휴대폰 제출 기록 전체 삭제"
+          >
+            <Smartphone className="w-3.5 h-3.5 sm:mr-1" />
+            <span className="hidden sm:inline">휴대폰 제출 초기화</span>
           </Button>
           <Button variant="outline" size="sm" className="h-7 px-2" onClick={refreshData} disabled={loading}>
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
@@ -809,12 +926,17 @@ export function FocusClient({
                 className="w-36 h-7 text-xs"
               />
               {!isToday && (
-                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setSelectedDate(todayDate)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 whitespace-nowrap px-2.5 text-xs"
+                  onClick={() => setSelectedDate(todayDate)}
+                >
                   오늘
                 </Button>
               )}
             </div>
-            {activeTab !== 'report' && periods.length > 0 && activeTab === 'quick' && (
+            {activeTab !== 'report' && periods.length > 0 && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted text-xs">교시:</span>
                 <select
@@ -861,7 +983,12 @@ export function FocusClient({
             {label}
           </button>
         ))}
-        {activeTab !== 'report' && (
+        {!isToday && activeTab !== 'report' && (
+          <span className="ml-auto text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 max-w-[220px] leading-tight">
+            선택한 교시 시간에 입실·재실 기록이 있는 학생만 표시됩니다.
+          </span>
+        )}
+        {isToday && activeTab !== 'report' && (
           <label className="ml-auto flex items-center gap-1.5 px-3 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -887,6 +1014,8 @@ export function FocusClient({
           onSubjectChange={handleSubjectChange}
           phoneSubmissions={phoneSubmissions}
           onPhoneSubmission={handlePhoneSubmission}
+          isPastDate={!isToday}
+          loadingPastStudents={!isToday && loadingPastPeriodStudents}
         />
       )}
 
@@ -901,6 +1030,9 @@ export function FocusClient({
           currentPeriod={currentPeriod}
           phoneSubmissions={phoneSubmissions}
           onPhoneSubmission={handlePhoneSubmission}
+          isPastDate={!isToday}
+          loadingPastStudents={!isToday && loadingPastPeriodStudents}
+          selectedPeriodId={selectedPeriodId}
         />
       )}
 
@@ -914,7 +1046,7 @@ export function FocusClient({
       {/* 벌점 섹션 (빠른 입력/교시별 탭에서만) */}
       {(activeTab === 'quick' || activeTab === 'period') && (
         <PenaltySection
-          students={checkedInStudents}
+          students={isToday ? checkedInStudents : displayStudents}
           selectedStudents={selectedStudentsForPenalty}
           penaltyPresets={activePenaltyPresets}
           loading={loading}
@@ -922,10 +1054,11 @@ export function FocusClient({
           customPenaltyReason={customPenaltyReason}
           onToggleStudent={handleTogglePenaltyStudent}
           onSelectAll={() => {
-            if (selectedStudentsForPenalty.size === checkedInStudents.length) {
+            const penaltyList = isToday ? checkedInStudents : displayStudents;
+            if (selectedStudentsForPenalty.size === penaltyList.length) {
               setSelectedStudentsForPenalty(new Set());
             } else {
-              setSelectedStudentsForPenalty(new Set(checkedInStudents.map(s => s.id)));
+              setSelectedStudentsForPenalty(new Set(penaltyList.map(s => s.id)));
             }
           }}
           onBatchPenalty={handleBatchPenalty}
@@ -959,6 +1092,8 @@ function QuickInputView({
   onSubjectChange,
   phoneSubmissions,
   onPhoneSubmission,
+  isPastDate = false,
+  loadingPastStudents = false,
 }: {
   students: Student[];
   presets: FocusScorePreset[];
@@ -967,23 +1102,36 @@ function QuickInputView({
   focusScoresByPeriod: FocusScoreMap;
   savingCell: string | null;
   onQuickScore: (studentId: string, score: number, label: string) => void;
-  onSubjectChange: (studentId: string, subject: string) => void;
+  onSubjectChange: (studentId: string, subject: string | null) => void;
   phoneSubmissions: PhoneSubmissionMap;
   onPhoneSubmission: (studentId: string, status: PhoneSubmissionStatus) => void;
+  isPastDate?: boolean;
+  loadingPastStudents?: boolean;
 }) {
-  if (students.length === 0) {
-    return (
-      <Card className="p-4 text-center text-text-muted text-xs">
-        현재 입실 중인 학생이 없습니다.
-      </Card>
-    );
-  }
-
   if (!selectedPeriodId) {
     return (
       <Card className="p-4 text-center">
         <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
         <p className="text-text-muted text-xs">교시를 먼저 선택해주세요.</p>
+      </Card>
+    );
+  }
+
+  if (isPastDate && loadingPastStudents) {
+    return (
+      <Card className="p-4 text-center text-text-muted text-xs">
+        <RefreshCw className="w-5 h-5 animate-spin mx-auto text-primary mb-2" />
+        해당 교시에 재실했던 학생 목록을 불러오는 중…
+      </Card>
+    );
+  }
+
+  if (students.length === 0) {
+    return (
+      <Card className="p-4 text-center text-text-muted text-xs">
+        {isPastDate
+          ? '이 교시 시간대에 출석·재실 기록이 있는 학생이 없습니다.'
+          : '현재 입실 중인 학생이 없습니다.'}
       </Card>
     );
   }
@@ -1007,9 +1155,9 @@ function QuickInputView({
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10">번호</th>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px]">이름</th>
               <th className="px-1 py-1.5 text-left text-xs font-medium text-gray-500">과목</th>
-              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[32px] lg:min-w-[70px]">
-                <div className="flex items-center justify-center gap-0.5">
-                  <Smartphone className="w-3 h-3" />
+              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500">
+                <div className="flex items-center justify-center gap-0.5 whitespace-nowrap">
+                  <Smartphone className="w-3 h-3 shrink-0" />
                   <span className="hidden lg:inline">폰</span>
                 </div>
               </th>
@@ -1059,13 +1207,13 @@ function QuickInputView({
                     {isCheckedOut ? (
                       <span className="text-[9px] text-gray-300">-</span>
                     ) : (
-                      <div className="flex flex-col lg:flex-row gap-0.5 justify-center items-center">
+                      <div className="flex flex-row flex-nowrap gap-0.5 justify-center items-center">
                         {PHONE_STATUS_OPTIONS.map(opt => (
                           <button
                             key={opt.value}
                             onClick={() => onPhoneSubmission(student.id, opt.value)}
                             className={cn(
-                              'px-0.5 lg:px-1 py-0.5 rounded text-[7px] lg:text-[8px] font-semibold transition-all leading-tight w-full lg:w-auto',
+                              'px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight shrink-0',
                               phoneStatus === opt.value ? opt.activeColor : opt.color
                             )}
                           >
@@ -1151,6 +1299,9 @@ function PeriodTableView({
   currentPeriod,
   phoneSubmissions,
   onPhoneSubmission,
+  isPastDate = false,
+  loadingPastStudents = false,
+  selectedPeriodId = '',
 }: {
   students: Student[];
   periods: Period[];
@@ -1161,11 +1312,24 @@ function PeriodTableView({
   currentPeriod: Period | null;
   phoneSubmissions: PhoneSubmissionMap;
   onPhoneSubmission: (studentId: string, status: PhoneSubmissionStatus) => void;
+  isPastDate?: boolean;
+  loadingPastStudents?: boolean;
+  selectedPeriodId?: string;
 }) {
-  if (students.length === 0) {
+  if (isPastDate && loadingPastStudents) {
     return (
       <Card className="p-4 text-center text-text-muted text-xs">
-        현재 입실 중인 학생이 없습니다.
+        <RefreshCw className="w-5 h-5 animate-spin mx-auto text-primary mb-2" />
+        해당 교시에 재실했던 학생 목록을 불러오는 중…
+      </Card>
+    );
+  }
+
+  if (isPastDate && !selectedPeriodId) {
+    return (
+      <Card className="p-4 text-center">
+        <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+        <p className="text-text-muted text-xs">과거 날짜는 상단에서 교시를 먼저 선택해주세요.</p>
       </Card>
     );
   }
@@ -1175,6 +1339,16 @@ function PeriodTableView({
       <Card className="p-4 text-center">
         <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
         <p className="text-text-muted text-xs">오늘 교시가 설정되지 않았습니다.</p>
+      </Card>
+    );
+  }
+
+  if (students.length === 0) {
+    return (
+      <Card className="p-4 text-center text-text-muted text-xs">
+        {isPastDate
+          ? '이 교시 시간대에 출석·재실 기록이 있는 학생이 없습니다.'
+          : '현재 입실 중인 학생이 없습니다.'}
       </Card>
     );
   }
@@ -1201,9 +1375,9 @@ function PeriodTableView({
             <tr className="bg-gray-50 border-b">
               <th className="sticky left-0 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-10 border-r">번호</th>
               <th className="sticky left-10 z-10 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-500 min-w-[50px] border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">이름</th>
-              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500 min-w-[32px] lg:min-w-[70px]">
-                <div className="flex items-center justify-center gap-0.5">
-                  <Smartphone className="w-3 h-3" />
+              <th className="px-0.5 lg:px-1 py-1.5 text-center text-xs font-medium text-gray-500">
+                <div className="flex items-center justify-center gap-0.5 whitespace-nowrap">
+                  <Smartphone className="w-3 h-3 shrink-0" />
                   <span className="hidden lg:inline">폰</span>
                 </div>
               </th>
@@ -1248,13 +1422,13 @@ function PeriodTableView({
                     {isCheckedOut ? (
                       <span className="text-[9px] text-gray-300">-</span>
                     ) : (
-                      <div className="flex flex-col lg:flex-row gap-0.5 justify-center items-center">
+                      <div className="flex flex-row flex-nowrap gap-0.5 justify-center items-center">
                         {PHONE_STATUS_OPTIONS.map(opt => (
                           <button
                             key={opt.value}
                             onClick={() => onPhoneSubmission(student.id, opt.value)}
                             className={cn(
-                              'px-0.5 lg:px-1 py-0.5 rounded text-[7px] lg:text-[8px] font-semibold transition-all leading-tight w-full lg:w-auto',
+                              'px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight shrink-0',
                               (phoneSubmissions[student.id] || 'submitted') === opt.value ? opt.activeColor : opt.color
                             )}
                           >

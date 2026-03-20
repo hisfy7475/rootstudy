@@ -3,16 +3,16 @@
 import { Clock, Calendar, Repeat, CalendarDays, Trash2, ToggleLeft, ToggleRight, X, Edit } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { StudentAbsenceSchedule } from '@/types/database';
 import { DAY_NAMES } from '@/lib/constants';
+import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
 interface ScheduleBlockProps {
-  schedule: StudentAbsenceSchedule;
+  schedule: AbsenceScheduleListItem;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
-  onEdit?: (schedule: StudentAbsenceSchedule) => void;
+  onEdit?: (schedule: AbsenceScheduleListItem) => void;
   variant?: 'active' | 'inactive' | 'pending' | 'rejected';
 }
 
@@ -119,6 +119,11 @@ export default function ScheduleBlock({
                 </span>
               </div>
             )}
+            {schedule.status === 'approved' && (
+              <p className={`text-xs mt-1 ${getSubTextColor()}`}>
+                승인: {approvedByCaption(schedule.status, schedule.approver_display)}
+              </p>
+            )}
             {schedule.description && (
               <p className={`text-xs mt-1.5 ${isRejected ? 'text-red-500' : isPending ? 'text-amber-500' : isActive ? 'text-gray-400' : 'text-gray-300'}`}>
                 {schedule.description}
@@ -168,11 +173,11 @@ export default function ScheduleBlock({
 
 // 일정 상세 모달 컴포넌트
 interface ScheduleDetailModalProps {
-  schedule: StudentAbsenceSchedule;
+  schedule: AbsenceScheduleListItem;
   onClose: () => void;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
-  onEdit?: (schedule: StudentAbsenceSchedule) => void;
+  onEdit?: (schedule: AbsenceScheduleListItem) => void;
 }
 
 export function ScheduleDetailModal({
@@ -238,6 +243,15 @@ export function ScheduleDetailModal({
           {schedule.description && (
             <div className="p-3 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600">{schedule.description}</p>
+            </div>
+          )}
+
+          {schedule.status === 'approved' && (
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-xs text-slate-500 font-medium mb-0.5">승인</p>
+              <p className="text-sm text-slate-700">
+                {approvedByCaption(schedule.status, schedule.approver_display)}
+              </p>
             </div>
           )}
 

@@ -6,9 +6,11 @@ import { ExamTimer } from '@/components/student/exam-timer';
 import { SwipeableTimer } from '@/components/student/swipeable-timer';
 import { StatusBadge, type AttendanceStatus } from '@/components/student/status-badge';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
+import { SubjectSelector } from '@/components/student/subject-selector';
+import { Card } from '@/components/ui/card';
 import { changeSubject, getTodayAttendance, getTodayStudyTime } from '@/lib/actions/student';
-import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
+import { BookOpen } from 'lucide-react';
 
 interface WeeklyProgressData {
   goalHours: number;
@@ -92,9 +94,6 @@ export function StudentDashboardClient({
   const startTime = checkInTime ? new Date(checkInTime) : null;
   const isTimerActive = status === 'checked_in';
 
-  // 사용 가능한 과목 목록 (순서 유지)
-  const subjectNames = availableSubjects || [];
-
   const handleSubjectSelect = (subject: string) => {
     if (subject === selectedSubject || isPending || status !== 'checked_in') return;
     setSelectedSubject(subject);
@@ -108,30 +107,27 @@ export function StudentDashboardClient({
       {/* 상태 배지 */}
       <StatusBadge status={status} />
 
-      {/* 과목 선택 - 전과목 칩 리스트 */}
-      <div className="flex flex-wrap gap-2">
-        {subjectNames.map((name) => {
-          const isSelected = selectedSubject === name;
-          const isDisabled = isPending || status !== 'checked_in';
-
-          return (
-            <button
-              key={name}
-              onClick={() => handleSubjectSelect(name)}
-              disabled={isDisabled}
-              className={cn(
-                'flex items-center px-3 py-1.5 rounded-full text-sm transition-all',
-                isSelected
-                  ? 'bg-primary text-white font-bold shadow-md scale-105'
-                  : 'bg-gray-100 text-text-muted font-normal hover:bg-gray-200',
-                isDisabled && !isSelected && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              {name}
-            </button>
-          );
-        })}
-      </div>
+      {/* 과목 선택 */}
+      <Card className="p-4 border border-primary/20">
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+            <BookOpen className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-text">지금 공부할 과목</h2>
+            {status === 'checked_in' && !selectedSubject && (
+              <p className="text-xs text-primary">과목을 선택해 주세요</p>
+            )}
+          </div>
+        </div>
+        <SubjectSelector
+          selected={selectedSubject}
+          onSelect={handleSubjectSelect}
+          disabled={isPending || status !== 'checked_in'}
+          availableSubjects={availableSubjects}
+          variant="prominent"
+        />
+      </Card>
 
       {/* 스와이프 타이머 영역 (순공시간 / 모의고사 타이머) */}
       <SwipeableTimer labels={['순공시간', '타이머']}>

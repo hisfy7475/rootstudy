@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,15 +21,16 @@ import {
   toggleAbsenceSchedule,
   updateAbsenceSchedule
 } from '@/lib/actions/absence-schedule';
-import type { StudentAbsenceSchedule } from '@/types/database';
+import type { AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 import { DAY_NAMES, ABSENCE_REASONS } from '@/lib/constants';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import ScheduleTimeline from '@/components/student/schedule-timeline';
 import ScheduleBlock, { ScheduleDetailModal } from '@/components/student/schedule-block';
+import { isPastOneTimeAbsenceSchedule } from '@/lib/utils';
 
 interface ScheduleClientProps {
-  initialSchedules: StudentAbsenceSchedule[];
+  initialSchedules: AbsenceScheduleListItem[];
 }
 
 type ViewMode = 'timeline' | 'list';
@@ -40,8 +41,8 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
   const [showAddForm, setShowAddForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
-  const [selectedSchedule, setSelectedSchedule] = useState<StudentAbsenceSchedule | null>(null);
-  const [editingSchedule, setEditingSchedule] = useState<StudentAbsenceSchedule | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<AbsenceScheduleListItem | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<AbsenceScheduleListItem | null>(null);
 
   // 폼 상태
   const [formData, setFormData] = useState({
@@ -75,7 +76,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
   };
 
   // 수정 모드 핸들러
-  const handleEdit = (schedule: StudentAbsenceSchedule) => {
+  const handleEdit = (schedule: AbsenceScheduleListItem) => {
     // 부재 사유 타입 판별
     const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
     const reasonType = foundReason?.value || 'other';
@@ -180,7 +181,10 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
                 valid_from: formData.isRecurring ? formData.recurringStartDate : null,
                 valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
                 specific_date: !formData.isRecurring ? formData.specificDate : null,
-                status: 'pending', // 재승인 대기 상태로 변경
+                status: 'pending',
+                approved_by: null,
+                approved_at: null,
+                approver_display: null,
               } 
             : s
         ));
@@ -208,7 +212,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
       });
 
       if (result.success && result.data) {
-        setSchedules([result.data, ...schedules]);
+        setSchedules([{ ...result.data, approver_display: null }, ...schedules]);
         setShowAddForm(false);
         resetForm();
         router.refresh();
@@ -260,14 +264,22 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
   };
 
   // 타임라인에서 일정 블록 클릭 시 - 바로 수정 폼 열기
-  const handleScheduleClick = (schedule: StudentAbsenceSchedule) => {
+  const handleScheduleClick = (schedule: AbsenceScheduleListItem) => {
     handleEdit(schedule);
   };
 
-  // 승인 대기 vs 승인됨 vs 거부됨 분류
-  const pendingSchedules = schedules.filter(s => s.status === 'pending');
-  const rejectedSchedules = schedules.filter(s => s.status === 'rejected');
-  const approvedSchedules = schedules.filter(s => s.status === 'approved');
+  const visibleSchedules = useMemo(
+    () =>
+      schedules.filter(
+        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+      ),
+    [schedules]
+  );
+
+  // 승인 대기 vs 승인됨 vs 거부됨 분류 (지난 일회성 제외)
+  const pendingSchedules = visibleSchedules.filter(s => s.status === 'pending');
+  const rejectedSchedules = visibleSchedules.filter(s => s.status === 'rejected');
+  const approvedSchedules = visibleSchedules.filter(s => s.status === 'approved');
   const activeSchedules = approvedSchedules.filter(s => s.is_active);
   const inactiveSchedules = approvedSchedules.filter(s => !s.is_active);
 

@@ -2,7 +2,15 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
+import {
+  getStudyDate,
+  getStudyDayBounds,
+  getWeekStart,
+  getCalendarWeekBoundsKST,
+  getWeekDateStringsFromMondayKST,
+  getTodayKST,
+} from '@/lib/utils';
+import { DAY_CONFIG } from '@/lib/constants';
 
 function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
   return items.reduce((acc, item) => {
@@ -10,6 +18,157 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
     acc[item.student_id].push(item);
     return acc;
   }, {} as Record<string, T[]>);
+}
+
+/** 교시 HH:MM(:SS)를 해당 학습일(KST) 상의 절대 시각으로 변환 (새벽 시간은 다음날 달력으로 보정) */
+function kstInstantOnStudyDay(dateStr: string, timeHHMM: string): Date {
+  const raw = timeHHMM.trim();
+  const parts = raw.split(':');
+  const h = parseInt(parts[0] ?? '0', 10);
+  const m = parseInt(parts[1] ?? '0', 10);
+  const sec = parseInt(parts[2] ?? '0', 10);
+  const timePart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  const candidate = new Date(`${dateStr}T${timePart}+09:00`);
+  const studyDayStartKst = new Date(
+    `${dateStr}T${String(DAY_CONFIG.startHour).padStart(2, '0')}:${String(DAY_CONFIG.startMinute).padStart(2, '0')}:00+09:00`
+  );
+  if (candidate.getTime() < studyDayStartKst.getTime()) {
+    return new Date(candidate.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return candidate;
+}
+
+type StudySessionFocus = { startTime: Date; endTime: Date };
+
+/** attendance 이벤트에서 학습 세션 구간 추출 (미퇴실 시 학습일 종료 또는 현재 시각까지) */
+function extractStudySessionsForFocusDay(
+  attendance: Array<{ type: string; timestamp: string }>,
+  studyDayEnd: Date
+): StudySessionFocus[] {
+  const sessions: StudySessionFocus[] = [];
+  let checkInTime: Date | null = null;
+  const now = new Date();
+  const cap = now.getTime() < studyDayEnd.getTime() ? now : studyDayEnd;
+
+  for (const record of attendance) {
+    const timestamp = new Date(record.timestamp);
+    switch (record.type) {
+      case 'check_in':
+        checkInTime = timestamp;
+        break;
+      case 'check_out':
+      case 'break_start':
+        if (checkInTime) {
+          sessions.push({ startTime: checkInTime, endTime: timestamp });
+          checkInTime = null;
+        }
+        break;
+      case 'break_end':
+        checkInTime = timestamp;
+        break;
+    }
+  }
+
+  if (checkInTime && cap.getTime() > checkInTime.getTime()) {
+    sessions.push({ startTime: checkInTime, endTime: cap });
+  }
+
+  return sessions;
+}
+
+function sessionOverlapsSlot(
+  session: StudySessionFocus,
+  slotStart: Date,
+  slotEnd: Date
+): boolean {
+  const overlapStart = Math.max(session.startTime.getTime(), slotStart.getTime());
+  const overlapEnd = Math.min(session.endTime.getTime(), slotEnd.getTime());
+  return overlapEnd > overlapStart;
+}
+
+/**
+ * 특정 학습일·교시 시간대에 1초라도 재실(학습 세션)이었던 학생 목록
+ */
+export async function getStudentsPresentDuringPeriod(
+  dateStr: string,
+  periodStartTime: string,
+  periodEndTime: string,
+  branchId: string | null
+): Promise<{ id: string; name: string; seatNumber: number | null }[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  if (!branchId) return [];
+
+  let studentsQuery = supabase
+    .from('student_profiles')
+    .select(`
+      id,
+      seat_number,
+      profiles!inner (
+        id,
+        name,
+        branch_id
+      )
+    `)
+    .eq('profiles.branch_id', branchId)
+    .order('seat_number', { ascending: true });
+
+  const { data: students, error: studentsError } = await studentsQuery;
+  if (studentsError || !students?.length) return [];
+
+  const studentIds = students.map((s) => s.id);
+  const { start: dayStart, end: dayEnd } = getStudyDayBounds(dateStr);
+
+  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  let allAttendance: AttendanceRecord[] = [];
+  {
+    const baseQuery = () =>
+      supabase
+        .from('attendance')
+        .select('student_id, type, timestamp')
+        .in('student_id', studentIds)
+        .gte('timestamp', dayStart.toISOString())
+        .lte('timestamp', dayEnd.toISOString())
+        .order('timestamp', { ascending: true });
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await baseQuery().range(from, from + PAGE - 1);
+      if (!data?.length) break;
+      allAttendance = allAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+
+  const attendanceByStudent = groupById(allAttendance);
+  const slotStart = kstInstantOnStudyDay(dateStr, periodStartTime);
+  let slotEnd = kstInstantOnStudyDay(dateStr, periodEndTime);
+  if (slotEnd.getTime() <= slotStart.getTime()) {
+    slotEnd = new Date(slotEnd.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  const present: { id: string; name: string; seatNumber: number | null }[] = [];
+
+  for (const row of students) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+    if (!profile?.name) continue;
+
+    const events = attendanceByStudent[row.id] ?? [];
+    const sessions = extractStudySessionsForFocusDay(events, dayEnd);
+    const wasPresent = sessions.some((s) => sessionOverlapsSlot(s, slotStart, slotEnd));
+    if (wasPresent) {
+      present.push({
+        id: row.id,
+        name: profile.name,
+        seatNumber: row.seat_number,
+      });
+    }
+  }
+
+  return present;
 }
 
 // ============================================
@@ -199,8 +358,8 @@ export async function getAllStudents(statusFilter?: 'all' | 'checked_in' | 'chec
   return studentsWithStatus;
 }
 
-// 학생 과목 설정 (관리자가 직접)
-export async function setStudentSubject(studentId: string, subjectName: string) {
+// 학생 과목 설정 (관리자가 직접). subjectName이 null이면 현재 과목만 종료(선택 해제)
+export async function setStudentSubject(studentId: string, subjectName: string | null) {
   const supabase = await createClient();
 
   // 학습일 기준으로 조회
@@ -229,6 +388,10 @@ export async function setStudentSubject(studentId: string, subjectName: string) 
     .update({ is_current: false, ended_at: new Date().toISOString() })
     .eq('student_id', studentId)
     .eq('is_current', true);
+
+  if (subjectName === null || subjectName === '') {
+    return { success: true };
+  }
 
   // 새 과목 시작
   const { error } = await supabase
@@ -1941,8 +2104,6 @@ export async function deleteRewardPreset(id: string) {
 export async function getAttendanceBoard(
   targetDate?: string,
   branchId?: string | null,
-  page: number = 1,
-  pageSize: number = 100,
   searchQuery?: string,
   statusFilter?: 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived'
 ) {
@@ -1966,10 +2127,10 @@ export async function getAttendanceBoard(
   const { data: allStudentRows, error: allStudentsError } = await allStudentsQuery;
   if (allStudentsError) {
     console.error('Error fetching students:', allStudentsError);
-    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
+    return { data: [], total: 0, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
   }
   if (!allStudentRows || allStudentRows.length === 0) {
-    return { data: [], total: 0, page, pageSize, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
+    return { data: [], total: 0, stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 } };
   }
 
   const allStudentIds = allStudentRows.map(s => s.id);
@@ -2037,15 +2198,14 @@ export async function getAttendanceBoard(
   filteredIds.sort((a, b) => (seatOrderMap.get(a) ?? 999) - (seatOrderMap.get(b) ?? 999));
   const filteredTotal = filteredIds.length;
 
-  // Step 5: 페이지네이션
-  const from = (page - 1) * pageSize;
-  const pageStudentIds = filteredIds.slice(from, from + pageSize);
+  // Step 5: 필터 적용 전원 (한 번에 조회)
+  const pageStudentIds = filteredIds;
 
   if (pageStudentIds.length === 0) {
-    return { data: [], total: filteredTotal, page, pageSize, stats: globalStats };
+    return { data: [], total: filteredTotal, stats: globalStats };
   }
 
-  // Step 6: 페이지 학생 프로필 + 상세 데이터 조회
+  // Step 6: 학생 프로필 + 상세 데이터 조회
   const [
     { data: students },
     { data: allAbsenceSchedules },
@@ -2142,36 +2302,39 @@ export async function getAttendanceBoard(
   // seat_number 순으로 정렬
   attendanceData.sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999));
 
-  return { data: attendanceData, total: filteredTotal, page, pageSize, stats: globalStats };
+  return { data: attendanceData, total: filteredTotal, stats: globalStats };
 }
 
 // 주간 출석 데이터 조회 (학생별 7일간 출석 상태)
 export async function getWeeklyAttendance(
   weekStartDate: string,
   branchId?: string | null,
-  page: number = 1,
-  pageSize: number = 20,
   searchQuery?: string
 ) {
   const supabase = await createClient();
 
-  // 주 시작일(월요일)부터 7일간의 날짜 배열 생성
-  const startDate = new Date(weekStartDate + 'T12:00:00');
-  const dates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().split('T')[0]);
-  }
+  // KST 달력 주: 월 00:00 ~ 다음 주 월 00:00 (주간 상점 크론과 동일)
+  const dates = getWeekDateStringsFromMondayKST(weekStartDate);
+  const { start: weekStart, endExclusive: weekEndExclusive } =
+    getCalendarWeekBoundsKST(weekStartDate);
 
-  // 페이지네이션 계산
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  // 학생 프로필 전체 조회 (Supabase 행 제한 대비 배치)
+  const STUDENT_BATCH = 1000;
+  let students: {
+    id: string;
+    seat_number: number | null;
+    profiles:
+      | { id: string; name: string | null; branch_id: string | null }
+      | { id: string; name: string | null; branch_id: string | null }[];
+  }[] = [];
+  let total = 0;
+  let spOffset = 0;
 
-  // 학생 프로필 조회 (페이지네이션 적용)
-  let query = supabase
-    .from('student_profiles')
-    .select(`
+  while (true) {
+    let query = supabase
+      .from('student_profiles')
+      .select(
+        `
       id,
       seat_number,
       profiles!inner (
@@ -2179,29 +2342,39 @@ export async function getWeeklyAttendance(
         name,
         branch_id
       )
-    `, { count: 'exact' })
-    .order('seat_number', { ascending: true });
+    `,
+        { count: spOffset === 0 ? 'exact' : undefined }
+      )
+      .order('seat_number', { ascending: true });
 
-  // 브랜치 필터 적용
-  if (branchId) {
-    query = query.eq('profiles.branch_id', branchId);
+    if (branchId) {
+      query = query.eq('profiles.branch_id', branchId);
+    }
+
+    if (searchQuery) {
+      query = query.ilike('profiles.name', `%${searchQuery}%`);
+    }
+
+    const { data: batch, error, count } = await query.range(
+      spOffset,
+      spOffset + STUDENT_BATCH - 1
+    );
+
+    if (error) {
+      console.error('Error fetching students:', error);
+      return { students: [], dates: [], total: 0 };
+    }
+
+    if (spOffset === 0 && count != null) {
+      total = count;
+    }
+
+    if (!batch?.length) break;
+
+    students = students.concat(batch);
+    if (batch.length < STUDENT_BATCH) break;
+    spOffset += STUDENT_BATCH;
   }
-
-  // 이름 검색 필터 적용
-  if (searchQuery) {
-    query = query.ilike('profiles.name', `%${searchQuery}%`);
-  }
-
-  const { data: students, error, count } = await query.range(from, to);
-
-  if (error) {
-    console.error('Error fetching students:', error);
-    return { students: [], dates: [], total: 0, page, pageSize };
-  }
-
-  // 주간 전체 기간의 시작/종료 시간
-  const weekStart = getStudyDayBounds(dates[0]).start;
-  const weekEnd = getStudyDayBounds(dates[6]).end;
 
   const studentIds = (students || []).map(s => s.id);
 
@@ -2216,7 +2389,7 @@ export async function getWeeklyAttendance(
         .select('*')
         .in('student_id', studentIds)
         .gte('timestamp', weekStart.toISOString())
-        .lte('timestamp', weekEnd.toISOString())
+        .lt('timestamp', weekEndExclusive.toISOString())
         .order('timestamp', { ascending: true })
         .range(from, from + PAGE - 1);
       if (!data || data.length === 0) break;
@@ -2269,10 +2442,19 @@ export async function getWeeklyAttendance(
           break;
       }
     }
-    // 아직 퇴실 안 한 경우 현재 시간까지 계산
+    // 아직 퇴실 안 한 경우: 현재 시각까지(단, 해당 주가 끝났으면 주간 종료 시각까지)
     if (tempCheckIn) {
-      weeklyStudyMinutes += Math.floor((new Date().getTime() - tempCheckIn.getTime()) / 60000);
+      const nowMs = Date.now();
+      const capMs = weekEndExclusive.getTime();
+      const endMs = Math.min(nowMs, capMs);
+      if (endMs > tempCheckIn.getTime()) {
+        weeklyStudyMinutes += Math.floor(
+          (endMs - tempCheckIn.getTime()) / 60000
+        );
+      }
     }
+
+    const todayStr = getTodayKST();
 
     dates.forEach(dateStr => {
       const { start: dayStart, end: dayEnd } = getStudyDayBounds(dateStr);
@@ -2285,13 +2467,8 @@ export async function getWeeklyAttendance(
 
       if (dayAttendance.length === 0) {
         // 미래 날짜인 경우 null, 과거 날짜인 경우 not_attended
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const checkDate = new Date(dateStr + 'T12:00:00');
-        checkDate.setHours(0, 0, 0, 0);
-        
         dailyStatus[dateStr] = {
-          status: checkDate > today ? null : 'not_attended',
+          status: dateStr > todayStr ? null : 'not_attended',
           checkInTime: null,
         };
       } else {
@@ -2324,9 +2501,7 @@ export async function getWeeklyAttendance(
   return {
     students: weeklyData,
     dates,
-    total: count || 0,
-    page,
-    pageSize,
+    total: total || students.length,
   };
 }
 
@@ -2419,14 +2594,17 @@ export async function recordFocusScoreIndividual(
   studentId: string,
   periodId: string,
   score: number,
-  note?: string
+  note?: string,
+  targetDate?: string
 ) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const studyDate = getStudyDate();
+  const studyDate = targetDate
+    ? new Date(targetDate + 'T12:00:00+09:00')
+    : getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
   // 오늘 해당 학생-교시에 기존 기록이 있는지 확인
@@ -2473,13 +2651,19 @@ export async function recordFocusScoreIndividual(
 }
 
 // 몰입도 점수 삭제 (취소)
-export async function deleteFocusScore(studentId: string, periodId: string) {
+export async function deleteFocusScore(
+  studentId: string,
+  periodId: string,
+  targetDate?: string
+) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const studyDate = getStudyDate();
+  const studyDate = targetDate
+    ? new Date(targetDate + 'T12:00:00+09:00')
+    : getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
   const { error } = await supabase
@@ -2716,4 +2900,44 @@ export async function setPhoneSubmission(
   }
 
   return { success: true };
+}
+
+const PHONE_SUBMISSION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function clearPhoneSubmissionsForDate(
+  date: string
+): Promise<{ success?: true; deleted?: number; error?: string }> {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (adminProfile?.user_type !== 'admin') {
+    return { error: '관리자만 초기화할 수 있습니다.' };
+  }
+
+  if (!PHONE_SUBMISSION_DATE_RE.test(date)) {
+    return { error: '날짜 형식이 올바르지 않습니다.' };
+  }
+
+  const { data: deleted, error } = await adminClient
+    .from('phone_submissions')
+    .delete()
+    .eq('date', date)
+    .select('student_id');
+
+  if (error) {
+    console.error('Error clearing phone submissions:', error);
+    return { error: '휴대폰 제출 기록 초기화에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/focus');
+  return { success: true, deleted: deleted?.length ?? 0 };
 }

@@ -48,6 +48,45 @@ export function getTodayKST(): string {
 }
 
 /**
+ * 일회성 부재 일정이 KST 달력 기준으로 이미 지났는지 (학생·학부모 리스트에서 제외할 때 사용)
+ */
+export function isPastOneTimeAbsenceSchedule(
+  isRecurring: boolean,
+  specificDate: string | null
+): boolean {
+  if (isRecurring) return false;
+  if (!specificDate) return false;
+  return specificDate < getTodayKST();
+}
+
+/**
+ * KST 달력 주(월~일): 월요일 00:00 KST 이상 ~ 다음 월요일 00:00 KST 미만.
+ * 주간 상점 크론과 관리자 주간 순공 집계가 동일한 창을 쓰도록 한다.
+ */
+export function getCalendarWeekBoundsKST(mondayDateStr: string): {
+  start: Date;
+  endExclusive: Date;
+} {
+  const monday = mondayDateStr.split('T')[0];
+  const start = new Date(`${monday}T00:00:00+09:00`);
+  const endExclusive = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { start, endExclusive };
+}
+
+/**
+ * KST 기준 월~일 YYYY-MM-DD 배열 (mondayDateStr은 해당 주의 월요일).
+ */
+export function getWeekDateStringsFromMondayKST(mondayDateStr: string): string[] {
+  const { start } = getCalendarWeekBoundsKST(mondayDateStr);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+    dates.push(formatDateKST(d));
+  }
+  return dates;
+}
+
+/**
  * 학부모 연결 코드 생성 (6자리 영숫자)
  */
 export function generateParentCode(): string {

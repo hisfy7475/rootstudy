@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { DAY_CONFIG } from '@/lib/constants';
+import { formatDate, getStudyDate } from '@/lib/utils';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -139,11 +140,30 @@ export async function GET(request: Request) {
       }
     }
 
+    // -------------------------------------------------------
+    // 3. 휴대폰 제출 여부: 지문/일일 리셋 시각과 동일하게 해당 학습일 데이터 삭제
+    //    (KST 03:00 전후 getStudyDate()는 막 끝난 학습일 YYYY-MM-DD와 일치)
+    // -------------------------------------------------------
+    const phoneSubmissionStudyDate = formatDate(getStudyDate(new Date()));
+    const { data: deletedPhones, error: phoneDeleteError } = await supabase
+      .from('phone_submissions')
+      .delete()
+      .eq('date', phoneSubmissionStudyDate)
+      .select('student_id');
+
+    if (phoneDeleteError) {
+      throw new Error(`Failed to reset phone submissions: ${phoneDeleteError.message}`);
+    }
+
+    const phoneSubmissionResetCount = deletedPhones?.length ?? 0;
+
     return NextResponse.json({
       success: true,
-      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s)`,
+      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s), cleared ${phoneSubmissionResetCount} phone submission row(s) for ${phoneSubmissionStudyDate}`,
       checkOutCount,
       resetCount: count,
+      phoneSubmissionResetCount,
+      phoneSubmissionStudyDate,
       resetAt,
       resetUTC,
     });

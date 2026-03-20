@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { DAY_NAMES, DAY_CONFIG } from '@/lib/constants';
-import type { StudentAbsenceSchedule } from '@/types/database';
+import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 
 interface TimeSlot {
   hour: number;
@@ -17,9 +17,9 @@ interface DragSelection {
 }
 
 interface ScheduleTimelineProps {
-  schedules: StudentAbsenceSchedule[];
+  schedules: AbsenceScheduleListItem[];
   onTimeSelect: (dayOfWeek: number, startTime: string, endTime: string) => void;
-  onScheduleClick: (schedule: StudentAbsenceSchedule) => void;
+  onScheduleClick: (schedule: AbsenceScheduleListItem) => void;
 }
 
 // 타임라인 전용 설정 (화면에 보여줄 시간 범위)
@@ -264,7 +264,7 @@ export default function ScheduleTimeline({
   const displaySchedules = schedules.filter(s => s.is_recurring && (s.is_active || s.status === 'pending'));
 
   // 일정의 블록 위치 계산
-  const getScheduleBlockStyle = (schedule: StudentAbsenceSchedule, dayIndex: number) => {
+  const getScheduleBlockStyle = (schedule: AbsenceScheduleListItem, dayIndex: number) => {
     const startIndex = timeToSlotIndex(schedule.start_time, TIME_SLOTS);
     const endIndex = timeToSlotIndex(schedule.end_time, TIME_SLOTS);
     
@@ -366,9 +366,14 @@ export default function ScheduleTimeline({
               ? 'bg-amber-400/90 hover:bg-amber-500' 
               : 'bg-primary/80 hover:bg-primary';
             
+            const approverHint =
+              schedule.status === 'approved'
+                ? `\n승인: ${approvedByCaption(schedule.status, schedule.approver_display)}`
+                : '';
             return (
               <div
                 key={`${schedule.id}-${dayIndex}`}
+                title={`${schedule.title}${approverHint}`}
                 className={`absolute text-white text-[10px] px-1 py-0.5 rounded cursor-pointer transition-colors overflow-hidden z-10 ${bgColor}`}
                 style={{
                   top: style.top,

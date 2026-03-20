@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { DAY_CONFIG } from '@/lib/constants';
+import {
+  formatDateKST,
+  getCalendarWeekBoundsKST,
+  getWeekDateStringsFromMondayKST,
+} from '@/lib/utils';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -11,15 +16,6 @@ function getSupabaseAdmin() {
 
 // KST 오프셋 (UTC+9)
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-// UTC Date를 KST 기준 YYYY-MM-DD 문자열로 변환
-function formatKSTDate(utcDate: Date): string {
-  const kst = new Date(utcDate.getTime() + KST_OFFSET_MS);
-  const year = kst.getUTCFullYear();
-  const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(kst.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 // KST 기준 이번 주 월요일 날짜(YYYY-MM-DD)를 반환
 // weekParam이 있으면 해당 날짜가 속한 주의 월요일을 계산
@@ -59,16 +55,6 @@ function getTargetWeekStartKST(weekParam?: string): Date {
     const thisWeekStart = new Date(`${todayMondayKST}T00:00:00+09:00`);
     return new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
   }
-}
-
-// 주간 날짜 배열 생성 (KST 기준 YYYY-MM-DD)
-function getWeekDates(weekStartUTC: Date): string[] {
-  const dates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStartUTC.getTime() + i * 24 * 60 * 60 * 1000);
-    dates.push(formatKSTDate(d));
-  }
-  return dates;
 }
 
 // 출석 기록에서 학습 시간(분) 계산
@@ -253,13 +239,11 @@ export async function GET(request: Request) {
   };
 
   try {
-    // 2. 처리할 주 시작일/종료일 계산 (KST 기준)
+    // 2. 처리할 주 시작일/종료일 계산 (KST 달력 주 = 관리자 주간 순공과 동일)
     const lastWeekStart = getTargetWeekStartKST(weekParam);
-    const lastWeekEnd = new Date(lastWeekStart);
-    lastWeekEnd.setUTCDate(lastWeekEnd.getUTCDate() + 7);
-    
-    const weekStartStr = formatKSTDate(lastWeekStart);
-    const weekDates = getWeekDates(lastWeekStart);
+    const weekStartStr = formatDateKST(lastWeekStart);
+    const { endExclusive: lastWeekEnd } = getCalendarWeekBoundsKST(weekStartStr);
+    const weekDates = getWeekDateStringsFromMondayKST(weekStartStr);
 
     // 3. 모든 학생 조회 (타입 정보 포함)
     const { data: students, error: studentsError } = await supabase

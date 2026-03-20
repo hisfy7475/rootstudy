@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, isPastOneTimeAbsenceSchedule } from '@/lib/utils';
 import { 
   Clock, 
   Calendar, 
@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import type { LinkedStudent } from '@/lib/actions/parent';
+import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 import { 
   createAbsenceScheduleForChild, 
   approveAbsenceSchedule, 
@@ -32,7 +33,7 @@ import {
   deleteAbsenceSchedule,
 } from '@/lib/actions/absence-schedule';
 
-interface AbsenceScheduleWithStudent extends StudentAbsenceSchedule {
+interface AbsenceScheduleWithStudent extends AbsenceScheduleListItem {
   studentName: string;
   studentId: string;
 }
@@ -93,9 +94,24 @@ export function ScheduleClient({
   const [editError, setEditError] = useState('');
   const [isEditLoading, setIsEditLoading] = useState(false);
 
+  const visibleAbsence = useMemo(
+    () =>
+      absenceSchedules.filter(
+        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+      ),
+    [absenceSchedules]
+  );
+  const visiblePending = useMemo(
+    () =>
+      pendingSchedules.filter(
+        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+      ),
+    [pendingSchedules]
+  );
+
   const getCounts = () => ({
-    absence: absenceSchedules.filter(s => s.status === 'approved' && s.is_active).length,
-    pending: pendingSchedules.length,
+    absence: visibleAbsence.filter(s => s.status === 'approved' && s.is_active).length,
+    pending: visiblePending.length,
     create: 0,
   });
 
@@ -110,11 +126,11 @@ export function ScheduleClient({
     return days.map(d => DAY_NAMES[d]).join(', ');
   };
 
-  // 승인된 활성 부재 일정만 필터링
-  const approvedActiveSchedules = absenceSchedules.filter(
+  // 승인된 활성 부재 일정만 필터링 (지난 일회성 제외된 목록 기준)
+  const approvedActiveSchedules = visibleAbsence.filter(
     s => s.status === 'approved' && s.is_active
   );
-  const approvedInactiveSchedules = absenceSchedules.filter(
+  const approvedInactiveSchedules = visibleAbsence.filter(
     s => s.status === 'approved' && !s.is_active
   );
 
@@ -399,6 +415,9 @@ export function ScheduleClient({
                         <div>
                           <h4 className="font-medium text-gray-800">{schedule.title}</h4>
                           <p className="text-xs text-gray-500 mt-0.5">{schedule.studentName}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            승인: {approvedByCaption('approved', schedule.approver_display)}
+                          </p>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
@@ -462,6 +481,9 @@ export function ScheduleClient({
                       <div>
                         <h4 className="font-medium text-gray-500 text-sm">{schedule.title}</h4>
                         <p className="text-xs text-gray-400">{schedule.studentName}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          승인: {approvedByCaption('approved', schedule.approver_display)}
+                        </p>
                       </div>
                       <div className="flex items-center gap-1">
                         <button
@@ -502,14 +524,14 @@ export function ScheduleClient({
             </div>
           </Card>
 
-          {pendingSchedules.length === 0 ? (
+          {visiblePending.length === 0 ? (
             <Card className="p-8 text-center text-gray-500">
               <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <p className="text-sm">승인 대기 중인 일정이 없습니다</p>
             </Card>
           ) : (
             <div className="space-y-3">
-              {pendingSchedules.map(schedule => (
+              {visiblePending.map(schedule => (
                 <Card key={schedule.id} className="p-4 border-amber-200 bg-amber-50/30">
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">

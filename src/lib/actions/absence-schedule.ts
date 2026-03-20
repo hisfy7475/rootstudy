@@ -3,11 +3,20 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { StudentAbsenceSchedule } from '@/types/database';
+import { formatAbsenceApproverDisplay, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 import { ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
 import { format, parse, addMinutes, subMinutes, isWithinInterval, getDay } from 'date-fns';
 
+type ApproverProfileRow = { name: string; user_type: 'student' | 'parent' | 'admin' } | null;
+
+function mapRowWithApprover(row: StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }): AbsenceScheduleListItem {
+  const { approver_profile, ...rest } = row;
+  const approver_display = formatAbsenceApproverDisplay(approver_profile?.name, approver_profile?.user_type);
+  return { ...rest, approver_display };
+}
+
 // 부재 스케줄 목록 조회 (학생용)
-export async function getMyAbsenceSchedules(): Promise<StudentAbsenceSchedule[]> {
+export async function getMyAbsenceSchedules(): Promise<AbsenceScheduleListItem[]> {
   const supabase = await createClient();
   
   const { data: { user } } = await supabase.auth.getUser();
@@ -15,7 +24,10 @@ export async function getMyAbsenceSchedules(): Promise<StudentAbsenceSchedule[]>
   
   const { data, error } = await supabase
     .from('student_absence_schedules')
-    .select('*')
+    .select(`
+      *,
+      approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
+    `)
     .eq('student_id', user.id)
     .order('created_at', { ascending: false });
   
@@ -24,16 +36,19 @@ export async function getMyAbsenceSchedules(): Promise<StudentAbsenceSchedule[]>
     return [];
   }
   
-  return data || [];
+  return (data || []).map((row) => mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }));
 }
 
 // 특정 학생의 부재 스케줄 조회 (관리자/학부모용)
-export async function getStudentAbsenceSchedules(studentId: string): Promise<StudentAbsenceSchedule[]> {
+export async function getStudentAbsenceSchedules(studentId: string): Promise<AbsenceScheduleListItem[]> {
   const supabase = await createClient();
   
   const { data, error } = await supabase
     .from('student_absence_schedules')
-    .select('*')
+    .select(`
+      *,
+      approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
+    `)
     .eq('student_id', studentId)
     .order('created_at', { ascending: false });
   
@@ -42,11 +57,13 @@ export async function getStudentAbsenceSchedules(studentId: string): Promise<Stu
     return [];
   }
   
-  return data || [];
+  return (data || []).map((row) => mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }));
 }
 
 // 모든 학생의 부재 스케줄 조회 (관리자용)
-export async function getAllAbsenceSchedules(branchId?: string | null): Promise<(StudentAbsenceSchedule & { student_name?: string; seat_number?: number | null })[]> {
+export async function getAllAbsenceSchedules(branchId?: string | null): Promise<
+  (AbsenceScheduleListItem & { student_name?: string; seat_number?: number | null })[]
+> {
   const supabase = await createClient();
 
   let query = supabase
@@ -56,7 +73,8 @@ export async function getAllAbsenceSchedules(branchId?: string | null): Promise<
       student_profiles!inner(
         seat_number,
         profiles!inner(name, branch_id)
-      )
+      ),
+      approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
     `)
     .order('created_at', { ascending: false });
 
@@ -71,11 +89,22 @@ export async function getAllAbsenceSchedules(branchId?: string | null): Promise<
     return [];
   }
 
-  return (data || []).map(schedule => ({
-    ...schedule,
-    student_name: (schedule.student_profiles as any)?.profiles?.name || '알 수 없음',
-    seat_number: (schedule.student_profiles as any)?.seat_number ?? null,
-  }));
+  return (data || []).map((schedule) => {
+    const row = schedule as StudentAbsenceSchedule & {
+      student_profiles?: { seat_number?: number | null; profiles?: { name?: string } };
+      approver_profile?: ApproverProfileRow;
+    };
+    const { student_profiles, approver_profile, ...rest } = row;
+    const base = mapRowWithApprover({
+      ...rest,
+      approver_profile,
+    } as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow });
+    return {
+      ...base,
+      student_name: student_profiles?.profiles?.name || '알 수 없음',
+      seat_number: student_profiles?.seat_number ?? null,
+    };
+  });
 }
 
 // 부재 스케줄 생성 (학생용 - 승인 대기 상태로 생성)
@@ -448,12 +477,18 @@ export async function updateAbsenceSchedule(
     }
   }
 
+  const updatePayload: Record<string, unknown> = {
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  if (data.status === 'pending') {
+    updatePayload.approved_by = null;
+    updatePayload.approved_at = null;
+  }
+
   const { error } = await supabase
     .from('student_absence_schedules')
-    .update({
-      ...data,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', id);
 
   if (error) {

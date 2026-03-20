@@ -5,8 +5,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
-  Calendar,
-  Clock,
   User,
   Search,
   Filter,
@@ -16,12 +14,12 @@ import {
   Info,
   Plus,
   X,
-  Check,
   AlertCircle,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import type { StudentAbsenceSchedule } from '@/types/database';
+import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
 import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, SCHEDULE_DATE_TYPES, ABSENCE_REASONS } from '@/lib/constants';
 import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -35,7 +33,7 @@ import {
 } from '@/lib/actions/absence-schedule';
 import { cn } from '@/lib/utils';
 
-interface ScheduleWithStudent extends StudentAbsenceSchedule {
+interface ScheduleWithStudent extends AbsenceScheduleListItem {
   student_name?: string;
   seat_number?: number | null;
 }
@@ -62,7 +60,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const [schedules, setSchedules] = useState(initialSchedules);
   const [pendingList, setPendingList] = useState(initialPending);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>('recurring');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'approved' | 'pending'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -334,16 +332,11 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
     });
   }, [schedules, searchTerm, filterType, filterActive, filterStatus]);
 
-  // 통계
-  const stats = useMemo(() => {
-    const active = schedules.filter(s => s.is_active && s.status === 'approved').length;
-    const recurring = schedules.filter(s => s.is_recurring && s.status === 'approved').length;
-    const oneTime = schedules.filter(s => !s.is_recurring && s.status === 'approved').length;
-    const uniqueStudents = new Set(schedules.filter(s => s.status === 'approved').map(s => s.student_id)).size;
-    const pending = pendingList.length;
-
-    return { active, recurring, oneTime, uniqueStudents, total: schedules.filter(s => s.status === 'approved').length, pending };
-  }, [schedules, pendingList]);
+  const noSchedulesMatchNarrowFilters =
+    Boolean(searchTerm.trim()) ||
+    filterActive !== 'all' ||
+    filterType === 'one_time' ||
+    filterType === 'all';
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '매일';
@@ -426,106 +419,95 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         </div>
       </Card>
 
-      {/* 통계 */}
-      <div className="grid grid-cols-6 gap-4">
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">전체 스케줄</div>
-          <div className="text-2xl font-bold text-gray-800">{stats.total}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">활성 스케줄</div>
-          <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-        </Card>
-        <Card className={cn("p-4", stats.pending > 0 && "bg-amber-50 border-amber-200")}>
-          <div className="text-sm text-gray-500">승인 대기</div>
-          <div className={cn("text-2xl font-bold", stats.pending > 0 ? "text-amber-600" : "text-gray-400")}>{stats.pending}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">반복 일정</div>
-          <div className="text-2xl font-bold text-primary">{stats.recurring}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">일회성 일정</div>
-          <div className="text-2xl font-bold text-amber-500">{stats.oneTime}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">등록 학생 수</div>
-          <div className="text-2xl font-bold text-gray-800">{stats.uniqueStudents}</div>
-        </Card>
-      </div>
-
-      {/* 승인 대기 섹션 */}
+      {/* 승인 대기 섹션 — 출석부와 유사한 컴팩트 테이블 */}
       {pendingList.length > 0 && (
-        <Card className="p-4 border-amber-200 bg-amber-50/50">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertCircle className="w-5 h-5 text-amber-500" />
-            <h2 className="font-semibold text-gray-800">승인 대기 중인 부재 일정</h2>
-            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-sm rounded-full">
+        <Card className="p-3 border-amber-200 bg-amber-50/50">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+            <h2 className="text-sm font-semibold text-gray-800">승인 대기</h2>
+            <span className="px-1.5 py-0 bg-amber-100 text-amber-700 text-[11px] rounded">
               {pendingList.length}건
             </span>
           </div>
-          <div className="space-y-3">
-            {pendingList.map(schedule => (
-              <div
-                key={schedule.id}
-                className="flex items-center justify-between p-3 bg-white rounded-xl border border-amber-100"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
-                  }`}>
-                    {schedule.is_recurring ? (
-                      <Repeat className="w-5 h-5 text-primary" />
-                    ) : (
-                      <CalendarDays className="w-5 h-5 text-amber-600" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-800">{schedule.title}</div>
-                    <div className="flex items-center gap-3 text-sm text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <User className="w-3.5 h-3.5" />
-                        {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}{schedule.student_name}
+          <div className="overflow-x-auto rounded-lg border border-amber-100 bg-white">
+            <table className="w-full text-xs">
+              <thead className="bg-amber-50/80 border-b border-amber-100">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 w-8"> </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">좌석·이름</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">사유</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">시간</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">반복/날짜</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">적용</th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 whitespace-nowrap w-[1%]">처리</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-50">
+                {pendingList.map(schedule => (
+                  <tr key={schedule.id} className="hover:bg-amber-50/40">
+                    <td className="px-2 py-1 align-middle">
+                      <div
+                        className={cn(
+                          'w-7 h-7 rounded flex items-center justify-center shrink-0',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
+                        )}
+                      >
+                        {schedule.is_recurring ? (
+                          <Repeat className="w-3.5 h-3.5 text-primary" />
+                        ) : (
+                          <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1 align-middle whitespace-nowrap">
+                      <span className="font-medium text-gray-800">
+                        {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
+                        {schedule.student_name}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        {formatTimeRange(schedule.start_time, schedule.end_time)}
+                    </td>
+                    <td className="px-2 py-1 align-middle text-gray-800 max-w-[140px] sm:max-w-[200px]">
+                      <span className="truncate block" title={schedule.title}>
+                        {schedule.title}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {schedule.is_recurring 
-                          ? formatDaysOfWeek(schedule.day_of_week)
-                          : schedule.specific_date 
-                            ? format(new Date(schedule.specific_date), 'M/d', { locale: ko })
-                            : '-'
-                        }
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleReject(schedule.id)}
-                    disabled={isPending}
-                    className="text-red-600 border-red-200 hover:bg-red-50"
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    거부
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleApprove(schedule.id)}
-                    disabled={isPending}
-                    className="bg-primary hover:bg-primary/90"
-                  >
-                    <Check className="w-4 h-4 mr-1" />
-                    승인
-                  </Button>
-                </div>
-              </div>
-            ))}
+                    </td>
+                    <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-600 tabular-nums">
+                      {formatTimeRange(schedule.start_time, schedule.end_time)}
+                    </td>
+                    <td className="px-2 py-1 align-middle text-gray-600">
+                      {schedule.is_recurring
+                        ? formatDaysOfWeek(schedule.day_of_week)
+                        : schedule.specific_date
+                          ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', { locale: ko })
+                          : '—'}
+                    </td>
+                    <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-500">
+                      {formatDateType(schedule.date_type)}
+                    </td>
+                    <td className="px-2 py-1 align-middle text-right whitespace-nowrap">
+                      <div className="inline-flex gap-1 justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleReject(schedule.id)}
+                          disabled={isPending}
+                          className="h-7 px-2 text-[11px] text-red-600 border-red-200 hover:bg-red-50"
+                        >
+                          거부
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleApprove(schedule.id)}
+                          disabled={isPending}
+                          className="h-7 px-2 text-[11px] bg-primary hover:bg-primary/90"
+                        >
+                          승인
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
@@ -568,127 +550,167 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         </div>
       </Card>
 
-      {/* 스케줄 목록 */}
-      <div className="space-y-3">
-        {filteredSchedules.length === 0 ? (
-          <Card className="p-8 text-center text-gray-500">
-            {searchTerm || filterType !== 'all' || filterActive !== 'all'
-              ? '검색 결과가 없습니다.'
-              : '등록된 부재 스케줄이 없습니다.'
-            }
-          </Card>
-        ) : (
-          filteredSchedules.map(schedule => (
-            <Card 
-              key={schedule.id} 
-              className={`p-4 ${!schedule.is_active ? 'opacity-50 bg-gray-50' : ''}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                    schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
-                  }`}>
-                    {schedule.is_recurring ? (
-                      <Repeat className="w-6 h-6 text-primary" />
-                    ) : (
-                      <CalendarDays className="w-6 h-6 text-amber-600" />
+      {/* 스케줄 목록 — 출석부와 유사한 컴팩트 테이블 */}
+      {filteredSchedules.length === 0 ? (
+        <Card className="p-6 text-center text-gray-500 text-sm">
+          {noSchedulesMatchNarrowFilters
+            ? '검색 결과가 없습니다.'
+            : '등록된 부재 스케줄이 없습니다.'}
+        </Card>
+      ) : (
+        <Card className="relative overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600 w-8"> </th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">좌석·이름</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600">사유·상태</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">시간</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">면제(버퍼)</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600">반복/날짜</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">구분·기간</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600">비고</th>
+                  <th className="px-2 py-2 text-right font-medium text-gray-600 w-[1%] whitespace-nowrap"> </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredSchedules.map(schedule => (
+                  <tr
+                    key={schedule.id}
+                    className={cn(
+                      'hover:bg-gray-50',
+                      !schedule.is_active && 'opacity-60 bg-gray-50/80'
                     )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-800">{schedule.title}</h3>
-                      {!schedule.is_active && (
-                        <span className="px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded-full">
-                          비활성
+                  >
+                    <td className="px-2 py-1.5 align-middle">
+                      <div
+                        className={cn(
+                          'w-7 h-7 rounded flex items-center justify-center shrink-0',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
+                        )}
+                      >
+                        {schedule.is_recurring ? (
+                          <Repeat className="w-3.5 h-3.5 text-primary" />
+                        ) : (
+                          <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-middle whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <User className="w-3 h-3 text-gray-400 shrink-0" />
+                        <span className="font-medium text-gray-800">
+                          {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
+                          {schedule.student_name}
                         </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                      <User className="w-4 h-4" />
-                      <span>{schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}{schedule.student_name}</span>
-                    </div>
-                    {schedule.description && (
-                      <p className="text-sm text-gray-500 mt-1">{schedule.description}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEditModal(schedule)}
-                      className="h-8 w-8 p-0 text-gray-400 hover:text-primary"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(schedule)}
-                      disabled={isPending}
-                      className="h-8 w-8 p-0 text-gray-400 hover:text-red-500"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <div className="text-right text-sm">
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Clock className="w-4 h-4" />
-                      <span className="font-medium">
-                        {formatTimeRange(schedule.start_time, schedule.end_time)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      면제: {formatExemptionRange(
-                        schedule.start_time, 
-                        schedule.end_time, 
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-middle">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="font-medium text-gray-800 truncate max-w-[120px] sm:max-w-[200px]" title={schedule.title}>
+                          {schedule.title}
+                        </span>
+                        {!schedule.is_active && (
+                          <span className="px-1 py-0 text-[10px] bg-gray-200 text-gray-600 rounded shrink-0">
+                            비활성
+                          </span>
+                        )}
+                        {schedule.status === 'approved' && (
+                          <span
+                            className="text-[10px] text-gray-500 truncate max-w-[160px]"
+                            title={approvedByCaption(schedule.status, schedule.approver_display) ?? undefined}
+                          >
+                            {approvedByCaption(schedule.status, schedule.approver_display)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-middle whitespace-nowrap text-gray-700 tabular-nums">
+                      {formatTimeRange(schedule.start_time, schedule.end_time)}
+                    </td>
+                    <td className="px-2 py-1.5 align-middle whitespace-nowrap text-[11px] text-gray-500 tabular-nums">
+                      {formatExemptionRange(
+                        schedule.start_time,
+                        schedule.end_time,
                         schedule.buffer_minutes
                       )}
-                    </div>
-                    {schedule.is_recurring ? (
-                      <div className="flex items-center gap-2 text-gray-500 mt-2">
-                        <Calendar className="w-4 h-4" />
+                    </td>
+                    <td className="px-2 py-1.5 align-middle text-gray-600">
+                      {schedule.is_recurring ? (
                         <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-gray-500 mt-2">
-                        <Calendar className="w-4 h-4" />
+                      ) : (
                         <span>
-                          {schedule.specific_date 
-                            ? format(new Date(schedule.specific_date), 'yyyy년 M월 d일 (eee)', { locale: ko })
-                            : '-'
-                          }
-                        </span>
-                      </div>
-                    )}
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
-                        !schedule.is_recurring
-                          ? 'bg-amber-100 text-amber-700'
-                          : schedule.date_type === 'semester' 
-                          ? 'bg-blue-100 text-blue-700'
-                          : schedule.date_type === 'vacation'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
-                      </span>
-                      {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
-                        <span className="text-xs text-gray-400">
-                          {schedule.valid_from ? format(new Date(schedule.valid_from), 'M/d', { locale: ko }) : ''}
-                          {' ~ '}
-                          {schedule.valid_until ? format(new Date(schedule.valid_until), 'M/d', { locale: ko }) : '무기한'}
+                          {schedule.specific_date
+                            ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', { locale: ko })
+                            : '—'}
                         </span>
                       )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-middle whitespace-nowrap">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span
+                          className={cn(
+                            'inline-block px-1.5 py-0 text-[10px] rounded',
+                            !schedule.is_recurring
+                              ? 'bg-amber-100 text-amber-700'
+                              : schedule.date_type === 'semester'
+                                ? 'bg-blue-100 text-blue-700'
+                                : schedule.date_type === 'vacation'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-gray-100 text-gray-600'
+                          )}
+                        >
+                          {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
+                        </span>
+                        {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
+                          <span className="text-[10px] text-gray-500 tabular-nums">
+                            {schedule.valid_from
+                              ? format(new Date(schedule.valid_from + 'T12:00:00+09:00'), 'M/d', { locale: ko })
+                              : ''}
+                            ~
+                            {schedule.valid_until
+                              ? format(new Date(schedule.valid_until + 'T12:00:00+09:00'), 'M/d', { locale: ko })
+                              : '∞'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-middle text-gray-500 max-w-[100px] sm:max-w-[180px]">
+                      {schedule.description ? (
+                        <span className="truncate block" title={schedule.description}>
+                          {schedule.description}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 align-middle text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditModal(schedule)}
+                        className="h-7 w-7 p-0 text-gray-400 hover:text-primary"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(schedule)}
+                        disabled={isPending}
+                        className="h-7 w-7 p-0 text-gray-400 hover:text-red-500"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* 추가 모달 */}
       {showAddModal && (
