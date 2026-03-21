@@ -20,7 +20,7 @@ export default async function StudentTypesPage() {
 
   const [studentTypes, studentCounts] = await Promise.all([
     getStudentTypes(),
-    getStudentTypeStudentCounts(),
+    getStudentTypeStudentCounts(adminBranchId),
   ]);
 
   // 학생 수 매핑

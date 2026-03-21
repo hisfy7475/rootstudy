@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -348,10 +349,16 @@ export default function StudentTypesClient({
           <div className="text-sm text-gray-500">배정된 학생</div>
           <div className="text-2xl font-bold text-green-600">{totalStudents - unassignedCount}</div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">미배정 학생</div>
-          <div className="text-2xl font-bold text-amber-500">{unassignedCount}</div>
-        </Card>
+        <Link
+          href="/admin/members?studentType=unassigned"
+          className="block rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          aria-label={`미배정 학생 ${unassignedCount}명, 회원 관리로 이동`}
+        >
+          <Card className="p-4 cursor-pointer hover:bg-amber-50/60 transition-colors h-full">
+            <div className="text-sm text-gray-500">미배정 학생</div>
+            <div className="text-2xl font-bold text-amber-500">{unassignedCount}</div>
+          </Card>
+        </Link>
       </div>
 
       {/* 과목 설정 모달 */}

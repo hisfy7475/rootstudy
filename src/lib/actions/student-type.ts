@@ -221,14 +221,32 @@ export async function assignStudentType(
   return { success: true };
 }
 
-// 타입별 학생 수 조회
-export async function getStudentTypeStudentCounts(): Promise<Record<string, number>> {
+// 타입별 학생 수 조회 (branchId 지정 시 해당 지점만)
+export async function getStudentTypeStudentCounts(branchId?: string | null): Promise<Record<string, number>> {
   const supabase = await createClient();
-  
-  const { data, error } = await supabase
-    .from('student_profiles')
-    .select('student_type_id');
-  
+
+  let studentIds: string[] | null = null;
+  if (branchId) {
+    const { data: profileRows, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('branch_id', branchId)
+      .eq('user_type', 'student');
+    if (profileError) {
+      console.error('Error fetching branch profiles:', profileError);
+      return {};
+    }
+    studentIds = (profileRows || []).map((r) => r.id);
+    if (studentIds.length === 0) return {};
+  }
+
+  let query = supabase.from('student_profiles').select('student_type_id');
+  if (studentIds) {
+    query = query.in('id', studentIds);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
     console.error('Error fetching student counts:', error);
     return {};

@@ -1181,6 +1181,7 @@ export async function updateStudentType(studentId: string, studentTypeId: string
 
   revalidatePath('/admin');
   revalidatePath('/admin/members');
+  revalidatePath('/admin/student-types');
   return { success: true };
 }
 

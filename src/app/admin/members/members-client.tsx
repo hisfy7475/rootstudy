@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,6 +123,8 @@ interface StudentDetail {
   };
 }
 
+export type StudentTypeFilterValue = 'all' | 'unassigned' | string;
+
 interface MembersClientProps {
   initialStudents: Member[];
   initialParents: ParentMember[];
@@ -129,6 +132,7 @@ interface MembersClientProps {
   branches: Branch[];
   initialStudentTypes?: StudentTypeOption[];
   branchId?: string | null;
+  initialStudentTypeFilter?: StudentTypeFilterValue;
 }
 
 type Tab = 'students' | 'parents' | 'admins';
@@ -138,7 +142,9 @@ interface StudentTypeOption {
   name: string;
 }
 
-export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [], branchId }: MembersClientProps) {
+export function MembersClient({ initialStudents, initialParents, initialAdmins, branches, initialStudentTypes = [], branchId, initialStudentTypeFilter = 'all' }: MembersClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [students, setStudents] = useState<Member[]>(initialStudents);
   const [parents, setParents] = useState<ParentMember[]>(initialParents);
 
@@ -163,6 +169,7 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const [editMode, setEditMode] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [studentFilter, setStudentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [studentTypeFilter, setStudentTypeFilter] = useState<StudentTypeFilterValue>(initialStudentTypeFilter);
   // 정렬 상태
   const [sortField, setSortField] = useState<'seat_number' | 'name' | 'branch_name' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -193,6 +200,32 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
   const pendingCount = students.filter(s => !s.is_approved && !s.is_rejected).length;
   const approvedCount = students.filter(s => s.is_approved).length;
   const rejectedCount = students.filter(s => s.is_rejected).length;
+  const unassignedStudentCount = useMemo(
+    () => students.filter((s) => !s.student_type_id).length,
+    [students]
+  );
+
+  const syncStudentTypeToUrl = useCallback(
+    (value: StudentTypeFilterValue) => {
+      const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+      if (value === 'all') {
+        params.delete('studentType');
+      } else {
+        params.set('studentType', value === 'unassigned' ? 'unassigned' : value);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router]
+  );
+
+  const handleStudentTypeFilterChange = useCallback(
+    (value: StudentTypeFilterValue) => {
+      setStudentTypeFilter(value);
+      syncStudentTypeToUrl(value);
+    },
+    [syncStudentTypeToUrl]
+  );
 
   // 정렬 토글 핸들러
   const handleSort = (field: 'seat_number' | 'name' | 'branch_name') => {
@@ -222,7 +255,13 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
         (studentFilter === 'pending' && !m.is_approved && !m.is_rejected) ||
         (studentFilter === 'approved' && m.is_approved) ||
         (studentFilter === 'rejected' && m.is_rejected);
-      return matchesSearch && matchesFilter;
+      const matchesStudentType =
+        studentTypeFilter === 'all' ||
+        (studentTypeFilter === 'unassigned' && !m.student_type_id) ||
+        (studentTypeFilter !== 'all' &&
+          studentTypeFilter !== 'unassigned' &&
+          m.student_type_id === studentTypeFilter);
+      return matchesSearch && matchesFilter && matchesStudentType;
     })
     .sort((a, b) => {
       if (!sortField) return 0;
@@ -703,9 +742,10 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
             </div>
           </div>
 
-          {/* 학생 탭: 승인 상태 필터 */}
+          {/* 학생 탭: 승인 상태 · 학생 타입 필터 */}
           {activeTab === 'students' && (
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-3">
+            <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => setStudentFilter('all')}
                 className={cn(
@@ -755,6 +795,37 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                   비승인 ({rejectedCount})
                 </button>
               )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-text-muted whitespace-nowrap">학생 타입</span>
+              <select
+                value={
+                  studentTypeFilter === 'all'
+                    ? 'all'
+                    : studentTypeFilter === 'unassigned'
+                      ? 'unassigned'
+                      : studentTypeFilter
+                }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const next: StudentTypeFilterValue =
+                    v === 'all' ? 'all' : v === 'unassigned' ? 'unassigned' : v;
+                  handleStudentTypeFilterChange(next);
+                }}
+                disabled={loading}
+                className="h-8 min-w-[10rem] px-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                aria-label="학생 타입 필터"
+              >
+                <option value="all">전체 ({students.length})</option>
+                <option value="unassigned">미배정 ({unassignedStudentCount})</option>
+                {allStudentTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} (
+                    {students.filter((s) => s.student_type_id === t.id).length})
+                  </option>
+                ))}
+              </select>
+            </div>
             </div>
           )}
 
@@ -902,8 +973,15 @@ export function MembersClient({ initialStudents, initialParents, initialAdmins, 
                     {filteredStudents.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="px-2 py-6 text-center text-xs text-gray-500">
-                          {studentFilter === 'pending' ? '승인 대기중인 학생이 없습니다.' : 
-                           studentFilter === 'rejected' ? '비승인된 학생이 없습니다.' : '학생이 없습니다.'}
+                          {studentFilter === 'pending'
+                            ? '승인 대기중인 학생이 없습니다.'
+                            : studentFilter === 'rejected'
+                              ? '비승인된 학생이 없습니다.'
+                              : studentTypeFilter === 'unassigned'
+                                ? '미배정 학생이 없습니다.'
+                                : studentTypeFilter !== 'all'
+                                  ? '해당 타입의 학생이 없습니다.'
+                                  : '학생이 없습니다.'}
                         </td>
                       </tr>
                     ) : (

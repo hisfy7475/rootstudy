@@ -2,9 +2,15 @@ import { getAllMembers, getAllAdmins, getAllParentsWithStudents } from '@/lib/ac
 import { getAllBranches } from '@/lib/actions/branch';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import { createClient } from '@/lib/supabase/server';
+import type { StudentTypeFilterValue } from './members-client';
 import { MembersClient } from './members-client';
 
-export default async function MembersManagementPage() {
+interface PageProps {
+  searchParams: Promise<{ studentType?: string }>;
+}
+
+export default async function MembersManagementPage({ searchParams }: PageProps) {
+  const { studentType: studentTypeParam } = await searchParams;
   const supabase = await createClient();
   
   // 현재 로그인한 관리자의 branch_id 조회
@@ -31,6 +37,16 @@ export default async function MembersManagementPage() {
   // 학생 분리
   const students = members.filter(m => m.user_type === 'student');
 
+  let initialStudentTypeFilter: StudentTypeFilterValue = 'all';
+  if (studentTypeParam === 'unassigned') {
+    initialStudentTypeFilter = 'unassigned';
+  } else if (
+    studentTypeParam &&
+    studentTypes.some((t) => t.id === studentTypeParam)
+  ) {
+    initialStudentTypeFilter = studentTypeParam;
+  }
+
   return (
     <MembersClient 
       initialStudents={students} 
@@ -39,6 +55,7 @@ export default async function MembersManagementPage() {
       branches={branches}
       initialStudentTypes={studentTypes.map(t => ({ id: t.id, name: t.name }))}
       branchId={branchId}
+      initialStudentTypeFilter={initialStudentTypeFilter}
     />
   );
 }
