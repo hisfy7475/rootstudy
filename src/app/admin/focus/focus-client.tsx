@@ -774,24 +774,39 @@ export function FocusClient({
           <h1 className="text-lg md:text-xl font-bold">몰입도 관리</h1>
           <p className="text-text-muted text-xs mt-0.5">학생들의 학습 몰입도를 기록하세요</p>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0">
-          <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={() => setShowPresetManager(!showPresetManager)}>
-            <Settings className="w-3.5 h-3.5 mr-1" />
-            <span className="hidden sm:inline">프리셋</span>
+        <div className="flex flex-wrap gap-1.5 flex-shrink-0 items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-auto min-h-7 text-xs px-2 py-1 gap-1"
+            onClick={() => setShowPresetManager(!showPresetManager)}
+          >
+            <Settings className="w-3.5 h-3.5 shrink-0" />
+            <span className="whitespace-nowrap">프리셋</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs px-2"
+            className="h-auto min-h-7 text-xs px-2 py-1 gap-1"
             onClick={handleClearPhoneSubmissions}
             disabled={loading || resettingPhoneSubmissions}
             title="선택한 학습일의 휴대폰 제출 기록 전체 삭제"
           >
-            <Smartphone className="w-3.5 h-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">휴대폰 제출 초기화</span>
+            <Smartphone className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-left leading-tight max-[380px]:max-w-[7.5rem] sm:whitespace-nowrap">
+              휴대폰 제출 초기화
+            </span>
           </Button>
-          <Button variant="outline" size="sm" className="h-7 px-2" onClick={refreshData} disabled={loading}>
-            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-auto min-h-7 text-xs px-2 py-1 gap-1"
+            onClick={refreshData}
+            disabled={loading}
+            title="학생·몰입도·휴대폰 데이터 새로고침"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5 shrink-0', loading && 'animate-spin')} />
+            <span className="whitespace-nowrap">새로고침</span>
           </Button>
         </div>
       </div>
