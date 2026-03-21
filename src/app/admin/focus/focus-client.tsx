@@ -1207,13 +1207,13 @@ function QuickInputView({
                     {isCheckedOut ? (
                       <span className="text-[9px] text-gray-300">-</span>
                     ) : (
-                      <div className="flex flex-row flex-nowrap gap-0.5 justify-center items-center">
+                      <div className="flex flex-col gap-0.5 justify-center items-center">
                         {PHONE_STATUS_OPTIONS.map(opt => (
                           <button
                             key={opt.value}
                             onClick={() => onPhoneSubmission(student.id, opt.value)}
                             className={cn(
-                              'px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight shrink-0',
+                              'w-full min-w-[2.25rem] px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight',
                               phoneStatus === opt.value ? opt.activeColor : opt.color
                             )}
                           >
@@ -1422,13 +1422,13 @@ function PeriodTableView({
                     {isCheckedOut ? (
                       <span className="text-[9px] text-gray-300">-</span>
                     ) : (
-                      <div className="flex flex-row flex-nowrap gap-0.5 justify-center items-center">
+                      <div className="flex flex-col gap-0.5 justify-center items-center">
                         {PHONE_STATUS_OPTIONS.map(opt => (
                           <button
                             key={opt.value}
                             onClick={() => onPhoneSubmission(student.id, opt.value)}
                             className={cn(
-                              'px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight shrink-0',
+                              'w-full min-w-[2.25rem] px-1 py-0.5 rounded text-[8px] font-semibold transition-all leading-tight',
                               (phoneSubmissions[student.id] || 'submitted') === opt.value ? opt.activeColor : opt.color
                             )}
                           >
