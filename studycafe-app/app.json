@@ -12,11 +12,18 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "plugins": ["expo-splash-screen"],
+    "plugins": [
+      "expo-splash-screen"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.weberstudy.app",
-      "associatedDomains": ["applinks:studycafe.weberstudy.com"]
+      "associatedDomains": [
+        "applinks:studycafe.weberstudy.com"
+      ],
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.weberstudy.app",
@@ -37,12 +44,19 @@
               "pathPrefix": "/"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
     "extra": {
-      "webBaseUrl": "https://studycafe.weberstudy.com"
-    }
+      "webBaseUrl": "https://studycafe.weberstudy.com",
+      "eas": {
+        "projectId": "79646cec-375a-4399-a6ba-6c9ed0583533"
+      }
+    },
+    "owner": "mt.bluupill"
   }
 }

@@ -9,7 +9,10 @@
     "lint": "eslint",
     "app": "npm run --prefix studycafe-app start",
     "app:ios": "npm run --prefix studycafe-app ios",
-    "app:android": "npm run --prefix studycafe-app android"
+    "app:android": "npm run --prefix studycafe-app android",
+    "app:typecheck": "npm run typecheck --prefix studycafe-app",
+    "app:verify:ios-sim": "npm run verify:ios-simulator --prefix studycafe-app",
+    "app:verify:android": "npm run verify:android-debug --prefix studycafe-app"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
