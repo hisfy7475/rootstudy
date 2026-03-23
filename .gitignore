@@ -42,3 +42,12 @@ next-env.d.ts
 
 /.manager
 /.cursor
+
+# Expo native app (studycafe-app/)
+studycafe-app/node_modules/
+studycafe-app/.expo/
+studycafe-app/dist/
+studycafe-app/ios/
+studycafe-app/android/
+studycafe-app/*.jks
+studycafe-app/.env*.local

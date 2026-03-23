@@ -85,7 +85,7 @@ export default function ScheduleTimeline({
   const [isDragging, setIsDragging] = useState(false);
   const [dragSelection, setDragSelection] = useState<DragSelection | null>(null);
   const [startSlot, setStartSlot] = useState<{ day: number; slot: number } | null>(null);
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const [isLongPressing, setIsLongPressing] = useState(false);
 

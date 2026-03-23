@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "웨버스터디",
+    "slug": "studycafe-app",
+    "version": "1.0.0",
+    "scheme": "weberstudy",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "plugins": ["expo-splash-screen"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.weberstudy.app",
+      "associatedDomains": ["applinks:studycafe.weberstudy.com"]
+    },
+    "android": {
+      "package": "com.weberstudy.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "studycafe.weberstudy.com",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "extra": {
+      "webBaseUrl": "https://studycafe.weberstudy.com"
+    }
+  }
+}

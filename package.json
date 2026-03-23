@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "app": "npm run --prefix studycafe-app start",
+    "app:ios": "npm run --prefix studycafe-app ios",
+    "app:android": "npm run --prefix studycafe-app android"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
