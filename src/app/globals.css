@@ -108,3 +108,30 @@ html {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* 인쇄 (관리자 몰입도 리포트 등) */
+@media print {
+  body {
+    background: white !important;
+  }
+  nav,
+  .no-print {
+    display: none !important;
+  }
+  .admin-bulk-print-suppress {
+    display: none !important;
+  }
+  .print-report {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px;
+  }
+  .print-report > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-page-break {
+    page-break-after: always;
+  }
+}

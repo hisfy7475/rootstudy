@@ -1,7 +1,7 @@
 import { getLinkedStudents } from '@/lib/actions/parent';
-import { getWeeklyReportData } from '@/lib/actions/parent';
-import { getWeekStart } from '@/lib/utils';
-import { ReportClient } from './report-client';
+import { getImmersionReportData, getWeeklyStudyTrend } from '@/lib/actions/report';
+import { getWeekStart, formatDateKST } from '@/lib/utils';
+import { ParentReportClient } from './report-client';
 
 export default async function ParentReportPage() {
   const students = await getLinkedStudents();
@@ -18,16 +18,22 @@ export default async function ParentReportPage() {
     );
   }
 
-  // 첫 번째 자녀의 이번 주 리포트를 기본으로 로드
-  const weekStart = getWeekStart();
-  const initialReport = await getWeeklyReportData(students[0].id, weekStart);
+  const firstStudent = students[0]!;
+  const weekStartStr = formatDateKST(getWeekStart());
+
+  const [report, trend] = await Promise.all([
+    getImmersionReportData(firstStudent.id, weekStartStr),
+    getWeeklyStudyTrend(firstStudent.id, 8),
+  ]);
 
   return (
-    <ReportClient
+    <ParentReportClient
       students={students}
-      initialStudentId={students[0].id}
-      initialWeekStart={weekStart.toISOString()}
-      initialReport={initialReport}
+      initialStudentId={firstStudent.id}
+      initialWeekStart={weekStartStr}
+      currentWeekStartMonday={weekStartStr}
+      initialReport={report}
+      initialTrend={trend}
     />
   );
 }

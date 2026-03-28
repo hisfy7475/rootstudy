@@ -24,6 +24,7 @@ import {
   Clock,
   ClipboardList,
   Megaphone,
+  FileBarChart2,
   Menu,
   X,
   ChevronsLeft,
@@ -41,6 +42,7 @@ const adminNavItems: NavItem[] = [
   { href: '', label: '대시보드', icon: LayoutDashboard },
   { href: '/attendance', label: '출석부', icon: ClipboardList },
   { href: '/focus', label: '몰입도 관리', icon: Brain },
+  { href: '/report', label: '몰입도 리포트', icon: FileBarChart2 },
   { href: '/points', label: '상벌점 관리', icon: Award },
   { href: '/members', label: '회원 관리', icon: Users },
   { href: '/student-types', label: '학생 타입', icon: GraduationCap },
@@ -200,7 +202,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       <button
         type="button"
         onClick={toggleMobile}
-        className="fixed top-4 left-4 z-50 md:hidden flex items-center justify-center w-10 h-10 rounded-xl bg-card border border-gray-200 shadow-sm text-text hover:bg-gray-50 transition-colors"
+        className="no-print fixed top-4 left-4 z-50 md:hidden flex items-center justify-center w-10 h-10 rounded-xl bg-card border border-gray-200 shadow-sm text-text hover:bg-gray-50 transition-colors"
         aria-label={mobileOpen ? '메뉴 닫기' : '메뉴 열기'}
       >
         {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -209,7 +211,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       {/* 모바일 오버레이 배경 */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+          className="no-print fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
@@ -218,7 +220,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       {/* ========== 데스크톱 사이드바 ========== */}
       <aside
         className={cn(
-          'hidden md:flex fixed left-0 top-0 h-screen bg-card border-r border-gray-100 shadow-sm flex-col z-30',
+          'no-print hidden md:flex fixed left-0 top-0 h-screen bg-card border-r border-gray-100 shadow-sm flex-col z-30',
           'transition-[width] duration-300 ease-in-out overflow-hidden',
           collapsed ? 'w-[68px]' : 'w-64'
         )}
@@ -357,7 +359,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       {/* ========== 모바일 사이드바 드로어 ========== */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen w-64 bg-card border-r border-gray-100 shadow-lg flex flex-col z-50 md:hidden',
+          'no-print fixed left-0 top-0 h-screen w-64 bg-card border-r border-gray-100 shadow-lg flex flex-col z-50 md:hidden',
           'transition-transform duration-300 ease-in-out',
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}

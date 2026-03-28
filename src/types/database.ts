@@ -915,6 +915,50 @@ export interface Database {
           created_at?: string;
         };
       };
+      counseling_reports: {
+        Row: {
+          id: string;
+          student_id: string;
+          admin_id: string;
+          week_start: string;
+          focus_avg: number | null;
+          study_feedback: string | null;
+          guidance_notes: string | null;
+          admin_notes: string | null;
+          parent_summary: string | null;
+          branch_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          admin_id: string;
+          week_start: string;
+          focus_avg?: number | null;
+          study_feedback?: string | null;
+          guidance_notes?: string | null;
+          admin_notes?: string | null;
+          parent_summary?: string | null;
+          branch_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          admin_id?: string;
+          week_start?: string;
+          focus_avg?: number | null;
+          study_feedback?: string | null;
+          guidance_notes?: string | null;
+          admin_notes?: string | null;
+          parent_summary?: string | null;
+          branch_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -950,3 +994,4 @@ export type Announcement = Database['public']['Tables']['announcements']['Row'];
 export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];
 export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
 export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];
+export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];

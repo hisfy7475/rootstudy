@@ -141,3 +141,67 @@ export const ABSENCE_REASONS = [
 ] as const;
 
 export type AbsenceReasonValue = typeof ABSENCE_REASONS[number]['value'];
+
+// 리포트 과목 대분류 매핑
+// key = 대분류명, value = 해당 대분류에 속하는 과목명 배열 (소문자 비교)
+export const SUBJECT_CATEGORIES: Record<string, string[]> = {
+  '국어': ['국어', '국문학', '문학', '독서', '화법과작문', '언어와매체'],
+  '수학': ['수학', '수학1', '수학2', '미적분', '확률과통계', '기하', '수학(상)', '수학(하)'],
+  '영어': ['영어', '영어1', '영어2', '영문학'],
+  '탐구': ['과학', '사회', '물리', '물리학', '화학', '생물', '생명과학', '지구과학',
+           '한국사', '세계사', '동아시아사', '지리', '한국지리', '세계지리',
+           '윤리', '생활과윤리', '윤리와사상', '경제', '정치와법', '사회문화'],
+  '기타': ['기타'],
+} as const;
+
+// 대분류 표시 순서
+export const SUBJECT_CATEGORY_ORDER = ['국어', '수학', '영어', '탐구', '기타', '미분류'] as const;
+export type SubjectCategory = typeof SUBJECT_CATEGORY_ORDER[number];
+
+// 리포트 과목 대분류별 색상 (이미지 참조: 파랑/주황/녹색/노랑/회색/연회색)
+export const REPORT_SUBJECT_COLORS: Record<string, string> = {
+  '국어': '#5B8DEF',
+  '수학': '#F5A623',
+  '영어': '#7ED321',
+  '탐구': '#F8D44D',
+  '기타': '#9CA3AF',
+  '미분류': '#D1D5DB',
+};
+
+// 과목명 → 대분류 변환 함수
+export function getSubjectCategory(subjectName: string): SubjectCategory {
+  const normalized = subjectName.trim();
+  for (const [category, subjects] of Object.entries(SUBJECT_CATEGORIES)) {
+    if (subjects.some(s => s === normalized || normalized.includes(s))) {
+      return category as SubjectCategory;
+    }
+  }
+  return '기타';
+}
+
+// 상담 리포트 자동 생성 템플릿 (몰입도 평균 구간별)
+export const COUNSELING_TEMPLATES = {
+  getStudyFeedback(focusAvg: number | null): string {
+    if (focusAvg === null) return '해당 주간 몰입도 측정 기록이 없습니다.';
+    if (focusAvg >= 90) return '매우 높은 집중력으로 성실하게 학습에 임하고 있습니다.';
+    if (focusAvg >= 80) return '전반적으로 성실하게 학습에 임하고 있으며, 안정적인 학습 태도를 보이고 있습니다.';
+    if (focusAvg >= 70) return '학습 태도가 양호하나, 간헐적으로 집중력이 흐트러지는 모습이 관찰됩니다.';
+    if (focusAvg >= 60) return '집중력 유지에 어려움이 있으며, 학습 환경 개선이 필요합니다.';
+    return '학습 집중도가 낮아 개선이 시급합니다. 면담을 통한 학습 동기 부여가 필요합니다.';
+  },
+  getGuidanceNotes(focusAvg: number | null): string {
+    if (focusAvg === null) return '';
+    if (focusAvg >= 80) return '현재 학습 패턴을 유지하면서 심화 학습에 도전해보세요.';
+    if (focusAvg >= 60) return '집중이 흐트러질 때 짧은 휴식 후 다시 집중하는 연습이 도움이 됩니다.';
+    return '학습 계획을 재정비하고, 단계적으로 집중 시간을 늘려가는 것을 권장합니다.';
+  },
+  getParentSummary(studentName: string, focusAvg: number | null, studyHoursWeekly: number): string {
+    const focusText = focusAvg !== null ? `평균 ${focusAvg}점` : '미측정';
+    const hoursText = `주간 ${Math.floor(studyHoursWeekly)}시간 ${Math.round((studyHoursWeekly % 1) * 60)}분`;
+    return `${studentName} 학생은 몰입도 ${focusText}, 순공시간 ${hoursText}의 학습량을 보이고 있습니다.\n${
+      focusAvg !== null && focusAvg >= 70
+        ? '어머님의 관심에 감사드리며, 지속적으로 지도하겠습니다.'
+        : '학생의 학습 태도 개선을 위해 지속적으로 지도하겠습니다.'
+    }`;
+  },
+};
