@@ -24,6 +24,8 @@ export interface ImmersionReportViewProps {
     adminNotes: string;
     parentSummary: string;
   }) => void;
+  /** 관리자: 템플릿 재적용 (인자: 입력 중 관리자 메모) */
+  onReapplyCounseling?: (currentAdminNotes: string) => void | Promise<void>;
   printRef?: RefObject<HTMLDivElement | null>;
 }
 
@@ -32,6 +34,7 @@ export function ImmersionReportView({
   weeklyTrend,
   editable = false,
   onSaveCounseling,
+  onReapplyCounseling,
   printRef,
 }: ImmersionReportViewProps) {
   const printDateStr = new Date().toLocaleString('ko-KR', {
@@ -86,6 +89,7 @@ export function ImmersionReportView({
             studentTypeName={report.studentTypeName}
             editable={editable}
             onSave={onSaveCounseling}
+            onReapplyTemplate={onReapplyCounseling}
           />
         </div>
 

@@ -29,6 +29,7 @@ export default async function AdminReportPage() {
     <AdminReportClient
       students={students}
       initialWeekStart={weekStartStr}
+      branchId={profile?.branch_id ?? null}
     />
   );
 }

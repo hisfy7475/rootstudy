@@ -14,7 +14,9 @@ import {
   SUBJECT_CATEGORY_ORDER,
   getSubjectCategory,
   COUNSELING_TEMPLATES,
+  FOCUS_SCORE_TEMPLATES,
 } from '@/lib/constants';
+import type { CounselingTemplate } from '@/types/database';
 import type { SubjectCategory } from '@/lib/constants';
 
 // === 반환 타입 정의 ===
@@ -56,9 +58,13 @@ export interface CounselingReportData {
   id: string | null;
   focusAvg: number | null;
   studyFeedback: string;
+  /** 인쇄용 전체 문단(DB/기본 템플릿 기준). 미지정 시 클라이언트에서 focusAvg로 보완 */
+  studyFeedbackFull: string;
   guidanceNotes: string;
   adminNotes: string | null;
   parentSummary: string;
+  /** 몰입도 단계 라벨(표시용) */
+  scoreLabel?: string;
 }
 
 export interface ImmersionReportData {
@@ -292,6 +298,72 @@ async function assertReportViewer(
   return false;
 }
 
+/** 지점·주간 평균에 맞춰 상담 문구 자동 생성 (counseling_templates 우선) */
+async function resolveCounselingAutoFill(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  branchId: string | null,
+  weeklyFocusAvg: number | null,
+  studentName: string,
+  studyHoursWeekly: number
+): Promise<{
+  studyFeedback: string;
+  studyFeedbackFull: string;
+  guidanceNotes: string;
+  parentSummary: string;
+  scoreLabel: string;
+}> {
+  if (weeklyFocusAvg === null) {
+    return {
+      studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
+      studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
+      guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
+      parentSummary: COUNSELING_TEMPLATES.getParentSummary(
+        studentName,
+        null,
+        studyHoursWeekly
+      ),
+      scoreLabel: '',
+    };
+  }
+
+  const score = Math.min(10, Math.max(6, Math.round(weeklyFocusAvg)));
+  let label = COUNSELING_TEMPLATES.getScoreLabel(weeklyFocusAvg);
+  let shortText = COUNSELING_TEMPLATES.getStudyFeedback(weeklyFocusAvg);
+  let fullText = COUNSELING_TEMPLATES.getStudyFeedbackFull(weeklyFocusAvg);
+
+  if (branchId) {
+    const { data: row } = await supabase
+      .from('counseling_templates')
+      .select('label, short_text, full_text')
+      .eq('branch_id', branchId)
+      .eq('score', score)
+      .maybeSingle();
+
+    if (row) {
+      label = row.label;
+      shortText = row.short_text;
+      fullText = row.full_text;
+    }
+  }
+
+  const guidanceNotes = COUNSELING_TEMPLATES.getGuidanceNotes(weeklyFocusAvg);
+  const parentSummary = COUNSELING_TEMPLATES.buildParentSummaryWithFeedback(
+    studentName,
+    weeklyFocusAvg,
+    studyHoursWeekly,
+    label,
+    shortText
+  );
+
+  return {
+    studyFeedback: shortText,
+    studyFeedbackFull: fullText,
+    guidanceNotes,
+    parentSummary,
+    scoreLabel: label,
+  };
+}
+
 export async function getImmersionReportData(
   studentId: string,
   weekStartMonday: string
@@ -336,6 +408,7 @@ export async function getImmersionReportData(
     branch_id: string | null;
   };
   const studentName = profile.name;
+  const branchId = profile.branch_id;
   const studentTypeId = studentRow.student_type_id as string | null;
 
   let studentTypeName: string | null = null;
@@ -536,29 +609,44 @@ export async function getImmersionReportData(
   let counseling: CounselingReportData;
 
   if (counselingRow) {
+    const fa =
+      counselingRow.focus_avg !== null
+        ? Number(counselingRow.focus_avg)
+        : weeklyFocusAvg;
+    const auto = await resolveCounselingAutoFill(
+      supabase,
+      branchId,
+      fa,
+      studentName,
+      studyHoursWeekly
+    );
     counseling = {
       id: counselingRow.id,
-      focusAvg:
-        counselingRow.focus_avg !== null
-          ? Number(counselingRow.focus_avg)
-          : weeklyFocusAvg,
+      focusAvg: fa,
       studyFeedback: counselingRow.study_feedback ?? '',
+      studyFeedbackFull: auto.studyFeedbackFull,
       guidanceNotes: counselingRow.guidance_notes ?? '',
       adminNotes: counselingRow.admin_notes,
       parentSummary: counselingRow.parent_summary ?? '',
+      scoreLabel: auto.scoreLabel,
     };
   } else {
+    const auto = await resolveCounselingAutoFill(
+      supabase,
+      branchId,
+      weeklyFocusAvg,
+      studentName,
+      studyHoursWeekly
+    );
     counseling = {
       id: null,
       focusAvg: weeklyFocusAvg,
-      studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(weeklyFocusAvg),
-      guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(weeklyFocusAvg),
+      studyFeedback: auto.studyFeedback,
+      studyFeedbackFull: auto.studyFeedbackFull,
+      guidanceNotes: auto.guidanceNotes,
       adminNotes: null,
-      parentSummary: COUNSELING_TEMPLATES.getParentSummary(
-        studentName,
-        weeklyFocusAvg,
-        studyHoursWeekly
-      ),
+      parentSummary: auto.parentSummary,
+      scoreLabel: auto.scoreLabel,
     };
   }
 
@@ -718,9 +806,11 @@ export async function getCounselingReport(
       id: null,
       focusAvg: null,
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
+      studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
       guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
       adminNotes: null,
       parentSummary: '',
+      scoreLabel: '',
     };
   }
 
@@ -739,9 +829,11 @@ export async function getCounselingReport(
       id: null,
       focusAvg: null,
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
+      studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
       guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
       adminNotes: null,
       parentSummary: '',
+      scoreLabel: '',
     };
   }
 
@@ -753,13 +845,61 @@ export async function getCounselingReport(
     .maybeSingle();
 
   if (row) {
+    const fa = row.focus_avg !== null ? Number(row.focus_avg) : null;
+    const { data: spBranch } = await supabase
+      .from('student_profiles')
+      .select(
+        `
+        profiles!inner (
+          name,
+          branch_id
+        )
+      `
+      )
+      .eq('id', studentId)
+      .single();
+    const prof = spBranch?.profiles as unknown as {
+      name: string;
+      branch_id: string | null;
+    } | undefined;
+    const nameForRow = prof?.name ?? '학생';
+    const bId = prof?.branch_id ?? null;
+
+    const weekDates2 = getWeekDateStringsFromMondayKST(weekStartMonday);
+    const { start: ps } = getStudyDayBounds(weekDates2[0]!);
+    const { end: pe } = getStudyDayBounds(weekDates2[6]!);
+    const { data: attRows2 } = await supabase
+      .from('attendance')
+      .select('type, timestamp')
+      .eq('student_id', studentId)
+      .gte('timestamp', ps.toISOString())
+      .lte('timestamp', pe.toISOString())
+      .order('timestamp', { ascending: true });
+    const att2 = (attRows2 ?? []) as AttendanceRecord[];
+    let studySecWeek2 = 0;
+    for (const dateStr of weekDates2) {
+      const { start, end } = getStudyDayBounds(dateStr);
+      studySecWeek2 += calculateStudySeconds(att2, start, end).studySeconds;
+    }
+    const studyHoursWeek2 = studySecWeek2 / 3600;
+
+    const auto = await resolveCounselingAutoFill(
+      supabase,
+      bId,
+      fa,
+      nameForRow,
+      studyHoursWeek2
+    );
+
     return {
       id: row.id,
-      focusAvg: row.focus_avg !== null ? Number(row.focus_avg) : null,
+      focusAvg: fa,
       studyFeedback: row.study_feedback ?? '',
+      studyFeedbackFull: auto.studyFeedbackFull,
       guidanceNotes: row.guidance_notes ?? '',
       adminNotes: row.admin_notes,
       parentSummary: row.parent_summary ?? '',
+      scoreLabel: auto.scoreLabel,
     };
   }
 
@@ -808,17 +948,32 @@ export async function getCounselingReport(
   }
   const studyHoursWeekly = studySecondsWeek / 3600;
 
+  const { data: spB } = await supabase
+    .from('student_profiles')
+    .select(`profiles!inner (branch_id)`)
+    .eq('id', studentId)
+    .single();
+  const branchForStudent =
+    (spB?.profiles as unknown as { branch_id: string | null })?.branch_id ??
+    null;
+
+  const auto = await resolveCounselingAutoFill(
+    supabase,
+    branchForStudent,
+    focusAvg,
+    studentName,
+    studyHoursWeekly
+  );
+
   return {
     id: null,
     focusAvg,
-    studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(focusAvg),
-    guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(focusAvg),
+    studyFeedback: auto.studyFeedback,
+    studyFeedbackFull: auto.studyFeedbackFull,
+    guidanceNotes: auto.guidanceNotes,
     adminNotes: null,
-    parentSummary: COUNSELING_TEMPLATES.getParentSummary(
-      studentName,
-      focusAvg,
-      studyHoursWeekly
-    ),
+    parentSummary: auto.parentSummary,
+    scoreLabel: auto.scoreLabel,
   };
 }
 
@@ -941,4 +1096,315 @@ export async function getStudentsForReport(
       seatNumber: sp?.seat_number ?? null,
     };
   });
+}
+
+/** 관리자: 현재 주 지표로 상담 필드만 템플릿 재적용 (저장 전 폼용) */
+export async function getCounselingAutoFillForWeek(
+  studentId: string,
+  weekStartMonday: string
+): Promise<{
+  studyFeedback: string;
+  studyFeedbackFull: string;
+  guidanceNotes: string;
+  parentSummary: string;
+  scoreLabel: string;
+  focusAvg: number | null;
+} | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') return null;
+
+  const { data: studentRow } = await supabase
+    .from('student_profiles')
+    .select(
+      `
+      profiles!inner (
+        name,
+        branch_id
+      )
+    `
+    )
+    .eq('id', studentId)
+    .single();
+  if (!studentRow) return null;
+
+  const prof = studentRow.profiles as unknown as {
+    name: string;
+    branch_id: string | null;
+  };
+  const studentName = prof.name;
+  const branchId = prof.branch_id;
+
+  const weekDates = getWeekDateStringsFromMondayKST(weekStartMonday);
+  const { start: periodStart } = getStudyDayBounds(weekDates[0]!);
+  const { end: periodEnd } = getStudyDayBounds(weekDates[6]!);
+
+  const [{ data: attendanceRows }, { data: focusScores }] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('type, timestamp')
+      .eq('student_id', studentId)
+      .gte('timestamp', periodStart.toISOString())
+      .lte('timestamp', periodEnd.toISOString())
+      .order('timestamp', { ascending: true }),
+    supabase
+      .from('focus_scores')
+      .select('score, recorded_at')
+      .eq('student_id', studentId)
+      .gte('recorded_at', periodStart.toISOString())
+      .lte('recorded_at', periodEnd.toISOString()),
+  ]);
+
+  const attendance = (attendanceRows ?? []) as AttendanceRecord[];
+  const dailyFocus = weekDates.map((dateStr) => {
+    const { start, end } = getStudyDayBounds(dateStr);
+    const dayFocus = (focusScores ?? []).filter((f) => {
+      const t = new Date(f.recorded_at);
+      return t >= start && t <= end;
+    });
+    const focusAvg =
+      dayFocus.length > 0
+        ? Math.round(
+            (dayFocus.reduce((sum, f) => sum + Number(f.score), 0) / dayFocus.length) *
+              10
+          ) / 10
+        : null;
+    return focusAvg;
+  });
+
+  const focusDays = dailyFocus.filter((f): f is number => f !== null);
+  const weeklyFocusAvg =
+    focusDays.length > 0
+      ? Math.round(
+          (focusDays.reduce((sum, d) => sum + d, 0) / focusDays.length) * 10
+        ) / 10
+      : null;
+
+  let studySecondsWeek = 0;
+  for (const dateStr of weekDates) {
+    const { start, end } = getStudyDayBounds(dateStr);
+    studySecondsWeek += calculateStudySeconds(attendance, start, end).studySeconds;
+  }
+  const studyHoursWeekly = studySecondsWeek / 3600;
+
+  const auto = await resolveCounselingAutoFill(
+    supabase,
+    branchId,
+    weeklyFocusAvg,
+    studentName,
+    studyHoursWeekly
+  );
+
+  return { ...auto, focusAvg: weeklyFocusAvg };
+}
+
+export type CounselingTemplateDTO = {
+  id: string | null;
+  branch_id: string;
+  score: number;
+  label: string;
+  short_text: string;
+  full_text: string;
+};
+
+export async function getCounselingTemplates(
+  branchId: string
+): Promise<CounselingTemplateDTO[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') return [];
+
+  const { data: rows } = await supabase
+    .from('counseling_templates')
+    .select('*')
+    .eq('branch_id', branchId)
+    .order('score', { ascending: true });
+
+  const dbRows = (rows ?? []) as CounselingTemplate[];
+  const byScore = new Map(dbRows.map((r) => [r.score, r]));
+  const result: CounselingTemplateDTO[] = [];
+
+  for (let s = 6; s <= 10; s++) {
+    const r = byScore.get(s);
+    const def = FOCUS_SCORE_TEMPLATES[s];
+    if (!def) continue;
+    if (r) {
+      result.push({
+        id: r.id,
+        branch_id: r.branch_id,
+        score: s,
+        label: r.label,
+        short_text: r.short_text,
+        full_text: r.full_text,
+      });
+    } else {
+      result.push({
+        id: null,
+        branch_id: branchId,
+        score: s,
+        label: def.label,
+        short_text: def.short,
+        full_text: def.full,
+      });
+    }
+  }
+  return result;
+}
+
+export async function saveCounselingTemplate(params: {
+  branchId: string;
+  score: number;
+  label: string;
+  shortText: string;
+  fullText: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') {
+    return { success: false, error: '관리자만 저장할 수 있습니다.' };
+  }
+
+  const { error } = await supabase.from('counseling_templates').upsert(
+    {
+      branch_id: params.branchId,
+      score: params.score,
+      label: params.label,
+      short_text: params.shortText,
+      full_text: params.fullText,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'branch_id,score' }
+  );
+
+  if (error) {
+    console.error('saveCounselingTemplate', error);
+    return { success: false, error: '저장에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/report');
+  return { success: true };
+}
+
+export async function initDefaultTemplates(
+  branchId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') {
+    return { success: false, error: '관리자만 실행할 수 있습니다.' };
+  }
+
+  const { data: existing } = await supabase
+    .from('counseling_templates')
+    .select('id')
+    .eq('branch_id', branchId)
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    return { success: true };
+  }
+
+  const inserts = [6, 7, 8, 9, 10].map((s) => {
+    const d = FOCUS_SCORE_TEMPLATES[s]!;
+    return {
+      branch_id: branchId,
+      score: s,
+      label: d.label,
+      short_text: d.short,
+      full_text: d.full,
+    };
+  });
+
+  const { error } = await supabase.from('counseling_templates').insert(inserts);
+  if (error) {
+    console.error('initDefaultTemplates', error);
+    return { success: false, error: '초기화에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/report');
+  return { success: true };
+}
+
+export async function resetCounselingTemplatesToDefaults(
+  branchId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') {
+    return { success: false, error: '관리자만 실행할 수 있습니다.' };
+  }
+
+  const { error: delErr } = await supabase
+    .from('counseling_templates')
+    .delete()
+    .eq('branch_id', branchId);
+  if (delErr) {
+    console.error('resetCounselingTemplatesToDefaults', delErr);
+    return { success: false, error: '삭제에 실패했습니다.' };
+  }
+
+  const inserts = [6, 7, 8, 9, 10].map((s) => {
+    const d = FOCUS_SCORE_TEMPLATES[s]!;
+    return {
+      branch_id: branchId,
+      score: s,
+      label: d.label,
+      short_text: d.short,
+      full_text: d.full,
+    };
+  });
+
+  const { error } = await supabase.from('counseling_templates').insert(inserts);
+  if (error) {
+    console.error('resetCounselingTemplatesToDefaults insert', error);
+    return { success: false, error: '기본값 복원에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/report');
+  return { success: true };
 }

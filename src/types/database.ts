@@ -959,6 +959,38 @@ export interface Database {
           updated_at?: string;
         };
       };
+      counseling_templates: {
+        Row: {
+          id: string;
+          branch_id: string;
+          score: number;
+          label: string;
+          short_text: string;
+          full_text: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          score: number;
+          label: string;
+          short_text: string;
+          full_text: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          score?: number;
+          label?: string;
+          short_text?: string;
+          full_text?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -995,3 +1027,4 @@ export type AnnouncementRead = Database['public']['Tables']['announcement_reads'
 export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
 export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];
 export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
+export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];

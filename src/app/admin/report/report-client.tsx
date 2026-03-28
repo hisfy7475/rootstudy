@@ -17,10 +17,16 @@ import {
   getImmersionReportData,
   getWeeklyStudyTrend,
   saveCounselingReport,
+  getCounselingAutoFillForWeek,
+  getCounselingTemplates,
+  saveCounselingTemplate,
+  resetCounselingTemplatesToDefaults,
+  initDefaultTemplates,
 } from '@/lib/actions/report';
 import type {
   ImmersionReportData,
   WeeklyTrendPoint,
+  CounselingTemplateDTO,
 } from '@/lib/actions/report';
 import { ImmersionReportView } from '@/components/report/immersion-report-view';
 
@@ -34,6 +40,7 @@ export interface ReportStudentRow {
 export interface AdminReportClientProps {
   students: ReportStudentRow[];
   initialWeekStart: string;
+  branchId: string | null;
 }
 
 function shiftWeekMonday(mondayStr: string, deltaWeeks: number): string {
@@ -58,6 +65,7 @@ function formatWeekRangeLabel(weekStartMonday: string): string {
 export function AdminReportClient({
   students,
   initialWeekStart,
+  branchId,
 }: AdminReportClientProps) {
   const [weekStart, setWeekStart] = useState(initialWeekStart);
   const [activeId, setActiveId] = useState<string | null>(
@@ -73,7 +81,31 @@ export function AdminReportClient({
   >(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [saveHint, setSaveHint] = useState<string | null>(null);
+  const [mainTab, setMainTab] = useState<'report' | 'templates'>('report');
+  const [templateRows, setTemplateRows] = useState<CounselingTemplateDTO[]>(
+    []
+  );
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateHint, setTemplateHint] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!branchId) return;
+    void initDefaultTemplates(branchId);
+  }, [branchId]);
+
+  useEffect(() => {
+    if (mainTab !== 'templates' || !branchId) return;
+    setTemplateLoading(true);
+    void (async () => {
+      try {
+        const rows = await getCounselingTemplates(branchId);
+        setTemplateRows(rows);
+      } finally {
+        setTemplateLoading(false);
+      }
+    })();
+  }, [mainTab, branchId]);
 
   const typeOptions = useMemo(() => {
     const names = new Set<string>();
@@ -180,6 +212,85 @@ export function AdminReportClient({
     }
   };
 
+  const handleReapplyCounseling = async (currentAdminNotes: string) => {
+    if (!activeId || !report) return;
+    const draft = await getCounselingAutoFillForWeek(activeId, weekStart);
+    if (!draft) {
+      setSaveHint('템플릿을 불러오지 못했습니다.');
+      return;
+    }
+    setReport((prev) =>
+      prev
+        ? {
+            ...prev,
+            counseling: {
+              ...prev.counseling,
+              studyFeedback: draft.studyFeedback,
+              studyFeedbackFull: draft.studyFeedbackFull,
+              guidanceNotes: draft.guidanceNotes,
+              parentSummary: draft.parentSummary,
+              scoreLabel: draft.scoreLabel,
+              focusAvg: draft.focusAvg,
+              adminNotes:
+                currentAdminNotes.trim() !== ''
+                  ? currentAdminNotes
+                  : prev.counseling.adminNotes,
+            },
+          }
+        : null
+    );
+    setSaveHint('템플릿 문구를 폼에 반영했습니다. 저장을 눌러 확정하세요.');
+  };
+
+  const updateTemplateRow = (
+    score: number,
+    field: 'label' | 'short_text' | 'full_text',
+    value: string
+  ) => {
+    setTemplateRows((rows) =>
+      rows.map((r) => (r.score === score ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const handleSaveTemplateRow = async (row: CounselingTemplateDTO) => {
+    if (!branchId) return;
+    const res = await saveCounselingTemplate({
+      branchId,
+      score: row.score,
+      label: row.label,
+      shortText: row.short_text,
+      fullText: row.full_text,
+    });
+    setTemplateHint(res.success ? '저장되었습니다.' : res.error ?? '실패');
+    if (res.success) {
+      const rows = await getCounselingTemplates(branchId);
+      setTemplateRows(rows);
+    }
+  };
+
+  const handleResetTemplates = async () => {
+    if (!branchId) return;
+    if (
+      !window.confirm(
+        '이 지점의 6~10점 템플릿을 기본 문구로 모두 덮어씁니다. 계속할까요?'
+      )
+    ) {
+      return;
+    }
+    const res = await resetCounselingTemplatesToDefaults(branchId);
+    setTemplateHint(res.success ? '기본값으로 복원했습니다.' : res.error ?? '실패');
+    if (res.success) {
+      const rows = await getCounselingTemplates(branchId);
+      setTemplateRows(rows);
+    }
+  };
+
+  useEffect(() => {
+    if (!templateHint) return;
+    const t = setTimeout(() => setTemplateHint(null), 3500);
+    return () => clearTimeout(t);
+  }, [templateHint]);
+
   const handleBulkPrint = async () => {
     const ids = Array.from(bulkIds);
     if (!ids.length) {
@@ -231,6 +342,129 @@ export function AdminReportClient({
 
   return (
     <>
+      <div className="no-print flex flex-wrap gap-2 px-4 pt-4 md:px-6 max-w-6xl mx-auto">
+        <Button
+          type="button"
+          variant={mainTab === 'report' ? 'default' : 'outline'}
+          className="rounded-xl"
+          onClick={() => setMainTab('report')}
+        >
+          리포트 보기
+        </Button>
+        <Button
+          type="button"
+          variant={mainTab === 'templates' ? 'default' : 'outline'}
+          className="rounded-xl"
+          onClick={() => setMainTab('templates')}
+          disabled={!branchId}
+        >
+          템플릿 설정
+        </Button>
+      </div>
+
+      {mainTab === 'templates' && (
+        <div className="no-print max-w-3xl mx-auto p-4 md:p-6 space-y-4">
+          {!branchId ? (
+            <Card className="rounded-3xl p-6 text-sm text-text-muted">
+              프로필에 지점(branch)이 없어 템플릿을 편집할 수 없습니다.
+            </Card>
+          ) : (
+            <Card className="rounded-3xl shadow-sm p-4 md:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-text">
+                  몰입도 점수별 상담 템플릿 (6~10점)
+                </h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl text-error border-error/30"
+                  onClick={() => void handleResetTemplates()}
+                >
+                  기본값 복원
+                </Button>
+              </div>
+              <p className="text-xs text-text-muted">
+                웹 화면에는 압축 문단(short), 인쇄·PDF에는 전체 문단(full)이
+                학습 태도 영역에 사용됩니다. 저장 후 리포트에서 자동 반영됩니다.
+              </p>
+              {templateHint && (
+                <p className="text-xs text-primary">{templateHint}</p>
+              )}
+              {templateLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {templateRows.map((row) => (
+                    <div
+                      key={row.score}
+                      className="rounded-2xl border border-gray-100 p-4 space-y-3"
+                    >
+                      <p className="text-sm font-bold text-text">
+                        {row.score}점 구간
+                      </p>
+                      <div>
+                        <label className="text-xs text-text-muted">단계 라벨</label>
+                        <Input
+                          value={row.label}
+                          onChange={(e) =>
+                            updateTemplateRow(row.score, 'label', e.target.value)
+                          }
+                          className="mt-1 rounded-xl"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-text-muted">
+                          압축 버전 (웹·요약용)
+                        </label>
+                        <textarea
+                          value={row.short_text}
+                          onChange={(e) =>
+                            updateTemplateRow(
+                              row.score,
+                              'short_text',
+                              e.target.value
+                            )
+                          }
+                          rows={4}
+                          className="mt-1 w-full rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-text-muted">
+                          전체 버전 (인쇄용)
+                        </label>
+                        <textarea
+                          value={row.full_text}
+                          onChange={(e) =>
+                            updateTemplateRow(
+                              row.score,
+                              'full_text',
+                              e.target.value
+                            )
+                          }
+                          rows={6}
+                          className="mt-1 w-full rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        className="rounded-xl"
+                        onClick={() => void handleSaveTemplateRow(row)}
+                      >
+                        이 점수 구간 저장
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {mainTab === 'report' && (
       <div className="flex flex-col md:flex-row gap-4 p-4 md:p-6 max-w-6xl mx-auto">
         <aside className="no-print w-full md:w-72 shrink-0 space-y-3">
           <h1 className="text-xl font-bold text-text md:hidden">몰입도 리포트</h1>
@@ -408,11 +642,13 @@ export function AdminReportClient({
                 weeklyTrend={trend}
                 editable
                 onSaveCounseling={handleSaveCounseling}
+                onReapplyCounseling={handleReapplyCounseling}
               />
             )}
           </div>
         </div>
       </div>
+      )}
 
       {bulkForPrint && bulkForPrint.length > 0 && (
         <div className="hidden print:block">

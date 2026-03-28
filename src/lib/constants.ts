@@ -179,29 +179,98 @@ export function getSubjectCategory(subjectName: string): SubjectCategory {
   return '기타';
 }
 
-// 상담 리포트 자동 생성 템플릿 (몰입도 평균 구간별)
+/** 몰입도 점수별 학부모 안내 템플릿 (기본값, DB 미설정 시 사용) — .00_manager/client/0326 학부모 관련.txt */
+export interface FocusScoreTemplate {
+  label: string;
+  short: string;
+  full: string;
+}
+
+export const FOCUS_SCORE_TEMPLATES: Record<number, FocusScoreTemplate> = {
+  10: {
+    label: '최상 몰입 단계',
+    short: '학습 시간 전반에 걸쳐 외부 자극에 흔들림 없이 높은 집중력을 유지하였으며, 계획된 학습 과제를 스스로 점검하고 완성도 높게 수행하였습니다.\n학습 태도, 지속력, 자기조절 능력이 모두 우수하여 자기주도 학습 역량이 안정적으로 자리 잡은 상태입니다.',
+    full: '학습 시간 전반에 걸쳐 외부 자극이나 환경 변화에 흔들림 없이 높은 집중력을 지속적으로 유지하였습니다.\n계획된 학습 과제를 스스로 점검하며 우선순위를 정해 효율적으로 수행하였고, 학습 과정 중 이해가 부족한 부분은 반복 학습을 통해 보완하는 자기조절 능력도 우수하게 나타났습니다.\n학습 태도의 성실성, 집중 지속력, 자기주도 문제 해결력이 모두 안정적인 수준에 도달한 상태로, 현재의 학습 흐름을 유지할 경우 성취도 향상이 기대되는 매우 이상적인 몰입 단계입니다.',
+  },
+  9: {
+    label: '우수 몰입 단계',
+    short: '수업 및 자율학습 시간 동안 집중력이 안정적으로 유지되었으며, 계획된 학습을 성실하게 이행하였습니다.\n학습 흐름이 끊기지 않고 꾸준히 이어지는 모습으로, 자기주도 학습 습관이 잘 형성되어 있는 우수한 상태입니다.',
+    full: '수업 및 자율학습 시간 동안 전반적으로 집중력이 안정적으로 유지되었으며, 학습 계획에 맞추어 과제를 충실히 이행하는 모습을 보였습니다.\n학습 중간에 흐름이 일부 완만해지는 구간은 있었으나, 스스로 학습 페이스를 조절하며 다시 집중 상태를 회복하는 자기관리 능력이 확인되었습니다.\n전반적인 학습 지속력과 참여 태도가 우수하여 자기주도 학습 습관이 점차 안정적으로 형성되고 있는 긍정적인 상태입니다.',
+  },
+  8: {
+    label: '안정적 학습 단계',
+    short: '주어진 학습 과정에 성실히 참여하며 전반적인 학습 흐름을 안정적으로 유지하였습니다.\n집중력과 학습 지속력이 일정 수준 유지되고 있으며, 규칙적인 학습 리듬이 점차 자리 잡아가고 있는 단계입니다.',
+    full: '주어진 학습 과정에 성실히 참여하며 정해진 학습 시간을 안정적으로 유지하였습니다.\n학습 중 큰 집중 저하 없이 일정한 학습 흐름을 이어갔으며, 과제 수행 또한 무리 없이 진행되었습니다.\n다만, 학습 밀도나 집중 지속 시간 측면에서는 다소 기복이 있어 최상위 몰입 단계로 도약하기 위한 관리가 병행되고 있습니다.\n규칙적인 학습 리듬이 형성되는 과정에 있으며, 현재의 학습 습관이 안정적으로 자리 잡을 수 있도록 지도하고 있습니다.',
+  },
+  7: {
+    label: '집중 관리 단계',
+    short: '학습 중 주변 환경이나 피로 등의 영향으로 집중력이 일시적으로 저하되는 모습이 있었으나, 지도 후 점차 학습 흐름을 회복하였습니다.\n장시간 집중 유지에는 다소 보완이 필요하여 학습 밀도 향상을 위한 지속적인 관리가 이루어지고 있습니다.',
+    full: '학습 중 주변 환경 요인이나 일시적인 피로 영향으로 인해 집중력이 간헐적으로 저하되는 모습이 관찰되었습니다.\n특정 시간대에는 학습 몰입이 느슨해지는 경향이 있었으나, 지도 후 다시 학습 흐름을 회복하며 과제를 이어가는 모습을 보였습니다.\n장시간 집중 유지 능력과 학습 밀도 향상을 위한 추가 관리가 필요한 단계이며, 학습 시간 분할 운영 및 집중력 환기 지도를 병행하고 있습니다.',
+  },
+  6: {
+    label: '컨디션 관리 단계',
+    short: '컨디션 난조 및 피로 누적으로 인해 집중 지속 시간이 짧아지며 학습 몰입이 제한되는 모습이 관찰되었습니다.\n충분한 휴식과 생활 리듬 조정이 필요하며, 컨디션 회복 이후 학습 집중도가 정상화될 수 있도록 지도하고 있습니다.',
+    full: '컨디션 난조와 피로 누적으로 인해 집중 지속 시간이 전반적으로 짧아지며 학습 몰입이 제한되는 모습이 확인되었습니다.\n학습 중 졸음이나 주의 분산으로 인해 학습 흐름이 여러 차례 끊어지는 경향이 있었으며, 이에 따라 계획된 학습 진도가 일부 조정되었습니다.\n충분한 휴식과 수면 시간 확보, 생활 리듬 안정이 우선적으로 필요한 상태이며, 컨디션 회복 이후 학습 집중도가 정상화될 수 있도록 학습 강도 조절과 병행 지도를 진행하고 있습니다.',
+  },
+};
+
 export const COUNSELING_TEMPLATES = {
+  getScoreTemplate(focusAvg: number | null): FocusScoreTemplate | null {
+    if (focusAvg === null) return null;
+    const score = Math.min(10, Math.max(6, Math.round(focusAvg)));
+    return FOCUS_SCORE_TEMPLATES[score] ?? FOCUS_SCORE_TEMPLATES[6];
+  },
+
   getStudyFeedback(focusAvg: number | null): string {
     if (focusAvg === null) return '해당 주간 몰입도 측정 기록이 없습니다.';
-    if (focusAvg >= 90) return '매우 높은 집중력으로 성실하게 학습에 임하고 있습니다.';
-    if (focusAvg >= 80) return '전반적으로 성실하게 학습에 임하고 있으며, 안정적인 학습 태도를 보이고 있습니다.';
-    if (focusAvg >= 70) return '학습 태도가 양호하나, 간헐적으로 집중력이 흐트러지는 모습이 관찰됩니다.';
-    if (focusAvg >= 60) return '집중력 유지에 어려움이 있으며, 학습 환경 개선이 필요합니다.';
-    return '학습 집중도가 낮아 개선이 시급합니다. 면담을 통한 학습 동기 부여가 필요합니다.';
+    const tpl = COUNSELING_TEMPLATES.getScoreTemplate(focusAvg);
+    return tpl ? tpl.short : '해당 주간 몰입도 측정 기록이 없습니다.';
   },
+
+  getStudyFeedbackFull(focusAvg: number | null): string {
+    if (focusAvg === null) return '해당 주간 몰입도 측정 기록이 없습니다.';
+    const tpl = COUNSELING_TEMPLATES.getScoreTemplate(focusAvg);
+    return tpl ? tpl.full : '해당 주간 몰입도 측정 기록이 없습니다.';
+  },
+
+  getScoreLabel(focusAvg: number | null): string {
+    const tpl = COUNSELING_TEMPLATES.getScoreTemplate(focusAvg);
+    return tpl ? tpl.label : '';
+  },
+
   getGuidanceNotes(focusAvg: number | null): string {
     if (focusAvg === null) return '';
-    if (focusAvg >= 80) return '현재 학습 패턴을 유지하면서 심화 학습에 도전해보세요.';
-    if (focusAvg >= 60) return '집중이 흐트러질 때 짧은 휴식 후 다시 집중하는 연습이 도움이 됩니다.';
-    return '학습 계획을 재정비하고, 단계적으로 집중 시간을 늘려가는 것을 권장합니다.';
+    if (focusAvg >= 9) return '현재의 학습 흐름을 유지하면서 심화 학습에 도전해보는 것을 권장합니다.';
+    if (focusAvg >= 8) return '최상위 몰입 단계로의 도약을 위해 학습 밀도를 높이는 관리를 병행하고 있습니다.';
+    if (focusAvg >= 7) return '학습 시간 분할 운영 및 집중력 환기 지도를 병행하고 있습니다.';
+    return '충분한 휴식과 생활 리듬 안정을 우선으로, 학습 강도 조절과 병행 지도를 진행하고 있습니다.';
   },
+
+  /** DB/커스텀 short 문단이 적용된 요약 */
+  buildParentSummaryWithFeedback(
+    studentName: string,
+    focusAvg: number | null,
+    studyHoursWeekly: number,
+    scoreLabel: string,
+    studyFeedbackShort: string
+  ): string {
+    const focusText =
+      focusAvg !== null ? `평균 ${Math.round(focusAvg * 10) / 10}점` : '미측정';
+    const h = Math.floor(studyHoursWeekly);
+    const m = Math.round((studyHoursWeekly % 1) * 60);
+    const hoursText = h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+    const labelText = scoreLabel ? ` (${scoreLabel})` : '';
+    return `${studentName} 학생은 몰입도 ${focusText}${labelText}, 주간 순공시간 ${hoursText}의 학습량을 보이고 있습니다.\n${studyFeedbackShort}`;
+  },
+
   getParentSummary(studentName: string, focusAvg: number | null, studyHoursWeekly: number): string {
-    const focusText = focusAvg !== null ? `평균 ${focusAvg}점` : '미측정';
-    const hoursText = `주간 ${Math.floor(studyHoursWeekly)}시간 ${Math.round((studyHoursWeekly % 1) * 60)}분`;
-    return `${studentName} 학생은 몰입도 ${focusText}, 순공시간 ${hoursText}의 학습량을 보이고 있습니다.\n${
-      focusAvg !== null && focusAvg >= 70
-        ? '어머님의 관심에 감사드리며, 지속적으로 지도하겠습니다.'
-        : '학생의 학습 태도 개선을 위해 지속적으로 지도하겠습니다.'
-    }`;
+    const label = COUNSELING_TEMPLATES.getScoreLabel(focusAvg);
+    return COUNSELING_TEMPLATES.buildParentSummaryWithFeedback(
+      studentName,
+      focusAvg,
+      studyHoursWeekly,
+      label,
+      COUNSELING_TEMPLATES.getStudyFeedback(focusAvg)
+    );
   },
 };

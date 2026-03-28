@@ -16,6 +16,8 @@ export interface CounselingReportCardProps {
     adminNotes: string;
     parentSummary: string;
   }) => void;
+  /** 관리자: 템플릿 재적용. 인자는 입력 중인 관리자 메모(폼 상태 유지) */
+  onReapplyTemplate?: (currentAdminNotes: string) => void | Promise<void>;
 }
 
 export function CounselingReportCard({
@@ -24,6 +26,7 @@ export function CounselingReportCard({
   studentTypeName,
   editable = false,
   onSave,
+  onReapplyTemplate,
 }: CounselingReportCardProps) {
   const [studyFeedback, setStudyFeedback] = useState(counseling.studyFeedback);
   const [guidanceNotes, setGuidanceNotes] = useState(counseling.guidanceNotes);
@@ -40,12 +43,19 @@ export function CounselingReportCard({
     counseling.guidanceNotes,
     counseling.adminNotes,
     counseling.parentSummary,
+    counseling.studyFeedbackFull,
+    counseling.scoreLabel,
+    counseling.focusAvg,
   ]);
 
   const focusLabel =
     counseling.focusAvg !== null
       ? `평균 ${counseling.focusAvg}점`
       : '미측정';
+
+  const stageLabel = counseling.scoreLabel?.trim();
+  const fullForPrint =
+    counseling.studyFeedbackFull?.trim() || counseling.studyFeedback;
 
   return (
     <Card>
@@ -64,6 +74,12 @@ export function CounselingReportCard({
           <p className="mt-2">
             <span className="text-text-muted">몰입도 평가:</span>{' '}
             <span className="font-medium">{focusLabel}</span>
+            {stageLabel ? (
+              <span className="text-text-muted">
+                {' '}
+                ({stageLabel})
+              </span>
+            ) : null}
           </p>
         </div>
 
@@ -74,11 +90,16 @@ export function CounselingReportCard({
               value={studyFeedback}
               onChange={(e) => setStudyFeedback(e.target.value)}
               rows={3}
-              className="w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+              className="print:hidden w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
             />
           ) : (
-            <p className="whitespace-pre-wrap text-sm text-text">{studyFeedback}</p>
+            <p className="whitespace-pre-wrap text-sm text-text print:hidden">
+              {studyFeedback}
+            </p>
           )}
+          <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
+            {fullForPrint}
+          </p>
         </div>
 
         <div>
@@ -97,7 +118,7 @@ export function CounselingReportCard({
 
         {editable ? (
           <div>
-            <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 메모</p>
+            <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 추가 메모</p>
             <textarea
               value={adminNotes}
               onChange={(e) => setAdminNotes(e.target.value)}
@@ -108,7 +129,7 @@ export function CounselingReportCard({
         ) : (
           counseling.adminNotes && (
             <div>
-              <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 메모</p>
+              <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 추가 메모</p>
               <p className="whitespace-pre-wrap text-sm text-text">{counseling.adminNotes}</p>
             </div>
           )
@@ -129,6 +150,17 @@ export function CounselingReportCard({
             )}
           </div>
         </div>
+
+        {editable && onReapplyTemplate && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full rounded-xl"
+            onClick={() => void onReapplyTemplate(adminNotes)}
+          >
+            템플릿 다시 적용
+          </Button>
+        )}
 
         {editable && onSave && (
           <Button
