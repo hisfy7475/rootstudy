@@ -657,27 +657,7 @@ export function AdminReportClient({
               key={item.report.studentId}
               className={cn(idx > 0 && 'print-page-break')}
             >
-              <div className="max-w-lg mx-auto print:max-w-none px-4 pt-4 print:pt-2">
-                <div className="mb-4 text-center border-b border-gray-100 pb-3 print:mb-3">
-                  <p className="text-lg font-bold text-text">
-                    {item.report.studentName}
-                  </p>
-                  <p className="text-sm text-text-muted">
-                    {item.report.studentTypeName ?? '—'} · {weekRangeLabel}
-                  </p>
-                  <p className="text-xs text-text-muted mt-1">
-                    인쇄 일시 (KST){' '}
-                    {new Date().toLocaleString('ko-KR', {
-                      timeZone: 'Asia/Seoul',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    })}
-                  </p>
-                </div>
+              <div className="max-w-lg mx-auto print:max-w-none px-4 print:px-0 print:pt-2">
                 <ImmersionReportView
                   report={item.report}
                   weeklyTrend={item.trend}

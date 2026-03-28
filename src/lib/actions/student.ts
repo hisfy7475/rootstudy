@@ -7,6 +7,7 @@ import { getMandatoryTime } from './date-type';
 import { isInAbsencePeriod } from './absence-schedule';
 import { PENALTY_RULES } from '@/lib/constants';
 import { createStudentNotification } from './notification';
+import { getRewardPresets, getPenaltyPresets, type RewardPreset, type PenaltyPreset } from './admin';
 
 // 내부용: 자동 벌점 부여 (관리자 로그인 없이)
 async function giveAutoPoints(
@@ -622,6 +623,32 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
       total: reward - penalty,
     },
   };
+}
+
+/** 학생 본인 지점의 상·벌점 프리셋(규정) 조회 — 학생 상벌점 화면 하단 표시용 */
+export async function getPointPresets(): Promise<{
+  rewardPresets: RewardPreset[];
+  penaltyPresets: PenaltyPreset[];
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { rewardPresets: [], penaltyPresets: [] };
+  }
+
+  const branchId = await getStudentBranchId(user.id);
+  if (!branchId) {
+    return { rewardPresets: [], penaltyPresets: [] };
+  }
+
+  const [rewardPresets, penaltyPresets] = await Promise.all([
+    getRewardPresets(branchId),
+    getPenaltyPresets(branchId),
+  ]);
+
+  return { rewardPresets, penaltyPresets };
 }
 
 // 오늘(학습일 기준)의 과목 기록 조회

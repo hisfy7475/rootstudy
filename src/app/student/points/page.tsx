@@ -1,10 +1,13 @@
-import { getPoints } from '@/lib/actions/student';
+import { getPoints, getPointPresets } from '@/lib/actions/student';
 import { PointsPageClient } from './points-client';
 
 export default async function PointsPage() {
-  const { points, summary } = await getPoints();
+  const [{ points, summary }, { rewardPresets, penaltyPresets }] = await Promise.all([
+    getPoints(),
+    getPointPresets(),
+  ]);
 
-  const formattedPoints = points.map(p => ({
+  const formattedPoints = points.map((p) => ({
     id: p.id,
     type: p.type as 'reward' | 'penalty',
     amount: p.amount,
@@ -17,6 +20,8 @@ export default async function PointsPage() {
     <PointsPageClient
       points={formattedPoints}
       summary={summary}
+      rewardPresets={rewardPresets.map((r) => ({ reason: r.reason, amount: r.amount }))}
+      penaltyPresets={penaltyPresets.map((p) => ({ reason: p.reason, amount: p.amount }))}
     />
   );
 }

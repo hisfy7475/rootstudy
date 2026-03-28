@@ -47,6 +47,19 @@ export function ImmersionReportView({
     hour12: false,
   });
 
+  const weekRangeLabel = (() => {
+    const a = report.dailyData[0]?.date;
+    const b = report.dailyData[6]?.date;
+    if (!a || !b) return '';
+    const fmt = (iso: string) =>
+      new Date(iso + 'T12:00:00+09:00').toLocaleDateString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        month: 'numeric',
+        day: 'numeric',
+      });
+    return `${fmt(a)}(월) ~ ${fmt(b)}(일)`;
+  })();
+
   const cardClass = 'print:break-inside-avoid';
 
   return (
@@ -58,6 +71,19 @@ export function ImmersionReportView({
           'print:grid print:grid-cols-2 print:gap-4 print:p-4'
         )}
       >
+        <div
+          className={cn(
+            'hidden print:col-span-2 print:block print:break-inside-avoid',
+            'mb-0 border-b border-gray-200 pb-3 text-center print:mb-3'
+          )}
+        >
+          <p className="text-lg font-bold text-text">{report.studentName}</p>
+          <p className="mt-1 text-sm text-text-muted">
+            {report.studentTypeName ?? '학년 미지정'}
+            {report.seatNumber != null ? ` · 좌석 ${report.seatNumber}` : ''}
+            {weekRangeLabel ? ` · ${weekRangeLabel}` : ''}
+          </p>
+        </div>
         <div className={cardClass}>
           <AttendanceCard attendanceStat={report.attendanceStat} />
         </div>

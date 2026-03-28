@@ -21,14 +21,26 @@ interface PointsSummary {
   total: number;
 }
 
+export interface PointRuleRow {
+  reason: string;
+  amount: number;
+}
+
 interface PointsPageClientProps {
   points: PointRecord[];
   summary: PointsSummary;
+  rewardPresets: PointRuleRow[];
+  penaltyPresets: PointRuleRow[];
 }
 
 type FilterType = 'all' | 'reward' | 'penalty';
 
-export function PointsPageClient({ points, summary }: PointsPageClientProps) {
+export function PointsPageClient({
+  points,
+  summary,
+  rewardPresets,
+  penaltyPresets,
+}: PointsPageClientProps) {
   const [filter, setFilter] = useState<FilterType>('all');
 
   const filteredPoints = filter === 'all' 
@@ -119,6 +131,69 @@ export function PointsPageClient({ points, summary }: PointsPageClientProps) {
       {/* 내역 목록 */}
       <PointsList points={filteredPoints} />
 
+      {/* 상·벌점 규정 (지점 프리셋) */}
+      <section className="space-y-4 pt-2">
+        <h2 className="text-sm font-semibold text-text">상벌점 규정</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* 상점 규정 */}
+            <Card className="overflow-hidden border-green-200/80 bg-green-50/50 p-0">
+              <div className="border-b border-green-200/80 bg-green-100/60 px-4 py-3">
+                <h3 className="text-sm font-bold text-green-800">상점 규정</h3>
+              </div>
+              <div className="divide-y divide-green-100">
+                <div className="grid grid-cols-[1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-green-900/80">
+                  <span>상점 규정</span>
+                  <span className="text-right">상점</span>
+                </div>
+                {rewardPresets.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-text-muted">등록된 항목이 없습니다</p>
+                ) : (
+                  rewardPresets.map((row, i) => (
+                    <div
+                      key={`r-${i}-${row.reason}`}
+                      className="grid grid-cols-[1fr_auto] gap-2 px-4 py-3 text-sm"
+                    >
+                      <span className="text-text">{row.reason}</span>
+                      <span className="text-right font-semibold text-green-700">{row.amount}점</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+
+            {/* 벌점 규정 */}
+            <Card className="overflow-hidden border-red-200/80 bg-red-50/50 p-0">
+              <div className="border-b border-red-200/80 bg-red-100/60 px-4 py-3">
+                <h3 className="text-sm font-bold text-red-800">벌점 규정</h3>
+              </div>
+              <div className="divide-y divide-red-100">
+                <div className="grid grid-cols-[1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-red-900/80">
+                  <span>벌점 규정</span>
+                  <span className="text-right">벌점</span>
+                </div>
+                {penaltyPresets.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-text-muted">등록된 항목이 없습니다</p>
+                ) : (
+                  penaltyPresets.map((row, i) => (
+                    <div
+                      key={`p-${i}-${row.reason}`}
+                      className="grid grid-cols-[1fr_auto] gap-2 px-4 py-3 text-sm"
+                    >
+                      <span className="text-text">{row.reason}</span>
+                      <span className="text-right font-semibold text-red-600">{row.amount}점</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+          <p className="flex items-start gap-2 rounded-xl bg-gray-100/80 px-3 py-2.5 text-xs text-text-muted">
+            <span aria-hidden className="shrink-0">
+              ⚠
+            </span>
+            해당 상벌점은 사유에 따라 벌점의 부과 여부가 결정됩니다.
+          </p>
+        </section>
     </div>
   );
 }

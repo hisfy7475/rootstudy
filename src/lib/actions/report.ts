@@ -71,6 +71,7 @@ export interface ImmersionReportData {
   studentId: string;
   studentName: string;
   studentTypeName: string | null;
+  seatNumber: number | null;
   weekStart: string;
   weekEnd: string;
   dailyData: DailyReportData[];
@@ -392,6 +393,7 @@ export async function getImmersionReportData(
       `
       id,
       student_type_id,
+      seat_number,
       profiles!inner (
         name,
         branch_id
@@ -410,6 +412,8 @@ export async function getImmersionReportData(
   const studentName = profile.name;
   const branchId = profile.branch_id;
   const studentTypeId = studentRow.student_type_id as string | null;
+  const seatNumber =
+    studentRow.seat_number != null ? Number(studentRow.seat_number) : null;
 
   let studentTypeName: string | null = null;
   if (studentTypeId) {
@@ -658,6 +662,7 @@ export async function getImmersionReportData(
     studentId,
     studentName,
     studentTypeName,
+    seatNumber,
     weekStart: calStart.toISOString(),
     weekEnd: weekEndIso,
     dailyData,
