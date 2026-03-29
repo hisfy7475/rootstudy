@@ -110,9 +110,16 @@ html {
 }
 
 /* 인쇄 (관리자 몰입도 리포트 등) */
+@page {
+  size: A4 portrait;
+  margin: 10mm 12mm;
+}
+
 @media print {
   body {
     background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   nav,
   .no-print {
@@ -125,13 +132,15 @@ html {
     display: grid !important;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    padding: 16px;
+    padding: 0 !important;
+    max-width: none !important;
   }
   .print-report > * {
     break-inside: avoid;
     page-break-inside: avoid;
   }
   .print-page-break {
-    page-break-after: always;
+    break-before: page;
+    page-break-before: always;
   }
 }

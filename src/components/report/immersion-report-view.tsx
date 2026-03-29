@@ -63,12 +63,12 @@ export function ImmersionReportView({
   const cardClass = 'print:break-inside-avoid';
 
   return (
-    <div className="max-w-lg mx-auto space-y-4 pb-6">
+    <div className="max-w-lg mx-auto space-y-4 pb-6 print:max-w-none print:pb-0">
       <div
         ref={printRef}
         className={cn(
           'print-report space-y-4',
-          'print:grid print:grid-cols-2 print:gap-4 print:p-4'
+          'print:grid print:grid-cols-2 print:gap-3 print:p-0'
         )}
       >
         <div
