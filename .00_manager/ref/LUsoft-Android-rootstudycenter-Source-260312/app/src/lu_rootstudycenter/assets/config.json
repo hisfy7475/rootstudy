@@ -1,0 +1,34 @@
+{
+  "exit_url": [
+    "https//rootstudycenter.lusoft.co.kr",
+    "https//rootstudycenter.lusoft.co.kr/main.php",
+    "https//rootstudycenter.lusoft.co.kr/index.php",
+    "https//rootstudycenter.lusoft.co.kr/index.php?force_agent=app",
+    "https//rootstudycenter.lusoft.co.kr/main.php?force_agent=app"
+  ],
+  "splash" : 0,
+  "snsLogin"  : {
+    "use"   : false,
+    "naver" : {
+        "use"   : false,
+        "clientId"  : "",
+        "clientSecret"  : ""
+    },
+    "kakao" : {
+      "use"   : false,
+      "appKey"  : ""
+    },
+    "google" : {
+      "use"   : false
+    }
+  },
+  "googleBilling" : {
+      "use" : false
+  },
+  "googleAdMob" : {
+    "use" : false,
+    "admobId" : "",
+    "admobUnitidBanner" : "",
+    "admobUnitidFull1" : ""
+  }
+}

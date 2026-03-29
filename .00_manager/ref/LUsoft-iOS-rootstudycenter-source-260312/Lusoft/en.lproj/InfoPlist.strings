@@ -1,0 +1,25 @@
+/* Permission Usage Descriptions - English */
+
+"NSAppleMusicUsageDescription" = "Allow access to your media library to attach videos from your gallery to posts.";
+
+"NSCameraUsageDescription" = "Allow camera access to take profile photos and attach photos to posts.";
+
+"NSContactsUsageDescription" = "Allow access to your contacts for address book management and emergency contacts. Contacts are uploaded and stored on the server and are not shared externally.";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Your location is used to provide a location-based search service.\nThis service helps you find nearby stores.";
+
+"NSLocationAlwaysUsageDescription" = "Your location is used to provide a location-based search service.\nThis service helps you find nearby stores.";
+
+"NSLocationUsageDescription" = "Your location is used to provide a location-based search service.\nThis service helps you find nearby stores.";
+
+"NSLocationWhenInUseUsageDescription" = "Your location is used to provide a location-based search service.\nThis service helps you find nearby stores.";
+
+"NSMicrophoneUsageDescription" = "Allow microphone access to record videos with audio for post attachments.";
+
+"NSPhotoLibraryAddUsageDescription" = "Allow access to save captured images to your photo gallery.";
+
+"NSPhotoLibraryUsageDescription" = "Allow access to your photo library to attach photos and videos to your profile and posts.";
+
+"NSBluetoothAlwaysUsageDescription" = "Allow Bluetooth access to search for and connect to devices, retrieve the Wi-Fi SSID list, and send Wi-Fi connection information to the device.";
+
+"NSBluetoothPeripheralUsageDescription" = "Allow Bluetooth access to connect to the smart electronic calendar device for syncing and managing date and time data.";

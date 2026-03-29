@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="core_version" translatable="false">1.0.0</string>
+    <string name="ADAppID" translatable="false">ca-app-pub</string>
+    <string name="BannerID" translatable="false">ca-app-pub</string>
+
+    <!-- 일반 -->
+    <string name="common_ok">확인</string>
+    <string name="common_cancel">취소</string>
+    <string name="common_today">오늘은 그만보기</string>
+    <string name="common_close">닫기</string>
+    <string name="common_move">이동</string>
+    <string name="common_alarm">알림</string>
+    <string name="common_install">설치</string>
+    <string name="common_file">파일</string>
+    <string name="common_share">공유</string>
+    <string name="common_catch">인식</string>
+    <string name="common_back_text">한번 더 뒤로가기를 누르면 종료됩니다.</string>
+    <string name="common_mic_upload">녹음 파일을 업로드 하였습니다.</string>
+    <string name="common_download_complete">다운로드 완료</string>
+    <string name="common_open_fail">%s의 열기에 실패하였습니다.</string>
+    <string name="common_not_support">지원하지 않습니다.</string>
+    <string name="common_not_data">데이터가 없습니다.</string>
+    <string name="common_connect_fail">연결실패</string>
+    <string name="common_app_update_title">업데이트 알림</string>
+    <string name="common_app_update_desc">새로운 버전이 출시되었습니다.</string>
+    <string name="common_app_update_force">앱 업데이트 후 이용가능합니다.</string>
+    <string name="common_app_update_ok">업데이트</string>
+    <string name="common_app_update_comment1">최신 버전입니다.</string>
+    <string name="common_app_update_comment2">업데이트 상태를 확인할 수 없습니다.</string>
+
+
+    <!-- webview -->
+    <string name="webview_app_not_install">앱이 설치되지 않았습니다.</string>
+    <string name="webview_bad_url">유효하지 않은 URL입니다.</string>
+    <string name="webview_ssl_error">SSL 오류 : 다음 페이지로 이동하시겠습니까?</string>
+    <string name="webview_file_chooser">파일선택</string>
+    <string name="webview_capture_chooser">캡처할 방법을 선택하세요.</string>
+    <string name="webview_file_chooser2">파일을 가져올 방법을 선택하세요.</string>
+    <string name="webview_storage_write_error">Storage Write 권한이 없습니다.</string>
+    <string name="webview_bad_upload_path">업로드를 할 수 없는 경로입니다.</string>
+    <string name="webview_bad_parameter">파라미터 값이 설정되지 않았습니다.</string>
+    <string name="webview_bad_downloadfile">다운로드할 파일이 없습니다.</string>
+    <string name="webview_bad_savepath">파일 저장경로(%s)가 폴더가 아닌 파일로 존재 합니다.\n해당 파일을 삭제 후 다운로드 하세요.</string>
+    <string name="webview_bad_sdcard">SD카드가 없습니다.</string>
+    <string name="webview_camera_capture">카메라 촬영</string>
+    <string name="webview_picture_capture">사진 촬영</string>
+    <string name="webview_movie_capture">동영상 촬영</string>
+    <string name="webview_install_try">앱을 설치 후 다시 시도해 주세요.</string>
+    <string name="webview_bad_target">목적지 정보가 잘못 입력 되었습니다.</string>
+    <string name="webview_bad_app">가능한 어플리케이션이 없습니다.</string>
+
+    <!-- 권한 서용 화면 -->
+    <string name="permission_title">권한 허용</string>
+    <string name="permission_ess_y">필수</string>
+    <string name="permission_ess_n">선택</string>
+    <string name="permission_alert">권한을 허용해주세요.</string>
+    <string name="permission_title2">서비스 이용을 위해\n아래 권한을 허용해 주세요.</string>
+    <string name="permission_title3">필수 권한을 허용하지 않으면 앱이 정상적으로 작동하지 않을 수 있으며\n선택 권한은 허용하지 않아도 해당 기능 이외의 서비스는 이용할 수 있습니다.</string>
+    <string name="permission_calendar_title">캘린더</string>
+    <string name="permission_camera_title">카메라</string>
+    <string name="permission_contact_title">연락처</string>
+    <string name="permission_location_title">위치</string>
+    <string name="permission_microphone_title">마이크</string>
+    <string name="permission_telephone_title">전화</string>
+    <string name="permission_sensor_title">센서</string>
+    <string name="permission_sms_title">SMS</string>
+    <string name="permission_storage_title">저장소</string>
+    <string name="permission_appstats_title">앱 사용 통계</string>
+    <string name="permission_notifications_title">알림</string>
+    <string name="permission_ble_title">블루투스</string>
+    <string name="permission_fitness_title">신체활동</string>
+    <string name="permission_health_title">건강데이터</string>
+    <string name="permission_calendar_desc">사용자의 달력과 관련된 프로그램 권한에 사용됩니다.</string>
+    <string name="permission_camera_desc">카메라 액세스 및 이미지/비디오를 캡처하는 것과 관련된 권한에 사용됩니다.</string>
+    <string name="permission_contact_desc">이 장치의 연락처 및 프로필과 관련된 프로그램 권한에 사용됩니다.</string>
+    <string name="permission_location_desc">장치 위치에 액세스 할 수있는 권한에 사용됩니다.</string>
+    <string name="permission_microphone_desc">장치에서 마이크 오디오에 액세스하는 것과 관련된 사용 권한에 사용됩니다.</string>
+    <string name="permission_telephone_desc">통화 앱으로의 접근 및 휴대전화(전화 번호, 셀룰러 네트워크 등)의 상태를 확인합니다.</string>
+    <string name="permission_sensor_desc">신체 또는 환경 센서에 액세스하는 것과 관련된 사용 권한에 사용됩니다.</string>
+    <string name="permission_sms_desc">사용자의 SMS 메시지와 관련된 런타임 권한에 사용됩니다.</string>
+    <string name="permission_storage_desc">공유 외부 저장소와 관련된 런타임 권한에 사용됩니다.</string>
+    <string name="permission_appstats_desc">설치된 앱의 사용 통계 권한에 사용됩니다.</string>
+    <string name="permission_notifications_desc">푸시 알림을 받도록 허용합니다.</string>
+    <string name="permission_ble_desc">블루투스를 사용할 수 있도록 허용합니다.</string>
+    <string name="permission_fitness_desc">신체 활동 데이터에 접근하도록 허용합니다.</string>
+    <string name="permission_health_desc">건강 데이터에 접근하도록 허용합니다.</string>
+
+    <!-- 결제 관련 -->
+    <string name="settlement_isp_error">모바일 ISP 어플리케이션이 설치되어 있지 않습니다.\n설치를 눌러 진행 해 주십시요.\n취소를 누르면 결제가 취소 됩니다.</string>
+    <string name="settlement_cancel_desc">결제를 취소 하셨습니다.</string>
+    <string name="settlement_not_install">어플리케이션이 설치되어 있지 않습니다.\n설치를 눌러 진행 해 주십시요.\n취소를 누르면 결제가 취소 됩니다.</string>
+    <string name="settlement_not_install_url">설치 url이 올바르지 않습니다.</string>
+    <string name="settlement_install_need">설치가 필요합니다.</string>
+
+    <!-- 기타 -->
+    <string name="setting">설정</string>
+    <string name="gps_title">위치정보 설정</string>
+    <string name="gps_content">단말기의 위치정보 기능이 비활성 상태입니다.설정창으로 이동 하시겠습니까?</string>
+    <string name="loading">Processing. Please wait.</string>
+    <string name="dialog_info">알림</string>
+    <string name="storage_removed">저장소가 제거되었습니다.</string>
+    <string name="choose_file">파일 선택</string>
+    <string name="error_selecting_file">파일 선택 오류</string>
+    <string name="internal_storage">Internal storage</string>
+    <string name="todo" translatable="false">TODO</string>
+
+</resources>

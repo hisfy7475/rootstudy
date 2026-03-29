@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>storage</key>
+	<dict><key>use</key><true/><key>ess</key><true/></dict>
+	<key>notifications</key>
+	<dict><key>use</key><true/></dict>
+	<key>camera</key>
+	<dict><key>use</key><true/></dict>
+	<key>location</key>
+	<dict><key>use</key><false/></dict>
+	<key>calendar</key>
+	<dict><key>use</key><false/></dict>
+	<key>contact</key>
+	<dict><key>use</key><false/></dict>
+	<key>microphone</key>
+	<dict><key>use</key><false/></dict>
+	<key>sensor</key>
+	<dict><key>use</key><false/></dict>
+	<key>ble</key>
+	<dict><key>use</key><false/></dict>
+	<key>fitness</key>
+	<dict><key>use</key><false/></dict>
+	<key>health</key>
+	<dict><key>use</key><false/></dict>
+	<!-- ess는 필,선택 표를 다르 표할ㅐ만 사용 -->
+</dict>
+</plist>

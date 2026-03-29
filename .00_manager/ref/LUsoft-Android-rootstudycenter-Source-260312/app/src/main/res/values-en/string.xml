@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 일반 -->
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_today">Stop watching today</string>
+    <string name="common_close">Close</string>
+    <string name="common_move">Move</string>
+    <string name="common_alarm">Alarm</string>
+    <string name="common_install">Install</string>
+    <string name="common_file">File</string>
+    <string name="common_share">share</string>
+    <string name="common_catch">recognize</string>
+
+    <string name="common_back_text">Press back again to exit.</string>
+    <string name="common_mic_upload">The recording file has been uploaded.</string>
+    <string name="common_download_complete">Download complete</string>
+    <string name="common_open_fail">Failed to open %s.</string>
+    <string name="common_not_support">Not supported.</string>
+    <string name="common_not_data">There is no data.</string>
+    <string name="common_connect_fail">Connection failed</string>
+    <string name="common_app_update_title">Update Notification</string>
+    <string name="common_app_update_desc">A new version has been released.</string>
+    <string name="common_app_update_force">Available after app update.</string>
+    <string name="common_app_update_ok">Update</string>
+    <string name="common_app_update_comment1">This is the latest version.</string>
+    <string name="common_app_update_comment2">Unable to check update status</string>
+
+
+    <!-- webview -->
+    <string name="webview_app_not_install">The app is not installed.</string>
+    <string name="webview_bad_url">Invalid URL.</string>
+    <string name="webview_ssl_error">SSL Error: Would you like to proceed to the next page?</string>
+    <string name="webview_file_chooser">Select file</string>
+    <string name="webview_capture_chooser">Choose how you want to capture.</string>
+    <string name="webview_file_chooser2">Choose how you want to import your files.</string>
+    <string name="webview_storage_write_error">You do not have Storage Write permission.</string>
+    <string name="webview_bad_upload_path">This path cannot be uploaded.</string>
+    <string name="webview_bad_parameter">The parameter value was not set.</string>
+    <string name="webview_bad_downloadfile">There are no files to download.</string>
+    <string name="webview_bad_savepath">The file save path (%s) exists as a file, not a folder.\nPlease delete the file and then download it.</string>
+    <string name="webview_bad_sdcard">There is no SD card.</string>
+    <string name="webview_camera_capture">Camera shooting</string>
+    <string name="webview_picture_capture">Photo shoot</string>
+    <string name="webview_movie_capture">Video recording</string>
+    <string name="webview_install_try">Please install the app and try again.</string>
+    <string name="webview_bad_target">The destination information was entered incorrectly.</string>
+    <string name="webview_bad_app">There are no available applications.</string>
+
+    <!-- 권한 서용 화면 -->
+    <string name="permission_title">Grant permission</string>
+    <string name="permission_ess_y">Required</string>
+    <string name="permission_ess_n">Optional</string>
+    <string name="permission_alert">Please grant permission.</string>
+    <string name="permission_title2">Please allow the following permissions to use the service:</string>
+    <string name="permission_title3">If you do not allow the required permissions, the app may not function properly,\nand even if you do not allow the optional permissions, you can still use services other than the corresponding functions.</string>
+    <string name="permission_calendar_title">Calender</string>
+    <string name="permission_camera_title">Camera</string>
+    <string name="permission_contact_title">Contact</string>
+    <string name="permission_location_title">Location</string>
+    <string name="permission_microphone_title">Microphone</string>
+    <string name="permission_telephone_title">Telephone</string>
+    <string name="permission_sensor_title">Sensor</string>
+    <string name="permission_sms_title">SMS</string>
+    <string name="permission_storage_title">Storage</string>
+    <string name="permission_appstats_title">App Usage Stats Manager</string>
+    <string name="permission_notifications_title">Post Notifications</string>
+    <string name="permission_ble_title">Bluetooth</string>
+    <string name="permission_fitness_title">Physical Activity</string>
+    <string name="permission_health_title">Health Data</string>
+
+    <string name="permission_calendar_desc">Used for program privileges related to the user\'s calendar.</string>
+    <string name="permission_camera_desc">Used for camera access and rights related to image/video capture</string>
+    <string name="permission_contact_desc">Used for program permissions related to the device\'s contacts and profiles.</string>
+    <string name="permission_location_desc">Please check Terms and Conditions of Location-Based Services.</string>
+    <string name="permission_microphone_desc">Used for permissions related to the device\'s microphone audio access.</string>
+    <string name="permission_telephone_desc">Access to calling apps and check mobile phone status (phone number, cellular network, etc.).</string>
+    <string name="permission_sensor_desc">Used for privileges related to access to a body or environmental sensor.</string>
+    <string name="permission_sms_desc">Used for runtime permissions related to the user\'s SMS message.</string>
+    <string name="permission_storage_desc">Used for runtime permissions related to shared external storage.</string>
+    <string name="permission_appstats_desc">Used for usage statistics permission of installed apps.</string>
+    <string name="permission_notifications_desc">Allow to receive push notifications.</string>
+    <string name="permission_ble_desc">Allows you to use Bluetooth.</string>
+    <string name="permission_fitness_desc">Allows access to physical activity data.</string>
+    <string name="permission_health_desc">Allow access to your health data.</string>
+
+    <!-- 결제 관련 -->
+    <string name="settlement_isp_error">The mobile ISP application is not installed.\nPlease click Install to proceed.\nIf you click Cancel, the payment will be canceled.</string>
+    <string name="settlement_cancel_desc">Your payment has been cancelled.</string>
+    <string name="settlement_not_install">The application is not installed.\nPlease click Install to proceed.\nIf you click Cancel, the payment will be canceled.</string>
+    <string name="settlement_not_install_url">The installation url is incorrect.</string>
+    <string name="settlement_install_need">Installation is required.</string>
+
+    <!-- 기타 -->
+    <string name="setting">setting</string>
+    <string name="gps_title">Location information settings</string>
+    <string name="gps_content">The location information function of your terminal is disabled. Would you like to go to the settings window?</string>
+    <string name="loading">Processing. Please wait.</string>
+    <string name="dialog_info">alarm</string>
+    <string name="storage_removed">The repository has been removed.</string>
+    <string name="choose_file">Select file</string>
+    <string name="error_selecting_file">File selection error</string>
+    <string name="internal_storage">Internal storage</string>
+
+</resources>

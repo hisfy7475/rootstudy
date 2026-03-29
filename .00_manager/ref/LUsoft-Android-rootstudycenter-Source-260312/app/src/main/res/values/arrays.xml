@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="permission_titles">
+        <item>Service Agreement Guide</item>
+        <item>In order to use the service smoothly, permission for the following rights is required.</item>
+        <item>OK</item>
+    </string-array>
+
+    <string-array name="permission_keys">
+        <item>calendar</item>
+        <item>camera</item>
+        <item>contact</item>
+        <item>location</item>
+        <item>microphone</item>
+        <item>telephone</item>
+        <item>sensor</item>
+        <item>sms</item>
+        <item>storage</item>
+        <item>packUsageStats</item>
+        <item>notifications</item>
+        <item>ble</item>
+        <item>fitness</item>
+    </string-array>
+
+    <string-array name="permission_title">
+        <item>@string/permission_calendar_title</item>
+        <item>@string/permission_camera_title</item>
+        <item>@string/permission_contact_title</item>
+        <item>@string/permission_location_title</item>
+        <item>@string/permission_microphone_title</item>
+        <item>@string/permission_telephone_title</item>
+        <item>@string/permission_sensor_title</item>
+        <item>@string/permission_sms_title</item>
+        <item>@string/permission_storage_title</item>
+        <item>@string/permission_appstats_title</item>
+        <item>@string/permission_notifications_title</item>
+        <item>@string/permission_ble_title</item>
+        <item>@string/permission_fitness_title</item>
+    </string-array>
+
+    <string-array name="permission_detail">
+        <item>@string/permission_calendar_desc</item>
+        <item>@string/permission_camera_desc</item>
+        <item>@string/permission_contact_desc</item>
+        <item>@string/permission_location_desc</item>
+        <item>@string/permission_microphone_desc</item>
+        <item>@string/permission_telephone_desc</item>
+        <item>@string/permission_sensor_desc</item>
+        <item>@string/permission_sms_desc</item>
+        <item>@string/permission_storage_desc</item>
+        <item>@string/permission_appstats_desc</item>
+        <item>@string/permission_notifications_desc</item>
+        <item>@string/permission_ble_desc</item>
+        <item>@string/permission_fitness_desc</item>
+    </string-array>
+
+    <string-array name="permission_ess">
+        <item>Y</item>
+        <item>N</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>Y</item>
+        <item>N</item>
+        <item>Y</item>
+        <item>Y</item>
+    </string-array>
+
+    <integer-array name="permission_icon">
+        <item>@drawable/ic_calendar</item>
+        <item>@drawable/ic_camera</item>
+        <item>@drawable/ic_contact</item>
+        <item>@drawable/ic_location</item>
+        <item>@drawable/ic_microphone</item>
+        <item>@drawable/ic_telephone</item>
+        <item>@drawable/ic_sensor</item>
+        <item>@drawable/ic_sms</item>
+        <item>@drawable/ic_storage</item>
+        <item>@drawable/ic_appstats</item>
+        <item>@drawable/ic_notifications</item>
+        <item>@drawable/ic_ble</item>
+    </integer-array>
+</resources>

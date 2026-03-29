@@ -11,6 +11,7 @@ import {
   Award,
   MessageCircle,
   Calendar,
+  CalendarClock,
   BarChart3,
   FileBarChart2,
   type LucideIcon,
@@ -25,6 +26,7 @@ interface NavItem {
 // 학생용 네비게이션 아이템
 const studentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
+  { href: '/schedule', label: '스케줄', icon: CalendarClock },
   { href: '/stats', label: '통계', icon: BarChart3 },
   { href: '/report', label: '리포트', icon: FileBarChart2 },
   { href: '/points', label: '상벌점', icon: Award },

@@ -1,0 +1,25 @@
+/* Permission Usage Descriptions - Chinese Simplified */
+
+"NSAppleMusicUsageDescription" = "允许访问媒体库，以便将相册中的视频附加到帖子中。";
+
+"NSCameraUsageDescription" = "允许访问相机，以便拍摄头像照片和将照片附加到帖子中。";
+
+"NSContactsUsageDescription" = "允许访问通讯录，用于地址簿管理和紧急联系人。通讯录将上传并存储在服务器上，不会分享给第三方。";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "您的位置信息将用于提供基于位置的搜索服务。\n该服务帮助您查找附近的门店。";
+
+"NSLocationAlwaysUsageDescription" = "您的位置信息将用于提供基于位置的搜索服务。\n该服务帮助您查找附近的门店。";
+
+"NSLocationUsageDescription" = "您的位置信息将用于提供基于位置的搜索服务。\n该服务帮助您查找附近的门店。";
+
+"NSLocationWhenInUseUsageDescription" = "您的位置信息将用于提供基于位置的搜索服务。\n该服务帮助您查找附近的门店。";
+
+"NSMicrophoneUsageDescription" = "允许访问麦克风，以便录制带有音频的视频并附加到帖子中。";
+
+"NSPhotoLibraryAddUsageDescription" = "允许访问以将拍摄的图片保存到相册。";
+
+"NSPhotoLibraryUsageDescription" = "允许访问照片库，以便将照片和视频附加到个人资料和帖子中。";
+
+"NSBluetoothAlwaysUsageDescription" = "允许访问蓝牙，用于搜索和连接设备、获取Wi-Fi SSID列表以及向设备发送Wi-Fi连接信息。";
+
+"NSBluetoothPeripheralUsageDescription" = "允许访问蓝牙，用于连接智能电子日历设备并同步管理日期和时间数据。";

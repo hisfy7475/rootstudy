@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host" translatable="false">lusoft</string>
+    <string name="scheme" translatable="false">luproject</string>
+    <string name="StatusBarReverse" translatable="false">true</string>
+</resources>

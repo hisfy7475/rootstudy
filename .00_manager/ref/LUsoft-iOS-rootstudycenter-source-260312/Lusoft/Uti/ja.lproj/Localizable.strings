@@ -1,0 +1,77 @@
+/*
+ Localizable.strings
+
+ */
+
+/* common */
+"필수" = "必須";
+"선택" = "任意";
+"확인" = "確認";
+"열기" = "開く";
+"닫기" = "閉じる";
+"이동" = "移動";
+"다운로드 완료" = "ダウンロード完了";
+
+"취소" = "キャンセル";
+"종료" = "終了";
+"결제" = "決済";
+"탐색" = "検索";
+"카메라" = "カメラ";
+"앨범" = "アルバム";
+"사진 찍기" = "写真を撮る";
+"사진 보관함" = "フォトライブラリ";
+"필수값 누락" = "必須項目が未入力です";
+"app_not" = "アプリがインストールされていません。";
+"app_install" = "アプリをインストールしますか？";
+"move_not" = "移動できないURLです。";
+"capture_no" = "セキュリティポリシーにより、画面キャプチャはできません。";
+"iphone_twitter" = "iPhoneの設定 → Twitterからログインしてください。";
+"iphone_facebook" = "iPhoneの設定 → FaceBookからログインしてください。";
+"앱을종료" = "アプリを終了しますか？";
+
+/* 결제 관련 */
+"inapp_buy_not" = "アプリ内課金が設定されていません。";
+
+/* permission */
+"permission_storage"       = "ストレージ";
+"permission_notifications" = "通知";
+"permission_camera"        = "カメラ";
+"permission_location"      = "位置情報";
+"permission_calendar"      = "カレンダー";
+"permission_contact"       = "連絡先";
+"permission_microphone"    = "マイク";
+"permission_sensor"        = "センサー";
+"permission_ble"           = "Bluetooth";
+"permission_fitness"       = "モーションとフィットネス";
+"permission_health"        = "ヘルスデータ";
+"permission_storage_desc"       = "写真/メディア/ファイルなどへのアクセスを許可します。";
+"permission_notifications_desc" = "プッシュ通知の受信を許可します。";
+"permission_camera_desc"        = "カメラへのアクセスおよび画像/動画の撮影に関する権限に使用されます。";
+"permission_location_desc"      = "デバイスの位置情報へのアクセス権限に使用されます。";
+"permission_calendar_desc"      = "ユーザーのカレンダーに関するプログラム権限に使用されます。";
+"permission_contact_desc"       = "このデバイスの連絡先およびプロフィールに関するプログラム権限に使用されます。";
+"permission_microphone_desc"    = "デバイスのマイク音声へのアクセスに関する権限に使用されます。";
+"permission_sensor_desc"        = "身体または環境センサーへのアクセスに関する権限に使用されます。";
+"permission_ble_desc"           = "Bluetoothの使用を許可します。";
+"permission_fitness_desc"       = "モーションおよびフィットネスデータへのアクセスを許可します。";
+"permission_health_desc"        = "ヘルスデータへのアクセスを許可します。";
+
+/** 추후 삭제 */
+"kOK" = "確認";
+"kCancel" = "キャンセル";
+"kTerminate" = "終了";
+"kRetry" = "再試行";
+"kOpen" = "開く";
+"kClose" = "閉じる";
+
+"kCamera" = "カメラ";
+"kAlbum" = "アルバム";
+"kVideo" = "動画";
+"kAll" = "すべての画像";
+"kImage" = "画像";
+"kPreview" = "プレビュー";
+"kCheck" = "最大%d個まで選択できます。";
+
+"kDownloadComplete" = "ダウンロード完了";
+"kWantToQuit" = "アプリを終了しますか？";
+"kNetworkError" = "インターネットに接続されていません";

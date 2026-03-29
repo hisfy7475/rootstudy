@@ -1,0 +1,25 @@
+/* Permission Usage Descriptions - Uzbek */
+
+"NSAppleMusicUsageDescription" = "Galereyadan videolarni postlarga biriktirish uchun media kutubxonangizga kirishga ruxsat bering.";
+
+"NSCameraUsageDescription" = "Profil suratini olish va postlarga rasm biriktirish uchun kameraga kirishga ruxsat bering.";
+
+"NSContactsUsageDescription" = "Manzillar kitobini boshqarish va favqulodda kontaktlar uchun kontaktlaringizga kirishga ruxsat bering. Kontaktlar serverga yuklanadi va saqlanadi, uchinchi tomonlarga uzatilmaydi.";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Joylashuvga asoslangan qidiruv xizmatini taqdim etish uchun joylashuvingiz ishlatiladi.\nBu xizmat yaqin atrofdagi do'konlarni topishga yordam beradi.";
+
+"NSLocationAlwaysUsageDescription" = "Joylashuvga asoslangan qidiruv xizmatini taqdim etish uchun joylashuvingiz ishlatiladi.\nBu xizmat yaqin atrofdagi do'konlarni topishga yordam beradi.";
+
+"NSLocationUsageDescription" = "Joylashuvga asoslangan qidiruv xizmatini taqdim etish uchun joylashuvingiz ishlatiladi.\nBu xizmat yaqin atrofdagi do'konlarni topishga yordam beradi.";
+
+"NSLocationWhenInUseUsageDescription" = "Joylashuvga asoslangan qidiruv xizmatini taqdim etish uchun joylashuvingiz ishlatiladi.\nBu xizmat yaqin atrofdagi do'konlarni topishga yordam beradi.";
+
+"NSMicrophoneUsageDescription" = "Postlarga biriktirish uchun ovozli video yozish uchun mikrofonga kirishga ruxsat bering.";
+
+"NSPhotoLibraryAddUsageDescription" = "Olingan rasmlarni foto galereyaga saqlash uchun ruxsat bering.";
+
+"NSPhotoLibraryUsageDescription" = "Profil va postlarga rasm va videolarni biriktirish uchun foto kutubxonangizga kirishga ruxsat bering.";
+
+"NSBluetoothAlwaysUsageDescription" = "Qurilmalarni qidirish va ulash, Wi-Fi SSID ro'yxatini olish va Wi-Fi ulanish ma'lumotlarini qurilmaga yuborish uchun Bluetooth-ga kirishga ruxsat bering.";
+
+"NSBluetoothPeripheralUsageDescription" = "Smart elektron kalendar qurilmasiga ulanib, sana va vaqt ma'lumotlarini sinxronlashtirish uchun Bluetooth-ga kirishga ruxsat bering.";

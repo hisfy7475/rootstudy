@@ -1,0 +1,77 @@
+/* 
+  Localizable.strings
+
+ */
+
+/* common */
+"필수" = "필수";
+"선택" = "선택";
+"확인" = "확인";
+"열기" = "열기";
+"닫기" = "닫기";
+"이동" = "이동";
+"다운로드 완료" = "다운로드 완료";
+
+"취소" = "취소";
+"종료" = "종료";
+"결제" = "결제";
+"탐색" = "탐색";
+"카메라" = "카메라";
+"앨범" = "앨범";
+"사진 찍기" = "사진 찍기";
+"사진 보관함" = "사진 보관함";
+"필수값 누락" = "필수값 누락";
+"app_not" = "앱이 설치되어 있지 않습니다.";
+"app_install" = "앱을 설치하시겠습니까?";
+"move_not" = "이동할 수 없는 URL입니다.";
+"capture_no" = "보안정책에 따라 화면을 캡쳐할 수 없습니다.";
+"iphone_twitter" = "아이폰 설정 -> Twitter 에서 로그인 해 주세요.";
+"iphone_facebook" = "아이폰 설정 -> FaceBook 에서 로그인 해 주세요.";
+"앱을종료" = "앱을 종료하시겠습니까?";
+
+/* 결제 관련 */
+"inapp_buy_not" = "인앱구매 설정이 되어있지 않습니다.";
+	
+/* permission */
+"permission_storage"       = "저장소";
+"permission_notifications" = "알림";
+"permission_camera"        = "카메라";
+"permission_location"      = "위치";
+"permission_calendar"      = "캘린더";
+"permission_contact"       = "연락처";
+"permission_microphone"    = "마이크";
+"permission_sensor"        = "센서";
+"permission_ble"           = "블루투스";
+"permission_fitness"       = "동작 및 피트니스";
+"permission_health"        = "건강 데이터";
+"permission_storage_desc"       = "사진/미디어/파일등의 접근 권한을 허용합니다.";
+"permission_notifications_desc" = "푸시 알림을 받도록 허용합니다.";
+"permission_camera_desc"        = "카메라 액세스 및 이미지/비디오를 캡처하는 것과 관련된 권한에 사용됩니다.";
+"permission_location_desc"      = "장치 위치에 액세스 할 수있는 권한에 사용됩니다.";
+"permission_calendar_desc"      = "사용자의 달력과 관련된 프로그램 권한에 사용됩니다.";
+"permission_contact_desc"       = "이 장치의 연락처 및 프로필과 관련된 프로그램 권한에 사용됩니다.";
+"permission_microphone_desc"    = "장치에서 마이크 오디오에 액세스하는 것과 관련된 사용 권한에 사용됩니다.";
+"permission_sensor_desc"        = "신체 또는 환경 센서에 액세스하는 것과 관련된 사용 권한에 사용됩니다.";
+"permission_ble_desc"           = "블루투스를 사용할 수 있도록 허용합니다.";
+"permission_fitness_desc"       = "동작 및 피트니스 데이터에 접근하도록 허용합니다.";
+"permission_health_desc"        = "건강 데이터에 접근하도록 허용합니다.";
+
+/** 추후 삭제 */
+"kOK" = "Confirm";
+"kCancel" = "Cancel";
+"kTerminate" = "Quit";
+"kRetry" = "Retry";
+"kOpen" = "열기";
+"kClose" = "닫기";
+
+"kCamera" = "Camera";
+"kAlbum" = "Album";
+"kVideo" = "Video";
+"kAll" = "All Image";
+"kImage" = "Image";
+"kPreview" = "Preview";
+"kCheck" = "최대 %d개까지 선택할 수 있습니다.";
+
+"kDownloadComplete" = "다운로드 완료";
+"kWantToQuit" = "앱을 종료하시겠습니까?";
+"kNetworkError" = "인터넷에 연결되어 있지 않습니다";

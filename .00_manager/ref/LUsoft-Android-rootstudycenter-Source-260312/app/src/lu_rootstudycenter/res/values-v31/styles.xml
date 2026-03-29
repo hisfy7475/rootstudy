@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    android api 31 이상에서면 적용되는 코드임
+    assets/config.json 에서 splash를 1로 할려면(splash api를 쓰지 않고 activity로 뛰움)
+     windowSplashScreenBackground 값을 white(@color/white)로 설정
+     lottie를 쓸려면 raw/animation.json 파일이 있으면 lottie가 재생됨
+     배경에 로고등을 넣었을때 icone 투명한(@mipmap/alpha)걸로 세팅
+    -->
+    <style name="AppTheme.Splash" parent="AppTheme">
+        <item name="android:windowFullscreen">false</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_intro_logo</item>
+        <item name="android:windowSplashScreenAnimationDuration">1000</item>
+    </style>
+</resources>

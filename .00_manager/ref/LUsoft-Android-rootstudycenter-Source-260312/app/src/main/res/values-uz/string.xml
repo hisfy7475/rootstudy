@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 일반 -->
+    <string name="common_ok">Tasdiqlash</string>
+    <string name="common_cancel">Bekor qilish</string>
+    <string name="common_today">Bugun tomosha qilishni to\'xtating</string>
+    <string name="common_close">Yopish</string>
+    <string name="common_move">Oʻtish</string>
+    <string name="common_alarm">Xabar</string>
+    <string name="common_install">Oʻrnatish</string>
+    <string name="common_file">Fayl</string>
+    <string name="common_share">Joʻnatish</string>
+    <string name="common_catch">Tanib olish</string>
+    <string name="common_back_text">Chiqish uchun yana bir marta bosing.</string>
+    <string name="common_mic_upload">Yozuv fayli yuklandi.</string>
+    <string name="common_download_complete">Yuklash tugallandi.</string>
+    <string name="common_open_fail">%s ochilmadi.</string>
+    <string name="common_not_support">Qoʻllab-quvvatlanmaydi.</string>
+    <string name="common_not_data">Hech qanday maʻlumot yoʻq.</string>
+    <string name="common_connect_fail">Ulanish amalga oshmadi</string>
+    <string name="common_app_update_title">Yangilanish haqida bildirishnoma</string>
+    <string name="common_app_update_desc">Yangi versiya chiqarildi.</string>
+    <string name="common_app_update_force">Ilova yangilanganidan keyin mavjud.</string>
+    <string name="common_app_update_ok">Yangilash</string>
+    <string name="common_app_update_comment1">Bu eng so\'nggi versiya.</string>
+    <string name="common_app_update_comment2">Yangilanish holatini tekshirib bo\'lmadi.</string>
+
+    <!-- webview -->
+    <string name="webview_app_not_install">Ilova oʻrnatilmagan.</string>
+    <string name="webview_bad_url">URL noto‘g‘ri.</string>
+    <string name="webview_ssl_error">SSL xato: keyingi sahifaga oʻtishni xohlaysizmi?</string>
+    <string name="webview_file_chooser">Faylni tanlang</string>
+    <string name="webview_capture_chooser">Qanday suratga olishni tanlang.</string>
+    <string name="webview_file_chooser2">Faylni import qilish usulini tanlang.</string>
+    <string name="webview_storage_write_error">Sizda saqlashga yozish ruxsatingiz yoʻq.</string>
+    <string name="webview_bad_upload_path">Buni yuklab boʻlmaydi.</string>
+    <string name="webview_bad_parameter">Parametr qiymati oʻrnatilmagan.</string>
+    <string name="webview_bad_downloadfile">Yuklanadigan fayl yoʻq.</string>
+    <string name="webview_bad_savepath">Faylni saqlash yoʻli (%s) papka emas, balki fayl sifatida mavjud.\nIltimos, faylni olib tashlang va yuklang.</string>
+    <string name="webview_bad_sdcard">SD karta yoʻq.</string>
+    <string name="webview_camera_capture">Kamerada suratga olish</string>
+    <string name="webview_picture_capture">Rasmga olish</string>
+    <string name="webview_movie_capture">Video olish</string>
+    <string name="webview_install_try">Iltimos, ilovani oʻrnating va qaytadan urinib koʻring.</string>
+    <string name="webview_bad_target">Manzil maʼlumotlari notoʻgʻri.</string>
+    <string name="webview_bad_app">Ishlaydigan ilovalar mavjud emas.</string>
+
+    <!-- 권한 서용 화면 -->
+    <string name="permission_title">Ruxsat berish</string>
+    <string name="permission_ess_y">Zarur</string>
+    <string name="permission_ess_n">Tanlash</string>
+    <string name="permission_alert">Iltimos, ruxsat bering.</string>
+    <string name="permission_title2">Xizmatdan foydalanish uchun\nquyidagi ruxsatlarga ruxsat bering.</string>
+    <string name="permission_title3">Agar siz kerakli ruxsatlarni bermasangiz, ilova toʻgʻri ishlamasligi mumkin.\nUshbu funksiyalardan tashqari xizmatlar tanlangan ruxsatsiz mavjud.</string>
+    <string name="permission_calendar_title">Kalendar</string>
+    <string name="permission_camera_title">Kamera</string>
+    <string name="permission_contact_title">Tel raqam</string>
+    <string name="permission_location_title">Joylashuvi</string>
+    <string name="permission_microphone_title">Mikrofon</string>
+    <string name="permission_telephone_title">Telefon qoʻngʻirogʻi</string>
+    <string name="permission_sensor_title">Sensor</string>
+    <string name="permission_sms_title">SMS</string>
+    <string name="permission_storage_title">Saqlash joy</string>
+    <string name="permission_appstats_title">Ilovadan foydalanish statistikasi</string>
+    <string name="permission_notifications_title">Xabar</string>
+    <string name="permission_ble_title">Bluetooth</string>
+    <string name="permission_fitness_title">Jismoniy faoliyat</string>
+    <string name="permission_health_title">Sogʻlom maʻlumotlar</string>
+    <string name="permission_calendar_desc">Foydalanuvchi taqvimi bilan bogʻliq dastur ruxsatnomalari uchun foydalaniladi.</string>
+    <string name="permission_camera_desc">Kameraga kirish va rasm/video olish bilan bogʻliq ruxsatlar uchun foydalaniladi.</string>
+    <string name="permission_contact_desc">Ushbu qurilmadagi kontaktlar va profillar bilan bogʻliq ilova ruxsatnomalari uchun foydalaniladi.</string>
+    <string name="permission_location_desc">Qurilmaning joylashuviga kirishga ruxsat berish uchun foydalaniladi.</string>
+    <string name="permission_microphone_desc">Qurilmadagi mikrofon audiosiga kirish bilan bogʻliq ruxsatlar uchun foydalaniladi.</string>
+    <string name="permission_telephone_desc">Qoʻngʻiroq qiluvchi ilovaga kirishni va mobil telefoningiz holatini (telefon raqami, uyali tarmoq va boshqalar) tekshiring.</string>
+    <string name="permission_sensor_desc">Tana yoki atrof-muhit sensorlariga kirish bilan bogʻliq ruxsatlar uchun foydalaniladi.</string>
+    <string name="permission_sms_desc">Foydalanuvchi SMS xabarlari bilan bogʻliq ish vaqti ruxsatlari uchun foydalaniladi.</string>
+    <string name="permission_storage_desc">Umumiy tashqi xotiraga oid ish vaqti ruxsatlari uchun foydalaniladi.</string>
+    <string name="permission_appstats_desc">Oʻrnatilgan ilovalar statistikasidan foydalanishga ruxsat olish uchun foydalaniladi.</string>
+    <string name="permission_notifications_desc">Push-bildirishnomalarni olish imkonini beradi.</string>
+    <string name="permission_ble_desc">Bluetoothdan foydalanish.</string>
+    <string name="permission_fitness_desc">Jismoniy faoliyat maʻlumotlariga kirishni taʻminlaydi.</string>
+    <string name="permission_health_desc">Sogʻlom maʻlumotga kirishga ruxsat.</string>
+
+    <!-- 결제 관련 -->
+    <string name="settlement_isp_error">“Mobil internet provayderi ilovasi oʻrnatilmagan.\nDavom etish uchun “Oʻrnatish” tugmasini bosing.\nAgar Bekor qilish tugmasini bossangiz, toʻlov bekor qilinadi."</string>
+    <string name="settlement_cancel_desc">Toʻlovingiz bekor qilindi.</string>
+    <string name="settlement_not_install">“Ilova oʻrnatilmagan.\nDavom etish uchun “Oʻrnatish” tugmasini bosing.\nAgar Bekor qilish tugmasini bossangiz, toʻlov bekor qilinadi."</string>
+    <string name="settlement_not_install_url">Oʻrnatish URL manzili notoʻgʻri.</string>
+    <string name="settlement_install_need">Oʻrnatish talab qilinadi.</string>
+
+    <!-- 기타 -->
+    <string name="setting">sozlash</string>
+    <string name="gps_title">Joylashuv maʻlumotlari sozlamalari</string>
+    <string name="gps_content">Terminalingizning joylashuv maʼlumoti funksiyasi oʻchirilgan. Sozlamalar oynasiga oʻtishni xohlaysizmi?</string>
+    <string name="loading">Processing. Please wait.</string>
+    <string name="dialog_info">Xabar</string>
+    <string name="storage_removed">Repozitoriy olib tashlandi.</string>
+    <string name="choose_file">Faylni tanlang</string>
+    <string name="error_selecting_file">Fayl tanlashda xato</string>
+    <string name="internal_storage">Internal storage</string>
+
+</resources>

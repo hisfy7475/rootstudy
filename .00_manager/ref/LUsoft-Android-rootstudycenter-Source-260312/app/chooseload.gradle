@@ -1,0 +1,99 @@
+import groovy.json.JsonSlurper
+
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+def getCurrentFlavor() {
+    Gradle gradle = getGradle()
+    String  tskReqStr = gradle.getStartParameter().getTaskRequests().toString()
+    Pattern pattern
+    if( tskReqStr.contains( "assemble" ) ) // to run ./gradlew assembleRelease to build APK
+        pattern = Pattern.compile("assemble(\\w+)(Release|Debug)")
+    else if( tskReqStr.contains( "bundle" ) ) // to run ./gradlew bundleRelease to build .aab
+        pattern = Pattern.compile("bundle(\\w+)(Release|Debug)")
+    else
+        pattern = Pattern.compile("generate(\\w+)(Release|Debug)")
+
+    Matcher matcher = pattern.matcher( tskReqStr )
+    if( matcher.find() )
+        return matcher.group(1).toLowerCase()
+    else
+        return ""
+}
+def getBType() {
+    Gradle gradle = getGradle()
+    String  tskReqStr = gradle.getStartParameter().getTaskRequests().toString()
+    println "tskReqStr:" + tskReqStr
+    if ( tskReqStr.contains("Release") ) {
+        return "release"
+    }
+    return "debug"
+}
+def getConfigValue(name) {
+    def currFlavor = getCurrentFlavor()
+    def outStr = ""
+    android.productFlavors.all{ flavor ->
+        if( flavor.name==currFlavor ) {
+            //outStr = flavor.applicationId
+            try {
+                outStr = lavor.buildConfigFields[name].value
+            }catch(e){
+            }
+        }
+    }
+    return outStr
+}
+
+def jsonSlurper = new JsonSlurper()
+def fname = "app/src/"+getCurrentFlavor().toString()+"/assets/config.json"
+//def fname = "app/src/lu_aaa/assets/config.json"
+
+def BType = getBType()
+File file = new File(fname.toString())
+if(file.exists()) {
+    def config = jsonSlurper.parse(file)
+    dependencies {
+        if (config["snsLogin"]) {
+            if (config["snsLogin"]["use"]) {
+                //sns login library
+                implementation files('libs/SnsLogin-'+BType+'-1.0.2.aar')
+                //implementation files('libs/SnsLogin-debug.aar')
+                //네이버 로그인
+                if (config["snsLogin"]["naver"]) {
+                    if (config["snsLogin"]["naver"]["use"]) {
+                        implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+                        implementation 'com.navercorp.nid:oauth-jdk8:5.10.0'
+                    }
+                }
+                //kakao 로그인
+                if (config["snsLogin"]["kakao"]) {
+                    if (config["snsLogin"]["kakao"]["use"]) {
+                        implementation 'com.kakao.sdk:v2-user:2.23.0'
+                    }
+                }
+            }
+        }
+        //구글 플레이 스토어 빌링
+        if (config["googleBilling"]) {
+            if (config["googleBilling"]["use"]) {
+                implementation files('libs/GoogleBilling-'+BType+'-1.0.2.aar')
+                //implementation files('libs/GoogleBilling-debug.aar')
+                implementation 'com.android.billingclient:billing:8.0.0'
+            }
+        }
+        //구글 admob
+        if (config["googleAdMob"]) {
+            if (config["googleAdMob"]["use"]) {
+                implementation files('libs/GoogleAdMob-'+BType+'-1.0.1.aar') //sns login library
+                implementation 'com.google.android.gms:play-services-ads:24.6.0'
+            }
+        }
+    }
+}
+
+
+//if (file("$rootDir/app/src/"+getCurrentFlavor()+"/sub.gradle").exists()) {
+//    apply from: "$rootDir/app/src/"+getCurrentFlavor()+"/sub.gradle"
+//}
+
+
+

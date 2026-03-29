@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VariablesViewState
+   version = "1.0">
+   <ContextStates>
+      <ContextState
+         contextName = "MainViewController.userContentController(_:didReceive:):ViewController.swift">
+      </ContextState>
+      <ContextState
+         contextName = "IAPManager.productsRequest(_:didReceive:):IAPManager.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "response.products.count">
+            </PersistentString>
+            <PersistentString
+               value = "m_products">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "IAPManager.purchaseMyProduct(index:):IAPManager.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "m_products">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "closure #1 in MainViewController.doLogin(strID:):ViewController.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "Util.shared.pushCatID">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "closure #1 in MainViewController.viewDidLoad():ViewController.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "m_webview.frame">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "AppDelegate.application(_:didReceiveRemoteNotification:):AppDelegate.swift">
+      </ContextState>
+      <ContextState
+         contextName = "MapsOpenIn.setData(startLat:startLon:endLat:endLon:name:address:):MapsOpenIn.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "m_strEndLon">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "MapsOpenIn.onClickMap(sender:):MapsOpenIn.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "endName">
+            </PersistentString>
+            <PersistentString
+               value = "_strEndName!">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "IAPManager.init():IAPManager.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "m_purchseArray">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+   </ContextStates>
+</VariablesViewState>

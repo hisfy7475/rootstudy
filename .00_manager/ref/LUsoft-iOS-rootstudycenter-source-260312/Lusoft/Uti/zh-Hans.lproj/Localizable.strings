@@ -1,0 +1,77 @@
+/*
+ Localizable.strings
+
+ */
+
+/* common */
+"필수" = "必填";
+"선택" = "可选";
+"확인" = "确认";
+"열기" = "打开";
+"닫기" = "关闭";
+"이동" = "前往";
+"다운로드 완료" = "下载完成";
+
+"취소" = "取消";
+"종료" = "退出";
+"결제" = "支付";
+"탐색" = "搜索";
+"카메라" = "相机";
+"앨범" = "相册";
+"사진 찍기" = "拍照";
+"사진 보관함" = "照片库";
+"필수값 누락" = "缺少必填项";
+"app_not" = "应用尚未安装。";
+"app_install" = "是否要安装应用？";
+"move_not" = "无法跳转的URL。";
+"capture_no" = "根据安全策略，无法进行截屏。";
+"iphone_twitter" = "请前往iPhone设置 → Twitter登录。";
+"iphone_facebook" = "请前往iPhone设置 → FaceBook登录。";
+"앱을종료" = "确定要退出应用吗？";
+
+/* 결제 관련 */
+"inapp_buy_not" = "未设置应用内购买。";
+
+/* permission */
+"permission_storage"       = "存储";
+"permission_notifications" = "通知";
+"permission_camera"        = "相机";
+"permission_location"      = "位置";
+"permission_calendar"      = "日历";
+"permission_contact"       = "通讯录";
+"permission_microphone"    = "麦克风";
+"permission_sensor"        = "传感器";
+"permission_ble"           = "蓝牙";
+"permission_fitness"       = "运动与健身";
+"permission_health"        = "健康数据";
+"permission_storage_desc"       = "允许访问照片/媒体/文件等。";
+"permission_notifications_desc" = "允许接收推送通知。";
+"permission_camera_desc"        = "用于与相机访问及拍摄图片/视频相关的权限。";
+"permission_location_desc"      = "用于访问设备位置信息的权限。";
+"permission_calendar_desc"      = "用于与用户日历相关的程序权限。";
+"permission_contact_desc"       = "用于与此设备上的联系人和个人资料相关的程序权限。";
+"permission_microphone_desc"    = "用于与访问设备麦克风音频相关的权限。";
+"permission_sensor_desc"        = "用于与访问身体或环境传感器相关的权限。";
+"permission_ble_desc"           = "允许使用蓝牙。";
+"permission_fitness_desc"       = "允许访问运动和健身数据。";
+"permission_health_desc"        = "允许访问健康数据。";
+
+/** 추후 삭제 */
+"kOK" = "确认";
+"kCancel" = "取消";
+"kTerminate" = "退出";
+"kRetry" = "重试";
+"kOpen" = "打开";
+"kClose" = "关闭";
+
+"kCamera" = "相机";
+"kAlbum" = "相册";
+"kVideo" = "视频";
+"kAll" = "所有图片";
+"kImage" = "图片";
+"kPreview" = "预览";
+"kCheck" = "最多可选择%d个。";
+
+"kDownloadComplete" = "下载完成";
+"kWantToQuit" = "确定要退出应用吗？";
+"kNetworkError" = "未连接到互联网";

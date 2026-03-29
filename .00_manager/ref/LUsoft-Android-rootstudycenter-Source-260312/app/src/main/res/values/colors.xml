@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#000000</color>
+    <color name="colorPrimaryDark">#555555</color>
+    <color name="colorButtonPrimary">#353C46</color>
+    <color name="colorButtonText">#FFFFFF</color>
+    <color name="colorStatusBar">#FFFFFF</color>
+    <bool name="windowLightStatusBar">true</bool>
+    <color name="colorAccent">#000000</color>
+    <color name="white">#ffffff</color>
+    <color name="red">#FF0000</color>
+    <color name="black">#000000</color>
+    <color name="splashBackground">#FFFFFF</color>
+</resources>

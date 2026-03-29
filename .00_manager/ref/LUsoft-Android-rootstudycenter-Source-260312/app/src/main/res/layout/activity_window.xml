@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_window_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/colorStatusBar"
+    android:orientation="horizontal"
+    android:paddingLeft="0dp"
+    android:paddingTop="0dp"
+    android:paddingRight="0dp"
+    android:paddingBottom="0dp"
+    tools:context="kr.co.lusoft.ui.WindowActivity">
+
+    <RelativeLayout
+        android:id="@+id/base_navi"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:background="#FFF"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/base_back"
+            android:layout_width="50dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/back_button_black" />
+
+        <TextView
+            android:id="@+id/base_title"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_centerInParent="true"
+            android:gravity="center"
+            android:letterSpacing="-0.05"
+            android:lineSpacingExtra="7sp"
+            android:lines="1"
+            android:textColor="#161616"
+            android:textSize="15sp" />
+
+    </RelativeLayout>
+
+    <WebView
+        android:id="@+id/webView2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+</LinearLayout>

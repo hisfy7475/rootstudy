@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VariablesViewState
+   version = "1.0">
+   <ContextStates>
+      <ContextState
+         contextName = "IAPManager.productsRequest(_:didReceive:):IAPManager.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "static Util.handleRemoteNoti(userInfo : [AnyHashable : Any?]) -&gt; ():Util.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "userInfo">
+            </PersistentString>
+            <PersistentString
+               value = "Util.shared.pushCatID">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "static Util.(handleRemoteNoti(userInfo : [AnyHashable : Any?]) -&gt; ()).(closure #1):Util.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "taskID">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "IAPManager.paymentQueue(_:updatedTransactions:):IAPManager.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "trans.transactionState">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "MainViewController.(doLogin(strID : String) -&gt; ()).(closure #1):ViewController.swift">
+      </ContextState>
+      <ContextState
+         contextName = "static Util.sendDownloadCompleteLocalNoti(fileName : String, filePath : String) -&gt; ():Util.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "LocalNotiUserInfo">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "MainViewController.userContentController(WKUserContentController, didReceive : WKScriptMessage) -&gt; ():ViewController.swift">
+      </ContextState>
+   </ContextStates>
+</VariablesViewState>

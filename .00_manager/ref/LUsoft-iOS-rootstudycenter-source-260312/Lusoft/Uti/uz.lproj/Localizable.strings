@@ -1,0 +1,77 @@
+/* 
+  Localizable.strings
+
+ */
+
+/* common */
+"필수" = "Zarur";
+"선택" = "Tanlash";
+"확인" = "Tasdiqlash";
+"열기" = "Ochish";
+"닫기" = "Yopish";
+"이동" = "O'tish";
+"다운로드 완료" = "Yuklash tugallandi.";
+
+"취소" = "Bekor qilish";
+"종료" = "Chiqish";
+"결제" = "To'lov";
+"탐색" = "qidirish";
+"카메라" = "Kamera";
+"앨범" = "Albom";
+"사진 찍기" = "Rasmga olish";
+"사진 보관함" = "Rasmni saqlash";
+"필수값 누락" = "Kerakli qiymat yo'q";
+"app_not" = "Ilova o'rnatilmagan.";
+"app_install" = "Ilovani o'rnatmoqchimisiz?";
+"move_not" = "Bu URL manziliga kirib bo‘lmaydi.";
+"capture_no" = "Xavfsizlik tufayli ekran tasvirini olish mumkin emas.";
+"iphone_twitter" = "Iltimos, iPhone sozlamalari -> X-ga o'ting.";
+"iphone_facebook" = "Iltimos, iPhone sozlamalari -> Facebook-ga o'ting.";
+"앱을종료" = "Ilovani yopmoqchimisiz?";
+
+/* 결제 관련 */
+"inapp_buy_not" = "Ilova ichidagi xaridlar sozlanmagan.";
+	
+/* permission */
+"permission_storage"       = "Saqlash joy";
+"permission_notifications" = "Xabar";
+"permission_camera"        = "Kamera";
+"permission_location"      = "Joylashuvi";
+"permission_calendar"      = "Kalendar";
+"permission_contact"       = "Tel raqam";
+"permission_microphone"    = "Mikrofon";
+"permission_sensor"        = "Sensor";
+"permission_ble"           = "Bluetooth";
+"permission_fitness"       = "Harakat va Fitnes";
+"permission_health"        = "Sog'lom ma'lumotlar";
+"permission_storage_desc"       = "Rasmlar/media/fayllarga va hokazolarga kirishga ruxsat bering.";
+"permission_notifications_desc" = "Push-bildirishnomalarni olish imkonini beradi.";
+"permission_camera_desc"        = "Kameraga kirish va rasm/video olish bilan bog'liq ruxsatlar uchun foydalaniladi.";
+"permission_location_desc"      = "Qurilmaning joylashuviga kirishga ruxsat berish uchun foydalaniladi.";
+"permission_calendar_desc"      = "Foydalanuvchi taqvimi bilan bog'liq dastur ruxsatnomalari uchun foydalaniladi.";
+"permission_contact_desc"       = "Ushbu qurilmadagi kontaktlar va profillar bilan bogʻliq ilova ruxsatnomalari uchun foydalaniladi.";
+"permission_microphone_desc"    = "Qurilmadagi mikrofon audiosiga kirish bilan bog'liq ruxsatlar uchun foydalaniladi.";
+"permission_sensor_desc"        = "Tana yoki atrof-muhit sensorlariga kirish bilan bog'liq ruxsatlar uchun foydalaniladi.";
+"permission_ble_desc"           = "Bluetoothdan foydalanish.";
+"permission_fitness_desc"       = "Sizning harakatingiz va fitnesingiz haqidagi ma'lumotlarga kirish imkonini beradi.";
+"permission_health_desc"        = "Sog'lom ma'lumotga kirishga ruxsat.";
+
+/** 추후 삭제 */
+"kOK" = "Tasdiqlash";
+"kCancel" = "Bekor qilish";
+"kTerminate" = "Chiqish";
+"kRetry" = "Qayta urinish	";
+"kOpen" = "Ochish";
+"kClose" = "Yopish";
+
+"kCamera" = "Kamera";
+"kAlbum" = "Albom";
+"kVideo" = "Video";
+"kAll" = "To'liq rasm";
+"kImage" = "tasvir";
+"kPreview" = "Ko‘rib chiqish";
+"kCheck" = "Siz %d gacha tanlashingiz mumkin.";
+
+"kDownloadComplete" = "Yuklash tugallandi.";
+"kWantToQuit" = "Ilovani yopmoqchimisiz?";
+"kNetworkError" = "U internetga ulanmagan";

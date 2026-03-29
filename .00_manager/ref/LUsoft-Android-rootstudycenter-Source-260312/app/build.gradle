@@ -1,0 +1,181 @@
+import com.android.build.gradle.internal.tasks.FinalizeBundleTask
+
+plugins {
+    id 'com.android.application'
+    // FCM
+    id 'com.google.gms.google-services'
+}
+
+android {
+    namespace 'kr.co.lusoft'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "kr.co.lusoft"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    packaging {
+        resources {
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+    buildFeatures {
+        buildConfig = true // 필요하면 true, 필요 없으면 false
+    }
+    viewBinding {
+        enabled true
+    }
+    applicationVariants.configureEach { variant ->
+        def flavor = variant.name
+        def versionName = variant.versionName
+        def dateStr = new Date().format("yyMMdd")
+        def artifactName = "LUSOFT-${flavor}_${versionName}_${dateStr}"
+        variant.outputs.configureEach { output ->
+            outputFileName = "${artifactName}.apk"
+        }
+        tasks.named("sign${variant.name.capitalize()}Bundle", FinalizeBundleTask) {
+            File file = finalBundleFile.asFile.get()
+            File finalFile = new File(file.parentFile, "${artifactName}.aab")
+            finalBundleFile.set(finalFile)
+        }
+    }
+    
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            def BType = "release"
+        }
+        debug {
+            minifyEnabled false
+            def BType = "debug"
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    flavorDimensions += "default"
+    productFlavors {
+        lu_rootstudycenter{ //25-10-01, 25-09-10, 25-07-08, 2205-01-03
+            versionCode 103
+            versionName "1.0.3"
+            applicationId "rootstudycenter.lusoft.android"
+            resValue "string", "app_name", "웨버스터디 루트"
+            buildConfigField "String", "HostUrl", "\"https://rootstudycenter.lusoft.co.kr\""
+            buildConfigField "String", "StartUrl", "\"https://rootstudycenter.lusoft.co.kr/main.php?force_agent=app\""
+            buildConfigField "String", "PushcatUrl", "\"http://pushcat.lusoft.co.kr:4001/RecvContent\""
+            buildConfigField "Boolean", "ShowLoading", "false"
+            buildConfigField "Boolean", "Notification", "true"
+            buildConfigField "Boolean", "LandScape", "false"
+            buildConfigField "String", "WXAPPID", "\"\""
+            buildConfigField "String", "AppSecret", "\"\""
+        }
+    }
+    namespace 'kr.co.lusoft'
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-splashscreen:1.2.0' //splash screen api
+    implementation "com.airbnb.android:lottie:6.7.1"    //lottie view
+    implementation 'androidx.work:work-runtime-ktx:2.11.0'
+    implementation "androidx.camera:camera-core:1.5.2"
+    implementation "androidx.camera:camera-camera2:1.5.2"
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+    implementation 'com.google.android.material:material:1.13.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    implementation 'com.google.android.gms:play-services-auth:21.4.0'
+    implementation 'com.google.firebase:firebase-appindexing:20.0.0'
+    implementation 'com.google.android.play:app-update:2.1.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    /*****
+     * UI - RecycleView
+     **/
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.recyclerview:recyclerview:1.4.0'
+    /*****
+     * Camera Multi Selecte
+     **/
+    //implementation 'io.github.lucksiege:pictureselector:v3.11.1'
+    /*****
+     * Code Reader
+     **/
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    /*****
+     * KCP
+     **/
+    //implementation files('libs/kcp_smart_phone_util.jar')
+    /*****
+     * ADMOB
+     **/
+    //noinspection GradleDependency,GradleDependency
+    //implementation 'com.google.android.gms:play-services-ads:22.1.0'
+    /*****
+     * FCM
+     **/
+    implementation 'com.google.firebase:firebase-core:21.1.1'
+    implementation 'com.google.firebase:firebase-messaging:25.0.1'
+    implementation 'com.google.firebase:firebase-appindexing:20.0.0'
+    //implementation 'com.google.firebase:firebase-auth:22.3.1'
+    implementation 'com.google.firebase:firebase-analytics'
+    //implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    //구글-로그인
+    implementation platform('com.google.firebase:firebase-bom:34.7.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.android.gms:play-services-auth:21.4.0'
+
+    /*****
+     * HTTP
+     **/
+    implementation('com.squareup.retrofit2:retrofit:3.0.0') {
+        exclude module: 'okhttp'
+    }
+    implementation 'com.google.code.gson:gson:2.13.2'
+    implementation 'com.squareup.retrofit2:converter-gson:3.0.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:5.3.2'
+    implementation 'com.squareup.okhttp3:okhttp:5.3.2'
+    /*****
+     * Image
+     **/
+    implementation 'com.github.bumptech.glide:glide:5.0.5'
+    annotationProcessor 'com.github.bumptech.glide:compiler:5.0.5'
+    /*****
+     * Map
+     **/
+    //implementation 'com.google.android.gms:play-services-maps:18.2.0'
+    //implementation 'com.google.maps.android:android-maps-utils:0.4'
+
+    //install referrer
+    implementation 'com.android.installreferrer:installreferrer:2.2'
+
+
+    /*****
+     * 개발시 임시 - 빌드시 주석 처리
+     */
+    //implementation files('libs/snslogin.1.0.0.aar') //sns login library
+    //implementation 'com.navercorp.nid:oauth-jdk8:5.10.0' // 네이버 로그인 jdk 8
+    //implementation "com.kakao.sdk:v2-user:2.21.7" // 카카오 로그인
+    //implementation files('libs/GoogleBilling.1.0.1.aar')
+    //implementation 'com.android.billingclient:billing:8.0.0'
+    //implementation files('libs/GoogleAdMob-debug.aar') //sns login library
+    //implementation 'com.google.android.gms:play-services-ads:24.6.0'
+}
+
+// FCM
+//apply plugin: 'com.google.gms.google-services'
+
+//조건부 로딩
+apply from : "$rootDir/app/chooseload.gradle"
+

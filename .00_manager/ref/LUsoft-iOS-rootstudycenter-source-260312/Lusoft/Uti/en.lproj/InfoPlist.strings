@@ -1,0 +1,14 @@
+/* 
+  InfoPlist.strings
+  LuMusic
+
+  Created by Atimu on 09/09/2019.
+  Copyright © 2019 caomin. All rights reserved.
+*/
+"NSAppleMusicUsageDescription" = "갤러리의 비디오를 불러오는 권한에 사용됩니다.";
+"NSMicrophoneUsageDescription" = "마이크 관련된 권한에 사용됩니다.";
+"NSCameraUsageDescription" = "카메라 액세스는 비디오와 이미지를 바로 촬영하여 올릴 수 있게 하기 위해 사용됩니다.";
+"NSLocationWhenInUseUsageDescription" = "고객님의 위치정보를 활용하여 '위치 기반 검색 서비스' 제공합니다.'위치 기반 검색 서비스'는 고객님의 주변에 있는 매장을 검색할 수 있도록 하는데 활용됩니다.";
+"NSPhotoLibraryAddUsageDescription" = "촬영을 통해 업로드한 이미지가 갤러리에 저장되기 위한 권한에 사용됩니다.";
+"NSPhotoLibraryUsageDescription" = "갤러리에 저장된 이미지를 업로드 하기 위해 사용됩니다.";
+

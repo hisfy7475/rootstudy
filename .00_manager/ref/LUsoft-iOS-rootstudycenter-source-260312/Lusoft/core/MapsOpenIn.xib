@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="18122" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina4_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="18093"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB" customClass="MapsOpenIn" customModule="Taste_Buds" customModuleProvider="target">
+            <rect key="frame" x="0.0" y="0.0" width="375" height="100"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <button opaque="NO" tag="101" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="tac-QU-gSW">
+                    <rect key="frame" x="157.5" y="10" width="60" height="60"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <constraints>
+                        <constraint firstAttribute="width" constant="60" id="8dI-d1-e56"/>
+                        <constraint firstAttribute="height" constant="60" id="Epx-iT-reh"/>
+                    </constraints>
+                    <state key="normal" image="map_kakao"/>
+                    <connections>
+                        <action selector="onClickMapWithSender:" destination="iN0-l3-epB" eventType="touchUpInside" id="zCV-vV-z4k"/>
+                    </connections>
+                </button>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" misplaced="YES" text="카카오맵" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="tSW-4q-edb">
+                    <rect key="frame" x="153" y="71" width="70" height="20"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="11"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <button opaque="NO" tag="100" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="DN6-w3-ijJ">
+                    <rect key="frame" x="69.5" y="10" width="60" height="60"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <state key="normal" image="map_naver"/>
+                    <connections>
+                        <action selector="onClickMapWithSender:" destination="iN0-l3-epB" eventType="touchUpInside" id="q0z-4w-ori"/>
+                    </connections>
+                </button>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" misplaced="YES" text="네이버 지도" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Fhr-0d-ARI">
+                    <rect key="frame" x="65" y="71" width="70" height="20"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="11"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <button opaque="NO" tag="102" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="k77-o8-GLT">
+                    <rect key="frame" x="247.5" y="10" width="60" height="60"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <state key="normal" image="map_google"/>
+                    <connections>
+                        <action selector="onClickMapWithSender:" destination="iN0-l3-epB" eventType="touchUpInside" id="X99-wg-Hdf"/>
+                    </connections>
+                </button>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" misplaced="YES" text="Google Maps" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Qua-vx-7wl">
+                    <rect key="frame" x="243" y="71" width="70" height="20"/>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="11"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+            </subviews>
+            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+            <constraints>
+                <constraint firstItem="DN6-w3-ijJ" firstAttribute="centerY" secondItem="tac-QU-gSW" secondAttribute="centerY" id="1Bd-fJ-jI7"/>
+                <constraint firstItem="tac-QU-gSW" firstAttribute="centerX" secondItem="iN0-l3-epB" secondAttribute="centerX" id="5zV-wq-jJn"/>
+                <constraint firstItem="tSW-4q-edb" firstAttribute="top" secondItem="tac-QU-gSW" secondAttribute="bottom" constant="1" id="BEa-xb-uU9"/>
+                <constraint firstItem="tac-QU-gSW" firstAttribute="leading" secondItem="DN6-w3-ijJ" secondAttribute="trailing" constant="28" id="J7J-VL-xSk"/>
+                <constraint firstItem="Qua-vx-7wl" firstAttribute="top" secondItem="k77-o8-GLT" secondAttribute="bottom" constant="1" id="Wo1-F2-qpR"/>
+                <constraint firstItem="k77-o8-GLT" firstAttribute="centerY" secondItem="tac-QU-gSW" secondAttribute="centerY" id="XNy-hQ-BQz"/>
+                <constraint firstItem="DN6-w3-ijJ" firstAttribute="width" secondItem="tac-QU-gSW" secondAttribute="width" id="YAI-pE-YoY"/>
+                <constraint firstItem="Fhr-0d-ARI" firstAttribute="centerX" secondItem="DN6-w3-ijJ" secondAttribute="centerX" id="Yiq-Lp-lL2"/>
+                <constraint firstItem="Fhr-0d-ARI" firstAttribute="top" secondItem="DN6-w3-ijJ" secondAttribute="bottom" constant="1" id="cKu-Ze-D3D"/>
+                <constraint firstItem="k77-o8-GLT" firstAttribute="height" secondItem="tac-QU-gSW" secondAttribute="height" id="f9e-WG-sIH"/>
+                <constraint firstItem="DN6-w3-ijJ" firstAttribute="height" secondItem="tac-QU-gSW" secondAttribute="height" id="fcf-Rn-YyN"/>
+                <constraint firstItem="k77-o8-GLT" firstAttribute="leading" secondItem="tac-QU-gSW" secondAttribute="trailing" constant="30" id="j8P-hx-8GR"/>
+                <constraint firstItem="tSW-4q-edb" firstAttribute="centerX" secondItem="tac-QU-gSW" secondAttribute="centerX" id="oIt-jx-9Bo"/>
+                <constraint firstItem="tac-QU-gSW" firstAttribute="centerY" secondItem="iN0-l3-epB" secondAttribute="centerY" constant="-10" id="qgS-f4-Hot"/>
+                <constraint firstItem="k77-o8-GLT" firstAttribute="width" secondItem="tac-QU-gSW" secondAttribute="width" id="sLC-Hz-Ae4"/>
+                <constraint firstItem="Qua-vx-7wl" firstAttribute="centerX" secondItem="k77-o8-GLT" secondAttribute="centerX" id="zxH-zD-dHh"/>
+            </constraints>
+            <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
+            <point key="canvasLocation" x="13.5" y="-454.5"/>
+        </view>
+    </objects>
+    <resources>
+        <image name="map_google" width="65" height="65"/>
+        <image name="map_kakao" width="65" height="65"/>
+        <image name="map_naver" width="65" height="65"/>
+    </resources>
+</document>

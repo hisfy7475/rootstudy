@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 일반 -->
+    <string name="common_ok">Подтверждать</string>
+    <string name="common_cancel">отмена</string>
+    <string name="common_today">Перестаньте смотреть сегодня</string>
+    <string name="common_close">закрывать</string>
+    <string name="common_move">движение</string>
+    <string name="common_alarm">Уведомление</string>
+    <string name="common_install">установка</string>
+    <string name="common_file">Файл</string>
+    <string name="common_share">делиться</string>
+    <string name="common_catch">распознавать</string>
+    <string name="common_back_text">Нажмите еще раз, чтобы выйти.</string>
+    <string name="common_mic_upload">Файл записи загружен.</string>
+    <string name="common_download_complete">Загрузка завершена</string>
+    <string name="common_open_fail">Не удалось открыть %s.</string>
+    <string name="common_not_support">Не поддерживается.</string>
+    <string name="common_not_data">Данных нет.</string>
+    <string name="common_connect_fail">Соединение не удалось</string>
+    <string name="common_app_update_title">Уведомление об обновлении</string>
+    <string name="common_app_update_desc">Выпущена новая версия.</string>
+    <string name="common_app_update_force">Доступно после обновления приложения.</string>
+    <string name="common_app_update_ok">Обновлять</string>
+    <string name="common_app_update_comment1">Это последняя версия.</string>
+    <string name="common_app_update_comment2">Не удалось проверить статус обновления.</string>
+
+    <!-- webview -->
+    <string name="webview_app_not_install">Приложение не установлено.</string>
+    <string name="webview_bad_url">Неверный URL-адрес.</string>
+    <string name="webview_ssl_error">Ошибка SSL: Хотите перейти на следующую страницу?</string>
+    <string name="webview_file_chooser">Выбрать файл</string>
+    <string name="webview_capture_chooser">Выберите, как вы хотите запечатлеть.</string>
+    <string name="webview_file_chooser2">Выберите способ импорта файла.</string>
+    <string name="webview_storage_write_error">У вас нет разрешения на запись в хранилище.</string>
+    <string name="webview_bad_upload_path">Этот путь не может быть загружен.</string>
+    <string name="webview_bad_parameter">Значение параметра не установлено.</string>
+    <string name="webview_bad_downloadfile">Нет файлов для загрузки.</string>
+    <string name="webview_bad_savepath">Путь к хранилищу файлов (%s) существует как файл, а не как папка.\nУдалите файл и загрузите его.</string>
+    <string name="webview_bad_sdcard">SD-карты нет.</string>
+    <string name="webview_camera_capture">съемка камерой</string>
+    <string name="webview_picture_capture">фотосессия</string>
+    <string name="webview_movie_capture">видеозапись</string>
+    <string name="webview_install_try">Пожалуйста, установите приложение и повторите попытку.</string>
+    <string name="webview_bad_target">Информация о пункте назначения введена неверно.</string>
+    <string name="webview_bad_app">Нет доступных приложений.</string>
+
+    <!-- 권한 서용 화면 -->
+    <string name="permission_title">Разрешить разрешение</string>
+    <string name="permission_ess_y">необходимый</string>
+    <string name="permission_ess_n">выбирать</string>
+    <string name="permission_alert">Пожалуйста, дайте разрешение.</string>
+    <string name="permission_title2">Чтобы использовать сервис, пожалуйста,\nразрешите следующие разрешения.</string>
+    <string name="permission_title3">Если вы не предоставите требуемые разрешения, приложение может работать некорректно.\nСлужбы, не входящие в эти функции, доступны без предоставления разрешения на выбор.</string>
+    <string name="permission_calendar_title">календарь</string>
+    <string name="permission_camera_title">камера</string>
+    <string name="permission_contact_title">контакт</string>
+    <string name="permission_location_title">расположение</string>
+    <string name="permission_microphone_title">микрофон</string>
+    <string name="permission_telephone_title">телефонный звонок</string>
+    <string name="permission_sensor_title">датчик</string>
+    <string name="permission_sms_title">СМС</string>
+    <string name="permission_storage_title">репозиторий</string>
+    <string name="permission_appstats_title">Статистика использования приложения</string>
+    <string name="permission_notifications_title">Уведомление</string>
+    <string name="permission_ble_title">Bluetooth</string>
+    <string name="permission_fitness_title">физическая активность</string>
+    <string name="permission_health_title">полезная информация</string>
+    <string name="permission_calendar_desc">Используется для разрешений программы, связанных с календарем пользователя.</string>
+    <string name="permission_camera_desc">Используется для разрешений, связанных с доступом к камере и съемкой изображений/видео.</string>
+    <string name="permission_contact_desc">Используется для разрешений программ, связанных с контактами и профилями на этом устройстве.</string>
+    <string name="permission_location_desc">Используется для разрешения доступа к местоположению устройства.</string>
+    <string name="permission_microphone_desc">Используется для разрешений, связанных с доступом к звуку микрофона на устройстве.</string>
+    <string name="permission_telephone_desc">Проверьте доступ к приложению для совершения звонков и статус вашего мобильного телефона (номер телефона, сотовую сеть и т. д.).</string>
+    <string name="permission_sensor_desc">Используется для разрешений, связанных с доступом к датчикам тела или окружающей среды.</string>
+    <string name="permission_sms_desc">Используется для разрешений времени выполнения, связанных с SMS-сообщениями пользователя.</string>
+    <string name="permission_storage_desc">Используется для разрешений времени выполнения, связанных с общим внешним хранилищем.</string>
+    <string name="permission_appstats_desc">Используется для получения разрешения на использование статистики установленных приложений.</string>
+    <string name="permission_notifications_desc">Позволяет получать push-уведомления.</string>
+    <string name="permission_ble_desc">Позволяет использовать Bluetooth.</string>
+    <string name="permission_fitness_desc">Предоставляет доступ к данным о физической активности.</string>
+    <string name="permission_health_desc">Разрешите доступ к вашим медицинским данным.</string>
+
+    <!-- 결제 관련 -->
+    <string name="settlement_isp_error">Приложение мобильного интернет-провайдера не установлено.\nНажмите «Установить», чтобы продолжить.\nЕсли вы нажмете «Отмена», платеж будет отменен.</string>
+    <string name="settlement_cancel_desc">Ваш платеж был отменен.</string>
+    <string name="settlement_not_install">Приложение не установлено.\nНажмите «Установить», чтобы продолжить.\nЕсли вы нажмете «Отмена», платеж будет отменен.</string>
+    <string name="settlement_not_install_url">Неверный URL-адрес установки.</string>
+    <string name="settlement_install_need">Требуется установка.</string>
+
+    <!-- 기타 -->
+    <string name="setting">параметр</string>
+    <string name="gps_title">Настройки информации о местоположении</string>
+    <string name="gps_content">Функция информации о местоположении вашего терминала отключена. Хотите перейти в окно настроек?</string>
+    <string name="loading">Processing. Please wait.</string>
+    <string name="dialog_info">Уведомление</string>
+    <string name="storage_removed">Репозиторий был удален.</string>
+    <string name="choose_file">Выбрать файл</string>
+    <string name="error_selecting_file">Ошибка выбора файла</string>
+    <string name="internal_storage">Internal storage</string>
+
+</resources>

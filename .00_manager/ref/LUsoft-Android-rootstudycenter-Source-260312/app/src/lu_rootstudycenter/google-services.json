@@ -1,0 +1,34 @@
+{
+  "project_info": {
+    "project_number": "1041839985554",
+    "project_id": "rootstudycenter-13856",
+    "storage_bucket": "rootstudycenter-13856.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1041839985554:android:30b324bb1add730f6f274b",
+        "android_client_info": {
+          "package_name": "rootstudycenter.lusoft.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZViUAVcLWSEv3D0rOnqc_1i2OkhdVKeg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

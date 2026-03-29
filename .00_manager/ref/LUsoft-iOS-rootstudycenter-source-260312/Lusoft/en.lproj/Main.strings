@@ -1,0 +1,39 @@
+
+/* Class = "UIButton"; normalTitle = "저장"; ObjectID = "1jJ-vw-Nix"; */
+"1jJ-vw-Nix.normalTitle" = "Save";
+
+/* Class = "UILabel"; text = "녹음하기"; ObjectID = "1qW-QZ-Nly"; */
+"1qW-QZ-Nly.text" = "Record";
+
+/* Class = "UILabel"; text = "캘린더"; ObjectID = "3w0-LS-cjV"; */
+"3w0-LS-cjV.text" = "Calendar";
+
+/* Class = "UIButton"; configuration.title = "확인"; ObjectID = "7ep-KT-ON2"; */
+"7ep-KT-ON2.configuration.title" = "Next";
+
+/* Class = "UIButton"; normalTitle = "Button"; ObjectID = "7ep-KT-ON2"; */
+"7ep-KT-ON2.normalTitle" = "Next";
+
+/* Class = "UILabel"; text = "서비스 이용을 위해\n아래 권한을 허용해 주세요."; ObjectID = "CfE-TG-u8N"; */
+"CfE-TG-u8N.text" = "Please allow the following permissions to use the service:";
+
+/* Class = "UILabel"; text = "00:00"; ObjectID = "H9z-5U-JVt"; */
+"H9z-5U-JVt.text" = "00:00";
+
+/* Class = "UILabel"; text = "통화 앱으로의 접근 및 휴대전화(전화 번호, 셀룰러 네트워크 등)의 상태를 확인합니다."; ObjectID = "IMW-BS-9ih"; */
+"IMW-BS-9ih.text" = "Access the phone app and check the status of your mobile device (phone number, cellular network, etc.).";
+
+/* Class = "UINavigationItem"; title = "스캐너"; ObjectID = "OQX-dw-yGg"; */
+"OQX-dw-yGg.title" = "Scanner";
+
+/* Class = "UIButton"; normalTitle = "재녹음"; ObjectID = "Saa-8F-D0r"; */
+"Saa-8F-D0r.normalTitle" = "Re-record";
+
+/* Class = "UILabel"; text = "필수 권한을 허용하지 않으면 앱이 정상적으로 작동하지 않을 수 있으며\n선택 권한은 허용하지 않아도 해당 기능 이외의 서비스는 이용할 수 있습니다"; ObjectID = "TlH-ZT-hVf"; */
+"TlH-ZT-hVf.text" = "If you do not allow the required permissions, the app may not function properly,\nand even if you do not allow the optional permissions, you can still use services other than the corresponding functions.";
+
+/* Class = "UILabel"; text = "권한 허용"; ObjectID = "pw5-Jk-cle"; */
+"pw5-Jk-cle.text" = "Grant permission";
+
+/* Class = "UIViewController"; title = "녹음"; ObjectID = "z8A-hl-nbc"; */
+"z8A-hl-nbc.title" = "Record";

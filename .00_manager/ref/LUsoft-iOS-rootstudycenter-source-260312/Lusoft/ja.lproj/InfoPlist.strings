@@ -1,0 +1,25 @@
+/* Permission Usage Descriptions - Japanese */
+
+"NSAppleMusicUsageDescription" = "ギャラリーの動画を投稿に添付するため、メディアライブラリへのアクセスを許可してください。";
+
+"NSCameraUsageDescription" = "プロフィール写真の撮影や投稿への写真添付のため、カメラへのアクセスを許可してください。";
+
+"NSContactsUsageDescription" = "アドレス帳の管理および緊急連絡先のため、連絡先へのアクセスを許可してください。連絡先はサーバーにアップロード・保存され、外部には共有されません。";
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "位置情報に基づく検索サービスを提供するために、位置情報を使用します。\nこのサービスは、お近くの店舗を検索するために活用されます。";
+
+"NSLocationAlwaysUsageDescription" = "位置情報に基づく検索サービスを提供するために、位置情報を使用します。\nこのサービスは、お近くの店舗を検索するために活用されます。";
+
+"NSLocationUsageDescription" = "位置情報に基づく検索サービスを提供するために、位置情報を使用します。\nこのサービスは、お近くの店舗を検索するために活用されます。";
+
+"NSLocationWhenInUseUsageDescription" = "位置情報に基づく検索サービスを提供するために、位置情報を使用します。\nこのサービスは、お近くの店舗を検索するために活用されます。";
+
+"NSMicrophoneUsageDescription" = "投稿に添付する動画の音声録音のため、マイクへのアクセスを許可してください。";
+
+"NSPhotoLibraryAddUsageDescription" = "撮影した画像をフォトギャラリーに保存するためのアクセスを許可してください。";
+
+"NSPhotoLibraryUsageDescription" = "プロフィールや投稿に写真・動画を添付するため、フォトライブラリへのアクセスを許可してください。";
+
+"NSBluetoothAlwaysUsageDescription" = "デバイスの検索・接続、Wi-Fi SSIDリストの取得、Wi-Fi接続情報の送信のため、Bluetoothへのアクセスを許可してください。";
+
+"NSBluetoothPeripheralUsageDescription" = "スマート電子カレンダーデバイスに接続し、日時データを同期・管理するため、Bluetoothへのアクセスを許可してください。";

@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+    <!--uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /-->
+    <!-- 파일첨부등에는 위권한이 필요 없음, 위권한들은 커스텀 앱등에서 스토리지에서 직접 읽을때 사용 -->
+
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.AUDIO_CAPTURE" />
+    <uses-feature android:name="android.hardware.microphone" android:required="true"/>
+    <uses-permission android:name="android.permission.VIDEO_CAPTURE" />
+
+    <!-- push -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- for mta statistics, not necessary-->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <!-- - permission -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--<uses-permission android:name="android.permission.DIAL_PHONE" />-->
+
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!--uses-permission android:name="android.permission.BODY_SENSORS" /-->
+    <!-- camera 권한은 특벼한 경우에만 사용하도록(파일업로드시 카케라는 권한 없어도 됨 -->
+    <!--uses-permission android:name="android.permission.CAMERA" /-->
+
+
+    <uses-permission android:name="android.permission.CLEAR_APP_CACHE" tools:ignore="ProtectedPermissions" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
+    <!--<uses-feature android:name="android.permission.CALL_PHONE"-->
+    <!--android:required="false" />-->
+    <!--<uses-feature android:name="android.permission.SEND_SMS"-->
+    <!--android:required="false" />-->
+    <!--<uses-feature android:name="android.permission.READ_SMS"-->
+    <!--android:required="false" />-->
+
+    <supports-screens
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:smallScreens="true"
+        android:anyDensity="true"
+        android:xlargeScreens="true" />
+
+    <uses-sdk tools:overrideLibrary="androidx.camera.view,
+        androidx.camera.camera2,androidx.camera.lifecycle,
+        androidx.camera:camera-camera2,
+        androidx.camera.core" />
+    <queries>
+        <package android:name="com.kakao.talk" /> <!-- 카카오톡 -->
+        <package android:name="com.nhn.android.search" /> <!-- 네이버페이 -->
+        <package android:name="com.samsung.android.spay" /> <!-- 삼성페이 -->
+        <package android:name="net.ib.android.smcard" /> <!-- 모니모페이 -->
+        <package android:name="com.mobiletoong.travelwallet" /> <!-- 신한카드 트레블월렛 -->
+        <package android:name="com.samsung.android.spaylite" /> <!-- 삼성페이 -->
+        <package android:name="com.ssg.serviceapp.android.egiftcertificate" /> <!-- SSGPAY -->
+        <package android:name="com.nhnent.payapp" /> <!-- PAYCO -->
+        <package android:name="com.lottemembers.android" /> <!-- L.POINT -->
+        <package android:name="viva.republica.toss" /> <!-- 토스-->
+        <package android:name="com.shinhan.smartcaremgr" /> <!-- 신한 슈퍼SOL -->
+        <package android:name="com.shinhan.sbanking" /> <!-- 신한 SOL뱅크 -->
+        <package android:name="com.shcard.smartpay" /> <!-- 신한페이판 -->
+        <package android:name="com.shinhancard.smartshinhan" /> <!-- 신한페이판-공동인증서 -->
+        <package android:name="com.hyundaicard.appcard" /> <!-- 현대카드 -->
+        <package android:name="com.lumensoft.touchenappfree" /> <!-- 현대카드-공동인증서 -->
+        <package android:name="kr.co.samsungcard.mpocket" /> <!-- 삼성카드 -->
+        <package android:name="nh.smart.nhallonepay" /> <!-- 올원페이 -->
+        <package android:name="com.kbcard.cxh.appcard" /> <!-- KB Pay -->
+        <package android:name="com.kbstar.liivbank" /> <!-- Liiv(KB국민은행) -->
+        <package android:name="com.kbstar.reboot" /> <!-- Liiv Reboot(KB국민은행) -->
+        <package android:name="com.kbstar.kbbank" /> <!-- 스타뱅킹(KB국민은행) -->
+        <package android:name="kvp.jjy.MispAndroid320" /> <!-- ISP/페이북 -->
+        <package android:name="com.lcacApp" /> <!-- 롯데카드 -->
+        <package android:name="com.hanaskcard.paycla" /> <!-- 하나카드 -->
+        <package android:name="com.hanaskcard.rocomo.potal" />  <!--하나카드-->
+        <package android:name="kr.co.hanamembers.hmscustomer" /> <!-- 하나멤버스 -->
+        <package android:name="kr.co.citibank.citimobile" /> <!-- 씨티모바일 -->
+        <package android:name="com.wooricard.wpay" /> <!-- 우리페이 -->
+        <package android:name="com.wooricard.smartapp" /> <!-- 우리카드 -->
+        <package android:name="com.wooribank.smart.npib" /> <!-- 우리WON뱅킹 -->
+        <package android:name="com.lguplus.paynow" /> <!-- 페이나우 -->
+        <package android:name="com.kftc.bankpay.android" /> <!-- 뱅크페이 -->
+        <package android:name="com.TouchEn.mVaccine.webs" /> <!-- TouchEn mVaccine (신한) -->
+        <package android:name="kr.co.shiftworks.vguardweb" /> <!-- V-Guard (삼성) -->
+        <package android:name="com.ahnlab.v3mobileplus" /> <!-- V3 (NH, 현대) -->
+        <package android:name="com.kakaobank.channel" /> <!-- 카카오뱅크 -->
+
+        <package android:name="net.daum.android.map"/>
+        <package android:name="com.nhn.android.nmap"/>
+        <package android:name="com.skt.tmap.ku"/>
+        <package android:name="com.sktelecom.tauth"/> <!-- pass sktelecom -->
+        <package android:name="com.kt.ktauth"/> <!-- pass kt -->
+        <package android:name="com.lguplus.smartotp"/> <!-- pass lguplus -->
+        <package android:name="com.lge.lgpay" /> <!--엘지페이(삼성, KB)-->
+    </queries>
+    <queries package="${applicationId}">
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.ACTION_VIDEO_CAPTURE" />
+        </intent>
+    </queries>
+    <application
+        android:name=".AppDelegate"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:exported="true"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
+        android:theme="@style/AppThemeNoActionBar"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:resizeableActivity="true"
+        tools:ignore="UnusedAttribute">
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/scheme" />
+        <!--meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="@string/ADAppID"/ -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="true" />
+        <!--        <activity
+                    android:name="mituan.lusoft.android.wxapi.WXEntryActivity"
+                    android:configChanges="keyboardHidden|orientation|screenSize"
+                    android:exported="true"
+                    android:screenOrientation="portrait"
+                    android:theme="@android:style/Theme.Translucent.NoTitleBar" />-->
+        <!--        <activity
+                    android:name="mituan2.lusoft.android.wxapi.WXEntryActivity"
+                    android:configChanges="keyboardHidden|orientation|screenSize"
+                    android:exported="true"
+                    android:screenOrientation="portrait"
+                    android:theme="@android:style/Theme.Translucent.NoTitleBar" />-->
+
+        <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true" />
+        <activity
+            android:name=".ui.IntroActivity"
+            android:exported="true"
+            android:resizeableActivity="true">
+        </activity>
+        <activity
+            android:name=".ui.PermissionActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:exported="false"
+            android:resizeableActivity="true"/>
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
+            android:theme="@style/AppTheme.Splash">
+            <intent-filter>
+                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="@string/scheme" android:host="@string/host" />
+            </intent-filter>
+        </activity>
+        <activity android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="screenOrientation"/>
+
+        <!--        <activity android:name="com.donkingliang.imageselector.ImageSelectorActivity"-->
+        <!--            android:theme="@style/Theme.AppCompat.Light.NoActionBar"-->
+        <!--            android:configChanges="orientation|keyboardHidden|screenSize"/>-->
+        <!--        &lt;!&ndash; 미리보기Activity &ndash;&gt;-->
+        <!--         <activity android:name="com.donkingliang.imageselector.PreviewActivity"-->
+        <!--             android:theme="@style/Theme.AppCompat.Light.NoActionBar"-->
+        <!--             android:configChanges="orientation|keyboardHidden|screenSize"/>-->
+        <!--        &lt;!&ndash; 커스텀Activity &ndash;&gt;-->
+        <!--         <activity-->
+        <!--             android:name="com.donkingliang.imageselector.ClipImageActivity"-->
+        <!--             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />-->
+
+        <!--activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureSelectorActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureSelectorWeChatStyleActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureSelectorCameraEmptyActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:theme="@style/Picture.Theme.Translucent" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureCustomCameraActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PicturePreviewActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureSelectorPreviewWeChatStyleActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureVideoPlayActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:screenOrientation="sensor" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PictureExternalPreviewActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.luck.picture.lib.PicturePlayAudioActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
+            android:exported="false"
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:theme="@style/Base.Theme.NoActionBar" />
+        <activity
+            android:exported="false"
+            android:name="com.yalantis.ucrop.PictureMultiCuttingActivity"
+            android:theme="@style/Base.Theme.NoActionBar" /-->
+
+        <activity
+            android:name=".ui.WindowActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:label="@string/todo"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+        <!-- FCM 을 사용하지 않는 어플을 위해서 초기값은 enabled=false 로 처리. -->
+        <service
+            android:exported="true"
+            android:name=".notification.fcm.FCM$MessagingService"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+            <!--android:resource="@xml/file_paths" />-->
+        </provider>
+        <!--        <receiver-->
+        <!--            android:name=".notification.fcm.FCMReceiver"-->
+        <!--            android:permission="com.google.android.c2dm.permission.SEND">-->
+        <!--            <intent-filter>-->
+        <!--                <action android:name="com.google.android.c2dm.intent.RECEIVE" />-->
+
+        <!--                <category android:name="kr.co.dqplus.ibuilder" />-->
+        <!--            </intent-filter>-->
+        <!--        </receiver>-->
+        <!-- App Receiver -->
+        <!--
+        <receiver
+            android:name=".Receiver.InstallReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver,InnerclassSeparator">
+            <intent-filter>
+                <action android:name="com.android.vending.INSTALL_REFERRER" />
+            </intent-filter>
+        </receiver>
+        -->
+
+        <receiver
+            android:name=".Receiver.NetworkReceiver"
+            android:enabled="true"
+            android:exported="true"
+            tools:ignore="InnerclassSeparator">
+            <intent-filter>
+                <action
+                    android:name="android.net.conn.CONNECTIVITY_CHANGE"
+                    tools:ignore="BatteryLife" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

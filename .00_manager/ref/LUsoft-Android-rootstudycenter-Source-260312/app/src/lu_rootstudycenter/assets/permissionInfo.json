@@ -1,0 +1,20 @@
+{
+  "storage"       : true,
+  "__storage"     : "(필수)스토리지 권한",     
+  "camera"        : true,
+  "__camera"      : "(거의필수)카메라 사용 권한 - 파일첨부를 사용하면 필수",
+  "notifications" : true,
+  "__notifications": "푸시 알림 권한",
+  "canlendar"     : false,
+  "contact"       : false,
+  "location"      : false,
+  "microphone"    : false,
+  "telephone"     : false,
+  "sensor"        : false,
+  "sms"           : false,
+  "capture"       : true,
+  "__capture"     : "캡처 가능 여부",
+  "packUsageStats": false,
+  "__packUsageStats" : "다른앱 실행 기록 보기 권한"
+  
+}

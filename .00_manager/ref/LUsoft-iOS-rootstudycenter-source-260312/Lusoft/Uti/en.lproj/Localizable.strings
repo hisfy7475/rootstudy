@@ -1,0 +1,78 @@
+/*
+ Localizable.strings
+ 
+ */
+
+/* common */
+"필수" = "Required";
+"선택" = "Optional";
+"확인" = "OK";
+"열기" = "Open";
+"닫기" = "Close";
+"이동" = "Move";
+"다운로드 완료" = "Download Completed.";
+
+"취소" = "Cancel";
+"종료" = "End";
+"결제" = "Settlement";
+"탐색" = "Search";
+"카메라" = "Camera";
+"앨범" = "Album";
+"사진 찍기" = "Take a picture";
+"사진 보관함" = "Photo Archive";
+"필수값 누락" = "Missing required value";
+"app_not" = "The app is not installed.";
+"app_install" = "Would you like to install the app?";
+"move_not" = "This URL cannot be opened.";
+"capture_no" = "Due to security policy, screen capture is not possible.";
+"iphone_twitter" = "Please log in to iPhone Settings -> Twitter.";
+"iphone_facebook" = "Please log in to iPhone Settings -> FaceBook.";
+"앱을종료" = "Are you sure you want to quit the app?";
+
+/* 결제 관련 */
+"inapp_buy_not" = "In-app purchases are not set up.";
+
+/* permission */
+"permission_storage"       = "Storage";
+"permission_notifications" = "Notifications";
+"permission_camera"        = "Camera";
+"permission_location"      = "Location";
+"permission_calendar"      = "Calender";
+"permission_contact"       = "Contact";
+"permission_microphone"    = "Microphone";
+"permission_sensor"        = "Sensor";
+"permission_ble"           = "Bluetooth";
+"permission_fitness"       = "Motion & Fitnes";
+"permission_health"        = "Health Data";
+"permission_storage_desc"       = "Allow access to photos/media/files, etc.";
+"permission_notifications_desc" = "Allows you to receive push notifications.";
+"permission_camera_desc"        = "Used for permissions related to camera access and capturing images/videos.";
+"permission_location_desc"      = "Used for permission to access device location.";
+"permission_calendar_desc"      = "Used for program permissions related to the user's calendar.";
+"permission_contact_desc"       = "Used for program permissions related to contacts and profiles on this device.";
+"permission_microphone_desc"    = "Used for permissions related to accessing microphone audio on the device.";
+"permission_sensor_desc"        = "Used for permissions related to accessing body or environmental sensors.";
+"permission_ble_desc"           = "Allows you to use Bluetooth.";
+"permission_fitness_desc"       = "Allows access to motion and fitness data.";
+"permission_health_desc"        = "Allow access to your health data.";
+
+/** 추후 삭제 */
+"kOK" = "Confirm";
+"kCancel" = "Cancel";
+"kTerminate" = "Quit";
+"kRetry" = "Retry";
+"kOpen" = "Open";
+"kClose" = "Close";
+
+"kCamera" = "Camera";
+"kAlbum" = "Album";
+"kVideo" = "Video";
+"kAll" = "All Image";
+"kImage" = "Image";
+"kPreview" = "Preview";
+"kCheck" = "You can select up to %d.";
+
+"kDownloadComplete" = "Download Completed.";
+"kWantToQuit" = "Are you sure you want to quit the app?";
+"kNetworkError" = "It is not connected to the internet";
+
