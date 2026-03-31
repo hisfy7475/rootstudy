@@ -1,6 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -29,6 +35,8 @@ const senderTypeColors: Record<string, string> = {
   admin: 'text-accent',
 };
 
+const LONG_PRESS_MS = 500;
+
 export function ChatMessageItem({
   content,
   imageUrl,
@@ -38,18 +46,70 @@ export function ChatMessageItem({
   isOwn,
 }: ChatMessageItemProps) {
   const [showFullImage, setShowFullImage] = useState(false);
+  const [copiedHint, setCopiedHint] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const timeString = format(new Date(createdAt), 'a h:mm', { locale: ko });
   const typeLabel = senderTypeLabels[senderType] || senderType;
   const typeColor = senderTypeColors[senderType] || 'text-gray-500';
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearLongPressTimer(), [clearLongPressTimer]);
+
+  const copyContent = useCallback(async () => {
+    const text = content.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedHint(true);
+      window.setTimeout(() => setCopiedHint(false), 2000);
+    } catch {
+      window.alert('복사에 실패했습니다. 브라우저 권한을 확인해 주세요.');
+    }
+  }, [content]);
+
+  const onTextPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      clearLongPressTimer();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        void copyContent();
+      }, LONG_PRESS_MS);
+    },
+    [clearLongPressTimer, copyContent]
+  );
+
+  const onTextPointerEnd = useCallback(() => {
+    clearLongPressTimer();
+  }, [clearLongPressTimer]);
 
   return (
     <>
       <div
         className={cn(
-          'flex flex-col gap-1 max-w-[80%]',
+          'relative flex flex-col gap-1 max-w-[80%]',
           isOwn ? 'items-end ml-auto' : 'items-start mr-auto'
         )}
       >
+        {copiedHint && (
+          <div
+            className={cn(
+              'absolute -top-9 z-10 whitespace-nowrap rounded-lg bg-gray-900 px-2 py-1 text-xs text-white shadow-md',
+              isOwn ? 'right-0' : 'left-0'
+            )}
+            role="status"
+          >
+            복사되었습니다
+          </div>
+        )}
         {/* 발신자 정보 (본인 메시지가 아닐 때만) */}
         {!isOwn && (
           <div className="flex items-center gap-1.5 px-1">
@@ -87,10 +147,17 @@ export function ChatMessageItem({
             )}
             {/* 텍스트 내용 */}
             {content && (
-              <div className={cn(
-                'break-words whitespace-pre-wrap',
-                imageUrl && 'px-3 py-2'
-              )}>
+              <div
+                title="길게 눌러 복사"
+                className={cn(
+                  'select-text break-words whitespace-pre-wrap touch-manipulation',
+                  imageUrl && 'px-3 py-2'
+                )}
+                onPointerDown={onTextPointerDown}
+                onPointerUp={onTextPointerEnd}
+                onPointerCancel={onTextPointerEnd}
+                onPointerLeave={onTextPointerEnd}
+              >
                 {content}
               </div>
             )}

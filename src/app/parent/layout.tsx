@@ -1,3 +1,4 @@
+import { PushTokenListener } from '@/components/PushTokenListener';
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { ParentHeader } from '@/components/parent/header';
 import { createClient } from '@/lib/supabase/server';
@@ -38,6 +39,7 @@ export default async function ParentLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      <PushTokenListener />
       <ParentHeader 
         userName={userName} 
         children={linkedChildren}

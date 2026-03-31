@@ -13,7 +13,14 @@
       "backgroundColor": "#ffffff"
     },
     "plugins": [
-      "expo-splash-screen"
+      "expo-splash-screen",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#4F46E5"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,

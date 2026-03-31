@@ -109,11 +109,16 @@ export function CounselingReportCard({
               value={guidanceNotes}
               onChange={(e) => setGuidanceNotes(e.target.value)}
               rows={3}
-              className="w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+              className="print:hidden w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
             />
           ) : (
-            <p className="whitespace-pre-wrap text-sm text-text">{guidanceNotes}</p>
+            <p className="whitespace-pre-wrap text-sm text-text print:hidden">
+              {guidanceNotes}
+            </p>
           )}
+          <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
+            {guidanceNotes}
+          </p>
         </div>
 
         {editable ? (
@@ -143,11 +148,16 @@ export function CounselingReportCard({
                 value={parentSummary}
                 onChange={(e) => setParentSummary(e.target.value)}
                 rows={4}
-                className="w-full resize-y rounded-xl border border-primary/20 bg-card/80 px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+                className="print:hidden w-full resize-y rounded-xl border border-primary/20 bg-card/80 px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
               />
             ) : (
-              <p className="whitespace-pre-wrap text-sm text-text">{parentSummary}</p>
+              <p className="whitespace-pre-wrap text-sm text-text print:hidden">
+                {parentSummary}
+              </p>
             )}
+            <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
+              {parentSummary}
+            </p>
           </div>
         </div>
 

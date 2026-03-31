@@ -1,3 +1,4 @@
+import { PushTokenListener } from '@/components/PushTokenListener';
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { StudentHeader } from '@/components/student/header';
 import { createClient } from '@/lib/supabase/server';
@@ -45,6 +46,7 @@ export default async function StudentLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      <PushTokenListener />
       <StudentHeader 
         userName={userName} 
         seatNumber={seatNumber} 

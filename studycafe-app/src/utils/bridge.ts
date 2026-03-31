@@ -31,3 +31,9 @@ export function parseWebMessage(raw: string): WebToNativeMessage | null {
   }
   return null;
 }
+
+/** WebView injectedJavaScript: Native → Web `message` 이벤트 (PushTokenListener 호환). */
+export function buildInjectNativeMessageScript(msg: NativeToWebMessage): string {
+  const embedded = JSON.stringify(JSON.stringify(msg));
+  return `(function(){try{var p=${embedded};window.dispatchEvent(new MessageEvent('message',{data:p}));}catch(e){}})();true;`;
+}

@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { sendPushToUser, sendPushToUsers } from '@/lib/push';
 import { revalidatePath } from 'next/cache';
 
 // ============================================
@@ -90,6 +91,11 @@ export async function markAllNotificationsAsRead() {
 
 type NotificationType = 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
 
+function pushDataFromLink(link?: string): { path: string } | undefined {
+  if (!link || !link.startsWith('/')) return undefined;
+  return { path: link };
+}
+
 interface CreateNotificationParams {
   studentId: string;
   type: NotificationType;
@@ -128,6 +134,10 @@ export async function createUserNotification(params: CreateUserNotificationParam
     console.error('Error creating user notification:', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
+
+  void sendPushToUser(params.userId, params.title, params.message, pushDataFromLink(params.link)).catch(
+    (e) => console.error('[push] createUserNotification', e)
+  );
 
   return { success: true };
 }
@@ -226,6 +236,10 @@ export async function createStudentNotification(params: CreateNotificationParams
     return { error: '알림 생성에 실패했습니다.' };
   }
 
+  void sendPushToUser(params.studentId, params.title, params.message, pushDataFromLink(params.link)).catch(
+    (e) => console.error('[push] createStudentNotification', e)
+  );
+
   return { success: true };
 }
 
@@ -252,6 +266,13 @@ export async function createBulkStudentNotifications(
     console.error('Error creating bulk notifications:', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
+
+  void sendPushToUsers(
+    studentIds,
+    notification.title,
+    notification.message,
+    pushDataFromLink(notification.link)
+  ).catch((e) => console.error('[push] createBulkStudentNotifications', e));
 
   return { success: true };
 }

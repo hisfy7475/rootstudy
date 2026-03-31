@@ -36,6 +36,11 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  // 푸시 토큰 API — 세션 쿠키만 갱신하고 리다이렉트하지 않음 (공개 경로로 두면 로그인 사용자가 오히려 홈으로 보내짐)
+  if (pathname.startsWith('/api/push')) {
+    return supabaseResponse;
+  }
+
   // 인증이 필요없는 경로
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));

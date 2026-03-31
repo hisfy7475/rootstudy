@@ -62,6 +62,28 @@ function formatWeekRangeLabel(weekStartMonday: string): string {
   return `${fmt(a)}(월) ~ ${fmt(b)}(일)`;
 }
 
+/** 목록·일괄 출력 순서. 좌석 미지정은 뒤로, 동일하면 이름순. */
+export type StudentListSort = 'name' | 'seat';
+
+function compareReportStudents(
+  a: ReportStudentRow,
+  b: ReportStudentRow,
+  sort: StudentListSort
+): number {
+  if (sort === 'name') {
+    return a.name.localeCompare(b.name, 'ko');
+  }
+  const sa = a.seatNumber;
+  const sb = b.seatNumber;
+  if (sa == null && sb == null) {
+    return a.name.localeCompare(b.name, 'ko');
+  }
+  if (sa == null) return 1;
+  if (sb == null) return -1;
+  if (sa !== sb) return sa - sb;
+  return a.name.localeCompare(b.name, 'ko');
+}
+
 export function AdminReportClient({
   students,
   initialWeekStart,
@@ -73,6 +95,7 @@ export function AdminReportClient({
   );
   const [bulkIds, setBulkIds] = useState<Set<string>>(() => new Set());
   const [typeFilter, setTypeFilter] = useState<string>('전체');
+  const [listSort, setListSort] = useState<StudentListSort>('name');
   const [search, setSearch] = useState('');
   const [report, setReport] = useState<ImmersionReportData | null>(null);
   const [trend, setTrend] = useState<WeeklyTrendPoint[]>([]);
@@ -117,7 +140,7 @@ export function AdminReportClient({
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return students.filter((s) => {
+    const filtered = students.filter((s) => {
       if (typeFilter !== '전체' && s.studentTypeName !== typeFilter) {
         return false;
       }
@@ -128,7 +151,8 @@ export function AdminReportClient({
         seat.includes(q)
       );
     });
-  }, [students, typeFilter, search]);
+    return [...filtered].sort((a, b) => compareReportStudents(a, b, listSort));
+  }, [students, typeFilter, search, listSort]);
 
   const loadReport = useCallback(
     (studentId: string, monday: string) => {
@@ -292,7 +316,10 @@ export function AdminReportClient({
   }, [templateHint]);
 
   const handleBulkPrint = async () => {
-    const ids = Array.from(bulkIds);
+    const selectedRows = students.filter((s) => bulkIds.has(s.id));
+    const ids = [...selectedRows]
+      .sort((a, b) => compareReportStudents(a, b, listSort))
+      .map((s) => s.id);
     if (!ids.length) {
       window.alert('일괄 출력할 학생을 선택해 주세요.');
       return;
@@ -482,6 +509,20 @@ export function AdminReportClient({
                     {t}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted">목록 정렬</label>
+              <select
+                value={listSort}
+                onChange={(e) =>
+                  setListSort(e.target.value as StudentListSort)
+                }
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary/30"
+                aria-label="학생 목록 정렬"
+              >
+                <option value="name">이름순</option>
+                <option value="seat">좌석번호순</option>
               </select>
             </div>
             <Input
