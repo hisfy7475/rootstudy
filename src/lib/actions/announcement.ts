@@ -8,6 +8,16 @@ import { createBulkStudentNotifications, createUserNotification } from './notifi
 // 공지사항 조회
 // ============================================
 
+export interface AnnouncementAttachmentRow {
+  id: string;
+  announcement_id: string;
+  file_url: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+}
+
 export interface AnnouncementWithReadStatus {
   id: string;
   branch_id: string | null;
@@ -22,6 +32,7 @@ export interface AnnouncementWithReadStatus {
   read_count?: number;
   total_target_count?: number;
   creator_name?: string;
+  attachments?: AnnouncementAttachmentRow[];
 }
 
 // 공지사항 목록 조회 (학생/학부모용)
@@ -117,6 +128,12 @@ export async function getAnnouncementById(id: string): Promise<AnnouncementWithR
   const reads = data.announcement_reads || [];
   const isRead = reads.some((read: { user_id: string }) => read.user_id === user.id);
 
+  const { data: attachmentRows } = await supabase
+    .from('announcement_attachments')
+    .select('*')
+    .eq('announcement_id', id)
+    .order('created_at', { ascending: true });
+
   return {
     id: data.id,
     branch_id: data.branch_id,
@@ -129,6 +146,7 @@ export async function getAnnouncementById(id: string): Promise<AnnouncementWithR
     updated_at: data.updated_at,
     is_read: isRead,
     creator_name: data.profiles?.name,
+    attachments: (attachmentRows || []) as AnnouncementAttachmentRow[],
   };
 }
 
@@ -400,6 +418,200 @@ export async function deleteAnnouncement(id: string) {
   revalidatePath('/student/announcements');
   revalidatePath('/parent/announcements');
   
+  return { success: true };
+}
+
+const ANNOUNCEMENT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+const ANNOUNCEMENT_ALLOWED_MIME = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+] as const;
+
+function sanitizeAnnouncementFileSegment(name: string): string {
+  const base = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+  return base.slice(0, 200) || 'file';
+}
+
+/** 공지 첨부 목록 (학생/학부모·관리자 공통, RLS) */
+export async function getAnnouncementAttachments(
+  announcementId: string
+): Promise<AnnouncementAttachmentRow[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('announcement_attachments')
+    .select('*')
+    .eq('announcement_id', announcementId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('[getAnnouncementAttachments]', error);
+    return [];
+  }
+  return (data || []) as AnnouncementAttachmentRow[];
+}
+
+/** 관리자: 공지에 파일 첨부 (Storage `announcement-files` + DB) */
+export async function uploadAnnouncementAttachment(
+  announcementId: string,
+  formData: FormData
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.user_type !== 'admin') {
+    return { error: '관리자만 업로드할 수 있습니다.' };
+  }
+
+  const { data: ann, error: annErr } = await supabase
+    .from('announcements')
+    .select('id')
+    .eq('id', announcementId)
+    .maybeSingle();
+
+  if (annErr || !ann) {
+    return { error: '공지를 찾을 수 없습니다.' };
+  }
+
+  const file = formData.get('file') as File;
+  if (!file) return { error: '파일이 없습니다.' };
+
+  if (!ANNOUNCEMENT_ALLOWED_MIME.includes(file.type as (typeof ANNOUNCEMENT_ALLOWED_MIME)[number])) {
+    return { error: '지원하지 않는 파일 형식입니다.' };
+  }
+
+  if (file.size > ANNOUNCEMENT_FILE_MAX_BYTES) {
+    return { error: '파일 크기는 20MB 이하여야 합니다.' };
+  }
+
+  const safeBase = sanitizeAnnouncementFileSegment(file.name);
+  const path = `${user.id}/${announcementId}/${Date.now()}_${safeBase}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from('announcement-files')
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (upErr) {
+    console.error('[uploadAnnouncementAttachment] storage', upErr);
+    return { error: '파일 업로드에 실패했습니다.' };
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('announcement-files')
+    .getPublicUrl(uploaded.path);
+
+  const { data: row, error: insErr } = await supabase
+    .from('announcement_attachments')
+    .insert({
+      announcement_id: announcementId,
+      file_url: publicUrl,
+      file_name: file.name,
+      file_size: file.size,
+      mime_type: file.type || null,
+    })
+    .select()
+    .single();
+
+  if (insErr) {
+    console.error('[uploadAnnouncementAttachment] insert', insErr);
+    return { error: '첨부 정보 저장에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/announcements');
+  revalidatePath('/student/announcements');
+  revalidatePath('/parent/announcements');
+
+  return { data: row as AnnouncementAttachmentRow };
+}
+
+function storageObjectPathFromPublicUrl(fileUrl: string, bucket: string): string | null {
+  const marker = `/object/public/${bucket}/`;
+  const i = fileUrl.indexOf(marker);
+  if (i === -1) return null;
+  const rest = fileUrl.slice(i + marker.length).split('?')[0];
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+/** 관리자: 첨부 삭제 (Storage 객체 함께 삭제) */
+export async function deleteAnnouncementAttachment(attachmentId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.user_type !== 'admin') {
+    return { error: '관리자만 삭제할 수 있습니다.' };
+  }
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('announcement_attachments')
+    .select('file_url')
+    .eq('id', attachmentId)
+    .single();
+
+  if (fetchErr || !row) {
+    console.error('[deleteAnnouncementAttachment] fetch', fetchErr);
+    return { error: '첨부를 찾을 수 없습니다.' };
+  }
+
+  const storagePath = storageObjectPathFromPublicUrl(row.file_url, 'announcement-files');
+  if (storagePath) {
+    const { error: rmErr } = await supabase.storage
+      .from('announcement-files')
+      .remove([storagePath]);
+    if (rmErr) {
+      console.error('[deleteAnnouncementAttachment] storage', rmErr);
+    }
+  }
+
+  const { error } = await supabase
+    .from('announcement_attachments')
+    .delete()
+    .eq('id', attachmentId);
+
+  if (error) {
+    console.error('[deleteAnnouncementAttachment]', error);
+    return { error: '첨부 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/announcements');
+  revalidatePath('/student/announcements');
+  revalidatePath('/parent/announcements');
+
   return { success: true };
 }
 

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { signOut } from '@/app/(auth)/actions';
+import { SignOutForm } from '@/components/SignOutForm';
 import { useSidebar } from './sidebar-context';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -24,6 +24,8 @@ import {
   Clock,
   ClipboardList,
   Megaphone,
+  UtensilsCrossed,
+  BookOpen,
   FileBarChart2,
   Menu,
   X,
@@ -52,6 +54,8 @@ const adminNavItems: NavItem[] = [
   { href: '/periods', label: '교시 관리', icon: Clock },
   { href: '/notifications', label: '알림 관리', icon: Bell },
   { href: '/announcements', label: '공지사항 관리', icon: Megaphone },
+  { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
+  { href: '/mentoring', label: '멘토링 관리', icon: BookOpen },
   { href: '/download', label: '데이터 다운로드', icon: Download },
   { href: '/chat', label: '채팅 관리', icon: MessageCircle },
 ];
@@ -180,7 +184,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       </nav>
 
       <div className="p-4 border-t border-gray-100">
-        <form action={signOut}>
+        <SignOutForm>
           <button
             type="submit"
             className={cn(
@@ -191,7 +195,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
             <LogOut className="w-5 h-5 flex-shrink-0" />
             <span className="text-sm">로그아웃</span>
           </button>
-        </form>
+        </SignOutForm>
       </div>
     </>
   );
@@ -202,7 +206,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       <button
         type="button"
         onClick={toggleMobile}
-        className="no-print fixed top-4 left-4 z-50 md:hidden flex items-center justify-center w-10 h-10 rounded-xl bg-card border border-gray-200 shadow-sm text-text hover:bg-gray-50 transition-colors"
+        className="no-print fixed left-4 z-50 md:hidden flex items-center justify-center w-10 h-10 rounded-xl bg-card border border-gray-200 shadow-sm text-text hover:bg-gray-50 transition-colors top-[max(1rem,env(safe-area-inset-top))]"
         aria-label={mobileOpen ? '메뉴 닫기' : '메뉴 열기'}
       >
         {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -337,7 +341,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
           'border-t border-gray-100',
           collapsed ? 'p-1.5' : 'p-4'
         )}>
-          <form action={signOut}>
+          <SignOutForm>
             <button
               type="submit"
               title={collapsed ? '로그아웃' : undefined}
@@ -352,7 +356,7 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
               <LogOut className="w-5 h-5 flex-shrink-0" />
               {!collapsed && <span className="text-sm whitespace-nowrap">로그아웃</span>}
             </button>
-          </form>
+          </SignOutForm>
         </div>
       </aside>
 

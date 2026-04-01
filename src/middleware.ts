@@ -41,6 +41,11 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // NICEPay returnUrl / 웹훅 — 쿠키 갱신만 하고 통과 (본인 인증은 각 라우트에서 처리)
+  if (pathname.startsWith('/api/payments')) {
+    return supabaseResponse;
+  }
+
   // 인증이 필요없는 경로
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));

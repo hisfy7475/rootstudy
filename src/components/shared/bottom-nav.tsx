@@ -8,12 +8,11 @@ import { createClient } from '@/lib/supabase/client';
 import { getStudentUnreadChatCount, getParentUnreadChatCount } from '@/lib/actions/chat';
 import {
   Home,
-  Award,
   MessageCircle,
-  Calendar,
   CalendarClock,
   BarChart3,
-  FileBarChart2,
+  LayoutGrid,
+  GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -23,22 +22,43 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// 학생용 네비게이션 아이템
+// 학생: 홈 · 스케줄 · 통계 · 채팅 · 더보기(급식·리포트·상벌점 등)
 const studentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
   { href: '/schedule', label: '스케줄', icon: CalendarClock },
   { href: '/stats', label: '통계', icon: BarChart3 },
-  { href: '/report', label: '리포트', icon: FileBarChart2 },
-  { href: '/points', label: '상벌점', icon: Award },
+  { href: '/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/chat', label: '채팅', icon: MessageCircle },
+  { href: '/more', label: '더보기', icon: LayoutGrid },
 ];
 
-// 학부모용 네비게이션 아이템
+const studentMorePathPrefixes = [
+  '/more',
+  '/meals',
+  '/report',
+  '/points',
+  '/announcements',
+  '/notifications',
+  '/settings',
+  '/focus',
+  '/subject',
+];
+
+// 학부모: 홈 · 스케줄 · 채팅 · 더보기(급식·리포트·설정 등)
 const parentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
-  { href: '/schedule', label: '스케줄', icon: Calendar },
-  { href: '/report', label: '리포트', icon: FileBarChart2 },
+  { href: '/schedule', label: '스케줄', icon: CalendarClock },
+  { href: '/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/chat', label: '채팅', icon: MessageCircle },
+  { href: '/more', label: '더보기', icon: LayoutGrid },
+];
+
+const parentMorePathPrefixes = [
+  '/more',
+  '/meals',
+  '/report',
+  '/settings',
+  '/announcements',
 ];
 
 interface BottomNavProps {
@@ -82,13 +102,20 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
   }, [userType]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-gray-100 shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-gray-100 shadow-lg pb-safe">
       <div className="max-w-lg mx-auto px-2">
         <ul className="flex justify-around items-center">
           {navItems.map((item) => {
             const fullPath = basePath + item.href;
-            const isActive = pathname === fullPath || 
-              (item.href !== '' && pathname.startsWith(fullPath));
+            const isMoreTab =
+              item.href === '/more' &&
+              (userType === 'student'
+                ? studentMorePathPrefixes.some((p) => pathname.startsWith(basePath + p))
+                : parentMorePathPrefixes.some((p) => pathname.startsWith(basePath + p)));
+            const isActive =
+              isMoreTab ||
+              pathname === fullPath ||
+              (item.href !== '' && item.href !== '/more' && pathname.startsWith(fullPath));
             const Icon = item.icon;
             const isChatItem = item.href === '/chat';
             const showBadge = isChatItem && unreadChatCount > 0;

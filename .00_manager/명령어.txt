@@ -1,0 +1,1 @@
+npx eas-cli build --profile development-simulator --platform ios

@@ -1246,7 +1246,7 @@
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/TargetDependFiles/lu_rootstudycenter/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "웨버스터디 루트";
+				INFOPLIST_KEY_CFBundleDisplayName = "루트스터디";
 				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1291,7 +1291,7 @@
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/TargetDependFiles/lu_rootstudycenter/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "웨버스터디 루트";
+				INFOPLIST_KEY_CFBundleDisplayName = "루트스터디";
 				IPHONEOS_DEPLOYMENT_TARGET = 14.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

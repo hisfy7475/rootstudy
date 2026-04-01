@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { User, Settings, LogOut, ChevronDown, Bell, Megaphone } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { signOut } from '@/app/(auth)/actions';
+import { cn, isNativeApp } from '@/lib/utils';
+import { SignOutForm } from '@/components/SignOutForm';
 import { getUnreadNotificationCount } from '@/lib/actions/notification';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 
@@ -25,6 +25,11 @@ export function StudentHeader({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(initialUnreadAnnouncementCount);
+  const [isNative, setIsNative] = useState(false);
+
+  useEffect(() => {
+    setIsNative(isNativeApp());
+  }, []);
 
   // 주기적으로 읽지 않은 알림/공지 수 갱신 (30초마다)
   useEffect(() => {
@@ -52,7 +57,12 @@ export function StudentHeader({
   }, [initialUnreadCount, initialUnreadAnnouncementCount]);
 
   return (
-    <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100">
+    <header
+      className={cn(
+        'sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100',
+        isNative && 'pt-safe'
+      )}
+    >
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
         {/* 로고/타이틀 */}
         <Link href="/student" className="flex items-center">
@@ -109,6 +119,9 @@ export function StudentHeader({
             {userName && (
               <div className="text-left hidden sm:block">
                 <p className="text-sm font-medium text-text">{userName}</p>
+                {seatNumber != null && (
+                  <p className="text-xs text-text-muted">좌석 {seatNumber}</p>
+                )}
               </div>
             )}
             <ChevronDown className={cn(
@@ -130,6 +143,9 @@ export function StudentHeader({
               <div className="absolute right-0 top-full mt-2 w-48 bg-card rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
                 <div className="px-4 py-2 border-b border-gray-100 sm:hidden">
                   <p className="font-medium text-text">{userName || '사용자'}</p>
+                  {seatNumber != null && (
+                    <p className="text-xs text-text-muted mt-0.5">좌석 {seatNumber}</p>
+                  )}
                 </div>
                 
                 <Link
@@ -141,7 +157,7 @@ export function StudentHeader({
                   <span className="text-sm text-text">설정</span>
                 </Link>
                 
-                <form action={signOut}>
+                <SignOutForm>
                   <button
                     type="submit"
                     className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors w-full text-left"
@@ -149,7 +165,7 @@ export function StudentHeader({
                     <LogOut className="w-4 h-4 text-red-500" />
                     <span className="text-sm text-red-500">로그아웃</span>
                   </button>
-                </form>
+                </SignOutForm>
               </div>
             </>
           )}

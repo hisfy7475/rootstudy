@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appID": "REPLACE_APPLE_TEAM_ID.com.weberstudy.app",
+        "appID": "REPLACE_APPLE_TEAM_ID.com.rootstudy.app",
         "paths": ["*"]
       }
     ]

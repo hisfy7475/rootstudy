@@ -3,8 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatMessageList, ChatMessageData } from './chat-message-list';
 import { ChatInput } from './chat-input';
-import { sendMessage, markAsRead, uploadChatImage, getOlderMessages } from '@/lib/actions/chat';
+import {
+  sendMessage,
+  markAsRead,
+  uploadChatImage,
+  uploadChatFile,
+  getOlderMessages,
+  type ChatFileAttachment,
+} from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
+import { isNativeApp } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 
 interface ChatRoomProps {
@@ -39,6 +47,10 @@ export function ChatRoom({
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [realtimeBanner, setRealtimeBanner] = useState<string | null>(null);
+  const [realtimeChannelGen, setRealtimeChannelGen] = useState(0);
+  const realtimeRetryRef = useRef(0);
+  const realtimeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMessageIds = useRef<Set<string>>(new Set());
   const profileCacheRef = useRef<ProfileCache>(new Map());
 
@@ -60,6 +72,16 @@ export function ChatRoom({
     setMessages(initialMessages);
     setHasMore(initialHasMore);
   }, [initialMessages, initialHasMore]);
+
+  useEffect(() => {
+    realtimeRetryRef.current = 0;
+    setRealtimeChannelGen(0);
+    setRealtimeBanner(null);
+    if (realtimeRetryTimerRef.current) {
+      clearTimeout(realtimeRetryTimerRef.current);
+      realtimeRetryTimerRef.current = null;
+    }
+  }, [roomId]);
 
   // 이전 메시지 로드 (상단 무한스크롤)
   const handleLoadMore = useCallback(async () => {
@@ -89,12 +111,13 @@ export function ChatRoom({
     }
   }, [isLoadingMore, hasMore, messages, roomId]);
 
-  // Realtime 구독 (프로필 캐시 활용)
+  // Realtime 구독 (에러 시 최대 3회 지수 백오프 재구독)
   useEffect(() => {
     const supabase = createClient();
+    let cancelled = false;
 
     const channel = supabase
-      .channel(`room:${roomId}`)
+      .channel(`room:${roomId}:${realtimeChannelGen}`)
       .on(
         'postgres_changes',
         {
@@ -137,6 +160,9 @@ export function ChatRoom({
             sender_type: cached.user_type,
             content: payload.new.content,
             image_url: payload.new.image_url,
+            file_url: payload.new.file_url ?? null,
+            file_name: payload.new.file_name ?? null,
+            file_type: payload.new.file_type ?? null,
             is_read_by_student: payload.new.is_read_by_student,
             is_read_by_parent: payload.new.is_read_by_parent,
             is_read_by_admin: payload.new.is_read_by_admin,
@@ -148,18 +174,142 @@ export function ChatRoom({
             return [...prev, newMessage];
           });
 
-          // 타인 메시지 수신 시 읽음 처리
           if (senderId !== currentUserId) {
             markAsRead(roomId);
           }
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (cancelled) return;
+        if (status === 'SUBSCRIBED') {
+          setRealtimeBanner(null);
+          realtimeRetryRef.current = 0;
+          return;
+        }
+        if (status === 'CLOSED') {
+          return;
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('[ChatRoom] Realtime', status, err);
+          if (realtimeRetryTimerRef.current) {
+            clearTimeout(realtimeRetryTimerRef.current);
+            realtimeRetryTimerRef.current = null;
+          }
+          const attempt = realtimeRetryRef.current;
+          if (attempt < 3) {
+            setRealtimeBanner('연결이 끊어졌습니다. 재연결 중…');
+            realtimeRetryRef.current = attempt + 1;
+            const delayMs = 1000 * Math.pow(2, attempt);
+            realtimeRetryTimerRef.current = setTimeout(() => {
+              if (!cancelled) {
+                setRealtimeChannelGen((g) => g + 1);
+              }
+            }, delayMs);
+          } else {
+            setRealtimeBanner('실시간 연결에 실패했습니다. 페이지를 새로고침해 주세요.');
+          }
+        }
+      });
 
     return () => {
+      cancelled = true;
+      if (realtimeRetryTimerRef.current) {
+        clearTimeout(realtimeRetryTimerRef.current);
+        realtimeRetryTimerRef.current = null;
+      }
       supabase.removeChannel(channel);
     };
-  }, [roomId, currentUserId]);
+  }, [roomId, currentUserId, realtimeChannelGen]);
+
+  // 네이티브: Storage 업로드 후 FILE_UPLOADED → 이미지 또는 파일 메시지 전송
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isNativeApp()) return;
+
+    const sendAfterNativeUpload = async (
+      imageUrl: string | null,
+      attachment: ChatFileAttachment | null
+    ) => {
+      setIsSending(true);
+      const tempId = `temp-${Date.now()}`;
+      const optimisticMessage: ChatMessageData = {
+        id: tempId,
+        room_id: roomId,
+        sender_id: currentUserId,
+        sender_name: currentUserName,
+        sender_type: currentUserType,
+        content: '',
+        image_url: imageUrl,
+        file_url: attachment?.url ?? null,
+        file_name: attachment?.fileName ?? null,
+        file_type: attachment ? 'file' : imageUrl ? 'image' : null,
+        is_read_by_student: currentUserType === 'student',
+        is_read_by_parent: currentUserType === 'parent',
+        is_read_by_admin: currentUserType === 'admin',
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimisticMessage]);
+
+      try {
+        const result = await sendMessage(roomId, '', imageUrl, attachment);
+        if (result.error) {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          alert(result.error);
+        } else if (result.data) {
+          pendingMessageIds.current.add(result.data.id);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    id: result.data!.id,
+                    created_at: result.data!.created_at,
+                    image_url: result.data!.image_url,
+                    file_url: result.data!.file_url ?? m.file_url,
+                    file_name: result.data!.file_name ?? m.file_name,
+                    file_type: result.data!.file_type ?? m.file_type,
+                  }
+                : m
+            )
+          );
+        }
+      } catch {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        alert('메시지 전송에 실패했습니다.');
+      } finally {
+        setIsSending(false);
+      }
+    };
+
+    const handler = (event: MessageEvent) => {
+      const raw = typeof event.data === 'string' ? event.data : null;
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as {
+          type?: string;
+          payload?: { url?: string; filename?: string; mime_type?: string };
+        };
+        if (parsed.type !== 'FILE_UPLOADED' || !parsed.payload?.url) return;
+        const url = parsed.payload.url;
+        const mime = parsed.payload.mime_type ?? '';
+        const fileName = parsed.payload.filename?.trim() || '첨부파일';
+
+        if (mime.startsWith('image/')) {
+          void sendAfterNativeUpload(url, null);
+        } else {
+          void sendAfterNativeUpload(null, {
+            url,
+            fileName,
+            mimeType: parsed.payload.mime_type ?? null,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [roomId, currentUserId, currentUserName, currentUserType]);
 
   // 채팅방 진입 시 1회 읽음 처리
   useEffect(() => {
@@ -168,18 +318,25 @@ export function ChatRoom({
 
   // 메시지 전송
   const handleSend = useCallback(
-    async (content: string, imageFile?: File | null) => {
+    async (content: string, imageFile?: File | null, dataFile?: File | null) => {
       setIsSending(true);
-      
+
       let imageUrl: string | null = null;
       let tempImagePreview: string | null = null;
+      let fileAttachment: ChatFileAttachment | null = null;
+
+      if (imageFile && dataFile) {
+        alert('이미지와 파일을 동시에 보낼 수 없습니다.');
+        setIsSending(false);
+        return;
+      }
 
       if (imageFile) {
         tempImagePreview = URL.createObjectURL(imageFile);
 
         const formData = new FormData();
         formData.append('file', imageFile);
-        
+
         const uploadResult = await uploadChatImage(roomId, formData);
         if (uploadResult.error) {
           console.error('Image upload error:', uploadResult.error);
@@ -190,7 +347,27 @@ export function ChatRoom({
         }
         imageUrl = uploadResult.data?.url || null;
       }
-      
+
+      if (dataFile) {
+        const formData = new FormData();
+        formData.append('file', dataFile);
+        const uploadResult = await uploadChatFile(roomId, formData);
+        if (uploadResult.error) {
+          console.error('File upload error:', uploadResult.error);
+          alert(uploadResult.error);
+          setIsSending(false);
+          if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
+          return;
+        }
+        if (uploadResult.data) {
+          fileAttachment = {
+            url: uploadResult.data.url,
+            fileName: uploadResult.data.fileName,
+            mimeType: uploadResult.data.mimeType,
+          };
+        }
+      }
+
       const tempId = `temp-${Date.now()}`;
       const optimisticMessage: ChatMessageData = {
         id: tempId,
@@ -200,16 +377,19 @@ export function ChatRoom({
         sender_type: currentUserType,
         content: content,
         image_url: imageUrl || tempImagePreview,
+        file_url: fileAttachment?.url ?? null,
+        file_name: fileAttachment?.fileName ?? null,
+        file_type: fileAttachment ? 'file' : null,
         is_read_by_student: currentUserType === 'student',
         is_read_by_parent: currentUserType === 'parent',
         is_read_by_admin: currentUserType === 'admin',
         created_at: new Date().toISOString(),
       };
-      
+
       setMessages((prev) => [...prev, optimisticMessage]);
 
       try {
-        const result = await sendMessage(roomId, content, imageUrl);
+        const result = await sendMessage(roomId, content, imageUrl, fileAttachment);
         if (result.error) {
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           console.error('Send message error:', result.error);
@@ -219,11 +399,14 @@ export function ChatRoom({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
-                ? { 
-                    ...m, 
-                    id: result.data!.id, 
+                ? {
+                    ...m,
+                    id: result.data!.id,
                     created_at: result.data!.created_at,
-                    image_url: result.data!.image_url 
+                    image_url: result.data!.image_url,
+                    file_url: result.data!.file_url ?? m.file_url,
+                    file_name: result.data!.file_name ?? m.file_name,
+                    file_type: result.data!.file_type ?? m.file_type,
                   }
                 : m
             )
@@ -243,6 +426,11 @@ export function ChatRoom({
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {realtimeBanner && (
+        <div className="shrink-0 px-3 py-2 text-center text-sm bg-amber-50 text-amber-900 border-b border-amber-100">
+          {realtimeBanner}
+        </div>
+      )}
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 bg-white">
         {showBackButton && onBack && (
@@ -271,7 +459,7 @@ export function ChatRoom({
       />
 
       {/* 입력창 */}
-      <ChatInput onSend={handleSend} disabled={isSending} />
+      <ChatInput roomId={roomId} onSend={handleSend} disabled={isSending} />
     </div>
   );
 }

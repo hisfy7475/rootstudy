@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "웨버스터디",
+    "name": "루트스터디",
     "slug": "studycafe-app",
     "version": "1.0.0",
-    "scheme": "weberstudy",
+    "scheme": "rootstudy",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,20 +20,29 @@
           "icon": "./assets/icon.png",
           "color": "#4F46E5"
         }
+      ],
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "채팅에 이미지를 보내기 위해 사진 라이브러리 접근이 필요합니다.",
+          "cameraPermission": "채팅에 사진을 촬영해 보내기 위해 카메라 접근이 필요합니다."
+        }
       ]
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.weberstudy.app",
+      "bundleIdentifier": "com.rootstudy.app",
       "associatedDomains": [
-        "applinks:studycafe.weberstudy.com"
+        "applinks:www.rootstudy.co.kr",
+        "applinks:rootstudy.co.kr"
       ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.weberstudy.app",
+      "package": "com.rootstudy.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -47,7 +56,12 @@
           "data": [
             {
               "scheme": "https",
-              "host": "studycafe.weberstudy.com",
+              "host": "www.rootstudy.co.kr",
+              "pathPrefix": "/"
+            },
+            {
+              "scheme": "https",
+              "host": "rootstudy.co.kr",
               "pathPrefix": "/"
             }
           ],
@@ -56,14 +70,16 @@
             "DEFAULT"
           ]
         }
+      ],
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "extra": {
-      "webBaseUrl": "https://studycafe.weberstudy.com",
       "eas": {
-        "projectId": "79646cec-375a-4399-a6ba-6c9ed0583533"
+        "projectId": "95fb04dd-e09b-427e-a9f0-29e643ae4f7c"
       }
     },
-    "owner": "mt.bluupill"
+    "owner": "buildersgate"
   }
 }

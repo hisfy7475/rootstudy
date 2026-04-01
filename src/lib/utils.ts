@@ -253,10 +253,10 @@ export function getAbsenceExemptionRange(
   };
 }
 
-const NATIVE_APP_UA = 'WeberStudyApp';
+const NATIVE_APP_UA = 'RootStudyApp';
 
 /**
- * User-Agent에 WeberStudyApp이 포함되어 있는지 확인하여 네이티브 앱 여부를 판별.
+ * User-Agent에 RootStudyApp이 포함되어 있는지 확인하여 네이티브 앱 여부를 판별.
  * - 서버(middleware, Server Component 등): headers()에서 가져온 UA 문자열을 전달
  * - 클라이언트: 인자 없이 호출하면 navigator.userAgent를 사용
  */

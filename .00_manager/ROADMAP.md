@@ -1,4 +1,4 @@
-# 웨버스터디 앱 전환 + 신규 기능 개발 로드맵
+# 루트스터디 앱 전환 + 신규 기능 개발 로드맵
 
 > 이 문서는 범위·스펙의 기준 문서다. 운영 전제(스토어 계정 주체, 빌드 방식 등)가 바뀌면 해당 절을 갱신한다.
 > 실시간 진행 상황은 PROGRESS.md를 참고한다.
@@ -48,7 +48,7 @@
 
 | 자료 | 경로 | 용도 |
 |------|------|------|
-| 견적서 | `.manager/client/최종 추가 견적서/20260312_웨버스터디앱_통합견적서.txt` | 개발 범위 정의 |
+| 견적서 | `.00_manager/client/최종 추가 견적서/20260312_루트스터디앱_통합견적서.txt` | 개발 범위 정의 |
 | 옛 앱 (Android) | `.manager/ref/LUsoft-Android-rootstudycenter-Source-260312/` | WebView 쉘, FCM, 결제 scheme 처리 참조 |
 | 옛 앱 (iOS) | `.manager/ref/LUsoft-iOS-rootstudycenter-source-260312/` | WKWebView, APNs, IAP 참조 |
 | NICEPay 매뉴얼 | `.manager/ref/nicepay-manual/` | 결제 연동 API 상세 |
@@ -182,7 +182,7 @@ Expo 기반 iOS/Android 앱 프로젝트를 생성하고, 기존 Next.js 웹을 
 #### 3.2.2 WebView 연동
 
 - `react-native-webview`로 기존 웹 URL 로딩
-- User-Agent에 `WeberStudyApp/1.0` 추가 (웹에서 앱 여부 감지용)
+- User-Agent에 `RootStudyApp/1.0` 추가 (웹에서 앱 여부 감지용)
 - WebView ↔ Native postMessage 통신 기반 구축
 - 쿠키/localStorage 영속성 설정
 - 뒤로가기 핸들링 (Android 하드웨어 백버튼)
@@ -195,11 +195,11 @@ Expo 기반 iOS/Android 앱 프로젝트를 생성하고, 기존 Next.js 웹을 
 
 #### 3.2.4 딥링크
 
-- URL scheme 등록: `weberstudy://`
+- URL scheme 등록: `rootstudy://`
 - Universal Links (iOS) / App Links (Android) 설정
 - 딥링크 수신 → WebView URL 매핑:
-  - `weberstudy://student/chat` → `/student/chat`
-  - `weberstudy://parent/announcements/123` → `/parent/announcements/123`
+  - `rootstudy://student/chat` → `/student/chat`
+  - `rootstudy://parent/announcements/123` → `/parent/announcements/123`
 
 #### 3.2.5 EAS Build 파이프라인
 
@@ -429,10 +429,76 @@ CREATE TABLE announcement_attachments (
 - PDF/문서: 새 탭/외부 앱으로 열기
 - 파일 사이즈 제한: 이미지 10MB, 파일 20MB
 
+#### 6.4.4 Storage 정리/보안
+
+- `deleteAnnouncementAttachment`에서 DB 행 삭제 시 **Storage 객체도 함께 삭제** (현재 고아 파일 누적 가능)
+- 공개 버킷 정책 재검토: 현재 `chat-files`·`announcement-files`가 public → URL만 알면 누구나 GET 가능. 민감 문서가 올라갈 수 있으므로 **signed URL 전환** 또는 **RLS 기반 비공개 버킷** 검토
+
 ### 6.5 참조 (옛 앱)
 
 - Android: `LusoftA`의 파일 업로드 JS 브리지, `DownloadMng.java` 다운로드 처리
 - iOS: `ImagePicker` 모듈, `WKUserInterface.swift` 파일 처리
+
+### 6.6 Phase 4 병행: 앱 품질 보강
+
+Phase 4 네이티브 작업과 함께 처리해야 할 크로스커팅 이슈들. Phase 5 진입 전에 완료한다.
+
+#### 6.6.1 Safe Area 적용
+
+현재 `globals.css`에 `pb-safe`가 정의돼 있으나 실사용처가 없고, `viewport-fit=cover`도 미설정.
+
+- `src/app/layout.tsx` viewport 메타에 `viewportFit: 'cover'` 추가
+- 학생/학부모 **상단 헤더**: `fixed top-4 left-4` → 네이티브 앱일 때 `safe-area-inset-top` 반영 (노치·상태바 겹침 방지)
+- **하단 탭** (`bottom-nav.tsx`): `fixed bottom-0` → `pb-safe` 클래스 적용 (홈 인디케이터 겹침 방지)
+- 사이드바 열림 시에도 safe area 고려
+
+#### 6.6.2 KST 타임존 규칙 준수
+
+프로젝트 규칙 `timezone-kst.mdc`에 따라 날짜/시간 표시 시 `timeZone: 'Asia/Seoul'` 필수이나 여러 곳에서 누락.
+
+- `chat-message-item.tsx`: `date-fns format()` → KST 기준 표시로 전환 (또는 `toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })`)
+- `chat-message-list.tsx`: 날짜 구분선 → KST 기준
+- `announcements-client.tsx` (학생/학부모/관리자): `formatDate`·`formatFullDate`에 `timeZone: 'Asia/Seoul'` 추가
+
+#### 6.6.3 WebView 로딩 실패 대응
+
+현재 스플래시가 `onLoadEnd`에만 의존 → 로딩 실패 시 영구 표시 가능.
+
+- `WebViewScreen`에 `onError` 핸들러 추가 → 스플래시 숨김 + 오프라인/에러 안내 화면 + 재시도 버튼
+- 네트워크 상태 감지 (`NetInfo`) → 오프라인 시 사전 안내 (선택)
+
+#### 6.6.4 SESSION_INJECT 딥링크 복귀
+
+현재 `SESSION_INJECT` 성공 후 무조건 `location.href = '/'`로 이동 → 딥링크로 진입한 사용자가 원래 목적 페이지를 잃음.
+
+- `SESSION_INJECT` payload에 `returnPath` 추가 (네이티브가 딥링크 경로를 함께 전달)
+- `AuthBridge`에서 `returnPath`가 있으면 해당 경로로 이동, 없으면 `/`
+
+#### 6.6.5 채팅 스크롤 수정
+
+이전 메시지 로드(prepend) 시에도 맨 아래로 스크롤하는 effect가 발동 → 사용자가 위로 스크롤한 위치를 잃음.
+
+- `ChatMessageList`: 과거 메시지 prepend 시 **스크롤 위치 보존** (scrollTop + scrollHeight 차이 계산)
+- 새 메시지 수신 시에만 맨 아래로 자동 스크롤 (또는 "새 메시지" 플로팅 버튼)
+
+#### 6.6.6 Realtime 에러/재연결 처리
+
+채팅·사이드바의 `postgres_changes` 구독에서 에러/타임아웃 시 피드백·재구독 없음.
+
+- 채널 `subscribe` 콜백에서 에러 감지 → 사용자에게 "연결이 끊겼습니다" 배너 또는 토스트
+- `CHANNEL_ERROR` / `TIMED_OUT` 시 자동 재구독 시도 (최대 3회, 지수 백오프)
+
+#### 6.6.7 마이그레이션 파일 정비
+
+`push_tokens` 테이블은 DB에 존재하나 `supabase/migrations/`에 SQL 없음 → 환경 재현 불가.
+
+- `supabase/migrations/`에 Phase 2 `push_tokens` + RLS 마이그레이션 SQL 추가
+- 기존 대시보드에서만 적용한 설정(Realtime publication 등)도 마이그레이션에 기록
+
+#### 6.6.8 기타 UX 보강
+
+- **승인 대기(pending) 페이지**: 현재 전체 네비(헤더+하단 탭)가 보임 → 탭 클릭 시 반복 리다이렉트. pending 전용 최소 레이아웃으로 전환하거나 하단 탭 숨김
+- **학생 헤더 `seatNumber` prop**: 현재 전달만 하고 미사용 → 좌석 번호 표시 UI 추가 또는 dead prop 제거
 
 ---
 

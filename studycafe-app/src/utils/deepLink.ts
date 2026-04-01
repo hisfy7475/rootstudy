@@ -15,8 +15,8 @@ type ExpoParsed = {
 
 /**
  * 딥링크 URL을 WebView에 로드할 절대 HTTPS URI로 변환한다.
- * - weberstudy://student/chat → {WEB_BASE_URL}/student/chat
- * - https://studycafe.weberstudy.com/... → 동일 경로·쿼리 (호스트만 검증)
+ * - rootstudy://student/chat → {WEB_BASE_URL}/student/chat
+ * - https://www.rootstudy.co.kr/... → 동일 경로·쿼리 (호스트만 검증)
  */
 export function resolveDeepLinkToWebUri(
   incoming: string | null | undefined,
@@ -72,7 +72,7 @@ export function resolveDeepLinkToWebUri(
     }
 
     if (parsed.scheme === URL_SCHEME) {
-      const p = pathFromWeberScheme(parsed);
+      const p = pathFromAppUrlScheme(parsed);
       return `${base}${p.startsWith('/') ? p : `/${p}`}`;
     }
   } catch {
@@ -111,7 +111,7 @@ function serializeQueryParams(
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
-function pathFromWeberScheme(parsed: ExpoParsed): string {
+function pathFromAppUrlScheme(parsed: ExpoParsed): string {
   const host = parsed.hostname ?? '';
   let path = parsed.path ?? '';
   if (path.startsWith('/')) path = path.slice(1);

@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { ChatMessageItem } from './chat-message-item';
-import { format, isSameDay } from 'date-fns';
-import { ko } from 'date-fns/locale';
 import { Loader2 } from 'lucide-react';
 
 export interface ChatMessageData {
@@ -14,6 +12,9 @@ export interface ChatMessageData {
   sender_type: string;
   content: string;
   image_url?: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
+  file_type?: string | null;
   is_read_by_student: boolean;
   is_read_by_parent: boolean;
   is_read_by_admin: boolean;
@@ -28,6 +29,20 @@ interface ChatMessageListProps {
   onLoadMore?: () => void;
 }
 
+function dateKeyKST(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+}
+
+function formatDividerLabelKST(iso: string): string {
+  return new Date(iso).toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  });
+}
+
 export function ChatMessageList({
   messages,
   currentUserId,
@@ -40,16 +55,39 @@ export function ChatMessageList({
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const isInitialMount = useRef(true);
   const prevScrollHeightRef = useRef(0);
+  const prevMessagesRef = useRef<ChatMessageData[]>(messages);
 
-  // 초기 마운트 시 맨 아래로 (instant), 이후 새 메시지 시 smooth
+  // 초기 마운트: 맨 아래. 이후: prepend가 아니고 맨 끝에 새 메시지가 붙었을 때만 맨 아래로
   useEffect(() => {
+    const prev = prevMessagesRef.current;
+    const prevLen = prev.length;
+    const nextLen = messages.length;
+
     if (isInitialMount.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' });
       isInitialMount.current = false;
-    } else {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      prevMessagesRef.current = messages;
+      return;
     }
-  }, [messages.length]);
+
+    if (nextLen > prevLen) {
+      const prepended =
+        prevLen > 0 &&
+        messages[0] &&
+        prev[0] &&
+        messages[0].id !== prev[0].id;
+
+      if (!prepended) {
+        const prevLast = prev[prevLen - 1]?.id;
+        const nextLast = messages[nextLen - 1]?.id;
+        if (nextLast !== prevLast) {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+    }
+
+    prevMessagesRef.current = messages;
+  }, [messages]);
 
   // 이전 메시지 로드 후 스크롤 위치 복원
   useEffect(() => {
@@ -91,7 +129,7 @@ export function ChatMessageList({
     prevMsg: ChatMessageData | null
   ) => {
     if (!prevMsg) return true;
-    return !isSameDay(new Date(currentMsg.created_at), new Date(prevMsg.created_at));
+    return dateKeyKST(currentMsg.created_at) !== dateKeyKST(prevMsg.created_at);
   };
 
   if (messages.length === 0) {
@@ -110,7 +148,6 @@ export function ChatMessageList({
       ref={containerRef}
       className="flex-1 overflow-y-auto p-4 space-y-3"
     >
-      {/* 상단 센티널: 이전 메시지 로드 트리거 */}
       <div ref={topSentinelRef} className="h-1" />
       {isLoadingMore && (
         <div className="flex justify-center py-2">
@@ -127,9 +164,7 @@ export function ChatMessageList({
             {showDateDivider && (
               <div className="flex items-center justify-center my-4">
                 <div className="bg-gray-200 text-text-muted text-xs px-3 py-1 rounded-full">
-                  {format(new Date(message.created_at), 'yyyy년 M월 d일 EEEE', {
-                    locale: ko,
-                  })}
+                  {formatDividerLabelKST(message.created_at)}
                 </div>
               </div>
             )}
@@ -138,6 +173,9 @@ export function ChatMessageList({
               id={message.id}
               content={message.content}
               imageUrl={message.image_url}
+              fileUrl={message.file_url}
+              fileName={message.file_name}
+              fileType={message.file_type}
               senderName={message.sender_name}
               senderType={message.sender_type}
               createdAt={message.created_at}

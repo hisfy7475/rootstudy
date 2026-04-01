@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+# 나이스페이 참조 샘플 내 로컬 npm 설치물 (커밋 제외)
+.00_manager/ref/nice/**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*

@@ -8,15 +8,16 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { ko } from 'date-fns/locale';
 import Image from 'next/image';
-import { X } from 'lucide-react';
+import { FileText, X } from 'lucide-react';
 
 interface ChatMessageItemProps {
   id: string;
   content: string;
   imageUrl?: string | null;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
   senderName: string;
   senderType: 'student' | 'parent' | 'admin' | string;
   createdAt: string;
@@ -40,6 +41,9 @@ const LONG_PRESS_MS = 500;
 export function ChatMessageItem({
   content,
   imageUrl,
+  fileUrl,
+  fileName,
+  fileType,
   senderName,
   senderType,
   createdAt,
@@ -50,7 +54,12 @@ export function ChatMessageItem({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const timeString = format(new Date(createdAt), 'a h:mm', { locale: ko });
+  const timeString = new Date(createdAt).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
   const typeLabel = senderTypeLabels[senderType] || senderType;
   const typeColor = senderTypeColors[senderType] || 'text-gray-500';
 
@@ -126,9 +135,28 @@ export function ChatMessageItem({
               isOwn
                 ? 'bg-primary text-white rounded-br-md'
                 : 'bg-gray-100 text-text rounded-bl-md',
-              imageUrl ? 'p-1' : 'px-4 py-2.5'
+              imageUrl || (fileUrl && fileType === 'file') ? 'p-1' : 'px-4 py-2.5'
             )}
           >
+            {/* 일반 파일 첨부 */}
+            {fileUrl && fileType === 'file' && (
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'flex items-center gap-2 mb-1 rounded-xl px-3 py-2.5 min-w-[200px] max-w-[280px]',
+                  isOwn
+                    ? 'bg-white/15 text-white hover:bg-white/25'
+                    : 'bg-white text-text border border-gray-200 hover:bg-gray-50'
+                )}
+              >
+                <FileText className="w-8 h-8 flex-shrink-0 opacity-90" />
+                <span className="text-sm font-medium break-all line-clamp-3">
+                  {fileName || '첨부파일'}
+                </span>
+              </a>
+            )}
             {/* 이미지 */}
             {imageUrl && (
               <div 
@@ -151,7 +179,7 @@ export function ChatMessageItem({
                 title="길게 눌러 복사"
                 className={cn(
                   'select-text break-words whitespace-pre-wrap touch-manipulation',
-                  imageUrl && 'px-3 py-2'
+                  (imageUrl || (fileUrl && fileType === 'file')) && 'px-3 py-2'
                 )}
                 onPointerDown={onTextPointerDown}
                 onPointerUp={onTextPointerEnd}

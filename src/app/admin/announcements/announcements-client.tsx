@@ -6,9 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   getAnnouncementsForAdmin,
+  getAnnouncementById,
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
+  uploadAnnouncementAttachment,
+  deleteAnnouncementAttachment,
+  type AnnouncementAttachmentRow,
 } from '@/lib/actions/announcement';
 import {
   sendKakaoAlimtalkToParents,
@@ -27,6 +31,8 @@ import {
   X,
   Eye,
   MessageCircle,
+  Paperclip,
+  FileText,
 } from 'lucide-react';
 import { cn, getTodayKST } from '@/lib/utils';
 
@@ -79,6 +85,8 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<AnnouncementAttachmentRow[]>([]);
   const [alimtalkResult, setAlimtalkResult] = useState<{
     show: boolean;
     success: boolean;
@@ -150,6 +158,7 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
     if (diffDays < 7) return `${diffDays}일 전`;
 
     return date.toLocaleDateString('ko-KR', {
+      timeZone: 'Asia/Seoul',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -159,6 +168,8 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
 
   const openCreateModal = () => {
     setEditingId(null);
+    setPendingFiles([]);
+    setExistingAttachments([]);
     setFormData({
       title: '',
       content: '',
@@ -171,8 +182,9 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
     setShowModal(true);
   };
 
-  const openEditModal = (announcement: Announcement) => {
+  const openEditModal = async (announcement: Announcement) => {
     setEditingId(announcement.id);
+    setPendingFiles([]);
     setFormData({
       title: announcement.title,
       content: announcement.content,
@@ -183,6 +195,53 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
     });
     setAlimtalkResult(null);
     setShowModal(true);
+    const full = await getAnnouncementById(announcement.id);
+    setExistingAttachments(full?.attachments ?? []);
+  };
+
+  const addPendingFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = [...pendingFiles];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.size > 20 * 1024 * 1024) {
+        alert(`${f.name}: 20MB 이하만 첨부할 수 있습니다.`);
+        continue;
+      }
+      if (next.length >= 15) {
+        alert('첨부는 최대 15개까지입니다.');
+        break;
+      }
+      next.push(f);
+    }
+    setPendingFiles(next);
+  };
+
+  const removePendingAt = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDeleteExistingAttachment = async (attachmentId: string) => {
+    if (!confirm('이 첨부파일을 삭제할까요?')) return;
+    const res = await deleteAnnouncementAttachment(attachmentId);
+    if (res.error) {
+      alert(res.error);
+      return;
+    }
+    setExistingAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+  };
+
+  const uploadPendingForAnnouncement = async (announcementId: string) => {
+    for (const file of pendingFiles) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await uploadAnnouncementAttachment(announcementId, fd);
+      if (up.error) {
+        alert(`첨부 업로드 실패 (${file.name}): ${up.error}`);
+        return false;
+      }
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -206,6 +265,13 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
           alert(result.error);
           return;
         }
+        if (pendingFiles.length > 0) {
+          const ok = await uploadPendingForAnnouncement(editingId);
+          if (!ok) return;
+          setPendingFiles([]);
+          const full = await getAnnouncementById(editingId);
+          setExistingAttachments(full?.attachments ?? []);
+        }
       } else {
         const result = await createAnnouncement({
           title: formData.title,
@@ -218,6 +284,12 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
           alert(result.error);
           return;
         }
+        const newId = result.data?.id;
+        if (newId && pendingFiles.length > 0) {
+          const ok = await uploadPendingForAnnouncement(newId);
+          if (!ok) return;
+        }
+        setPendingFiles([]);
       }
 
       // 카카오 알림톡 발송 (새 공지 생성 시에만)
@@ -467,6 +539,67 @@ export function AnnouncementsClient({ initialAnnouncements, alimtalkConfigured: 
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   placeholder="공지사항 내용을 입력하세요"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 flex items-center gap-2">
+                  <Paperclip className="w-4 h-4" />
+                  첨부파일 (PDF·이미지·문서 등, 파일당 20MB, 최대 15개)
+                </label>
+                <input
+                  type="file"
+                  multiple
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-lg file:border file:border-gray-300 file:bg-white file:px-3 file:py-1.5"
+                  onChange={(e) => {
+                    addPendingFiles(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                {existingAttachments.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {existingAttachments.map((att) => (
+                      <li
+                        key={att.id}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2 py-1.5"
+                      >
+                        <span className="flex items-center gap-2 min-w-0 truncate">
+                          <FileText className="w-4 h-4 flex-shrink-0 text-text-muted" />
+                          <span className="truncate">{att.file_name}</span>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 h-8 px-2"
+                          onClick={() => void handleDeleteExistingAttachment(att.id)}
+                        >
+                          삭제
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {pendingFiles.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {pendingFiles.map((f, i) => (
+                      <li
+                        key={`${f.name}-${i}`}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-primary/5 px-2 py-1.5"
+                      >
+                        <span className="truncate">업로드 예정: {f.name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => removePendingAt(i)}
+                        >
+                          제거
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <div>

@@ -576,6 +576,9 @@ export interface Database {
           sender_id: string;
           content: string;
           image_url: string | null;
+          file_url: string | null;
+          file_name: string | null;
+          file_type: string | null;
           is_read_by_student: boolean;
           is_read_by_parent: boolean;
           is_read_by_admin: boolean;
@@ -587,6 +590,9 @@ export interface Database {
           sender_id: string;
           content: string;
           image_url?: string | null;
+          file_url?: string | null;
+          file_name?: string | null;
+          file_type?: string | null;
           is_read_by_student?: boolean;
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
@@ -598,6 +604,9 @@ export interface Database {
           sender_id?: string;
           content?: string;
           image_url?: string | null;
+          file_url?: string | null;
+          file_name?: string | null;
+          file_type?: string | null;
           is_read_by_student?: boolean;
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
@@ -825,6 +834,35 @@ export interface Database {
           created_at?: string;
         };
       };
+      announcement_attachments: {
+        Row: {
+          id: string;
+          announcement_id: string;
+          file_url: string;
+          file_name: string;
+          file_size: number | null;
+          mime_type: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          announcement_id: string;
+          file_url: string;
+          file_name: string;
+          file_size?: number | null;
+          mime_type?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          announcement_id?: string;
+          file_url?: string;
+          file_name?: string;
+          file_size?: number | null;
+          mime_type?: string | null;
+          created_at?: string;
+        };
+      };
       announcements: {
         Row: {
           id: string;
@@ -1023,6 +1061,308 @@ export interface Database {
           updated_at?: string;
         };
       };
+      meal_products: {
+        Row: {
+          id: string;
+          branch_id: string;
+          name: string;
+          meal_type: 'lunch' | 'dinner';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          meal_start_date: string;
+          meal_end_date: string;
+          max_capacity: number | null;
+          status: 'active' | 'inactive' | 'sold_out';
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          name: string;
+          meal_type: 'lunch' | 'dinner';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          meal_start_date: string;
+          meal_end_date: string;
+          max_capacity?: number | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          name?: string;
+          meal_type?: 'lunch' | 'dinner';
+          price?: number;
+          sale_start_date?: string;
+          sale_end_date?: string;
+          meal_start_date?: string;
+          meal_end_date?: string;
+          max_capacity?: number | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      meal_menus: {
+        Row: {
+          id: string;
+          product_id: string;
+          date: string;
+          menu_text: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          date: string;
+          menu_text: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          date?: string;
+          menu_text?: string;
+          created_at?: string;
+        };
+      };
+      meal_orders: {
+        Row: {
+          id: string;
+          user_id: string;
+          student_id: string;
+          product_id: string;
+          order_id: string;
+          amount: number;
+          status: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
+          tid: string | null;
+          paid_at: string | null;
+          cancelled_at: string | null;
+          cancel_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          student_id: string;
+          product_id: string;
+          order_id: string;
+          amount: number;
+          status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
+          tid?: string | null;
+          paid_at?: string | null;
+          cancelled_at?: string | null;
+          cancel_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          student_id?: string;
+          product_id?: string;
+          order_id?: string;
+          amount?: number;
+          status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
+          tid?: string | null;
+          paid_at?: string | null;
+          cancelled_at?: string | null;
+          cancel_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      payment_logs: {
+        Row: {
+          id: string;
+          order_type: 'meal' | 'exam' | 'other';
+          order_id: string;
+          tid: string | null;
+          action: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
+          amount: number | null;
+          status: string;
+          result_code: string | null;
+          result_msg: string | null;
+          raw_request: Json | null;
+          raw_response: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          order_type: 'meal' | 'exam' | 'other';
+          order_id: string;
+          tid?: string | null;
+          action: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
+          amount?: number | null;
+          status: string;
+          result_code?: string | null;
+          result_msg?: string | null;
+          raw_request?: Json | null;
+          raw_response?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          order_type?: 'meal' | 'exam' | 'other';
+          order_id?: string;
+          tid?: string | null;
+          action?: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
+          amount?: number | null;
+          status?: string;
+          result_code?: string | null;
+          result_msg?: string | null;
+          raw_request?: Json | null;
+          raw_response?: Json | null;
+          created_at?: string;
+        };
+      };
+      mentors: {
+        Row: {
+          id: string;
+          branch_id: string;
+          name: string;
+          subject: string | null;
+          bio: string | null;
+          profile_image_url: string | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          name: string;
+          subject?: string | null;
+          bio?: string | null;
+          profile_image_url?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          name?: string;
+          subject?: string | null;
+          bio?: string | null;
+          profile_image_url?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      mentoring_slots: {
+        Row: {
+          id: string;
+          branch_id: string;
+          mentor_id: string;
+          date: string;
+          start_time: string;
+          end_time: string;
+          type: 'mentoring' | 'clinic';
+          subject: string | null;
+          capacity: number;
+          booked_count: number;
+          location: string | null;
+          note: string | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          mentor_id: string;
+          date: string;
+          start_time: string;
+          end_time: string;
+          type: 'mentoring' | 'clinic';
+          subject?: string | null;
+          capacity?: number;
+          booked_count?: number;
+          location?: string | null;
+          note?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          mentor_id?: string;
+          date?: string;
+          start_time?: string;
+          end_time?: string;
+          type?: 'mentoring' | 'clinic';
+          subject?: string | null;
+          capacity?: number;
+          booked_count?: number;
+          location?: string | null;
+          note?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      mentoring_applications: {
+        Row: {
+          id: string;
+          slot_id: string;
+          user_id: string;
+          student_id: string;
+          status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
+          note: string | null;
+          reject_reason: string | null;
+          applied_at: string;
+          confirmed_at: string | null;
+          rejected_at: string | null;
+          cancelled_at: string | null;
+          cancel_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          slot_id: string;
+          user_id: string;
+          student_id: string;
+          status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
+          note?: string | null;
+          reject_reason?: string | null;
+          applied_at?: string;
+          confirmed_at?: string | null;
+          rejected_at?: string | null;
+          cancelled_at?: string | null;
+          cancel_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          slot_id?: string;
+          user_id?: string;
+          student_id?: string;
+          status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
+          note?: string | null;
+          reject_reason?: string | null;
+          applied_at?: string;
+          confirmed_at?: string | null;
+          rejected_at?: string | null;
+          cancelled_at?: string | null;
+          cancel_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -1055,8 +1395,16 @@ export type StudentNotification = Database['public']['Tables']['student_notifica
 export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
 export type Announcement = Database['public']['Tables']['announcements']['Row'];
+export type AnnouncementAttachment = Database['public']['Tables']['announcement_attachments']['Row'];
 export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];
 export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
 export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];
 export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
 export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];
+export type MealProduct = Database['public']['Tables']['meal_products']['Row'];
+export type MealMenu = Database['public']['Tables']['meal_menus']['Row'];
+export type MealOrder = Database['public']['Tables']['meal_orders']['Row'];
+export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];
+export type Mentor = Database['public']['Tables']['mentors']['Row'];
+export type MentoringSlot = Database['public']['Tables']['mentoring_slots']['Row'];
+export type MentoringApplication = Database['public']['Tables']['mentoring_applications']['Row'];

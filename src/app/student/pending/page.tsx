@@ -3,11 +3,11 @@
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Clock, LogOut } from 'lucide-react';
-import { signOut } from '@/app/(auth)/actions';
+import { signOutWithNativeSync } from '@/lib/sign-out-app';
 
 export default function PendingApprovalPage() {
   return (
-    <div className="flex items-center justify-center min-h-[60vh] px-4">
+    <div className="flex items-center justify-center min-h-screen px-4 py-8">
       <Card className="w-full max-w-md p-8 text-center space-y-6">
         <div className="flex justify-center">
           <div className="w-20 h-20 rounded-full bg-yellow-100 flex items-center justify-center">
@@ -27,7 +27,7 @@ export default function PendingApprovalPage() {
         <div className="pt-4">
           <Button
             variant="outline"
-            onClick={() => signOut()}
+            onClick={() => void signOutWithNativeSync()}
             className="gap-2"
           >
             <LogOut className="w-4 h-4" />

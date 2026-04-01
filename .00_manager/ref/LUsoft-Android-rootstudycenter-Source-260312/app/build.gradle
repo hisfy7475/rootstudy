@@ -65,7 +65,7 @@ android {
             versionCode 103
             versionName "1.0.3"
             applicationId "rootstudycenter.lusoft.android"
-            resValue "string", "app_name", "웨버스터디 루트"
+            resValue "string", "app_name", "루트스터디"
             buildConfigField "String", "HostUrl", "\"https://rootstudycenter.lusoft.co.kr\""
             buildConfigField "String", "StartUrl", "\"https://rootstudycenter.lusoft.co.kr/main.php?force_agent=app\""
             buildConfigField "String", "PushcatUrl", "\"http://pushcat.lusoft.co.kr:4001/RecvContent\""

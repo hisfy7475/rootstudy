@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { AuthBridge } from "@/components/AuthBridge";
 import "./globals.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://studycafe.vercel.app";
@@ -52,6 +53,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -74,6 +76,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
       <body className="font-pretendard antialiased">
+        <AuthBridge />
         {children}
       </body>
     </html>

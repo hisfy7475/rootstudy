@@ -5,8 +5,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { User, Settings, LogOut, ChevronDown, Users, Megaphone } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { signOut } from '@/app/(auth)/actions';
+import { cn, isNativeApp } from '@/lib/utils';
+import { SignOutForm } from '@/components/SignOutForm';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 
 interface Child {
@@ -31,6 +31,11 @@ export function ParentHeader({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const [isNative, setIsNative] = useState(false);
+
+  useEffect(() => {
+    setIsNative(isNativeApp());
+  }, []);
 
   // 주기적으로 읽지 않은 공지 수 갱신 (30초마다)
   useEffect(() => {
@@ -70,7 +75,12 @@ export function ParentHeader({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100">
+    <header
+      className={cn(
+        'sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100',
+        isNative && 'pt-safe'
+      )}
+    >
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
         {/* 로고/타이틀 */}
         <Link href="/parent" className="flex items-center">
@@ -210,7 +220,7 @@ export function ParentHeader({
                     <span className="text-sm text-text">설정</span>
                   </Link>
                   
-                  <form action={signOut}>
+                  <SignOutForm>
                     <button
                       type="submit"
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors w-full text-left"
@@ -218,7 +228,7 @@ export function ParentHeader({
                       <LogOut className="w-4 h-4 text-red-500" />
                       <span className="text-sm text-red-500">로그아웃</span>
                     </button>
-                  </form>
+                  </SignOutForm>
                 </div>
               </>
             )}

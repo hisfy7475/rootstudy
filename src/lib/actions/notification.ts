@@ -581,3 +581,69 @@ export async function sendKakaoAlimtalkToParent(params: {
   };
 }
 
+/** 멘토링 전용 알림톡 (카카오 템플릿 코드는 환경변수로 분기; 미설정 시 기본 템플릿 코드 사용) */
+export async function sendMentoringAlimtalkToParent(params: {
+  parentId: string;
+  studentId: string;
+  kind: 'confirmed' | 'rejected' | 'cancelled';
+  studentName: string;
+  subjectLabel: string;
+  dateLabel: string;
+  timeLabel: string;
+  reason?: string;
+}): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
+  if (!isAlimtalkConfigured()) {
+    return { success: true, skipped: true };
+  }
+
+  const supabase = await createClient();
+
+  const templateOverride =
+    params.kind === 'confirmed'
+      ? process.env.NCLOUD_KAKAO_MENTORING_CONFIRMED_TEMPLATE
+      : params.kind === 'rejected'
+        ? process.env.NCLOUD_KAKAO_MENTORING_REJECTED_TEMPLATE
+        : process.env.NCLOUD_KAKAO_MENTORING_CANCELLED_TEMPLATE;
+
+  const { data: parent, error: parentError } = await supabase
+    .from('profiles')
+    .select('phone, name')
+    .eq('id', params.parentId)
+    .maybeSingle();
+
+  if (parentError || !parent?.phone?.trim()) {
+    return { success: true, skipped: true };
+  }
+
+  let content: string;
+  if (params.kind === 'confirmed') {
+    content = `[멘토링 확정]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링이 확정되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
+  } else if (params.kind === 'rejected') {
+    content = `[멘토링 거절]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링 신청이 거절되었습니다.\n사유: ${params.reason ?? '-'}`;
+  } else {
+    content = `[멘토링 취소]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링이 취소되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
+  }
+
+  const response = await sendBulkAlimtalk({
+    messages: [{ to: parent.phone, content }],
+    templateCode: templateOverride || undefined,
+  });
+
+  const result = analyzeAlimtalkResult(response);
+
+  await supabase.from('notifications').insert({
+    parent_id: params.parentId,
+    student_id: params.studentId,
+    type: 'system',
+    message: content,
+    sent_via: 'kakao',
+    is_sent: result.success,
+  });
+
+  if (!result.success) {
+    return { success: false, error: response.error ?? '알림톡 발송에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+

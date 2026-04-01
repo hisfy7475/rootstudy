@@ -276,6 +276,9 @@ function formatMessages(messages: Array<Record<string, unknown>>) {
       sender_type: sp?.user_type || 'unknown',
       content: msg.content as string,
       image_url: msg.image_url as string | null,
+      file_url: (msg.file_url as string | null | undefined) ?? null,
+      file_name: (msg.file_name as string | null | undefined) ?? null,
+      file_type: (msg.file_type as string | null | undefined) ?? null,
       is_read_by_student: msg.is_read_by_student as boolean,
       is_read_by_parent: msg.is_read_by_parent as boolean,
       is_read_by_admin: msg.is_read_by_admin as boolean,
@@ -371,9 +374,9 @@ export async function uploadChatImage(roomId: string, formData: FormData) {
     return { error: '지원하지 않는 이미지 형식입니다.' };
   }
 
-  // 파일 크기 검증 (5MB)
-  if (file.size > 5 * 1024 * 1024) {
-    return { error: '이미지 크기는 5MB 이하여야 합니다.' };
+  // 파일 크기 검증 (10MB — ROADMAP Phase 4)
+  if (file.size > 10 * 1024 * 1024) {
+    return { error: '이미지 크기는 10MB 이하여야 합니다.' };
   }
 
   // 파일명 생성 (user_id/roomId/timestamp.ext)
@@ -400,8 +403,27 @@ export async function uploadChatImage(roomId: string, formData: FormData) {
   return { data: { url: publicUrl } };
 }
 
-// 메시지 전송
-export async function sendMessage(roomId: string, content: string, imageUrl?: string | null) {
+const CHAT_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20MB
+const CHAT_FILE_ALLOWED_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+] as const;
+
+function sanitizeChatFileSegment(name: string): string {
+  const base = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+  return base.slice(0, 200) || 'file';
+}
+
+/** 일반 파일 첨부 업로드 (이미지 제외 → `uploadChatImage` 사용) */
+export async function uploadChatFile(roomId: string, formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -409,8 +431,78 @@ export async function sendMessage(roomId: string, content: string, imageUrl?: st
     return { error: '로그인이 필요합니다.' };
   }
 
-  if (!content.trim() && !imageUrl) {
+  const file = formData.get('file') as File;
+  if (!file) {
+    return { error: '파일이 없습니다.' };
+  }
+
+  if (file.type.startsWith('image/')) {
+    return { error: '이미지는 이미지 첨부 버튼을 사용해 주세요.' };
+  }
+
+  if (!CHAT_FILE_ALLOWED_TYPES.includes(file.type as (typeof CHAT_FILE_ALLOWED_TYPES)[number])) {
+    return { error: '지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)' };
+  }
+
+  if (file.size > CHAT_FILE_MAX_BYTES) {
+    return { error: '파일 크기는 20MB 이하여야 합니다.' };
+  }
+
+  const safeBase = sanitizeChatFileSegment(file.name);
+  const fileName = `${user.id}/${roomId}/${Date.now()}_${safeBase}`;
+
+  const { data, error } = await supabase.storage
+    .from('chat-files')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (error) {
+    console.error('Error uploading chat file:', error);
+    return { error: '파일 업로드에 실패했습니다.' };
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('chat-files')
+    .getPublicUrl(data.path);
+
+  return {
+    data: {
+      url: publicUrl,
+      fileName: file.name,
+      mimeType: file.type || null,
+    },
+  };
+}
+
+export type ChatFileAttachment = {
+  url: string;
+  fileName: string;
+  mimeType?: string | null;
+};
+
+// 메시지 전송
+export async function sendMessage(
+  roomId: string,
+  content: string,
+  imageUrl?: string | null,
+  fileAttachment?: ChatFileAttachment | null
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: '로그인이 필요합니다.' };
+  }
+
+  if (!content.trim() && !imageUrl && !fileAttachment) {
     return { error: '메시지 내용을 입력해주세요.' };
+  }
+
+  if (imageUrl && fileAttachment) {
+    return { error: '이미지와 파일을 동시에 보낼 수 없습니다.' };
   }
 
   // 사용자 타입 및 이름 확인
@@ -432,6 +524,9 @@ export async function sendMessage(roomId: string, content: string, imageUrl?: st
       sender_id: user.id,
       content: content.trim(),
       image_url: imageUrl || null,
+      file_url: fileAttachment?.url ?? null,
+      file_name: fileAttachment?.fileName ?? null,
+      file_type: fileAttachment ? 'file' : null,
       is_read_by_student: profile.user_type === 'student',
       is_read_by_parent: profile.user_type === 'parent',
       is_read_by_admin: profile.user_type === 'admin',
@@ -452,6 +547,7 @@ export async function sendMessage(roomId: string, content: string, imageUrl?: st
     senderName: profile.name,
     content: content.trim(),
     imageUrl: imageUrl || null,
+    fileName: fileAttachment?.fileName ?? null,
   }).catch(console.error);
 
   return { data: message };
@@ -465,14 +561,17 @@ async function sendChatNotifications(params: {
   senderName: string;
   content: string;
   imageUrl: string | null;
+  fileName: string | null;
 }) {
   const supabase = await createClient();
   const { createStudentNotification, createUserNotification } = await import('./notification');
 
   // 알림 메시지 생성
-  const notificationMessage = params.imageUrl 
-    ? (params.content ? `📷 ${params.content.slice(0, 40)}...` : '📷 이미지를 보냈습니다')
-    : params.content.slice(0, 50) + (params.content.length > 50 ? '...' : '');
+  const notificationMessage = params.fileName
+    ? `📎 ${params.fileName}`
+    : params.imageUrl
+      ? (params.content ? `📷 ${params.content.slice(0, 40)}...` : '📷 이미지를 보냈습니다')
+      : params.content.slice(0, 50) + (params.content.length > 50 ? '...' : '');
 
   // 채팅방의 학생 ID 조회
   const { data: room } = await supabase

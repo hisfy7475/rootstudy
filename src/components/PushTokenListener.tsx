@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 
+import { setStoredExpoPushToken } from '@/lib/expo-push-token-storage';
 import { isNativeApp } from '@/lib/utils';
 
 type PushTokenPayload = {
@@ -22,6 +23,7 @@ export function PushTokenListener() {
         return;
       }
       lastRegistered.current = token;
+      setStoredExpoPushToken(token);
 
       void fetch('/api/push/register', {
         method: 'POST',
