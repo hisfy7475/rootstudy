@@ -10,6 +10,8 @@ import {
   createUserNotification,
   sendMentoringAlimtalkToParent,
 } from '@/lib/actions/notification';
+export type { MentoringSlotWithMentor, MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
+import { mentoringSlotStartMs, type MentoringSlotWithMentor, type MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
 
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
@@ -22,25 +24,6 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
     console.error(scope, String(error));
   }
 }
-
-/** KST 기준 슬롯 시작 시각 (ms) */
-export function mentoringSlotStartMs(dateYmd: string, startTime: string): number {
-  const t = startTime.length >= 8 ? startTime.slice(0, 8) : `${startTime}:00`.slice(0, 8);
-  return new Date(`${dateYmd}T${t}+09:00`).getTime();
-}
-
-export type MentoringSlotWithMentor = MentoringSlot & {
-  mentors: Pick<Mentor, 'id' | 'name' | 'subject'> | null;
-};
-
-export type MentoringApplicationWithDetails = MentoringApplication & {
-  mentoring_slots:
-    | (MentoringSlot & {
-        mentors: Pick<Mentor, 'name' | 'subject'> | null;
-      })
-    | null;
-  student_profile: { name: string } | null;
-};
 
 type AdminBranchContext = { userId: string; branchId: string };
 

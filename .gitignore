@@ -44,6 +44,8 @@ next-env.d.ts
 
 /.manager
 /.cursor
+/.migration
+supabase/.temp/
 
 # Expo native app (studycafe-app/)
 studycafe-app/node_modules/
