@@ -5,6 +5,7 @@ import {
   getMealProductDetail,
   getMealMenus,
   getPaidOrderCountForProduct,
+  getExistingPendingOrder,
 } from '@/lib/actions/meal';
 import { createClient } from '@/lib/supabase/server';
 import { ProductDetailClient } from './product-detail-client';
@@ -23,9 +24,12 @@ export default async function StudentMealProductPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [menus, paidCount] = await Promise.all([
+  const studentId = user?.id ?? null;
+
+  const [menus, paidCount, pendingOrder] = await Promise.all([
     getMealMenus(productId),
     getPaidOrderCountForProduct(productId),
+    studentId ? getExistingPendingOrder(productId, studentId) : Promise.resolve(null),
   ]);
 
   const capacityLeft =
@@ -45,8 +49,9 @@ export default async function StudentMealProductPage({
         menus={menus}
         capacityLeft={capacityLeft}
         payBasePath="/student/meals/pay"
-        studentId={user?.id ?? null}
+        studentId={studentId}
         backHref="/student/meals"
+        pendingOrder={pendingOrder}
       />
     </div>
   );

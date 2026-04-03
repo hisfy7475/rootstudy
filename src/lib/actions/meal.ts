@@ -588,6 +588,27 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
   return order;
 }
 
+export async function getExistingPendingOrder(
+  productId: string,
+  studentId: string
+): Promise<MealOrder | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from('meal_orders')
+    .select('*')
+    .eq('product_id', productId)
+    .eq('student_id', studentId)
+    .eq('status', 'pending')
+    .maybeSingle();
+
+  return (data as MealOrder | null) ?? null;
+}
+
 export async function createMealOrder(
   productId: string,
   studentId: string

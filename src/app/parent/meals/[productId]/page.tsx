@@ -6,6 +6,7 @@ import {
   getMealProductDetail,
   getMealMenus,
   getPaidOrderCountForProduct,
+  getExistingPendingOrder,
 } from '@/lib/actions/meal';
 import { ProductDetailClient } from '@/app/student/(shell)/meals/[productId]/product-detail-client';
 
@@ -29,9 +30,10 @@ export default async function ParentMealProductPage({
   const product = await getMealProductDetail(productId);
   if (!product) notFound();
 
-  const [menus, paidCount] = await Promise.all([
+  const [menus, paidCount, pendingOrder] = await Promise.all([
     getMealMenus(productId),
     getPaidOrderCountForProduct(productId),
+    getExistingPendingOrder(productId, forStudentId!),
   ]);
 
   const capacityLeft =
@@ -53,6 +55,7 @@ export default async function ParentMealProductPage({
         payBasePath={`/parent/meals/pay`}
         studentId={forStudentId!}
         backHref="/parent/meals"
+        pendingOrder={pendingOrder}
       />
     </div>
   );
