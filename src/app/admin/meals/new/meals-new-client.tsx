@@ -1,18 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { createMealProduct, type MealProductAdminInput } from '@/lib/actions/meal';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { createMealProduct, uploadMealProductImage, type MealProductAdminInput } from '@/lib/actions/meal';
+import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
 
 export function AdminMealsNewClient() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     meal_type: 'lunch' as MealProductAdminInput['meal_type'],
@@ -25,6 +29,18 @@ export function AdminMealsNewClient() {
     description: '',
     status: 'active' as MealProductAdminInput['status'],
   });
+
+  const handleImageSelect = (file: File) => {
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,12 +86,20 @@ export function AdminMealsNewClient() {
     };
 
     const res = await createMealProduct(payload);
-    setLoading(false);
 
     if (res.error) {
+      setLoading(false);
       setError(res.error);
       return;
     }
+
+    if (res.data && imageFile) {
+      const fd = new FormData();
+      fd.append('file', imageFile);
+      await uploadMealProductImage(res.data.id, fd);
+    }
+
+    setLoading(false);
     if (res.data) {
       router.push(`/admin/meals/${res.data.id}`);
     }
@@ -212,6 +236,50 @@ export function AdminMealsNewClient() {
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">대표 이미지 (선택)</label>
+            <div
+              className="relative flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/25 transition-colors hover:border-primary/50"
+              onClick={() => imageInputRef.current?.click()}
+            >
+              {imagePreview ? (
+                <Image
+                  src={imagePreview}
+                  alt="미리보기"
+                  width={400}
+                  height={300}
+                  className="h-auto max-h-[200px] w-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
+                  <ImagePlus className="size-8" />
+                  <span className="text-sm">클릭하여 이미지 선택</span>
+                  <span className="text-xs">JPG, PNG, WebP, GIF (최대 5MB)</span>
+                </div>
+              )}
+            </div>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImageSelect(f);
+              }}
+            />
+            {imageFile && (
+              <button
+                type="button"
+                onClick={clearImage}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+              >
+                <X className="size-3" /> 이미지 제거
+              </button>
+            )}
           </div>
 
           <div className="flex gap-2 pt-2">

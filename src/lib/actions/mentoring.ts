@@ -235,35 +235,61 @@ export async function applyMentoring(
     return { error: '정원이 마감되었습니다.' };
   }
 
-  const { data: dup } = await supabase
+  const { data: existing } = await supabase
     .from('mentoring_applications')
-    .select('id')
+    .select('id, status')
     .eq('slot_id', slotId)
     .eq('student_id', studentId)
-    .in('status', ['pending', 'confirmed'])
     .maybeSingle();
 
-  if (dup) {
+  if (existing && (existing.status === 'pending' || existing.status === 'confirmed')) {
     return { error: '이미 신청한 슬롯입니다.' };
   }
 
   const trimmedNote = note?.trim() || null;
+  const now = new Date().toISOString();
+  let applicationId: string;
 
-  const { data: inserted, error: insErr } = await supabase
-    .from('mentoring_applications')
-    .insert({
-      slot_id: slotId,
-      user_id: user.id,
-      student_id: studentId,
-      status: 'pending',
-      note: trimmedNote,
-    })
-    .select('id')
-    .single();
+  if (existing && (existing.status === 'cancelled' || existing.status === 'rejected')) {
+    const { error: upErr } = await supabase
+      .from('mentoring_applications')
+      .update({
+        status: 'pending',
+        user_id: user.id,
+        note: trimmedNote,
+        applied_at: now,
+        confirmed_at: null,
+        rejected_at: null,
+        cancelled_at: null,
+        reject_reason: null,
+        cancel_reason: null,
+        updated_at: now,
+      })
+      .eq('id', existing.id);
 
-  if (insErr || !inserted) {
-    logPostgrestQueryError('[applyMentoring] insert', insErr);
-    return { error: '신청에 실패했습니다.' };
+    if (upErr) {
+      logPostgrestQueryError('[applyMentoring] re-apply update', upErr);
+      return { error: '재신청에 실패했습니다.' };
+    }
+    applicationId = existing.id;
+  } else {
+    const { data: inserted, error: insErr } = await supabase
+      .from('mentoring_applications')
+      .insert({
+        slot_id: slotId,
+        user_id: user.id,
+        student_id: studentId,
+        status: 'pending',
+        note: trimmedNote,
+      })
+      .select('id')
+      .single();
+
+    if (insErr || !inserted) {
+      logPostgrestQueryError('[applyMentoring] insert', insErr);
+      return { error: '신청에 실패했습니다.' };
+    }
+    applicationId = inserted.id as string;
   }
 
   await notifyBranchAdminsMentoringApplied(profile.branch_id, studentId);
@@ -273,7 +299,7 @@ export async function applyMentoring(
   revalidatePath('/parent/mentoring');
   revalidatePath('/parent/mentoring/my');
 
-  return { success: true, applicationId: inserted.id as string };
+  return { success: true, applicationId };
 }
 
 export async function cancelMentoringApplication(
@@ -1045,6 +1071,132 @@ export async function deleteMentoringSlot(slotId: string): Promise<{ success?: t
   }
 
   revalidateMentoringAdmin();
+  return { success: true };
+}
+
+// ─── Mentor profile image ─────────────────────────────────────────
+
+const MENTOR_IMAGES_BUCKET = 'mentor-images';
+
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
+function validateImageFile(file: File): string | null {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.';
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    return '이미지 크기는 5MB 이하여야 합니다.';
+  }
+  return null;
+}
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[/\\]/g, '_').replace(/\s+/g, '_').slice(0, 200) || 'image';
+}
+
+function mentorImagePathFromPublicUrl(publicUrl: string): string | null {
+  const marker = `/object/public/${MENTOR_IMAGES_BUCKET}/`;
+  const i = publicUrl.indexOf(marker);
+  if (i === -1) return null;
+  const rest = publicUrl.slice(i + marker.length).split('?')[0];
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+export async function uploadMentorProfileImage(
+  mentorId: string,
+  formData: FormData
+): Promise<{ data?: { url: string }; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const mentor = await assertMentorInBranch(supabase, mentorId, ctx.branchId);
+  if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
+
+  const file = formData.get('file') as File | null;
+  if (!file) return { error: '파일을 선택해 주세요.' };
+
+  const validationErr = validateImageFile(file);
+  if (validationErr) return { error: validationErr };
+
+  if (mentor.profile_image_url) {
+    const oldPath = mentorImagePathFromPublicUrl(mentor.profile_image_url);
+    if (oldPath) {
+      await supabase.storage.from(MENTOR_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `${ctx.userId}/mentors/${mentorId}/${Date.now()}_${safeName}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from(MENTOR_IMAGES_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (upErr || !uploaded) {
+    console.error('[uploadMentorProfileImage] storage', upErr);
+    return { error: '이미지 업로드에 실패했습니다.' };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(MENTOR_IMAGES_BUCKET).getPublicUrl(uploaded.path);
+
+  const { error: dbErr } = await supabase
+    .from('mentors')
+    .update({ profile_image_url: publicUrl, updated_at: new Date().toISOString() })
+    .eq('id', mentorId)
+    .eq('branch_id', ctx.branchId);
+
+  if (dbErr) {
+    console.error('[uploadMentorProfileImage] db', dbErr);
+    return { error: '이미지 정보 저장에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/mentoring');
+  revalidatePath('/admin/mentoring/mentors');
+  return { data: { url: publicUrl } };
+}
+
+export async function deleteMentorProfileImage(
+  mentorId: string
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const mentor = await assertMentorInBranch(supabase, mentorId, ctx.branchId);
+  if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
+
+  if (mentor.profile_image_url) {
+    const oldPath = mentorImagePathFromPublicUrl(mentor.profile_image_url);
+    if (oldPath) {
+      await supabase.storage.from(MENTOR_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const { error } = await supabase
+    .from('mentors')
+    .update({ profile_image_url: null, updated_at: new Date().toISOString() })
+    .eq('id', mentorId)
+    .eq('branch_id', ctx.branchId);
+
+  if (error) {
+    console.error('[deleteMentorProfileImage] db', error);
+    return { error: '이미지 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/mentoring');
+  revalidatePath('/admin/mentoring/mentors');
   return { success: true };
 }
 

@@ -19,9 +19,20 @@ export const PG_APP_URL_PREFIXES = [
   'payco://',
   'cloudpay://',
   'intent://',
+  'itms-appss://',
+  'itms-apps://',
+  'market://',
 ] as const;
+
+const HTTP_PREFIXES = ['http://', 'https://', 'about:', 'data:'];
 
 export function shouldOpenExternalAppForUrl(url: string): boolean {
   const lower = url.toLowerCase();
-  return PG_APP_URL_PREFIXES.some((p) => lower.startsWith(p.toLowerCase()));
+  if (PG_APP_URL_PREFIXES.some((p) => lower.startsWith(p.toLowerCase()))) {
+    return true;
+  }
+  if (HTTP_PREFIXES.some((p) => lower.startsWith(p))) {
+    return false;
+  }
+  return lower.includes('://');
 }

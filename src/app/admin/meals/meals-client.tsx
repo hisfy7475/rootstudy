@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
+import { MealImage } from '@/components/shared/meal-image';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MealProduct } from '@/types/database';
@@ -77,6 +78,7 @@ export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b text-left">
               <tr>
+                <th className="p-3 font-medium w-16"></th>
                 <th className="p-3 font-medium">이름</th>
                 <th className="p-3 font-medium">유형</th>
                 <th className="p-3 font-medium">가격</th>
@@ -89,13 +91,25 @@ export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-muted-foreground p-8 text-center">
+                  <td colSpan={8} className="text-muted-foreground p-8 text-center">
                     등록된 상품이 없습니다.
                   </td>
                 </tr>
               ) : (
                 filtered.map((p) => (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="p-3">
+                      <div className="h-10 w-10 overflow-hidden rounded-md">
+                        <MealImage
+                          src={p.image_url}
+                          type="product"
+                          alt={p.name}
+                          width={40}
+                          height={40}
+                          className="h-10 w-10 rounded-md"
+                        />
+                      </div>
+                    </td>
                     <td className="p-3">
                       <Link href={`/admin/meals/${p.id}`} className="text-primary font-medium hover:underline">
                         {p.name}

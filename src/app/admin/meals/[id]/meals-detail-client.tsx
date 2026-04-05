@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { updateMealProduct, type MealProductAdminInput } from '@/lib/actions/meal';
+import { MealImageUploader } from '@/components/shared/meal-image-uploader';
+import { updateMealProduct, uploadMealProductImage, deleteMealProductImage, type MealProductAdminInput } from '@/lib/actions/meal';
 import type { MealProduct } from '@/types/database';
 import { CalendarDays, ListOrdered, Loader2 } from 'lucide-react';
 
@@ -19,18 +20,32 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    name: initial.name,
-    meal_type: initial.meal_type,
-    price: String(initial.price),
-    sale_start_date: initial.sale_start_date,
-    sale_end_date: initial.sale_end_date,
-    meal_start_date: initial.meal_start_date,
-    meal_end_date: initial.meal_end_date,
-    max_capacity: initial.max_capacity == null ? '' : String(initial.max_capacity),
-    description: initial.description ?? '',
-    status: initial.status,
+  const toFormState = (p: MealProduct) => ({
+    name: p.name,
+    meal_type: p.meal_type,
+    price: String(p.price),
+    sale_start_date: p.sale_start_date,
+    sale_end_date: p.sale_end_date,
+    meal_start_date: p.meal_start_date,
+    meal_end_date: p.meal_end_date,
+    max_capacity: p.max_capacity == null ? '' : String(p.max_capacity),
+    description: p.description ?? '',
+    status: p.status,
   });
+
+  const [form, setForm] = useState(() => toFormState(initial));
+
+  const isDirty =
+    form.name !== product.name ||
+    form.meal_type !== product.meal_type ||
+    form.price !== String(product.price) ||
+    form.sale_start_date !== product.sale_start_date ||
+    form.sale_end_date !== product.sale_end_date ||
+    form.meal_start_date !== product.meal_start_date ||
+    form.meal_end_date !== product.meal_end_date ||
+    form.max_capacity !== (product.max_capacity == null ? '' : String(product.max_capacity)) ||
+    form.description !== (product.description ?? '') ||
+    form.status !== product.status;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,7 +230,14 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
             />
           </div>
 
-          <Button type="submit" disabled={loading}>
+          <MealImageUploader
+            currentUrl={product.image_url}
+            onUpload={(fd) => uploadMealProductImage(product.id, fd)}
+            onDelete={() => deleteMealProductImage(product.id)}
+            placeholderSrc="/images/meal-product-placeholder.png"
+          />
+
+          <Button type="submit" disabled={loading || !isDirty}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : '저장'}
           </Button>
         </form>

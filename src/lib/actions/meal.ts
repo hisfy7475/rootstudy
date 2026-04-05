@@ -7,6 +7,8 @@ import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from '@/lib/m
 import { getTodayKST } from '@/lib/utils';
 import type { MealMenu, MealProduct, MealOrder } from '@/types/database';
 
+const MEAL_IMAGES_BUCKET = 'meal-images';
+
 /** PostgrestError 등이 콘솔에서 `{}`로만 보이는 경우 대비 — 문자열로 출력 */
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
@@ -411,6 +413,87 @@ export async function getMealProducts(): Promise<MealProduct[]> {
   return (data ?? []) as MealProduct[];
 }
 
+/**
+ * 자녀(학생)별로 상품당 진행 중인 급식 주문 상태.
+ * student 시: 본인 id만 허용, parent 시: 연결된 자녀 id만 허용.
+ */
+export async function getMealActiveOrderStatusByStudentIds(
+  studentIds: string[]
+): Promise<Record<string, Record<string, 'pending' | 'paid'>>> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || studentIds.length === 0) return {};
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  let allowedStudentIds: string[] = [];
+
+  if (profile?.user_type === 'student') {
+    if (studentIds.length !== 1 || studentIds[0] !== user.id) {
+      return {};
+    }
+    allowedStudentIds = [user.id];
+  } else if (profile?.user_type === 'parent') {
+    const { data: links } = await supabase
+      .from('parent_student_links')
+      .select('student_id')
+      .eq('parent_id', user.id)
+      .in('student_id', studentIds);
+    const linkSet = new Set((links ?? []).map((l) => l.student_id));
+    allowedStudentIds = studentIds.filter((id) => linkSet.has(id));
+    if (allowedStudentIds.length === 0) return {};
+  } else {
+    return {};
+  }
+
+  const { data, error } = await supabase
+    .from('meal_orders')
+    .select('student_id, product_id, status')
+    .in('student_id', allowedStudentIds)
+    .in('status', ['pending', 'paid']);
+
+  if (error) {
+    logPostgrestQueryError('[getMealActiveOrderStatusByStudentIds]', error);
+    return {};
+  }
+
+  const out: Record<string, Record<string, 'pending' | 'paid'>> = {};
+  for (const id of allowedStudentIds) {
+    out[id] = {};
+  }
+  for (const row of data ?? []) {
+    const sid = row.student_id as string;
+    const pid = row.product_id as string;
+    const st = row.status as 'pending' | 'paid';
+    const bucket = out[sid];
+    if (!bucket) continue;
+    const prev = bucket[pid];
+    if (!prev || (prev === 'pending' && st === 'paid')) {
+      bucket[pid] = st;
+    }
+  }
+  return out;
+}
+
+/** 학생 급식 목록용: 본인 student_id 기준 상품별 pending | paid */
+export async function getMealActiveOrderStatusForMealListStudent(): Promise<
+  Record<string, 'pending' | 'paid'>
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return {};
+  const byStudent = await getMealActiveOrderStatusByStudentIds([user.id]);
+  return byStudent[user.id] ?? {};
+}
+
 export async function getMealProductDetail(productId: string): Promise<MealProduct | null> {
   const supabase = await createClient();
   const {
@@ -609,6 +692,27 @@ export async function getExistingPendingOrder(
   return (data as MealOrder | null) ?? null;
 }
 
+export async function getExistingPaidOrder(
+  productId: string,
+  studentId: string
+): Promise<MealOrder | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from('meal_orders')
+    .select('*')
+    .eq('product_id', productId)
+    .eq('student_id', studentId)
+    .eq('status', 'paid')
+    .maybeSingle();
+
+  return (data as MealOrder | null) ?? null;
+}
+
 export async function createMealOrder(
   productId: string,
   studentId: string
@@ -765,6 +869,261 @@ export async function cancelPendingMealOrder(mealOrderId: string): Promise<{ suc
 
   revalidatePath('/student/meals');
   revalidatePath('/parent/meals');
+
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Image helpers
+// ---------------------------------------------------------------------------
+
+function storagePathFromPublicUrl(publicUrl: string): string | null {
+  const marker = `/object/public/${MEAL_IMAGES_BUCKET}/`;
+  const i = publicUrl.indexOf(marker);
+  if (i === -1) return null;
+  const rest = publicUrl.slice(i + marker.length).split('?')[0];
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[/\\]/g, '_').replace(/\s+/g, '_').slice(0, 200) || 'image';
+}
+
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+function validateImageFile(file: File): string | null {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.';
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    return '이미지 크기는 5MB 이하여야 합니다.';
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Meal product image
+// ---------------------------------------------------------------------------
+
+export async function uploadMealProductImage(
+  productId: string,
+  formData: FormData
+): Promise<{ data?: { url: string }; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  const file = formData.get('file') as File | null;
+  if (!file) return { error: '파일을 선택해 주세요.' };
+
+  const validationErr = validateImageFile(file);
+  if (validationErr) return { error: validationErr };
+
+  if (product.image_url) {
+    const oldPath = storagePathFromPublicUrl(product.image_url);
+    if (oldPath) {
+      await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `${ctx.userId}/products/${productId}/${Date.now()}_${safeName}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from(MEAL_IMAGES_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (upErr || !uploaded) {
+    console.error('[uploadMealProductImage] storage', upErr);
+    return { error: '이미지 업로드에 실패했습니다.' };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
+
+  const { error: dbErr } = await supabase
+    .from('meal_products')
+    .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
+    .eq('id', productId)
+    .eq('branch_id', ctx.branchId);
+
+  if (dbErr) {
+    console.error('[uploadMealProductImage] db', dbErr);
+    return { error: '이미지 정보 저장에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/meals');
+  revalidatePath(`/admin/meals/${productId}`);
+  revalidatePath('/student/meals');
+  revalidatePath('/parent/meals');
+
+  return { data: { url: publicUrl } };
+}
+
+export async function deleteMealProductImage(
+  productId: string
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  if (product.image_url) {
+    const oldPath = storagePathFromPublicUrl(product.image_url);
+    if (oldPath) {
+      await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const { error } = await supabase
+    .from('meal_products')
+    .update({ image_url: null, updated_at: new Date().toISOString() })
+    .eq('id', productId)
+    .eq('branch_id', ctx.branchId);
+
+  if (error) {
+    console.error('[deleteMealProductImage]', error);
+    return { error: '이미지 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/meals');
+  revalidatePath(`/admin/meals/${productId}`);
+  revalidatePath('/student/meals');
+  revalidatePath('/parent/meals');
+
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Meal menu image
+// ---------------------------------------------------------------------------
+
+export async function uploadMealMenuImage(
+  productId: string,
+  menuId: string,
+  formData: FormData
+): Promise<{ data?: { url: string }; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  const { data: menu } = await supabase
+    .from('meal_menus')
+    .select('id, image_url')
+    .eq('id', menuId)
+    .eq('product_id', productId)
+    .maybeSingle();
+
+  if (!menu) return { error: '메뉴를 찾을 수 없습니다.' };
+
+  const file = formData.get('file') as File | null;
+  if (!file) return { error: '파일을 선택해 주세요.' };
+
+  const validationErr = validateImageFile(file);
+  if (validationErr) return { error: validationErr };
+
+  if (menu.image_url) {
+    const oldPath = storagePathFromPublicUrl(menu.image_url);
+    if (oldPath) {
+      await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `${ctx.userId}/menus/${menuId}/${Date.now()}_${safeName}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from(MEAL_IMAGES_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (upErr || !uploaded) {
+    console.error('[uploadMealMenuImage] storage', upErr);
+    return { error: '이미지 업로드에 실패했습니다.' };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
+
+  const { error: dbErr } = await supabase
+    .from('meal_menus')
+    .update({ image_url: publicUrl })
+    .eq('id', menuId);
+
+  if (dbErr) {
+    console.error('[uploadMealMenuImage] db', dbErr);
+    return { error: '이미지 정보 저장에 실패했습니다.' };
+  }
+
+  revalidatePath(`/admin/meals/${productId}/menus`);
+  revalidatePath(`/student/meals/${productId}`);
+  revalidatePath(`/parent/meals/${productId}`);
+
+  return { data: { url: publicUrl } };
+}
+
+export async function deleteMealMenuImage(
+  productId: string,
+  menuId: string
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  const { data: menu } = await supabase
+    .from('meal_menus')
+    .select('id, image_url')
+    .eq('id', menuId)
+    .eq('product_id', productId)
+    .maybeSingle();
+
+  if (!menu) return { error: '메뉴를 찾을 수 없습니다.' };
+
+  if (menu.image_url) {
+    const oldPath = storagePathFromPublicUrl(menu.image_url);
+    if (oldPath) {
+      await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const { error } = await supabase
+    .from('meal_menus')
+    .update({ image_url: null })
+    .eq('id', menuId);
+
+  if (error) {
+    console.error('[deleteMealMenuImage]', error);
+    return { error: '이미지 삭제에 실패했습니다.' };
+  }
+
+  revalidatePath(`/admin/meals/${productId}/menus`);
+  revalidatePath(`/student/meals/${productId}`);
+  revalidatePath(`/parent/meals/${productId}`);
 
   return { success: true };
 }

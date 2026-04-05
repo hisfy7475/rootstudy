@@ -6,6 +6,7 @@ import {
   getMealMenus,
   getPaidOrderCountForProduct,
   getExistingPendingOrder,
+  getExistingPaidOrder,
 } from '@/lib/actions/meal';
 import { createClient } from '@/lib/supabase/server';
 import { ProductDetailClient } from './product-detail-client';
@@ -26,10 +27,11 @@ export default async function StudentMealProductPage({
 
   const studentId = user?.id ?? null;
 
-  const [menus, paidCount, pendingOrder] = await Promise.all([
+  const [menus, paidCount, pendingOrder, paidOrder] = await Promise.all([
     getMealMenus(productId),
     getPaidOrderCountForProduct(productId),
     studentId ? getExistingPendingOrder(productId, studentId) : Promise.resolve(null),
+    studentId ? getExistingPaidOrder(productId, studentId) : Promise.resolve(null),
   ]);
 
   const capacityLeft =
@@ -52,6 +54,7 @@ export default async function StudentMealProductPage({
         studentId={studentId}
         backHref="/student/meals"
         pendingOrder={pendingOrder}
+        paidOrder={paidOrder}
       />
     </div>
   );

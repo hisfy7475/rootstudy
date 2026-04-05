@@ -259,6 +259,23 @@ export default function WebViewScreen() {
     [sendPushTokenToWeb, saveSession, clearSession, handlePickImage, handlePickFile]
   );
 
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearLoadingTimer = useCallback(() => {
+    if (loadingTimerRef.current) {
+      clearTimeout(loadingTimerRef.current);
+      loadingTimerRef.current = null;
+    }
+  }, []);
+
+  const startLoadingTimer = useCallback(() => {
+    clearLoadingTimer();
+    loadingTimerRef.current = setTimeout(() => {
+      setIsLoading(false);
+      hideSplashOnce();
+    }, 15000);
+  }, [clearLoadingTimer, hideSplashOnce]);
+
   const handleRetryLoad = useCallback(() => {
     setLoadError(null);
     setIsLoading(true);
@@ -288,7 +305,12 @@ export default function WebViewScreen() {
             const url = req.url;
             if (shouldOpenExternalAppForUrl(url)) {
               void Linking.openURL(url).catch((e) => {
-                console.warn('[WebViewScreen] open external URL', url, e);
+                console.warn('[WebViewScreen] open external URL failed:', url, e);
+                setIsLoading(false);
+                clearLoadingTimer();
+                if (webViewRef.current && canGoBack) {
+                  webViewRef.current.goBack();
+                }
               });
               return false;
             }
@@ -306,14 +328,17 @@ export default function WebViewScreen() {
           onLoadStart={() => {
             setLoadError(null);
             setIsLoading(true);
+            startLoadingTimer();
           }}
           onLoadEnd={() => {
+            clearLoadingTimer();
             setIsLoading(false);
             hideSplashOnce();
             sendPushTokenToWeb();
             tryInjectStoredSession(lastUrlRef.current);
           }}
           onError={(e) => {
+            clearLoadingTimer();
             const desc = e.nativeEvent.description || '네트워크 연결을 확인해 주세요.';
             setLoadError(desc);
             setIsLoading(false);

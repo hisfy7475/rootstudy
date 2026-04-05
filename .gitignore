@@ -45,6 +45,7 @@ next-env.d.ts
 /.manager
 /.cursor
 /.migration
+.00_manager/key/
 supabase/.temp/
 
 # Expo native app (studycafe-app/)

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createAdminClient } from '@/lib/supabase/server';
 import {
   approvePayment,
@@ -295,6 +296,13 @@ export async function POST(request: Request) {
       console.error('[nicepay/confirm] push student', e)
     );
   }
+
+  revalidatePath('/student/meals');
+  revalidatePath('/parent/meals');
+  revalidatePath('/student/meals/orders');
+  revalidatePath('/parent/meals/orders');
+  revalidatePath(`/student/meals/${row.product_id}`);
+  revalidatePath(`/parent/meals/${row.product_id}`);
 
   return redirectResult(request, role, { ok: '1', order: row.id });
 }

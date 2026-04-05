@@ -1075,6 +1075,7 @@ export interface Database {
           max_capacity: number | null;
           status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
+          image_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1091,6 +1092,7 @@ export interface Database {
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
+          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1107,6 +1109,7 @@ export interface Database {
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
+          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1117,6 +1120,7 @@ export interface Database {
           product_id: string;
           date: string;
           menu_text: string;
+          image_url: string | null;
           created_at: string;
         };
         Insert: {
@@ -1124,6 +1128,7 @@ export interface Database {
           product_id: string;
           date: string;
           menu_text: string;
+          image_url?: string | null;
           created_at?: string;
         };
         Update: {
@@ -1131,6 +1136,7 @@ export interface Database {
           product_id?: string;
           date?: string;
           menu_text?: string;
+          image_url?: string | null;
           created_at?: string;
         };
       };
