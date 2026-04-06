@@ -266,3 +266,9 @@ export function isNativeApp(userAgent?: string | null): boolean {
     (typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return ua.includes(NATIVE_APP_UA);
 }
+
+/** KST 기준 멘토링 슬롯 시작 시각 (ms) */
+export function mentoringSlotStartMs(dateYmd: string, startTime: string): number {
+  const t = startTime.length >= 8 ? startTime.slice(0, 8) : `${startTime}:00`.slice(0, 8);
+  return new Date(`${dateYmd}T${t}+09:00`).getTime();
+}
