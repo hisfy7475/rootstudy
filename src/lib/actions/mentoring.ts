@@ -25,6 +25,7 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
   }
 }
 
+
 type AdminBranchContext = { userId: string; branchId: string };
 
 async function requireAdminBranch(
