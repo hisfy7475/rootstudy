@@ -93,6 +93,41 @@ export interface WeeklyTrendPoint {
 
 type AttendanceRecord = { type: string; timestamp: string };
 
+const SUPABASE_PAGE_SIZE = 1000;
+
+async function fetchPaginatedAttendance(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studentIds: string[],
+  startIso: string,
+  endIso: string,
+  endExclusive = false
+): Promise<Array<{ student_id: string; type: string; timestamp: string }>> {
+  const all: Array<{ student_id: string; type: string; timestamp: string }> = [];
+  let from = 0;
+
+  while (true) {
+    let query = supabase
+      .from('attendance')
+      .select('student_id, type, timestamp')
+      .in('student_id', studentIds)
+      .gte('timestamp', startIso);
+
+    query = endExclusive
+      ? query.lt('timestamp', endIso)
+      : query.lte('timestamp', endIso);
+
+    const { data } = await query
+      .order('timestamp', { ascending: true })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+
+    all.push(...(data ?? []));
+    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+
+  return all;
+}
+
 interface StudySessionChunk {
   startTime: Date;
   endTime: Date;
@@ -484,20 +519,18 @@ export async function getImmersionReportData(
 
   let gradeStudyAvgSeconds = 0;
   if (peerIds.length > 0) {
-    const { data: gradeAttendance } = await supabase
-      .from('attendance')
-      .select('student_id, type, timestamp')
-      .in('student_id', peerIds)
-      .gte('timestamp', periodStart.toISOString())
-      .lte('timestamp', periodEnd.toISOString())
-      .order('timestamp', { ascending: true });
+    const gradeAttendance = await fetchPaginatedAttendance(
+      supabase,
+      peerIds,
+      periodStart.toISOString(),
+      periodEnd.toISOString()
+    );
 
     const byStudent = new Map<string, AttendanceRecord[]>();
-    for (const row of gradeAttendance ?? []) {
-      const sid = (row as { student_id: string }).student_id;
-      const rec = row as AttendanceRecord & { student_id: string };
+    for (const row of gradeAttendance) {
+      const sid = row.student_id;
       const list = byStudent.get(sid) ?? [];
-      list.push({ type: rec.type, timestamp: rec.timestamp });
+      list.push({ type: row.type, timestamp: row.timestamp });
       byStudent.set(sid, list);
     }
 
@@ -733,20 +766,22 @@ export async function getWeeklyStudyTrend(
   const rangeStart = getCalendarWeekBoundsKST(mondays[0]!).start;
   const rangeEnd = getCalendarWeekBoundsKST(mondays[mondays.length - 1]!).endExclusive;
 
-  const { data: trendAttendance } = await supabase
-    .from('attendance')
-    .select('student_id, type, timestamp')
-    .in('student_id', peerIds.length > 0 ? [...new Set([...peerIds, studentId])] : [studentId])
-    .gte('timestamp', rangeStart.toISOString())
-    .lt('timestamp', rangeEnd.toISOString())
-    .order('timestamp', { ascending: true });
+  const allStudentIds = peerIds.length > 0
+    ? [...new Set([...peerIds, studentId])]
+    : [studentId];
+  const trendAttendance = await fetchPaginatedAttendance(
+    supabase,
+    allStudentIds,
+    rangeStart.toISOString(),
+    rangeEnd.toISOString(),
+    true
+  );
 
   const byStudent = new Map<string, AttendanceRecord[]>();
-  for (const row of trendAttendance ?? []) {
-    const sid = (row as { student_id: string }).student_id;
-    const rec = row as AttendanceRecord & { student_id: string };
+  for (const row of trendAttendance) {
+    const sid = row.student_id;
     const list = byStudent.get(sid) ?? [];
-    list.push({ type: rec.type, timestamp: rec.timestamp });
+    list.push({ type: row.type, timestamp: row.timestamp });
     byStudent.set(sid, list);
   }
 
