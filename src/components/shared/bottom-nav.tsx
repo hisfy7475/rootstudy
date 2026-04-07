@@ -22,19 +22,19 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// 학생: 홈 · 스케줄 · 통계 · 채팅 · 더보기(급식·리포트·상벌점 등)
+// 학생: 홈 · 스케줄 · 통계 · 채팅 · 더보기(리포트·상벌점 등)
 const studentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
   { href: '/schedule', label: '스케줄', icon: CalendarClock },
   { href: '/stats', label: '통계', icon: BarChart3 },
-  { href: '/mentoring', label: '멘토링', icon: GraduationCap },
+  // { href: '/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/chat', label: '채팅', icon: MessageCircle },
   { href: '/more', label: '더보기', icon: LayoutGrid },
 ];
 
 const studentMorePathPrefixes = [
   '/more',
-  '/meals',
+  // '/meals',
   '/report',
   '/points',
   '/announcements',
@@ -44,18 +44,18 @@ const studentMorePathPrefixes = [
   '/subject',
 ];
 
-// 학부모: 홈 · 스케줄 · 채팅 · 더보기(급식·리포트·설정 등)
+// 학부모: 홈 · 스케줄 · 채팅 · 더보기(리포트·설정 등)
 const parentNavItems: NavItem[] = [
   { href: '', label: '홈', icon: Home },
   { href: '/schedule', label: '스케줄', icon: CalendarClock },
-  { href: '/mentoring', label: '멘토링', icon: GraduationCap },
+  // { href: '/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/chat', label: '채팅', icon: MessageCircle },
   { href: '/more', label: '더보기', icon: LayoutGrid },
 ];
 
 const parentMorePathPrefixes = [
   '/more',
-  '/meals',
+  // '/meals',
   '/report',
   '/settings',
   '/announcements',
