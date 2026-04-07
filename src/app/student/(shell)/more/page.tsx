@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 const links = [
-  // { href: '/student/meals', label: '급식', icon: UtensilsCrossed },
+  { href: '/student/meals', label: '급식', icon: UtensilsCrossed },
   { href: '/student/report', label: '리포트', icon: FileBarChart2 },
   { href: '/student/points', label: '상벌점', icon: Award },
   { href: '/student/announcements', label: '공지사항', icon: Megaphone },
