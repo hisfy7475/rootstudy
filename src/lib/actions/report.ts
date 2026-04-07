@@ -95,6 +95,13 @@ type AttendanceRecord = { type: string; timestamp: string };
 
 const SUPABASE_PAGE_SIZE = 1000;
 
+const _peerAttendanceCache = new Map<string, { data: Array<{ student_id: string; type: string; timestamp: string }>; ts: number }>();
+const PEER_CACHE_TTL = 60_000;
+
+function getPeerCacheKey(typeId: string | null, rangeStart: string, rangeEnd: string) {
+  return `${typeId ?? 'none'}:${rangeStart}:${rangeEnd}`;
+}
+
 async function fetchPaginatedAttendance(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studentIds: string[],
@@ -769,13 +776,29 @@ export async function getWeeklyStudyTrend(
   const allStudentIds = peerIds.length > 0
     ? [...new Set([...peerIds, studentId])]
     : [studentId];
-  const trendAttendance = await fetchPaginatedAttendance(
-    supabase,
-    allStudentIds,
-    rangeStart.toISOString(),
-    rangeEnd.toISOString(),
-    true
-  );
+
+  const cacheKey = getPeerCacheKey(studentTypeId, rangeStart.toISOString(), rangeEnd.toISOString());
+  const cached = _peerAttendanceCache.get(cacheKey);
+  let trendAttendance: Array<{ student_id: string; type: string; timestamp: string }>;
+
+  if (cached && Date.now() - cached.ts < PEER_CACHE_TTL) {
+    const cachedIds = new Set(cached.data.map((r) => r.student_id));
+    if (allStudentIds.every((id) => cachedIds.has(id) || id === studentId)) {
+      const missing = allStudentIds.filter((id) => !cachedIds.has(id));
+      if (missing.length > 0) {
+        const extra = await fetchPaginatedAttendance(supabase, missing, rangeStart.toISOString(), rangeEnd.toISOString(), true);
+        trendAttendance = [...cached.data, ...extra];
+      } else {
+        trendAttendance = cached.data;
+      }
+    } else {
+      trendAttendance = await fetchPaginatedAttendance(supabase, allStudentIds, rangeStart.toISOString(), rangeEnd.toISOString(), true);
+      _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
+    }
+  } else {
+    trendAttendance = await fetchPaginatedAttendance(supabase, allStudentIds, rangeStart.toISOString(), rangeEnd.toISOString(), true);
+    _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
+  }
 
   const byStudent = new Map<string, AttendanceRecord[]>();
   for (const row of trendAttendance) {
