@@ -54,8 +54,8 @@ const adminNavItems: NavItem[] = [
   { href: '/periods', label: '교시 관리', icon: Clock },
   { href: '/notifications', label: '알림 관리', icon: Bell },
   { href: '/announcements', label: '공지사항 관리', icon: Megaphone },
-  { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
-  { href: '/mentoring', label: '멘토링 관리', icon: BookOpen },
+  // { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
+  // { href: '/mentoring', label: '멘토링 관리', icon: BookOpen },
   { href: '/download', label: '데이터 다운로드', icon: Download },
   { href: '/chat', label: '채팅 관리', icon: MessageCircle },
 ];
