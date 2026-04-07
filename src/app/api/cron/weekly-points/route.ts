@@ -99,6 +99,12 @@ function calculateStudyMinutes(
     }
   }
 
+  // 미퇴실 세션: check_in/break_end 후 check_out 없이 주가 끝난 경우
+  // 관리자 UI(getWeeklyAttendance)와 동일하게 주간 종료 시점까지 cap
+  if (checkInTime) {
+    totalMinutes += (weekEnd.getTime() - checkInTime.getTime()) / (1000 * 60);
+  }
+
   return Math.floor(totalMinutes);
 }
 
