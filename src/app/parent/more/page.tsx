@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { UtensilsCrossed, FileBarChart2, Megaphone, Settings, ChevronRight } from 'lucide-react';
+import { GraduationCap, UtensilsCrossed, FileBarChart2, Megaphone, Settings, ChevronRight } from 'lucide-react';
 
 const links = [
+  { href: '/parent/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/parent/meals', label: '급식', icon: UtensilsCrossed },
   { href: '/parent/report', label: '리포트', icon: FileBarChart2 },
   { href: '/parent/announcements', label: '공지사항', icon: Megaphone },

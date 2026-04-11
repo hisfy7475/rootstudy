@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import {
+  GraduationCap,
   UtensilsCrossed,
   FileBarChart2,
   Award,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 
 const links = [
+  { href: '/student/mentoring', label: '멘토링', icon: GraduationCap },
   { href: '/student/meals', label: '급식', icon: UtensilsCrossed },
   { href: '/student/report', label: '리포트', icon: FileBarChart2 },
   { href: '/student/points', label: '상벌점', icon: Award },
