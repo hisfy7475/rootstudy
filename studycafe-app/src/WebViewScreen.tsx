@@ -52,6 +52,7 @@ export default function WebViewScreen() {
   const [webUri, setWebUri] = useState(WEB_BASE_URL);
   const [retryNonce, setRetryNonce] = useState(0);
   const splashHiddenRef = useRef(false);
+  const initialLoadDoneRef = useRef(false);
   const lastUrlRef = useRef<string>(WEB_BASE_URL);
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
@@ -279,6 +280,7 @@ export default function WebViewScreen() {
   const handleRetryLoad = useCallback(() => {
     setLoadError(null);
     setIsLoading(true);
+    initialLoadDoneRef.current = false;
     setRetryNonce((n) => n + 1);
   }, []);
 
@@ -327,12 +329,15 @@ export default function WebViewScreen() {
           }}
           onLoadStart={() => {
             setLoadError(null);
-            setIsLoading(true);
-            startLoadingTimer();
+            if (!initialLoadDoneRef.current) {
+              setIsLoading(true);
+              startLoadingTimer();
+            }
           }}
           onLoadEnd={() => {
             clearLoadingTimer();
             setIsLoading(false);
+            initialLoadDoneRef.current = true;
             hideSplashOnce();
             sendPushTokenToWeb();
             tryInjectStoredSession(lastUrlRef.current);

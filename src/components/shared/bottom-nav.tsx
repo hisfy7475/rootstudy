@@ -126,6 +126,7 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
                   className={cn(
                     'flex flex-col items-center py-3 px-3 transition-all duration-200',
                     'min-w-[60px]',
+                    'active:scale-90 active:opacity-60',
                     isActive
                       ? 'text-primary'
                       : 'text-text-muted hover:text-text'

@@ -80,7 +80,7 @@ export function StudentHeader({
           {/* 공지사항 아이콘 */}
           <Link
             href="/student/announcements"
-            className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            className="relative p-2 rounded-xl hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all"
           >
             <Megaphone className="w-5 h-5 text-text-muted" />
             {unreadAnnouncementCount > 0 && (
@@ -93,7 +93,7 @@ export function StudentHeader({
           {/* 알림 아이콘 */}
           <Link
             href="/student/notifications"
-            className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            className="relative p-2 rounded-xl hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all"
           >
             <Bell className="w-5 h-5 text-text-muted" />
             {unreadCount > 0 && (
@@ -109,7 +109,7 @@ export function StudentHeader({
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className={cn(
               'flex items-center gap-2 px-3 py-2 rounded-xl transition-all',
-              'hover:bg-gray-100',
+              'hover:bg-gray-100 active:scale-95 active:bg-gray-200',
               isMenuOpen && 'bg-gray-100'
             )}
           >
@@ -151,7 +151,7 @@ export function StudentHeader({
                 <Link
                   href="/student/settings"
                   onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors"
                 >
                   <Settings className="w-4 h-4 text-text-muted" />
                   <span className="text-sm text-text">설정</span>
@@ -160,7 +160,7 @@ export function StudentHeader({
                 <SignOutForm>
                   <button
                     type="submit"
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors w-full text-left"
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors w-full text-left"
                   >
                     <LogOut className="w-4 h-4 text-red-500" />
                     <span className="text-sm text-red-500">로그아웃</span>
