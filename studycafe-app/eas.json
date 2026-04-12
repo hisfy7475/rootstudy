@@ -25,7 +25,9 @@
       "autoIncrement": true,
       "distribution": "store",
       "env": {
-        "EXPO_PUBLIC_WEB_BASE_URL": "https://rootstudy-git-dev-rootstudy.vercel.app"
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://rootstudy-git-dev-rootstudy.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aautdcslwmbyjjwhmzqf.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhdXRkY3Nsd21ieWpqd2htenFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxODk1NDksImV4cCI6MjA4OTc2NTU0OX0.ByuqKUjT3Jp5HvVoHp_LdAi3xUauFryU6QYhOEFoEa4"
       }
     },
     "preview-simulator": {
