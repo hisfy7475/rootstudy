@@ -22,15 +22,19 @@
       }
     },
     "preview": {
-      "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "autoIncrement": true,
+      "distribution": "store",
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://rootstudy-git-dev-rootstudy.vercel.app"
       }
     },
     "preview-simulator": {
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://localhost:3000"
       }
     },
     "production": {
@@ -38,10 +42,26 @@
     }
   },
   "submit": {
+    "preview": {
+      "android": {
+        "serviceAccountKeyPath": "../.00_manager/key/upheld-rain-492418-u5-b0a66144734d.json",
+        "track": "internal"
+      },
+      "ios": {
+        "ascApiKeyPath": "../.00_manager/key/AuthKey_FW3SASW59T.p8",
+        "ascApiKeyIssuerId": "71a68a30-6cd9-4b88-82cb-9b31b6cb1805",
+        "ascApiKeyId": "FW3SASW59T"
+      }
+    },
     "production": {
       "android": {
         "serviceAccountKeyPath": "../.00_manager/key/upheld-rain-492418-u5-b0a66144734d.json",
         "track": "internal"
+      },
+      "ios": {
+        "ascApiKeyPath": "../.00_manager/key/AuthKey_FW3SASW59T.p8",
+        "ascApiKeyIssuerId": "71a68a30-6cd9-4b88-82cb-9b31b6cb1805",
+        "ascApiKeyId": "FW3SASW59T"
       }
     }
   }

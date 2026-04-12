@@ -1,1 +1,21 @@
-npx eas-cli build --profile development-simulator --platform ios
+## EAS 빌드 명령어 (studycafe-app 폴더에서 실행)
+
+# ── 시뮬레이터 개발 (localhost:3000) ──
+eas build --profile development-simulator --platform ios
+
+# ── 실기기 개발 (dev Vercel, 디버깅 가능) ──
+eas build --profile development --platform ios
+eas build --profile development --platform android
+
+# ── QA 테스트 (dev Vercel → 내부테스트/TestFlight 자동 제출) ──
+eas build --profile preview --platform all --auto-submit
+
+# ── 프로덕션 (www.rootstudy.co.kr → 내부테스트/TestFlight 자동 제출) ──
+eas build --profile production --platform all --auto-submit
+
+# ── 이미 빌드된 것만 수동 제출 ──
+eas submit --profile preview --platform all
+eas submit --profile production --platform all
+
+
+hisfy7475@gmail.com

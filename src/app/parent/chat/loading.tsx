@@ -2,7 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ParentChatLoading() {
   return (
-    <div className="fixed inset-0 top-16 bottom-20 bg-white flex flex-col">
+    <div className="fixed inset-x-0 bg-white flex flex-col" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)' }}>
       {/* 채팅 헤더 */}
       <div className="p-4 border-b">
         <Skeleton className="h-6 w-32 mb-1" />

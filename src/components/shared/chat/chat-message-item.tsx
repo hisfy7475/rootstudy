@@ -168,6 +168,7 @@ export function ChatMessageItem({
                   alt="채팅 이미지"
                   width={200}
                   height={200}
+                  unoptimized
                   className="rounded-xl object-cover max-w-[200px] max-h-[200px]"
                   style={{ width: 'auto', height: 'auto' }}
                 />
@@ -197,12 +198,12 @@ export function ChatMessageItem({
       {/* 이미지 전체보기 모달 */}
       {showFullImage && imageUrl && (
         <div 
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4"
           onClick={() => setShowFullImage(false)}
         >
           <button
             onClick={() => setShowFullImage(false)}
-            className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+            className="absolute top-12 right-4 z-[10000] p-2 bg-white/20 rounded-full hover:bg-white/30 transition-colors"
           >
             <X className="w-6 h-6 text-white" />
           </button>
@@ -211,6 +212,7 @@ export function ChatMessageItem({
             alt="채팅 이미지 전체보기"
             width={800}
             height={800}
+            unoptimized
             className="max-w-full max-h-full object-contain rounded-lg"
             onClick={(e) => e.stopPropagation()}
           />

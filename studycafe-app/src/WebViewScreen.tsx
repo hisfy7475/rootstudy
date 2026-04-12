@@ -173,16 +173,39 @@ export default function WebViewScreen() {
         return;
       }
 
-      const picked =
-        payload.source === 'camera'
-          ? await ImagePicker.launchCameraAsync({
+      let picked: ImagePicker.ImagePickerResult;
+      try {
+        picked =
+          payload.source === 'camera'
+            ? await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                quality: 0.9,
+              })
+            : await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                quality: 0.9,
+              });
+      } catch (pickErr: unknown) {
+        if (
+          Platform.OS === 'ios' &&
+          payload.source !== 'camera' &&
+          String(pickErr).includes('public.heic')
+        ) {
+          try {
+            picked = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ['images'],
               quality: 0.9,
-            })
-          : await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'],
-              quality: 0.9,
+              allowsEditing: true,
             });
+          } catch (retryErr) {
+            console.error('[WebViewScreen] HEIC retry also failed', retryErr);
+            return;
+          }
+        } else {
+          console.error('[WebViewScreen] pick image failed', pickErr);
+          return;
+        }
+      }
 
       if (picked.canceled || !picked.assets?.[0]?.uri) return;
 
