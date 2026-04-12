@@ -131,6 +131,9 @@ export async function createUserNotification(params: CreateUserNotificationParam
     });
 
   if (error) {
+    if (error.code === '23503') {
+      return { error: 'user_not_found' };
+    }
     console.error('Error creating user notification:', error);
     return { error: '알림 생성에 실패했습니다.' };
   }

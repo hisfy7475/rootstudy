@@ -418,7 +418,10 @@ const CHAT_FILE_ALLOWED_TYPES = [
 ] as const;
 
 function sanitizeChatFileSegment(name: string): string {
-  const base = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+  const base = name
+    .replace(/[/\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/[^\x20-\x7E]/g, '');
   return base.slice(0, 200) || 'file';
 }
 
