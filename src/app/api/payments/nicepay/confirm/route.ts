@@ -39,7 +39,12 @@ function redirectResult(
   for (const [k, v] of Object.entries(params)) {
     u.searchParams.set(k, v);
   }
-  return NextResponse.redirect(u.toString());
+  const dest = u.toString();
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script></head><body></body></html>`;
+  return new NextResponse(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
 }
 
 type MealOrderRow = {
