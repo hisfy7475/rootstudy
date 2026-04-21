@@ -53,3 +53,4 @@ studycafe-app/ios/
 studycafe-app/android/
 studycafe-app/*.jks
 studycafe-app/.env*.local
+.env*.local
