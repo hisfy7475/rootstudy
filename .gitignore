@@ -54,3 +54,8 @@ studycafe-app/android/
 studycafe-app/*.jks
 studycafe-app/.env*.local
 .env*.local
+
+# Claude Code 로컬 메모 (커밋 제외)
+CLAUDE.md
+**/CLAUDE.md
+.claude/
