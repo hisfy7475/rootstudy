@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+build
+dist
+coverage
+.vercel
+next-env.d.ts
+package-lock.json
+
+studycafe-app
+supabase/migrations
+.00_manager
