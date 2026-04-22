@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { createBulkStudentNotifications, createUserNotification } from './notification';
+import { getUserScope } from '@/lib/auth/scope';
 
 // ============================================
 // 공지사항 조회
@@ -42,14 +43,8 @@ export async function getAnnouncements(limit: number = 50): Promise<Announcement
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  // 사용자 프로필 조회
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, branch_id')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile) return [];
+  const scope = await getUserScope();
+  if (!scope) return [];
 
   // 사용자 타입에 맞는 공지사항 조회
   let query = supabase
@@ -64,16 +59,20 @@ export async function getAnnouncements(limit: number = 50): Promise<Announcement
     .limit(limit);
 
   // 대상 필터링 (all 또는 사용자 타입)
-  if (profile.user_type === 'student') {
+  if (scope.userType === 'student') {
     query = query.in('target_audience', ['all', 'student']);
-  } else if (profile.user_type === 'parent') {
+  } else if (scope.userType === 'parent') {
     query = query.in('target_audience', ['all', 'parent']);
   }
 
-  // 지점 필터링 (null이면 전체 공지, 아니면 해당 지점만)
-  if (profile.branch_id) {
-    query = query.or(`branch_id.is.null,branch_id.eq.${profile.branch_id}`);
+  // 지점 필터링: scope.branchIds UNION + null(전체공지) 허용
+  // parent 다자녀 다지점이면 여러 branch의 합집합을 본다.
+  if (scope.branchIds.length > 0) {
+    const csv = scope.branchIds.map((id) => `"${id}"`).join(',');
+    query = query.or(`branch_id.is.null,branch_id.in.(${csv})`);
   }
+  // scope.branchIds 비면 전체(branch_id IS NULL) 공지만 필터 (추가 .or 없이 기본 반환은 전체)
+  // 하지만 RLS가 null 공지만 허용할 것 → 안전. 호출자가 빈 결과 기대.
 
   const { data, error } = await query;
 
@@ -157,14 +156,8 @@ export async function getUnreadAnnouncementCount(): Promise<number> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return 0;
 
-  // 사용자 프로필 조회
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, branch_id')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile) return 0;
+  const scope = await getUserScope();
+  if (!scope) return 0;
 
   // 전체 공지사항 ID 조회
   let query = supabase
@@ -172,15 +165,16 @@ export async function getUnreadAnnouncementCount(): Promise<number> {
     .select('id');
 
   // 대상 필터링
-  if (profile.user_type === 'student') {
+  if (scope.userType === 'student') {
     query = query.in('target_audience', ['all', 'student']);
-  } else if (profile.user_type === 'parent') {
+  } else if (scope.userType === 'parent') {
     query = query.in('target_audience', ['all', 'parent']);
   }
 
-  // 지점 필터링
-  if (profile.branch_id) {
-    query = query.or(`branch_id.is.null,branch_id.eq.${profile.branch_id}`);
+  // 지점 필터링: scope.branchIds UNION + null(전체공지) 허용
+  if (scope.branchIds.length > 0) {
+    const csv = scope.branchIds.map((id) => `"${id}"`).join(',');
+    query = query.or(`branch_id.is.null,branch_id.in.(${csv})`);
   }
 
   const { data: announcements } = await query;

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { sendPushToUser } from '@/lib/push';
 import { formatDateKST } from '@/lib/utils';
+import { getUserScope } from '@/lib/auth/scope';
 import type { Mentor, MentoringApplication, MentoringSlot } from '@/types/database';
 import {
   createStudentNotification,
@@ -49,16 +50,13 @@ async function requireAdminBranch(
   return { userId: user.id, branchId: profile.branch_id };
 }
 
-async function getActorBranchId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string
-): Promise<string | null> {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('branch_id, user_type')
-    .eq('id', userId)
-    .maybeSingle();
-  return profile?.branch_id ?? null;
+/**
+ * 요청자(auth user)에게 허용되는 branch_id 집합을 반환한다.
+ * admin/student: 본인 1개. parent: 연결 자녀들의 distinct branch UNION.
+ */
+async function getActorBranchIds(): Promise<string[]> {
+  const scope = await getUserScope();
+  return scope?.branchIds ?? [];
 }
 
 async function canActForStudent(
@@ -89,8 +87,8 @@ export async function getMentoringSlotsForRange(
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const branchId = await getActorBranchId(supabase, user.id);
-  if (!branchId) return [];
+  const branchIds = await getActorBranchIds();
+  if (branchIds.length === 0) return [];
 
   let q = supabase
     .from('mentoring_slots')
@@ -100,7 +98,7 @@ export async function getMentoringSlotsForRange(
       mentors!inner ( id, name, subject, is_active, branch_id )
     `
     )
-    .eq('branch_id', branchId)
+    .in('branch_id', branchIds)
     .eq('is_active', true)
     .gte('date', fromYmd)
     .lte('date', toYmd)
@@ -125,8 +123,9 @@ export async function getMentoringSlotsForRange(
     mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'is_active' | 'branch_id'> | null;
   })[];
 
+  const allowedSet = new Set(branchIds);
   return rows
-    .filter((r) => r.mentors?.is_active && r.mentors.branch_id === branchId)
+    .filter((r) => r.mentors?.is_active && r.mentors.branch_id && allowedSet.has(r.mentors.branch_id))
     .map(({ mentors: m, ...slot }) => ({
       ...slot,
       mentors: m ? { id: m.id, name: m.name, subject: m.subject } : null,
@@ -140,8 +139,8 @@ export async function getMentoringSlotDetail(slotId: string): Promise<MentoringS
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const branchId = await getActorBranchId(supabase, user.id);
-  if (!branchId) return null;
+  const branchIds = await getActorBranchIds();
+  if (branchIds.length === 0) return null;
 
   const { data, error } = await supabase
     .from('mentoring_slots')
@@ -152,7 +151,7 @@ export async function getMentoringSlotDetail(slotId: string): Promise<MentoringS
     `
     )
     .eq('id', slotId)
-    .eq('branch_id', branchId)
+    .in('branch_id', branchIds)
     .maybeSingle();
 
   if (error || !data) {
@@ -164,7 +163,7 @@ export async function getMentoringSlotDetail(slotId: string): Promise<MentoringS
     mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'bio' | 'is_active' | 'branch_id'> | null;
   };
 
-  if (!row.is_active || !row.mentors?.is_active || row.mentors.branch_id !== branchId) {
+  if (!row.is_active || !row.mentors?.is_active || !row.mentors.branch_id || !branchIds.includes(row.mentors.branch_id)) {
     return null;
   }
 
@@ -188,14 +187,25 @@ export async function applyMentoring(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('user_type, branch_id')
+    .select('user_type')
     .eq('id', user.id)
     .maybeSingle();
 
-  if (!profile?.branch_id) return { error: '지점 정보가 없습니다.' };
-
-  const allowed = await canActForStudent(supabase, user.id, studentId, profile.user_type);
+  const allowed = await canActForStudent(supabase, user.id, studentId, profile?.user_type);
   if (!allowed) return { error: '신청 권한이 없습니다.' };
+
+  // 슬롯 branch는 **대상 학생의 branch**와 일치해야 한다.
+  // 학부모 다자녀 다지점 케이스에서 타지점 자녀로 엉뚱한 슬롯을 신청하는 것을 차단.
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('branch_id')
+    .eq('id', studentId)
+    .maybeSingle();
+
+  if (!studentProfile?.branch_id) {
+    return { error: '학생의 지점 정보가 없습니다.' };
+  }
+  const studentBranchId = studentProfile.branch_id as string;
 
   const { data: slot, error: slotErr } = await supabase
     .from('mentoring_slots')
@@ -223,7 +233,7 @@ export async function applyMentoring(
     ? slotRow.mentors[0]?.is_active
     : slotRow.mentors?.is_active;
 
-  if (!slotRow.is_active || !mentorActive || slotRow.branch_id !== profile.branch_id) {
+  if (!slotRow.is_active || !mentorActive || slotRow.branch_id !== studentBranchId) {
     return { error: '신청할 수 없는 슬롯입니다.' };
   }
 
@@ -293,7 +303,7 @@ export async function applyMentoring(
     applicationId = inserted.id as string;
   }
 
-  await notifyBranchAdminsMentoringApplied(profile.branch_id, studentId);
+  await notifyBranchAdminsMentoringApplied(studentBranchId, studentId);
 
   revalidatePath('/student/mentoring');
   revalidatePath('/student/mentoring/my');

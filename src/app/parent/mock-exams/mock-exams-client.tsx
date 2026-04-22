@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { MealImage } from "@/components/shared/meal-image";
 import { cn } from "@/lib/utils";
 
-type Student = { id: string; name: string };
+type Student = { id: string; name: string; branchId?: string | null };
 
 export function ParentMockExamsClient({
   initialProducts,
@@ -22,6 +22,9 @@ export function ParentMockExamsClient({
 
   const orderStatusByProductId =
     selectedId != null ? (orderStatusByStudentId[selectedId] ?? {}) : {};
+
+  const selectedStudent = students.find((s) => s.id === selectedId) ?? null;
+  const selectedBranchId = selectedStudent?.branchId ?? null;
 
   if (students.length === 0) {
     return (
@@ -63,66 +66,85 @@ export function ParentMockExamsClient({
           ) : (
             initialProducts.map((p) => {
               const orderState = orderStatusByProductId[p.id];
+              const branchMismatch =
+                selectedBranchId != null && p.branch_id !== selectedBranchId;
+
+              const cardBody = (
+                <Card
+                  className={cn(
+                    "overflow-hidden transition-transform",
+                    !branchMismatch && "active:scale-[0.99]",
+                    orderState === "paid" && "ring-1 ring-emerald-500/25",
+                    branchMismatch && "opacity-50",
+                  )}
+                  aria-disabled={branchMismatch}
+                  title={branchMismatch ? "선택한 자녀의 지점이 아닙니다" : undefined}
+                >
+                  <div className='relative h-36 w-full'>
+                    <MealImage
+                      src={p.image_url}
+                      type='product'
+                      alt={p.name}
+                      fill
+                      className='rounded-t-lg'
+                    />
+                    <div className='absolute left-2 top-2 flex flex-wrap gap-1.5'>
+                      {orderState === "paid" ? (
+                        <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm'>
+                          결제 완료
+                        </span>
+                      ) : orderState === "pending" ? (
+                        <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/95 text-white shadow-sm'>
+                          결제 대기
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className='p-4'>
+                    <h2 className='font-semibold text-foreground truncate'>{p.name}</h2>
+                    {branchMismatch ? (
+                      <p className='mt-1 text-sm text-muted-foreground'>
+                        선택한 자녀의 지점이 아닙니다.
+                      </p>
+                    ) : orderState === "paid" ? (
+                      <div className='mt-1 space-y-0.5 text-sm'>
+                        <p className='font-medium text-emerald-700 dark:text-emerald-400'>
+                          결제가 완료된 모의고사입니다.
+                        </p>
+                        <p className='text-muted-foreground'>
+                          {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
+                          {p.sale_end_date}
+                        </p>
+                      </div>
+                    ) : orderState === "pending" ? (
+                      <div className='mt-1 space-y-0.5 text-sm'>
+                        <p className='font-medium text-amber-700 dark:text-amber-400'>
+                          결제를 이어서 진행해 주세요.
+                        </p>
+                        <p className='text-muted-foreground'>
+                          {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
+                          {p.sale_end_date}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className='text-sm text-muted-foreground mt-1'>
+                        {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
+                        {p.sale_end_date}
+                      </p>
+                    )}
+                  </div>
+                </Card>
+              );
+
               return (
                 <li key={p.id}>
-                  <Link href={`/parent/mock-exams/${p.id}?for=${encodeURIComponent(selectedId)}`}>
-                    <Card
-                      className={cn(
-                        "overflow-hidden active:scale-[0.99] transition-transform",
-                        orderState === "paid" && "ring-1 ring-emerald-500/25",
-                      )}
-                    >
-                      <div className='relative h-36 w-full'>
-                        <MealImage
-                          src={p.image_url}
-                          type='product'
-                          alt={p.name}
-                          fill
-                          className='rounded-t-lg'
-                        />
-                        <div className='absolute left-2 top-2 flex flex-wrap gap-1.5'>
-                          {orderState === "paid" ? (
-                            <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm'>
-                              결제 완료
-                            </span>
-                          ) : orderState === "pending" ? (
-                            <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/95 text-white shadow-sm'>
-                              결제 대기
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className='p-4'>
-                        <h2 className='font-semibold text-foreground truncate'>{p.name}</h2>
-                        {orderState === "paid" ? (
-                          <div className='mt-1 space-y-0.5 text-sm'>
-                            <p className='font-medium text-emerald-700 dark:text-emerald-400'>
-                              결제가 완료된 모의고사입니다.
-                            </p>
-                            <p className='text-muted-foreground'>
-                              {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                              {p.sale_end_date}
-                            </p>
-                          </div>
-                        ) : orderState === "pending" ? (
-                          <div className='mt-1 space-y-0.5 text-sm'>
-                            <p className='font-medium text-amber-700 dark:text-amber-400'>
-                              결제를 이어서 진행해 주세요.
-                            </p>
-                            <p className='text-muted-foreground'>
-                              {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                              {p.sale_end_date}
-                            </p>
-                          </div>
-                        ) : (
-                          <p className='text-sm text-muted-foreground mt-1'>
-                            {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                            {p.sale_end_date}
-                          </p>
-                        )}
-                      </div>
-                    </Card>
-                  </Link>
+                  {branchMismatch ? (
+                    cardBody
+                  ) : (
+                    <Link href={`/parent/mock-exams/${p.id}?for=${encodeURIComponent(selectedId)}`}>
+                      {cardBody}
+                    </Link>
+                  )}
                 </li>
               );
             })
