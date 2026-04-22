@@ -49,10 +49,13 @@ interface WeeklyStudent {
   id: string;
   seatNumber: number | null;
   name: string;
-  dailyStatus: Record<string, {
-    status: 'attended' | 'not_attended' | 'on_break' | null;
-    checkInTime: string | null;
-  }>;
+  dailyStatus: Record<
+    string,
+    {
+      status: 'attended' | 'not_attended' | 'on_break' | null;
+      checkInTime: string | null;
+    }
+  >;
   weeklyStudyMinutes: number;
   totalPenalty: number;
   totalReward: number;
@@ -139,12 +142,12 @@ function getWeekRangeText(mondayStr: string): string {
   const monday = new Date(mondayStr + 'T00:00:00');
   const sunday = new Date(monday);
   sunday.setDate(sunday.getDate() + 6);
-  
+
   const startMonth = monday.getMonth() + 1;
   const startDay = monday.getDate();
   const endMonth = sunday.getMonth() + 1;
   const endDay = sunday.getDate();
-  
+
   if (startMonth === endMonth) {
     return `${startMonth}월 ${startDay}일 ~ ${endDay}일`;
   }
@@ -158,13 +161,20 @@ function getCurrentStudyDateStr(): string {
   return formatDateKST(sd);
 }
 
-export function AttendanceClient({ initialData, todayPeriods, dateTypeName, todayDate, branchId }: AttendanceClientProps) {
+export function AttendanceClient({
+  initialData,
+  todayPeriods,
+  dateTypeName,
+  todayDate,
+  branchId,
+}: AttendanceClientProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [data, setData] = useState<AttendanceStudent[]>(initialData.data);
   const [dynamicToday, setDynamicToday] = useState(todayDate);
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [loading, setLoading] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // 서버/클라이언트 렌더 시각이 달라 hydration mismatch 가 발생하므로 마운트 후에만 값 세팅.
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
   const [total, setTotal] = useState(initialData.total);
   const [globalStats, setGlobalStats] = useState(initialData.stats);
@@ -172,10 +182,18 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   // 주간 뷰 상태
   const [weeklyData, setWeeklyData] = useState<WeeklyStudent[]>([]);
   const [weekDates, setWeekDates] = useState<string[]>([]);
-  const [currentWeekMonday, setCurrentWeekMonday] = useState(getWeekMonday(new Date()));
+  // 서버에서 계산된 todayDate(KST 학습일) 기준으로 월요일을 구해 hydration mismatch 방지.
+  const [currentWeekMonday, setCurrentWeekMonday] = useState(() =>
+    getWeekMonday(new Date(todayDate + 'T00:00:00+09:00')),
+  );
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   // 주간 뷰 정렬 상태
-  type WeeklySortKey = 'seatNumber' | 'name' | 'weeklyStudyMinutes' | 'totalPenalty' | 'totalReward';
+  type WeeklySortKey =
+    | 'seatNumber'
+    | 'name'
+    | 'weeklyStudyMinutes'
+    | 'totalPenalty'
+    | 'totalReward';
   const [weeklySortKey, setWeeklySortKey] = useState<WeeklySortKey>('seatNumber');
   const [weeklySortAsc, setWeeklySortAsc] = useState(true);
 
@@ -222,15 +240,17 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return weeklySortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
-      return weeklySortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+      return weeklySortAsc
+        ? (aVal as number) - (bVal as number)
+        : (bVal as number) - (aVal as number);
     });
     return sorted;
   }, [weeklyData, weeklySortKey, weeklySortAsc]);
 
   const handleWeeklySort = useCallback((key: WeeklySortKey) => {
-    setWeeklySortKey(prev => {
+    setWeeklySortKey((prev) => {
       if (prev === key) {
-        setWeeklySortAsc(asc => !asc);
+        setWeeklySortAsc((asc) => !asc);
         return prev;
       }
       setWeeklySortAsc(true);
@@ -256,8 +276,9 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
     return () => clearInterval(timer);
   }, [dynamicToday, selectedDate]);
 
-  // 현재 시간 업데이트 (1분마다)
+  // 마운트 직후 초기값 세팅 + 이후 1분마다 갱신
   useEffect(() => {
+    setCurrentTime(new Date());
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
@@ -295,7 +316,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
 
     setData([]);
     handleRefresh(selectedDate, debouncedSearch, activeFilter);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, selectedDate, debouncedSearch]);
 
   // 일별 출석부는 자동 갱신하지 않음 (Realtime/주기/탭 포커스 시 목록이 줄어들며 스크롤이 튀는 문제 방지).
@@ -324,7 +345,7 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   useEffect(() => {
     if (viewMode !== 'weekly') return;
     loadWeeklyData(currentWeekMonday, debouncedSearch);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, currentWeekMonday, debouncedSearch]);
 
   // 상태 필터 클릭 핸들러
@@ -338,11 +359,16 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const handleRefresh = async (
     date: string,
     search = debouncedSearch,
-    filter: StatusFilter = activeFilter
+    filter: StatusFilter = activeFilter,
   ) => {
     setLoading(true);
     try {
-      const result = await getAttendanceBoard(date, branchId, search || undefined, filter ?? undefined);
+      const result = await getAttendanceBoard(
+        date,
+        branchId,
+        search || undefined,
+        filter ?? undefined,
+      );
       setData(result.data);
       setTotal(result.total);
       setGlobalStats(result.stats);
@@ -400,23 +426,23 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
   const isToday = selectedDate === dynamicToday;
 
   return (
-    <div className="p-6 space-y-6 print:p-2 print:space-y-2">
+    <div className='space-y-6 p-6 print:space-y-2 print:p-2'>
       {/* 헤더 */}
-      <div className="flex items-center justify-between print:mb-2">
+      <div className='flex items-center justify-between print:mb-2'>
         <div>
-          <h1 className="text-2xl font-bold print:text-lg">출석부</h1>
-          <div className="flex items-center gap-2 mt-1 text-text-muted print:text-sm">
-            <Clock className="w-4 h-4" />
+          <h1 className='text-2xl font-bold print:text-lg'>출석부</h1>
+          <div className='text-text-muted mt-1 flex items-center gap-2 print:text-sm'>
+            <Clock className='h-4 w-4' />
             {viewMode === 'daily' ? (
               <>
                 <span>{formatDate(selectedDate)}</span>
                 {dateTypeName && isToday && (
-                  <span className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                  <span className='bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs'>
                     {dateTypeName}
                   </span>
                 )}
-                {isToday && (
-                  <span className="print:hidden">
+                {isToday && currentTime && (
+                  <span className='print:hidden'>
                     (마지막 업데이트: {currentTime.toLocaleTimeString('ko-KR')})
                   </span>
                 )}
@@ -426,14 +452,14 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             )}
           </div>
         </div>
-        <div className="flex gap-2 print:hidden">
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="w-4 h-4 mr-2" />
+        <div className='flex gap-2 print:hidden'>
+          <Button variant='outline' onClick={handlePrint}>
+            <Printer className='mr-2 h-4 w-4' />
             인쇄
           </Button>
           {viewMode === 'daily' && (
             <Button
-              variant="outline"
+              variant='outline'
               onClick={() => {
                 const newToday = getCurrentStudyDateStr();
                 let dateToRefresh = selectedDate;
@@ -449,70 +475,69 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               }}
               disabled={loading}
             >
-              <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
+              <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
               새로고침
             </Button>
           )}
-
         </div>
       </div>
 
       {/* 뷰 전환 탭 + 날짜/주 선택 */}
-      <div className="flex items-center justify-between gap-4 print:hidden">
+      <div className='flex items-center justify-between gap-4 print:hidden'>
         {/* 뷰 전환 탭 */}
-        <div className="flex bg-gray-100 rounded-lg p-1">
+        <div className='flex rounded-lg bg-gray-100 p-1'>
           <button
             onClick={() => setViewMode('daily')}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+              'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
               viewMode === 'daily'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
+                ? 'text-primary bg-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900',
             )}
           >
-            <List className="w-4 h-4" />
+            <List className='h-4 w-4' />
             일별 뷰
           </button>
           <button
             onClick={() => setViewMode('weekly')}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+              'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
               viewMode === 'weekly'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
+                ? 'text-primary bg-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900',
             )}
           >
-            <CalendarDays className="w-4 h-4" />
+            <CalendarDays className='h-4 w-4' />
             주간 뷰
           </button>
         </div>
 
         {/* 학생 이름 검색 */}
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        <div className='relative max-w-xs flex-1'>
+          <Search className='pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-gray-400' />
           <Input
-            type="text"
-            placeholder="학생 이름 검색..."
+            type='text'
+            placeholder='학생 이름 검색...'
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-9"
+            className='h-9 pl-8'
           />
         </div>
 
         {/* 날짜/주 선택 */}
         {viewMode === 'daily' ? (
-          <div className="flex items-center gap-2">
+          <div className='flex items-center gap-2'>
             <Input
-              type="date"
+              type='date'
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-44"
+              className='w-44'
             />
             {!isToday && (
               <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 whitespace-nowrap"
+                variant='outline'
+                size='sm'
+                className='shrink-0 whitespace-nowrap'
                 onClick={() => setSelectedDate(dynamicToday)}
               >
                 오늘
@@ -520,15 +545,15 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="px-2" onClick={handlePreviousWeek}>
-              <ChevronLeft className="w-4 h-4" />
+          <div className='flex items-center gap-2'>
+            <Button variant='outline' size='sm' className='px-2' onClick={handlePreviousWeek}>
+              <ChevronLeft className='h-4 w-4' />
             </Button>
-            <Button variant="outline" size="sm" onClick={handleThisWeek}>
+            <Button variant='outline' size='sm' onClick={handleThisWeek}>
               이번 주
             </Button>
-            <Button variant="outline" size="sm" className="px-2" onClick={handleNextWeek}>
-              <ChevronRight className="w-4 h-4" />
+            <Button variant='outline' size='sm' className='px-2' onClick={handleNextWeek}>
+              <ChevronRight className='h-4 w-4' />
             </Button>
           </div>
         )}
@@ -537,91 +562,104 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
       {viewMode === 'daily' ? (
         <>
           {/* 통계 카드 - 클릭 시 필터 */}
-          <div className="grid grid-cols-5 gap-3 print:grid-cols-5 print:gap-1">
+          <div className='grid grid-cols-5 gap-3 print:grid-cols-5 print:gap-1'>
             {/* 전체 - 필터 해제 */}
             <button
-              onClick={() => { if (activeFilter) handleFilterClick(null); }}
+              onClick={() => {
+                if (activeFilter) handleFilterClick(null);
+              }}
               className={cn(
-                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                'rounded-lg border p-3 text-left transition-all print:p-1.5',
                 activeFilter === null
-                  ? 'bg-white border-gray-300 shadow-md ring-2 ring-gray-400'
-                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm opacity-70'
+                  ? 'border-gray-300 bg-white shadow-md ring-2 ring-gray-400'
+                  : 'border-gray-200 bg-white opacity-70 hover:border-gray-300 hover:shadow-sm',
               )}
             >
-              <div className="text-xs text-gray-500 print:text-[10px]">전체</div>
-              <div className="text-xl font-bold print:text-base">{stats.total}</div>
+              <div className='text-xs text-gray-500 print:text-[10px]'>전체</div>
+              <div className='text-xl font-bold print:text-base'>{stats.total}</div>
             </button>
             {/* 입실 */}
             <button
               onClick={() => handleFilterClick('checked_in')}
               className={cn(
-                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                'rounded-lg border p-3 text-left transition-all print:p-1.5',
                 activeFilter === 'checked_in'
-                  ? 'bg-green-100 border-green-400 shadow-md ring-2 ring-green-400'
-                  : 'bg-green-50 border-green-200 hover:border-green-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'checked_in' && 'opacity-50'
+                  ? 'border-green-400 bg-green-100 shadow-md ring-2 ring-green-400'
+                  : 'border-green-200 bg-green-50 hover:border-green-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'checked_in' && 'opacity-50',
               )}
             >
-              <div className="text-xs text-green-600 print:text-[10px]">입실</div>
-              <div className="text-xl font-bold text-green-600 print:text-base">{stats.checkedIn}</div>
+              <div className='text-xs text-green-600 print:text-[10px]'>입실</div>
+              <div className='text-xl font-bold text-green-600 print:text-base'>
+                {stats.checkedIn}
+              </div>
             </button>
             {/* 외출 */}
             <button
               onClick={() => handleFilterClick('on_break')}
               className={cn(
-                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                'rounded-lg border p-3 text-left transition-all print:p-1.5',
                 activeFilter === 'on_break'
-                  ? 'bg-amber-100 border-amber-400 shadow-md ring-2 ring-amber-400'
-                  : 'bg-amber-50 border-amber-200 hover:border-amber-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'on_break' && 'opacity-50'
+                  ? 'border-amber-400 bg-amber-100 shadow-md ring-2 ring-amber-400'
+                  : 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'on_break' && 'opacity-50',
               )}
             >
-              <div className="text-xs text-amber-600 print:text-[10px]">외출</div>
-              <div className="text-xl font-bold text-amber-600 print:text-base">{stats.onBreak}</div>
+              <div className='text-xs text-amber-600 print:text-[10px]'>외출</div>
+              <div className='text-xl font-bold text-amber-600 print:text-base'>
+                {stats.onBreak}
+              </div>
             </button>
             {/* 퇴실 */}
             <button
               onClick={() => handleFilterClick('checked_out')}
               className={cn(
-                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                'rounded-lg border p-3 text-left transition-all print:p-1.5',
                 activeFilter === 'checked_out'
-                  ? 'bg-gray-200 border-gray-400 shadow-md ring-2 ring-gray-400'
-                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'checked_out' && 'opacity-50'
+                  ? 'border-gray-400 bg-gray-200 shadow-md ring-2 ring-gray-400'
+                  : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'checked_out' && 'opacity-50',
               )}
             >
-              <div className="text-xs text-gray-500 print:text-[10px]">퇴실</div>
-              <div className="text-xl font-bold text-gray-400 print:text-base">{stats.checkedOut}</div>
+              <div className='text-xs text-gray-500 print:text-[10px]'>퇴실</div>
+              <div className='text-xl font-bold text-gray-400 print:text-base'>
+                {stats.checkedOut}
+              </div>
             </button>
             {/* 미등원 */}
             <button
               onClick={() => handleFilterClick('not_arrived')}
               className={cn(
-                'text-left rounded-lg border p-3 print:p-1.5 transition-all',
+                'rounded-lg border p-3 text-left transition-all print:p-1.5',
                 activeFilter === 'not_arrived'
-                  ? 'bg-red-100 border-red-400 shadow-md ring-2 ring-red-400'
-                  : 'bg-red-50 border-red-200 hover:border-red-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'not_arrived' && 'opacity-50'
+                  ? 'border-red-400 bg-red-100 shadow-md ring-2 ring-red-400'
+                  : 'border-red-200 bg-red-50 hover:border-red-300 hover:shadow-sm',
+                activeFilter !== null && activeFilter !== 'not_arrived' && 'opacity-50',
               )}
             >
-              <div className="text-xs text-red-600 print:text-[10px]">미등원</div>
-              <div className="text-xl font-bold text-red-600 print:text-base">{stats.notYetArrived}</div>
+              <div className='text-xs text-red-600 print:text-[10px]'>미등원</div>
+              <div className='text-xl font-bold text-red-600 print:text-base'>
+                {stats.notYetArrived}
+              </div>
             </button>
           </div>
           {/* 필터 활성 안내 */}
           {activeFilter && (
-            <div className="flex items-center gap-2 text-xs text-gray-500 print:hidden -mt-2">
+            <div className='-mt-2 flex items-center gap-2 text-xs text-gray-500 print:hidden'>
               <span>
-                {{
-                  checked_in: '입실',
-                  on_break: '외출',
-                  checked_out: '퇴실',
-                  not_arrived: '미등원',
-                }[activeFilter]} 학생만 표시 중
+                {
+                  {
+                    checked_in: '입실',
+                    on_break: '외출',
+                    checked_out: '퇴실',
+                    not_arrived: '미등원',
+                  }[activeFilter]
+                }{' '}
+                학생만 표시 중
               </span>
               <button
                 onClick={() => handleFilterClick(null)}
-                className="text-primary underline hover:no-underline"
+                className='text-primary underline hover:no-underline'
               >
                 필터 해제
               </button>
@@ -629,144 +667,173 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
           )}
 
           {/* 일별 출석부 테이블 */}
-          <Card className="relative overflow-hidden print:shadow-none print:border">
+          <Card className='relative overflow-hidden print:border print:shadow-none'>
             {loading && (
               <div
-                role="status"
-                aria-live="polite"
-                aria-busy="true"
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/85 backdrop-blur-sm print:hidden"
+                role='status'
+                aria-live='polite'
+                aria-busy='true'
+                className='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/85 backdrop-blur-sm print:hidden'
               >
-                <RefreshCw className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-base font-semibold text-gray-800">출석부 불러오는 중…</p>
-                <p className="text-xs text-gray-500">전체 명단을 한 번에 가져오고 있습니다</p>
+                <RefreshCw className='text-primary h-10 w-10 animate-spin' />
+                <p className='text-base font-semibold text-gray-800'>출석부 불러오는 중…</p>
+                <p className='text-xs text-gray-500'>전체 명단을 한 번에 가져오고 있습니다</p>
               </div>
             )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 border-b print:bg-gray-100">
+            <div className='overflow-x-auto'>
+              <table className='w-full text-xs'>
+                <thead className='border-b bg-gray-50 print:bg-gray-100'>
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">번호</th>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">이름</th>
-                    <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">상태</th>
-                    <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">입실시간</th>
-                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">부재일정</th>
-                    <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">몰입도</th>
-                    <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]">벌점</th>
+                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      번호
+                    </th>
+                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      이름
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      상태
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      입실시간
+                    </th>
+                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      부재일정
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      몰입도
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                      벌점
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className='divide-y divide-gray-100'>
                   {loading && data.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-16 text-center">
-                        <div className="flex flex-col items-center justify-center gap-3 text-gray-600">
-                          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-                          <span className="text-sm font-medium">목록을 불러오는 중입니다…</span>
+                      <td colSpan={7} className='px-2 py-16 text-center'>
+                        <div className='flex flex-col items-center justify-center gap-3 text-gray-600'>
+                          <RefreshCw className='text-primary h-8 w-8 animate-spin' />
+                          <span className='text-sm font-medium'>목록을 불러오는 중입니다…</span>
                         </div>
                       </td>
                     </tr>
                   ) : data.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-6 text-center text-xs text-gray-500">
-                        {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
+                      <td colSpan={7} className='px-2 py-6 text-center text-xs text-gray-500'>
+                        {debouncedSearch
+                          ? `"${debouncedSearch}" 검색 결과가 없습니다.`
+                          : '등록된 학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     data.map((student) => {
                       const statusDisplay = getStatusDisplay(student.status);
                       const StatusIcon = statusDisplay.icon;
-                      const isNotArrived = student.status === 'checked_out' && !student.firstCheckInTime;
+                      const isNotArrived =
+                        student.status === 'checked_out' && !student.firstCheckInTime;
 
                       return (
-                        <tr 
-                          key={student.id} 
+                        <tr
+                          key={student.id}
                           className={cn(
                             'hover:bg-gray-50 print:hover:bg-transparent',
-                            isNotArrived && 'bg-red-50/50'
+                            isNotArrived && 'bg-red-50/50',
                           )}
                         >
                           {/* 번호 */}
-                          <td className="px-2 py-1.5 print:px-1 print:py-0.5">
-                            <span className="font-medium text-primary print:text-black">
+                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
+                            <span className='text-primary font-medium print:text-black'>
                               {student.seatNumber || '-'}
                             </span>
                           </td>
 
                           {/* 이름 */}
-                          <td className="px-2 py-1.5 print:px-1 print:py-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <User className="w-3.5 h-3.5 text-gray-400 print:hidden" />
-                              <span className="font-medium">{student.name}</span>
+                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
+                            <div className='flex items-center gap-1.5'>
+                              <User className='h-3.5 w-3.5 text-gray-400 print:hidden' />
+                              <span className='font-medium'>{student.name}</span>
                             </div>
                           </td>
 
                           {/* 상태 */}
-                          <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
-                            <span className={cn(
-                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium',
-                              statusDisplay.bg,
-                              statusDisplay.color
-                            )}>
-                              <StatusIcon className="w-3 h-3" />
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium',
+                                statusDisplay.bg,
+                                statusDisplay.color,
+                              )}
+                            >
+                              <StatusIcon className='h-3 w-3' />
                               {statusDisplay.label}
                             </span>
                           </td>
 
                           {/* 입실시간 */}
-                          <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
-                            <span className={cn(
-                              student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400'
-                            )}>
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                            <span
+                              className={cn(
+                                student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400',
+                              )}
+                            >
                               {formatTime(student.firstCheckInTime)}
                             </span>
                           </td>
 
                           {/* 부재일정 */}
-                          <td className="px-2 py-1.5 print:px-1 print:py-0.5">
+                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
                             {student.absenceSchedules.length > 0 ? (
-                              <div className="flex flex-col gap-0.5">
-                                {student.absenceSchedules.map(schedule => (
-                                  <span 
+                              <div className='flex flex-col gap-0.5'>
+                                {student.absenceSchedules.map((schedule) => (
+                                  <span
                                     key={schedule.id}
-                                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded"
+                                    className='inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600'
                                   >
-                                    <Calendar className="w-2.5 h-2.5" />
+                                    <Calendar className='h-2.5 w-2.5' />
                                     {schedule.title} ({schedule.startTime}~{schedule.endTime})
                                   </span>
                                 ))}
                               </div>
                             ) : (
-                              <span className="text-gray-400">-</span>
+                              <span className='text-gray-400'>-</span>
                             )}
                           </td>
 
                           {/* 몰입도 */}
-                          <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
                             {student.avgFocus !== null ? (
-                              <div className="flex flex-col items-center">
-                                <span className={cn(
-                                  'font-semibold',
-                                  student.avgFocus >= 8 ? 'text-green-600' :
-                                  student.avgFocus >= 6 ? 'text-primary' :
-                                  student.avgFocus >= 4 ? 'text-amber-600' : 'text-red-500'
-                                )}>
+                              <div className='flex flex-col items-center'>
+                                <span
+                                  className={cn(
+                                    'font-semibold',
+                                    student.avgFocus >= 8
+                                      ? 'text-green-600'
+                                      : student.avgFocus >= 6
+                                        ? 'text-primary'
+                                        : student.avgFocus >= 4
+                                          ? 'text-amber-600'
+                                          : 'text-red-500',
+                                  )}
+                                >
                                   {student.avgFocus}
                                 </span>
-                                <span className="text-[10px] text-gray-400">({student.focusCount}회)</span>
+                                <span className='text-[10px] text-gray-400'>
+                                  ({student.focusCount}회)
+                                </span>
                               </div>
                             ) : (
-                              <span className="text-gray-400">-</span>
+                              <span className='text-gray-400'>-</span>
                             )}
                           </td>
 
                           {/* 벌점 */}
-                          <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
                             {student.todayPenalty > 0 ? (
-                              <span className="font-semibold text-red-600">
+                              <span className='font-semibold text-red-600'>
                                 -{student.todayPenalty}
                               </span>
                             ) : (
-                              <span className="text-gray-400">-</span>
+                              <span className='text-gray-400'>-</span>
                             )}
                           </td>
                         </tr>
@@ -780,39 +847,47 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
         </>
       ) : (
         /* 주간 뷰 */
-        <Card className="overflow-hidden print:shadow-none print:border">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50 border-b print:bg-gray-100">
+        <Card className='overflow-hidden print:border print:shadow-none'>
+          <div className='overflow-x-auto'>
+            <table className='w-full text-xs'>
+              <thead className='border-b bg-gray-50 print:bg-gray-100'>
                 <tr>
                   {/* 번호 헤더 (정렬 가능) */}
                   <th
-                    className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-0 bg-gray-50 z-10 cursor-pointer select-none print:cursor-auto"
+                    className='sticky left-0 z-10 cursor-pointer bg-gray-50 px-2 py-2 text-left text-xs font-medium text-gray-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('seatNumber')}
                   >
-                    <span className="inline-flex items-center gap-0.5">
+                    <span className='inline-flex items-center gap-0.5'>
                       번호
-                      <span className="print:hidden">
+                      <span className='print:hidden'>
                         {weeklySortKey === 'seatNumber' ? (
-                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                          weeklySortAsc ? (
+                            <ChevronUp className='h-3 w-3' />
+                          ) : (
+                            <ChevronDown className='h-3 w-3' />
+                          )
                         ) : (
-                          <ChevronsUpDown className="w-3 h-3 text-gray-300" />
+                          <ChevronsUpDown className='h-3 w-3 text-gray-300' />
                         )}
                       </span>
                     </span>
                   </th>
                   {/* 이름 헤더 (정렬 가능) */}
                   <th
-                    className="px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] sticky left-10 bg-gray-50 z-10 cursor-pointer select-none print:cursor-auto"
+                    className='sticky left-10 z-10 cursor-pointer bg-gray-50 px-2 py-2 text-left text-xs font-medium text-gray-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('name')}
                   >
-                    <span className="inline-flex items-center gap-0.5">
+                    <span className='inline-flex items-center gap-0.5'>
                       이름
-                      <span className="print:hidden">
+                      <span className='print:hidden'>
                         {weeklySortKey === 'name' ? (
-                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                          weeklySortAsc ? (
+                            <ChevronUp className='h-3 w-3' />
+                          ) : (
+                            <ChevronDown className='h-3 w-3' />
+                          )
                         ) : (
-                          <ChevronsUpDown className="w-3 h-3 text-gray-300" />
+                          <ChevronsUpDown className='h-3 w-3 text-gray-300' />
                         )}
                       </span>
                     </span>
@@ -822,123 +897,137 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                     const isWeekend = day === '토' || day === '일';
                     const isTodayDate = dateStr === todayDate;
                     return (
-                      <th 
+                      <th
                         key={dateStr}
                         className={cn(
-                          'px-2 py-2 text-center text-xs font-medium print:px-1 print:py-0.5 print:text-[10px] min-w-[56px]',
+                          'min-w-[56px] px-2 py-2 text-center text-xs font-medium print:px-1 print:py-0.5 print:text-[10px]',
                           isWeekend ? 'text-red-500' : 'text-gray-600',
-                          isTodayDate && 'bg-primary/10'
+                          isTodayDate && 'bg-primary/10',
                         )}
                       >
                         <div>{date}</div>
-                        <div className="text-[10px] font-normal">({day})</div>
+                        <div className='text-[10px] font-normal'>({day})</div>
                       </th>
                     );
                   })}
                   {/* 주간 학습 헤더 (정렬 가능) */}
                   <th
-                    className="px-2 py-2 text-center text-xs font-medium text-blue-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[64px] border-l border-gray-200 cursor-pointer select-none print:cursor-auto"
+                    className='min-w-[64px] cursor-pointer border-l border-gray-200 px-2 py-2 text-center text-xs font-medium text-blue-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('weeklyStudyMinutes')}
                   >
-                    <span className="inline-flex items-center justify-center gap-0.5">
+                    <span className='inline-flex items-center justify-center gap-0.5'>
                       주간 학습
-                      <span className="print:hidden">
+                      <span className='print:hidden'>
                         {weeklySortKey === 'weeklyStudyMinutes' ? (
-                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                          weeklySortAsc ? (
+                            <ChevronUp className='h-3 w-3' />
+                          ) : (
+                            <ChevronDown className='h-3 w-3' />
+                          )
                         ) : (
-                          <ChevronsUpDown className="w-3 h-3 text-blue-300" />
+                          <ChevronsUpDown className='h-3 w-3 text-blue-300' />
                         )}
                       </span>
                     </span>
                   </th>
                   {/* 누적 상점 헤더 (정렬 가능) */}
                   <th
-                    className="px-2 py-2 text-center text-xs font-medium text-emerald-600 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px] cursor-pointer select-none print:cursor-auto"
+                    className='min-w-[56px] cursor-pointer px-2 py-2 text-center text-xs font-medium text-emerald-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('totalReward')}
                   >
-                    <span className="inline-flex items-center justify-center gap-0.5">
+                    <span className='inline-flex items-center justify-center gap-0.5'>
                       누적 상점
-                      <span className="print:hidden">
+                      <span className='print:hidden'>
                         {weeklySortKey === 'totalReward' ? (
-                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                          weeklySortAsc ? (
+                            <ChevronUp className='h-3 w-3' />
+                          ) : (
+                            <ChevronDown className='h-3 w-3' />
+                          )
                         ) : (
-                          <ChevronsUpDown className="w-3 h-3 text-emerald-300" />
+                          <ChevronsUpDown className='h-3 w-3 text-emerald-300' />
                         )}
                       </span>
                     </span>
                   </th>
                   {/* 누적 벌점 헤더 (정렬 가능) */}
                   <th
-                    className="px-2 py-2 text-center text-xs font-medium text-red-500 print:px-1 print:py-0.5 print:text-[10px] min-w-[56px] cursor-pointer select-none print:cursor-auto"
+                    className='min-w-[56px] cursor-pointer px-2 py-2 text-center text-xs font-medium text-red-500 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('totalPenalty')}
                   >
-                    <span className="inline-flex items-center justify-center gap-0.5">
+                    <span className='inline-flex items-center justify-center gap-0.5'>
                       누적 벌점
-                      <span className="print:hidden">
+                      <span className='print:hidden'>
                         {weeklySortKey === 'totalPenalty' ? (
-                          weeklySortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                          weeklySortAsc ? (
+                            <ChevronUp className='h-3 w-3' />
+                          ) : (
+                            <ChevronDown className='h-3 w-3' />
+                          )
                         ) : (
-                          <ChevronsUpDown className="w-3 h-3 text-red-300" />
+                          <ChevronsUpDown className='h-3 w-3 text-red-300' />
                         )}
                       </span>
                     </span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className='divide-y divide-gray-100'>
                 {weeklyLoading ? (
                   <tr>
-                    <td colSpan={11} className="px-2 py-6 text-center text-xs text-gray-500">
+                    <td colSpan={11} className='px-2 py-6 text-center text-xs text-gray-500'>
                       로딩 중...
                     </td>
                   </tr>
                 ) : weeklyData.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-2 py-6 text-center text-xs text-gray-500">
-                      {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
+                    <td colSpan={11} className='px-2 py-6 text-center text-xs text-gray-500'>
+                      {debouncedSearch
+                        ? `"${debouncedSearch}" 검색 결과가 없습니다.`
+                        : '등록된 학생이 없습니다.'}
                     </td>
                   </tr>
                 ) : (
                   sortedWeeklyData.map((student) => (
-                    <tr key={student.id} className="hover:bg-gray-50 print:hover:bg-transparent">
+                    <tr key={student.id} className='hover:bg-gray-50 print:hover:bg-transparent'>
                       {/* 번호 */}
-                      <td className="px-2 py-1.5 print:px-1 print:py-0.5 sticky left-0 bg-white z-10">
-                        <span className="font-medium text-primary print:text-black">
+                      <td className='sticky left-0 z-10 bg-white px-2 py-1.5 print:px-1 print:py-0.5'>
+                        <span className='text-primary font-medium print:text-black'>
                           {student.seatNumber || '-'}
                         </span>
                       </td>
 
                       {/* 이름 */}
-                      <td className="px-2 py-1.5 print:px-1 print:py-0.5 sticky left-10 bg-white z-10">
-                        <span className="font-medium">{student.name}</span>
+                      <td className='sticky left-10 z-10 bg-white px-2 py-1.5 print:px-1 print:py-0.5'>
+                        <span className='font-medium'>{student.name}</span>
                       </td>
 
                       {/* 각 날짜별 출석 상태 */}
                       {weekDates.map((dateStr) => {
                         const dayStatus = student.dailyStatus[dateStr];
                         const isTodayDate = dateStr === todayDate;
-                        
+
                         return (
-                          <td 
-                            key={dateStr} 
+                          <td
+                            key={dateStr}
                             className={cn(
                               'px-2 py-1.5 text-center print:px-1 print:py-0.5',
-                              isTodayDate && 'bg-primary/5'
+                              isTodayDate && 'bg-primary/5',
                             )}
                           >
                             {dayStatus?.status === null ? (
-                              <span className="text-gray-300">-</span>
+                              <span className='text-gray-300'>-</span>
                             ) : dayStatus?.status === 'attended' ? (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-600">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span className='inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-600'>
+                                <CheckCircle2 className='h-3.5 w-3.5' />
                               </span>
                             ) : dayStatus?.status === 'not_attended' ? (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100 text-red-500">
-                                <XCircle className="w-3.5 h-3.5" />
+                              <span className='inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-500'>
+                                <XCircle className='h-3.5 w-3.5' />
                               </span>
                             ) : (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-500">
-                                <Coffee className="w-3.5 h-3.5" />
+                              <span className='inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-500'>
+                                <Coffee className='h-3.5 w-3.5' />
                               </span>
                             )}
                           </td>
@@ -946,35 +1035,36 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
                       })}
 
                       {/* 주간 학습시간 */}
-                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5 border-l border-gray-100">
+                      <td className='border-l border-gray-100 px-2 py-1.5 text-center print:px-1 print:py-0.5'>
                         {student.weeklyStudyMinutes > 0 ? (
-                          <span className="text-blue-600 font-medium">
-                            {Math.floor(student.weeklyStudyMinutes / 60)}h {student.weeklyStudyMinutes % 60}m
+                          <span className='font-medium text-blue-600'>
+                            {Math.floor(student.weeklyStudyMinutes / 60)}h{' '}
+                            {student.weeklyStudyMinutes % 60}m
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className='text-gray-400'>-</span>
                         )}
                       </td>
 
                       {/* 누적 상점 */}
-                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                      <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
                         {student.totalReward > 0 ? (
-                          <span className="font-semibold text-emerald-600">
+                          <span className='font-semibold text-emerald-600'>
                             +{student.totalReward}
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className='text-gray-400'>-</span>
                         )}
                       </td>
 
                       {/* 누적 벌점 */}
-                      <td className="px-2 py-1.5 text-center print:px-1 print:py-0.5">
+                      <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
                         {student.totalPenalty > 0 ? (
-                          <span className="font-semibold text-red-600">
+                          <span className='font-semibold text-red-600'>
                             -{student.totalPenalty}
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className='text-gray-400'>-</span>
                         )}
                       </td>
                     </tr>
@@ -983,32 +1073,32 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
               </tbody>
             </table>
           </div>
-          
+
           {/* 범례 */}
-          <div className="flex items-center gap-4 px-3 py-2 border-t bg-gray-50 print:hidden">
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-600">
-                <CheckCircle2 className="w-3 h-3" />
+          <div className='flex items-center gap-4 border-t bg-gray-50 px-3 py-2 print:hidden'>
+            <div className='flex items-center gap-1.5 text-xs'>
+              <span className='inline-flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-green-600'>
+                <CheckCircle2 className='h-3 w-3' />
               </span>
-              <span className="text-gray-600">출석</span>
+              <span className='text-gray-600'>출석</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-500">
-                <XCircle className="w-3 h-3" />
+            <div className='flex items-center gap-1.5 text-xs'>
+              <span className='inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-100 text-red-500'>
+                <XCircle className='h-3 w-3' />
               </span>
-              <span className="text-gray-600">결석</span>
+              <span className='text-gray-600'>결석</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-gray-300">-</span>
-              <span className="text-gray-600">미래 날짜</span>
+            <div className='flex items-center gap-1.5 text-xs'>
+              <span className='text-gray-300'>-</span>
+              <span className='text-gray-600'>미래 날짜</span>
             </div>
           </div>
         </Card>
       )}
 
       {/* 인쇄용 푸터 */}
-      <div className="hidden print:block text-center text-xs text-gray-400 mt-4">
-        출력일시: {new Date().toLocaleString('ko-KR')}
+      <div className='mt-4 hidden text-center text-xs text-gray-400 print:block'>
+        {currentTime && <>출력일시: {currentTime.toLocaleString('ko-KR')}</>}
       </div>
 
       {/* 인쇄 스타일 */}
@@ -1018,14 +1108,16 @@ export function AttendanceClient({ initialData, todayPeriods, dateTypeName, toda
             size: A4 landscape;
             margin: 10mm;
           }
-          
+
           body {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
 
           /* 사이드바 등 불필요한 요소 숨김 */
-          nav, aside, header > div:last-child {
+          nav,
+          aside,
+          header > div:last-child {
             display: none !important;
           }
 
