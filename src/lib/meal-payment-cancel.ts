@@ -1,11 +1,11 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   cancelPayment,
   getNicepayMerchantKey,
   getNicepayMid,
   isCancelSuccess,
-} from '@/lib/nicepay';
-import { canCancelMealOrderByDeadline } from './meal-order-rules';
+} from "@/lib/nicepay";
+import { canCancelMealOrderByDeadline } from "./meal-order-rules";
 
 type AdminClient = SupabaseClient;
 
@@ -18,16 +18,16 @@ export type MealCancelResult =
  */
 export async function executePaidMealOrderCancel(
   admin: AdminClient,
-  params: { userId: string; mealOrderId: string }
+  params: { userId: string; mealOrderId: string },
 ): Promise<MealCancelResult> {
   const mid = getNicepayMid();
   const merchantKey = getNicepayMerchantKey();
   if (!mid || !merchantKey) {
-    return { success: false, error: '결제 서버 설정이 없습니다.', status: 500 };
+    return { success: false, error: "결제 서버 설정이 없습니다.", status: 500 };
   }
 
   const { data: order, error: fetchErr } = await admin
-    .from('meal_orders')
+    .from("meal_orders")
     .select(
       `
       id,
@@ -37,13 +37,13 @@ export async function executePaidMealOrderCancel(
       status,
       tid,
       meal_products (meal_start_date)
-    `
+    `,
     )
-    .eq('id', params.mealOrderId)
+    .eq("id", params.mealOrderId)
     .maybeSingle();
 
   if (fetchErr || !order) {
-    return { success: false, error: '주문을 찾을 수 없습니다.', status: 404 };
+    return { success: false, error: "주문을 찾을 수 없습니다.", status: 404 };
   }
 
   const raw = order as {
@@ -64,20 +64,20 @@ export async function executePaidMealOrderCancel(
         : raw.meal_products;
 
   if (raw.user_id !== params.userId) {
-    return { success: false, error: '권한이 없습니다.', status: 403 };
+    return { success: false, error: "권한이 없습니다.", status: 403 };
   }
 
-  if (raw.status !== 'paid') {
-    return { success: false, error: '결제 완료 주문만 취소할 수 있습니다.', status: 400 };
+  if (raw.status !== "paid") {
+    return { success: false, error: "결제 완료 주문만 취소할 수 있습니다.", status: 400 };
   }
 
   if (!raw.tid) {
-    return { success: false, error: '거래 정보가 없습니다.', status: 400 };
+    return { success: false, error: "거래 정보가 없습니다.", status: 400 };
   }
 
   const mealStart = product?.meal_start_date;
   if (mealStart && !canCancelMealOrderByDeadline(mealStart)) {
-    return { success: false, error: '식사일 2일 전까지만 취소할 수 있습니다.', status: 400 };
+    return { success: false, error: "식사일 2일 전까지만 취소할 수 있습니다.", status: 400 };
   }
 
   const cancelAmt = String(Math.trunc(raw.amount));
@@ -87,20 +87,19 @@ export async function executePaidMealOrderCancel(
     merchantKey,
     cancelAmt,
     moid: raw.order_id,
-    cancelMsg: '사용자 취소',
-    partialCancelCode: '0',
+    cancelMsg: "사용자 취소",
+    partialCancelCode: "0",
   });
 
-  const cancelOk =
-    cancel.httpOk && isCancelSuccess(cancel.result);
+  const cancelOk = cancel.httpOk && isCancelSuccess(cancel.result);
 
-  await admin.from('payment_logs').insert({
-    order_type: 'meal',
+  await admin.from("payment_logs").insert({
+    order_type: raw.order_id.startsWith("EXAM-") ? "exam" : "meal",
     order_id: raw.order_id,
     tid: raw.tid,
-    action: 'cancel',
+    action: "cancel",
     amount: raw.amount,
-    status: cancelOk ? 'success' : 'fail',
+    status: cancelOk ? "success" : "fail",
     result_code: cancel.result.ResultCode ?? null,
     result_msg: cancel.result.ResultMsg ?? null,
     raw_response: {
@@ -112,21 +111,21 @@ export async function executePaidMealOrderCancel(
   if (!cancelOk) {
     return {
       success: false,
-      error: cancel.result.ResultMsg || '결제 취소에 실패했습니다.',
+      error: cancel.result.ResultMsg || "결제 취소에 실패했습니다.",
       status: 502,
     };
   }
 
   const now = new Date().toISOString();
   await admin
-    .from('meal_orders')
+    .from("meal_orders")
     .update({
-      status: 'cancelled',
+      status: "cancelled",
       cancelled_at: now,
-      cancel_reason: '사용자 취소',
+      cancel_reason: "사용자 취소",
       updated_at: now,
     })
-    .eq('id', raw.id);
+    .eq("id", raw.id);
 
   return { success: true };
 }
@@ -137,16 +136,16 @@ export async function executePaidMealOrderCancel(
  */
 export async function executeAdminMealOrderCancel(
   admin: AdminClient,
-  params: { mealOrderId: string; reason: string }
+  params: { mealOrderId: string; reason: string },
 ): Promise<MealCancelResult> {
   const mid = getNicepayMid();
   const merchantKey = getNicepayMerchantKey();
   if (!mid || !merchantKey) {
-    return { success: false, error: '결제 서버 설정이 없습니다.', status: 500 };
+    return { success: false, error: "결제 서버 설정이 없습니다.", status: 500 };
   }
 
   const { data: order, error: fetchErr } = await admin
-    .from('meal_orders')
+    .from("meal_orders")
     .select(
       `
       id,
@@ -156,13 +155,13 @@ export async function executeAdminMealOrderCancel(
       status,
       tid,
       meal_products (meal_start_date)
-    `
+    `,
     )
-    .eq('id', params.mealOrderId)
+    .eq("id", params.mealOrderId)
     .maybeSingle();
 
   if (fetchErr || !order) {
-    return { success: false, error: '주문을 찾을 수 없습니다.', status: 404 };
+    return { success: false, error: "주문을 찾을 수 없습니다.", status: 404 };
   }
 
   const raw = order as {
@@ -175,15 +174,15 @@ export async function executeAdminMealOrderCancel(
     meal_products: { meal_start_date: string } | { meal_start_date: string }[] | null;
   };
 
-  if (raw.status !== 'paid') {
-    return { success: false, error: '결제 완료 주문만 취소할 수 있습니다.', status: 400 };
+  if (raw.status !== "paid") {
+    return { success: false, error: "결제 완료 주문만 취소할 수 있습니다.", status: 400 };
   }
 
   if (!raw.tid) {
-    return { success: false, error: '거래 정보가 없습니다.', status: 400 };
+    return { success: false, error: "거래 정보가 없습니다.", status: 400 };
   }
 
-  const reason = params.reason.trim() || '관리자 취소';
+  const reason = params.reason.trim() || "관리자 취소";
   const cancelAmt = String(Math.trunc(raw.amount));
   const cancel = await cancelPayment({
     tid: raw.tid,
@@ -192,18 +191,18 @@ export async function executeAdminMealOrderCancel(
     cancelAmt,
     moid: raw.order_id,
     cancelMsg: reason,
-    partialCancelCode: '0',
+    partialCancelCode: "0",
   });
 
   const cancelOk = cancel.httpOk && isCancelSuccess(cancel.result);
 
-  await admin.from('payment_logs').insert({
-    order_type: 'meal',
+  await admin.from("payment_logs").insert({
+    order_type: raw.order_id.startsWith("EXAM-") ? "exam" : "meal",
     order_id: raw.order_id,
     tid: raw.tid,
-    action: 'cancel',
+    action: "cancel",
     amount: raw.amount,
-    status: cancelOk ? 'success' : 'fail',
+    status: cancelOk ? "success" : "fail",
     result_code: cancel.result.ResultCode ?? null,
     result_msg: cancel.result.ResultMsg ?? null,
     raw_response: {
@@ -215,21 +214,21 @@ export async function executeAdminMealOrderCancel(
   if (!cancelOk) {
     return {
       success: false,
-      error: cancel.result.ResultMsg || '결제 취소에 실패했습니다.',
+      error: cancel.result.ResultMsg || "결제 취소에 실패했습니다.",
       status: 502,
     };
   }
 
   const now = new Date().toISOString();
   await admin
-    .from('meal_orders')
+    .from("meal_orders")
     .update({
-      status: 'cancelled',
+      status: "cancelled",
       cancelled_at: now,
       cancel_reason: reason,
       updated_at: now,
     })
-    .eq('id', raw.id);
+    .eq("id", raw.id);
 
   return { success: true };
 }

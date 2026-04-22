@@ -1,13 +1,13 @@
-'use server';
+"use server";
 
-import { revalidatePath } from 'next/cache';
-import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { generateMealOrderId } from '@/lib/nicepay';
-import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from '@/lib/meal-payment-cancel';
-import { getTodayKST } from '@/lib/utils';
-import type { MealMenu, MealProduct, MealOrder } from '@/types/database';
+import { revalidatePath } from "next/cache";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { generateExamOrderId, generateMealOrderId } from "@/lib/nicepay";
+import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from "@/lib/meal-payment-cancel";
+import { getTodayKST } from "@/lib/utils";
+import type { MealMenu, MealProduct, MealOrder } from "@/types/database";
 
-const MEAL_IMAGES_BUCKET = 'meal-images';
+const MEAL_IMAGES_BUCKET = "meal-images";
 
 /** PostgrestError 등이 콘솔에서 `{}`로만 보이는 경우 대비 — 문자열로 출력 */
 function logPostgrestQueryError(scope: string, error: unknown): void {
@@ -24,19 +24,21 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
 
 type AdminBranchContext = { userId: string; branchId: string };
 
-async function requireAdminBranch(supabase: Awaited<ReturnType<typeof createClient>>): Promise<AdminBranchContext | null> {
+async function requireAdminBranch(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<AdminBranchContext | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, branch_id')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("user_type, branch_id")
+    .eq("id", user.id)
     .maybeSingle();
 
-  if (!profile || profile.user_type !== 'admin' || !profile.branch_id) {
+  if (!profile || profile.user_type !== "admin" || !profile.branch_id) {
     return null;
   }
 
@@ -46,26 +48,40 @@ async function requireAdminBranch(supabase: Awaited<ReturnType<typeof createClie
 async function assertMealProductInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   productId: string,
-  branchId: string
+  branchId: string,
 ): Promise<MealProduct | null> {
   const { data, error } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('id', productId)
-    .eq('branch_id', branchId)
+    .from("meal_products")
+    .select("*")
+    .eq("id", productId)
+    .eq("branch_id", branchId)
     .maybeSingle();
 
   if (error) {
-    console.error('[assertMealProductInBranch]', error);
+    console.error("[assertMealProductInBranch]", error);
     return null;
   }
 
   return data as MealProduct | null;
 }
 
+export type ProductCategory = "meal" | "exam";
+
+function adminBasePath(category: ProductCategory): string {
+  return category === "exam" ? "/admin/mock-exams" : "/admin/meals";
+}
+
+function studentBasePath(category: ProductCategory): string {
+  return category === "exam" ? "/student/mock-exams" : "/student/meals";
+}
+
+function parentBasePath(category: ProductCategory): string {
+  return category === "exam" ? "/parent/mock-exams" : "/parent/meals";
+}
+
 export type MealProductAdminInput = {
   name: string;
-  meal_type: 'lunch' | 'dinner';
+  meal_type?: "lunch" | "dinner" | null;
   price: number;
   sale_start_date: string;
   sale_end_date: string;
@@ -73,22 +89,25 @@ export type MealProductAdminInput = {
   meal_end_date: string;
   max_capacity: number | null;
   description: string | null;
-  status?: 'active' | 'inactive' | 'sold_out';
+  status?: "active" | "inactive" | "sold_out";
 };
 
-export async function getMealProductsForAdmin(): Promise<MealProduct[]> {
+export async function getMealProductsForAdmin(
+  category: ProductCategory = "meal",
+): Promise<MealProduct[]> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
   const { data, error } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('branch_id', ctx.branchId)
-    .order('created_at', { ascending: false });
+    .from("meal_products")
+    .select("*")
+    .eq("branch_id", ctx.branchId)
+    .eq("category", category)
+    .order("created_at", { ascending: false });
 
   if (error) {
-    logPostgrestQueryError('[getMealProductsForAdmin]', error);
+    logPostgrestQueryError("[getMealProductsForAdmin]", error);
     return [];
   }
 
@@ -96,20 +115,26 @@ export async function getMealProductsForAdmin(): Promise<MealProduct[]> {
 }
 
 export async function createMealProduct(
-  data: MealProductAdminInput
+  data: MealProductAdminInput,
+  category: ProductCategory = "meal",
 ): Promise<{ data?: MealProduct; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
-  const status = data.status ?? 'active';
+  const status = data.status ?? "active";
+
+  if (category === "meal" && data.meal_type !== "lunch" && data.meal_type !== "dinner") {
+    return { error: "식사 시간(중식/석식)을 선택해 주세요." };
+  }
 
   const { data: inserted, error } = await supabase
-    .from('meal_products')
+    .from("meal_products")
     .insert({
       branch_id: ctx.branchId,
       name: data.name.trim(),
-      meal_type: data.meal_type,
+      category,
+      meal_type: category === "exam" ? null : (data.meal_type ?? null),
       price: data.price,
       sale_start_date: data.sale_start_date,
       sale_end_date: data.sale_end_date,
@@ -123,24 +148,24 @@ export async function createMealProduct(
     .single();
 
   if (error || !inserted) {
-    console.error('[createMealProduct]', error);
-    return { error: '상품 등록에 실패했습니다.' };
+    console.error("[createMealProduct]", error);
+    return { error: "상품 등록에 실패했습니다." };
   }
 
-  revalidatePath('/admin/meals');
+  revalidatePath(adminBasePath(category));
   return { data: inserted as MealProduct };
 }
 
 export async function updateMealProduct(
   productId: string,
-  data: Partial<MealProductAdminInput>
+  data: Partial<MealProductAdminInput>,
 ): Promise<{ data?: MealProduct; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const existing = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!existing) return { error: '상품을 찾을 수 없습니다.' };
+  if (!existing) return { error: "상품을 찾을 수 없습니다." };
 
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
@@ -158,62 +183,66 @@ export async function updateMealProduct(
   if (data.status !== undefined) patch.status = data.status;
 
   const { data: updated, error } = await supabase
-    .from('meal_products')
+    .from("meal_products")
     .update(patch)
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId)
+    .eq("id", productId)
+    .eq("branch_id", ctx.branchId)
     .select()
     .single();
 
   if (error || !updated) {
-    console.error('[updateMealProduct]', error);
-    return { error: '상품 수정에 실패했습니다.' };
+    console.error("[updateMealProduct]", error);
+    return { error: "상품 수정에 실패했습니다." };
   }
 
-  revalidatePath('/admin/meals');
-  revalidatePath(`/admin/meals/${productId}`);
-  revalidatePath(`/admin/meals/${productId}/menus`);
-  revalidatePath(`/admin/meals/${productId}/orders`);
+  const updatedProduct = updated as MealProduct;
+  const base = adminBasePath(updatedProduct.category);
+  revalidatePath(base);
+  revalidatePath(`${base}/${productId}`);
+  if (updatedProduct.category === "meal") {
+    revalidatePath(`${base}/${productId}/menus`);
+  }
+  revalidatePath(`${base}/${productId}/orders`);
 
-  return { data: updated as MealProduct };
+  return { data: updatedProduct };
 }
 
 export async function upsertMealMenu(
   productId: string,
   dateYmd: string,
-  menuText: string
+  menuText: string,
 ): Promise<{ success?: true; menu?: MealMenu; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+  if (!product) return { error: "상품을 찾을 수 없습니다." };
 
   const text = menuText.trim();
-  if (!text) return { error: '메뉴 내용을 입력해 주세요.' };
+  if (!text) return { error: "메뉴 내용을 입력해 주세요." };
 
   // date within meal period (KST date string compare works for YYYY-MM-DD)
   if (dateYmd < product.meal_start_date || dateYmd > product.meal_end_date) {
-    return { error: '식사 기간 내 날짜만 입력할 수 있습니다.' };
+    return { error: "식사 기간 내 날짜만 입력할 수 있습니다." };
   }
 
   const { data: saved, error } = await supabase
-    .from('meal_menus')
+    .from("meal_menus")
     .upsert(
       {
         product_id: productId,
         date: dateYmd,
         menu_text: text,
       },
-      { onConflict: 'product_id,date' }
+      { onConflict: "product_id,date" },
     )
     .select()
     .single();
 
   if (error || !saved) {
-    console.error('[upsertMealMenu]', error);
-    return { error: '메뉴 저장에 실패했습니다.' };
+    console.error("[upsertMealMenu]", error);
+    return { error: "메뉴 저장에 실패했습니다." };
   }
 
   revalidatePath(`/admin/meals/${productId}/menus`);
@@ -226,16 +255,16 @@ export async function upsertMealMenu(
 export async function deleteMealMenu(menuId: string): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const { data: row, error: fetchErr } = await supabase
-    .from('meal_menus')
-    .select('id, product_id, meal_products!inner(branch_id)')
-    .eq('id', menuId)
+    .from("meal_menus")
+    .select("id, product_id, meal_products!inner(branch_id)")
+    .eq("id", menuId)
     .maybeSingle();
 
   if (fetchErr || !row) {
-    return { error: '메뉴를 찾을 수 없습니다.' };
+    return { error: "메뉴를 찾을 수 없습니다." };
   }
 
   const mp = row as unknown as {
@@ -247,14 +276,14 @@ export async function deleteMealMenu(menuId: string): Promise<{ success?: true; 
     ? mp.meal_products[0]?.branch_id
     : mp.meal_products?.branch_id;
   if (branchId !== ctx.branchId) {
-    return { error: '권한이 없습니다.' };
+    return { error: "권한이 없습니다." };
   }
 
-  const { error } = await supabase.from('meal_menus').delete().eq('id', menuId);
+  const { error } = await supabase.from("meal_menus").delete().eq("id", menuId);
 
   if (error) {
-    console.error('[deleteMealMenu]', error);
-    return { error: '메뉴 삭제에 실패했습니다.' };
+    console.error("[deleteMealMenu]", error);
+    return { error: "메뉴 삭제에 실패했습니다." };
   }
 
   revalidatePath(`/admin/meals/${mp.product_id}/menus`);
@@ -265,7 +294,7 @@ export async function deleteMealMenu(menuId: string): Promise<{ success?: true; 
 }
 
 export type MealOrderAdminFilter = {
-  status?: 'all' | 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
+  status?: "all" | "pending" | "paid" | "cancelled" | "refunded" | "failed";
 };
 
 export type MealOrderForAdmin = MealOrder & {
@@ -275,7 +304,7 @@ export type MealOrderForAdmin = MealOrder & {
 
 export async function getMealOrdersForAdmin(
   productId: string,
-  filters?: MealOrderAdminFilter
+  filters?: MealOrderAdminFilter,
 ): Promise<MealOrderForAdmin[]> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -285,20 +314,20 @@ export async function getMealOrdersForAdmin(
   if (!product) return [];
 
   let q = supabase
-    .from('meal_orders')
-    .select('*')
-    .eq('product_id', productId)
-    .order('created_at', { ascending: false });
+    .from("meal_orders")
+    .select("*")
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false });
 
-  const st = filters?.status ?? 'all';
-  if (st !== 'all') {
-    q = q.eq('status', st);
+  const st = filters?.status ?? "all";
+  if (st !== "all") {
+    q = q.eq("status", st);
   }
 
   const { data: orders, error } = await q;
 
   if (error) {
-    logPostgrestQueryError('[getMealOrdersForAdmin]', error);
+    logPostgrestQueryError("[getMealOrdersForAdmin]", error);
     return [];
   }
 
@@ -312,7 +341,10 @@ export async function getMealOrdersForAdmin(
     ids.add(o.user_id);
   }
 
-  const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', [...ids]);
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, name")
+    .in("id", [...ids]);
 
   const nameById = new Map((profiles ?? []).map((p) => [p.id, p.name]));
 
@@ -325,38 +357,40 @@ export async function getMealOrdersForAdmin(
 
 export async function adminCancelMealOrder(
   mealOrderId: string,
-  reason: string
+  reason: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const admin = createAdminClient();
 
   const { data: orderRow, error: oErr } = await admin
-    .from('meal_orders')
+    .from("meal_orders")
     .select(
       `
       id,
       product_id,
-      meal_products!inner(branch_id)
-    `
+      meal_products!inner(branch_id, category)
+    `,
     )
-    .eq('id', mealOrderId)
+    .eq("id", mealOrderId)
     .maybeSingle();
 
   if (oErr || !orderRow) {
-    return { error: '주문을 찾을 수 없습니다.' };
+    return { error: "주문을 찾을 수 없습니다." };
   }
 
   const row = orderRow as {
     id: string;
     product_id: string;
-    meal_products: { branch_id: string } | { branch_id: string }[];
+    meal_products:
+      | { branch_id: string; category: ProductCategory }
+      | { branch_id: string; category: ProductCategory }[];
   };
   const mp = Array.isArray(row.meal_products) ? row.meal_products[0] : row.meal_products;
   if (!mp || mp.branch_id !== ctx.branchId) {
-    return { error: '권한이 없습니다.' };
+    return { error: "권한이 없습니다." };
   }
 
   const result = await executeAdminMealOrderCancel(admin, { mealOrderId, reason });
@@ -365,15 +399,16 @@ export async function adminCancelMealOrder(
     return { error: result.error };
   }
 
-  revalidatePath(`/admin/meals/${row.product_id}/orders`);
-  revalidatePath('/admin/meals');
-  revalidatePath('/student/meals/orders');
-  revalidatePath('/parent/meals/orders');
+  const adminBase = adminBasePath(mp.category);
+  revalidatePath(`${adminBase}/${row.product_id}/orders`);
+  revalidatePath(adminBase);
+  revalidatePath(`${studentBasePath(mp.category)}/orders`);
+  revalidatePath(`${parentBasePath(mp.category)}/orders`);
 
   return { success: true };
 }
 
-export async function getMealProducts(): Promise<MealProduct[]> {
+export async function getMealProducts(category: ProductCategory = "meal"): Promise<MealProduct[]> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -381,13 +416,13 @@ export async function getMealProducts(): Promise<MealProduct[]> {
   if (!user) return [];
 
   const { data: profile, error: profileErr } = await supabase
-    .from('profiles')
-    .select('branch_id')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("branch_id")
+    .eq("id", user.id)
     .maybeSingle();
 
   if (profileErr) {
-    logPostgrestQueryError('[getMealProducts] profiles', profileErr);
+    logPostgrestQueryError("[getMealProducts] profiles", profileErr);
     return [];
   }
 
@@ -395,18 +430,24 @@ export async function getMealProducts(): Promise<MealProduct[]> {
 
   const today = getTodayKST();
 
-  const { data, error } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('branch_id', profile.branch_id)
-    .eq('status', 'active')
-    .lte('sale_start_date', today)
-    .gte('sale_end_date', today)
-    .order('meal_type', { ascending: true })
-    .order('name', { ascending: true });
+  let query = supabase
+    .from("meal_products")
+    .select("*")
+    .eq("branch_id", profile.branch_id)
+    .eq("category", category)
+    .eq("status", "active")
+    .lte("sale_start_date", today)
+    .gte("sale_end_date", today);
+
+  if (category === "meal") {
+    query = query.order("meal_type", { ascending: true });
+  }
+  query = query.order("name", { ascending: true });
+
+  const { data, error } = await query;
 
   if (error) {
-    logPostgrestQueryError('[getMealProducts] meal_products', error);
+    logPostgrestQueryError("[getMealProducts] meal_products", error);
     return [];
   }
 
@@ -418,8 +459,8 @@ export async function getMealProducts(): Promise<MealProduct[]> {
  * student 시: 본인 id만 허용, parent 시: 연결된 자녀 id만 허용.
  */
 export async function getMealActiveOrderStatusByStudentIds(
-  studentIds: string[]
-): Promise<Record<string, Record<string, 'pending' | 'paid'>>> {
+  studentIds: string[],
+): Promise<Record<string, Record<string, "pending" | "paid">>> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -427,24 +468,24 @@ export async function getMealActiveOrderStatusByStudentIds(
   if (!user || studentIds.length === 0) return {};
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("user_type")
+    .eq("id", user.id)
     .single();
 
   let allowedStudentIds: string[] = [];
 
-  if (profile?.user_type === 'student') {
+  if (profile?.user_type === "student") {
     if (studentIds.length !== 1 || studentIds[0] !== user.id) {
       return {};
     }
     allowedStudentIds = [user.id];
-  } else if (profile?.user_type === 'parent') {
+  } else if (profile?.user_type === "parent") {
     const { data: links } = await supabase
-      .from('parent_student_links')
-      .select('student_id')
-      .eq('parent_id', user.id)
-      .in('student_id', studentIds);
+      .from("parent_student_links")
+      .select("student_id")
+      .eq("parent_id", user.id)
+      .in("student_id", studentIds);
     const linkSet = new Set((links ?? []).map((l) => l.student_id));
     allowedStudentIds = studentIds.filter((id) => linkSet.has(id));
     if (allowedStudentIds.length === 0) return {};
@@ -453,28 +494,28 @@ export async function getMealActiveOrderStatusByStudentIds(
   }
 
   const { data, error } = await supabase
-    .from('meal_orders')
-    .select('student_id, product_id, status')
-    .in('student_id', allowedStudentIds)
-    .in('status', ['pending', 'paid']);
+    .from("meal_orders")
+    .select("student_id, product_id, status")
+    .in("student_id", allowedStudentIds)
+    .in("status", ["pending", "paid"]);
 
   if (error) {
-    logPostgrestQueryError('[getMealActiveOrderStatusByStudentIds]', error);
+    logPostgrestQueryError("[getMealActiveOrderStatusByStudentIds]", error);
     return {};
   }
 
-  const out: Record<string, Record<string, 'pending' | 'paid'>> = {};
+  const out: Record<string, Record<string, "pending" | "paid">> = {};
   for (const id of allowedStudentIds) {
     out[id] = {};
   }
   for (const row of data ?? []) {
     const sid = row.student_id as string;
     const pid = row.product_id as string;
-    const st = row.status as 'pending' | 'paid';
+    const st = row.status as "pending" | "paid";
     const bucket = out[sid];
     if (!bucket) continue;
     const prev = bucket[pid];
-    if (!prev || (prev === 'pending' && st === 'paid')) {
+    if (!prev || (prev === "pending" && st === "paid")) {
       bucket[pid] = st;
     }
   }
@@ -483,7 +524,7 @@ export async function getMealActiveOrderStatusByStudentIds(
 
 /** 학생 급식 목록용: 본인 student_id 기준 상품별 pending | paid */
 export async function getMealActiveOrderStatusForMealListStudent(): Promise<
-  Record<string, 'pending' | 'paid'>
+  Record<string, "pending" | "paid">
 > {
   const supabase = await createClient();
   const {
@@ -494,7 +535,10 @@ export async function getMealActiveOrderStatusForMealListStudent(): Promise<
   return byStudent[user.id] ?? {};
 }
 
-export async function getMealProductDetail(productId: string): Promise<MealProduct | null> {
+export async function getMealProductDetail(
+  productId: string,
+  category?: ProductCategory,
+): Promise<MealProduct | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -502,22 +546,27 @@ export async function getMealProductDetail(productId: string): Promise<MealProdu
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('branch_id')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("branch_id")
+    .eq("id", user.id)
     .single();
 
   if (!profile?.branch_id) return null;
 
-  const { data, error } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('id', productId)
-    .eq('branch_id', profile.branch_id)
-    .maybeSingle();
+  let query = supabase
+    .from("meal_products")
+    .select("*")
+    .eq("id", productId)
+    .eq("branch_id", profile.branch_id);
+
+  if (category) {
+    query = query.eq("category", category);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
-    logPostgrestQueryError('[getMealProductDetail]', error);
+    logPostgrestQueryError("[getMealProductDetail]", error);
     return null;
   }
 
@@ -532,13 +581,13 @@ export async function getPaidOrderCountForProduct(productId: string): Promise<nu
   if (!user) return 0;
 
   const { count, error } = await supabase
-    .from('meal_orders')
-    .select('*', { count: 'exact', head: true })
-    .eq('product_id', productId)
-    .eq('status', 'paid');
+    .from("meal_orders")
+    .select("*", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("status", "paid");
 
   if (error) {
-    console.error('[getPaidOrderCountForProduct]', error);
+    console.error("[getPaidOrderCountForProduct]", error);
     return 0;
   }
 
@@ -553,13 +602,13 @@ export async function getMealMenus(productId: string): Promise<MealMenu[]> {
   if (!user) return [];
 
   const { data, error } = await supabase
-    .from('meal_menus')
-    .select('*')
-    .eq('product_id', productId)
-    .order('date', { ascending: true });
+    .from("meal_menus")
+    .select("*")
+    .eq("product_id", productId)
+    .order("date", { ascending: true });
 
   if (error) {
-    logPostgrestQueryError('[getMealMenus]', error);
+    logPostgrestQueryError("[getMealMenus]", error);
     return [];
   }
 
@@ -567,10 +616,15 @@ export async function getMealMenus(productId: string): Promise<MealMenu[]> {
 }
 
 export type MealOrderWithProduct = MealOrder & {
-  meal_products: Pick<MealProduct, 'name' | 'meal_type' | 'price' | 'meal_start_date' | 'meal_end_date'> | null;
+  meal_products: Pick<
+    MealProduct,
+    "name" | "meal_type" | "price" | "meal_start_date" | "meal_end_date"
+  > | null;
 };
 
-export async function getMealOrders(): Promise<MealOrderWithProduct[]> {
+export async function getMealOrders(
+  category: ProductCategory = "meal",
+): Promise<MealOrderWithProduct[]> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -578,47 +632,49 @@ export async function getMealOrders(): Promise<MealOrderWithProduct[]> {
   if (!user) return [];
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("user_type")
+    .eq("id", user.id)
     .single();
 
   const selectFields = `
       *,
-      meal_products (name, meal_type, price, meal_start_date, meal_end_date)
+      meal_products!inner (name, meal_type, price, meal_start_date, meal_end_date, category)
     `;
 
   let data: unknown[] | null = null;
   let error: Error | null = null;
 
-  if (profile?.user_type === 'parent') {
+  if (profile?.user_type === "parent") {
     const { data: links } = await supabase
-      .from('parent_student_links')
-      .select('student_id')
-      .eq('parent_id', user.id);
+      .from("parent_student_links")
+      .select("student_id")
+      .eq("parent_id", user.id);
 
     const childIds = (links ?? []).map((l) => l.student_id);
     if (childIds.length === 0) return [];
 
     const res = await supabase
-      .from('meal_orders')
+      .from("meal_orders")
       .select(selectFields)
-      .or(`user_id.eq.${user.id},student_id.in.(${childIds.join(',')})`)
-      .order('created_at', { ascending: false });
+      .or(`user_id.eq.${user.id},student_id.in.(${childIds.join(",")})`)
+      .eq("meal_products.category", category)
+      .order("created_at", { ascending: false });
     data = res.data as unknown[] | null;
     error = res.error as Error | null;
   } else {
     const res = await supabase
-      .from('meal_orders')
+      .from("meal_orders")
       .select(selectFields)
       .or(`user_id.eq.${user.id},student_id.eq.${user.id}`)
-      .order('created_at', { ascending: false });
+      .eq("meal_products.category", category)
+      .order("created_at", { ascending: false });
     data = res.data as unknown[] | null;
     error = res.error as Error | null;
   }
 
   if (error) {
-    logPostgrestQueryError('[getMealOrders]', error);
+    logPostgrestQueryError("[getMealOrders]", error);
     return [];
   }
 
@@ -633,20 +689,20 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("user_type")
+    .eq("id", user.id)
     .single();
 
   const { data: row, error } = await supabase
-    .from('meal_orders')
+    .from("meal_orders")
     .select(
       `
       *,
       meal_products (name, meal_type, price, meal_start_date, meal_end_date, status, sale_start_date, sale_end_date)
-    `
+    `,
     )
-    .eq('id', id)
+    .eq("id", id)
     .maybeSingle();
 
   if (error || !row) {
@@ -658,13 +714,15 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
   const allowed =
     order.user_id === user.id ||
     order.student_id === user.id ||
-    (profile?.user_type === 'parent' &&
-      (await supabase
-        .from('parent_student_links')
-        .select('id')
-        .eq('parent_id', user.id)
-        .eq('student_id', order.student_id)
-        .maybeSingle()).data != null);
+    (profile?.user_type === "parent" &&
+      (
+        await supabase
+          .from("parent_student_links")
+          .select("id")
+          .eq("parent_id", user.id)
+          .eq("student_id", order.student_id)
+          .maybeSingle()
+      ).data != null);
 
   if (!allowed) return null;
 
@@ -673,7 +731,7 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
 
 export async function getExistingPendingOrder(
   productId: string,
-  studentId: string
+  studentId: string,
 ): Promise<MealOrder | null> {
   const supabase = await createClient();
   const {
@@ -682,11 +740,11 @@ export async function getExistingPendingOrder(
   if (!user) return null;
 
   const { data } = await supabase
-    .from('meal_orders')
-    .select('*')
-    .eq('product_id', productId)
-    .eq('student_id', studentId)
-    .eq('status', 'pending')
+    .from("meal_orders")
+    .select("*")
+    .eq("product_id", productId)
+    .eq("student_id", studentId)
+    .eq("status", "pending")
     .maybeSingle();
 
   return (data as MealOrder | null) ?? null;
@@ -694,7 +752,7 @@ export async function getExistingPendingOrder(
 
 export async function getExistingPaidOrder(
   productId: string,
-  studentId: string
+  studentId: string,
 ): Promise<MealOrder | null> {
   const supabase = await createClient();
   const {
@@ -703,11 +761,11 @@ export async function getExistingPaidOrder(
   if (!user) return null;
 
   const { data } = await supabase
-    .from('meal_orders')
-    .select('*')
-    .eq('product_id', productId)
-    .eq('student_id', studentId)
-    .eq('status', 'paid')
+    .from("meal_orders")
+    .select("*")
+    .eq("product_id", productId)
+    .eq("student_id", studentId)
+    .eq("status", "paid")
     .maybeSingle();
 
   return (data as MealOrder | null) ?? null;
@@ -715,121 +773,123 @@ export async function getExistingPaidOrder(
 
 export async function createMealOrder(
   productId: string,
-  studentId: string
+  studentId: string,
 ): Promise<{ data?: MealOrder; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return { error: '로그인이 필요합니다.' };
+  if (!user) return { error: "로그인이 필요합니다." };
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('branch_id, user_type')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("branch_id, user_type")
+    .eq("id", user.id)
     .single();
 
   if (!profile?.branch_id) {
-    return { error: '지점 정보가 없습니다.' };
+    return { error: "지점 정보가 없습니다." };
   }
 
-  if (profile.user_type === 'student' && studentId !== user.id) {
-    return { error: '본인만 신청할 수 있습니다.' };
+  if (profile.user_type === "student" && studentId !== user.id) {
+    return { error: "본인만 신청할 수 있습니다." };
   }
 
-  if (profile.user_type === 'parent') {
+  if (profile.user_type === "parent") {
     const { data: link } = await supabase
-      .from('parent_student_links')
-      .select('id')
-      .eq('parent_id', user.id)
-      .eq('student_id', studentId)
+      .from("parent_student_links")
+      .select("id")
+      .eq("parent_id", user.id)
+      .eq("student_id", studentId)
       .maybeSingle();
 
     if (!link) {
-      return { error: '연결된 자녀만 선택할 수 있습니다.' };
+      return { error: "연결된 자녀만 선택할 수 있습니다." };
     }
   }
 
-  if (profile.user_type !== 'student' && profile.user_type !== 'parent') {
-    return { error: '학생 또는 학부모만 신청할 수 있습니다.' };
+  if (profile.user_type !== "student" && profile.user_type !== "parent") {
+    return { error: "학생 또는 학부모만 신청할 수 있습니다." };
   }
 
   const { data: product, error: productErr } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('id', productId)
-    .eq('branch_id', profile.branch_id)
-    .eq('status', 'active')
+    .from("meal_products")
+    .select("*")
+    .eq("id", productId)
+    .eq("branch_id", profile.branch_id)
+    .eq("status", "active")
     .maybeSingle();
 
   if (productErr || !product) {
-    return { error: '상품을 찾을 수 없습니다.' };
+    return { error: "상품을 찾을 수 없습니다." };
   }
 
   const p = product as MealProduct;
   const today = getTodayKST();
   if (p.sale_start_date > today || p.sale_end_date < today) {
-    return { error: '신청 기간이 아닙니다.' };
+    return { error: "신청 기간이 아닙니다." };
   }
 
   const { data: existing } = await supabase
-    .from('meal_orders')
-    .select('id, status')
-    .eq('product_id', productId)
-    .eq('student_id', studentId)
-    .in('status', ['pending', 'paid'])
+    .from("meal_orders")
+    .select("id, status")
+    .eq("product_id", productId)
+    .eq("student_id", studentId)
+    .in("status", ["pending", "paid"])
     .maybeSingle();
 
   if (existing) {
-    return { error: '이미 신청 중이거나 결제 완료된 주문이 있습니다.' };
+    return { error: "이미 신청 중이거나 결제 완료된 주문이 있습니다." };
   }
 
   const admin = createAdminClient();
   const { count: paidCount } = await admin
-    .from('meal_orders')
-    .select('*', { count: 'exact', head: true })
-    .eq('product_id', productId)
-    .eq('status', 'paid');
+    .from("meal_orders")
+    .select("*", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("status", "paid");
 
   if (p.max_capacity != null && paidCount != null && paidCount >= p.max_capacity) {
-    return { error: '정원이 마감되었습니다.' };
+    return { error: "정원이 마감되었습니다." };
   }
 
-  const orderId = generateMealOrderId();
+  const orderId = p.category === "exam" ? generateExamOrderId() : generateMealOrderId();
   const { data: inserted, error: insertErr } = await supabase
-    .from('meal_orders')
+    .from("meal_orders")
     .insert({
       user_id: user.id,
       student_id: studentId,
       product_id: productId,
       order_id: orderId,
       amount: p.price,
-      status: 'pending',
+      status: "pending",
     })
     .select()
     .single();
 
   if (insertErr || !inserted) {
-    console.error('[createMealOrder]', insertErr);
-    return { error: '주문 생성에 실패했습니다.' };
+    console.error("[createMealOrder]", insertErr);
+    return { error: "주문 생성에 실패했습니다." };
   }
 
-  revalidatePath('/student/meals');
-  revalidatePath('/parent/meals');
-  revalidatePath('/student/meals/orders');
-  revalidatePath('/parent/meals/orders');
+  revalidatePath(studentBasePath(p.category));
+  revalidatePath(parentBasePath(p.category));
+  revalidatePath(`${studentBasePath(p.category)}/orders`);
+  revalidatePath(`${parentBasePath(p.category)}/orders`);
 
   return { data: inserted as MealOrder };
 }
 
-export async function cancelMealOrder(mealOrderId: string): Promise<{ success?: true; error?: string }> {
+export async function cancelMealOrder(
+  mealOrderId: string,
+): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return { error: '로그인이 필요합니다.' };
+  if (!user) return { error: "로그인이 필요합니다." };
 
   const admin = createAdminClient();
   const result = await executePaidMealOrderCancel(admin, { userId: user.id, mealOrderId });
@@ -838,37 +898,43 @@ export async function cancelMealOrder(mealOrderId: string): Promise<{ success?: 
     return { error: result.error };
   }
 
-  revalidatePath('/student/meals/orders');
-  revalidatePath('/parent/meals/orders');
-  revalidatePath('/student/meals');
-  revalidatePath('/parent/meals');
+  for (const cat of ["meal", "exam"] as const) {
+    revalidatePath(`${studentBasePath(cat)}/orders`);
+    revalidatePath(`${parentBasePath(cat)}/orders`);
+    revalidatePath(studentBasePath(cat));
+    revalidatePath(parentBasePath(cat));
+  }
 
   return { success: true };
 }
 
 /** 결제 전 대기 주문 삭제(취소) — DB만 */
-export async function cancelPendingMealOrder(mealOrderId: string): Promise<{ success?: true; error?: string }> {
+export async function cancelPendingMealOrder(
+  mealOrderId: string,
+): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return { error: '로그인이 필요합니다.' };
+  if (!user) return { error: "로그인이 필요합니다." };
 
   const { error } = await supabase
-    .from('meal_orders')
+    .from("meal_orders")
     .delete()
-    .eq('id', mealOrderId)
-    .eq('user_id', user.id)
-    .eq('status', 'pending');
+    .eq("id", mealOrderId)
+    .eq("user_id", user.id)
+    .eq("status", "pending");
 
   if (error) {
-    console.error('[cancelPendingMealOrder]', error);
-    return { error: '취소에 실패했습니다.' };
+    console.error("[cancelPendingMealOrder]", error);
+    return { error: "취소에 실패했습니다." };
   }
 
-  revalidatePath('/student/meals');
-  revalidatePath('/parent/meals');
+  for (const cat of ["meal", "exam"] as const) {
+    revalidatePath(studentBasePath(cat));
+    revalidatePath(parentBasePath(cat));
+  }
 
   return { success: true };
 }
@@ -881,7 +947,7 @@ function storagePathFromPublicUrl(publicUrl: string): string | null {
   const marker = `/object/public/${MEAL_IMAGES_BUCKET}/`;
   const i = publicUrl.indexOf(marker);
   if (i === -1) return null;
-  const rest = publicUrl.slice(i + marker.length).split('?')[0];
+  const rest = publicUrl.slice(i + marker.length).split("?")[0];
   try {
     return decodeURIComponent(rest);
   } catch {
@@ -890,18 +956,28 @@ function storagePathFromPublicUrl(publicUrl: string): string | null {
 }
 
 function sanitizeFileName(name: string): string {
-  return name.replace(/[/\\]/g, '_').replace(/\s+/g, '_').slice(0, 200) || 'image';
+  // Storage가 한글/decomposed unicode 포함 파일명을 400으로 거부하므로
+  // 비-ASCII 문자는 모두 제거. 확장자만 보존되면 충분.
+  const base = name
+    .replace(/[/\\]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/[^\x20-\x7E]/g, "");
+  const dotIdx = base.lastIndexOf(".");
+  const ext = dotIdx >= 0 ? base.slice(dotIdx) : "";
+  const stem = dotIdx >= 0 ? base.slice(0, dotIdx) : base;
+  const cleanStem = stem.replace(/[^a-zA-Z0-9_-]/g, "") || "image";
+  return (cleanStem + ext).slice(0, 200);
 }
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 function validateImageFile(file: File): string | null {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-    return 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.';
+    return "JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.";
   }
   if (file.size > MAX_IMAGE_SIZE) {
-    return '이미지 크기는 5MB 이하여야 합니다.';
+    return "이미지 크기는 5MB 이하여야 합니다.";
   }
   return null;
 }
@@ -912,17 +988,17 @@ function validateImageFile(file: File): string | null {
 
 export async function uploadMealProductImage(
   productId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<{ data?: { url: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+  if (!product) return { error: "상품을 찾을 수 없습니다." };
 
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
+  const file = formData.get("file") as File | null;
+  if (!file) return { error: "파일을 선택해 주세요." };
 
   const validationErr = validateImageFile(file);
   if (validationErr) return { error: validationErr };
@@ -940,14 +1016,14 @@ export async function uploadMealProductImage(
   const { data: uploaded, error: upErr } = await supabase.storage
     .from(MEAL_IMAGES_BUCKET)
     .upload(storagePath, file, {
-      cacheControl: '3600',
+      cacheControl: "3600",
       upsert: false,
       contentType: file.type || undefined,
     });
 
   if (upErr || !uploaded) {
-    console.error('[uploadMealProductImage] storage', upErr);
-    return { error: '이미지 업로드에 실패했습니다.' };
+    console.error("[uploadMealProductImage] storage", upErr);
+    return { error: "이미지 업로드에 실패했습니다." };
   }
 
   const {
@@ -955,33 +1031,34 @@ export async function uploadMealProductImage(
   } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
 
   const { error: dbErr } = await supabase
-    .from('meal_products')
+    .from("meal_products")
     .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId);
+    .eq("id", productId)
+    .eq("branch_id", ctx.branchId);
 
   if (dbErr) {
-    console.error('[uploadMealProductImage] db', dbErr);
-    return { error: '이미지 정보 저장에 실패했습니다.' };
+    console.error("[uploadMealProductImage] db", dbErr);
+    return { error: "이미지 정보 저장에 실패했습니다." };
   }
 
-  revalidatePath('/admin/meals');
-  revalidatePath(`/admin/meals/${productId}`);
-  revalidatePath('/student/meals');
-  revalidatePath('/parent/meals');
+  const adminBase = adminBasePath(product.category);
+  revalidatePath(adminBase);
+  revalidatePath(`${adminBase}/${productId}`);
+  revalidatePath(studentBasePath(product.category));
+  revalidatePath(parentBasePath(product.category));
 
   return { data: { url: publicUrl } };
 }
 
 export async function deleteMealProductImage(
-  productId: string
+  productId: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+  if (!product) return { error: "상품을 찾을 수 없습니다." };
 
   if (product.image_url) {
     const oldPath = storagePathFromPublicUrl(product.image_url);
@@ -991,20 +1068,21 @@ export async function deleteMealProductImage(
   }
 
   const { error } = await supabase
-    .from('meal_products')
+    .from("meal_products")
     .update({ image_url: null, updated_at: new Date().toISOString() })
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId);
+    .eq("id", productId)
+    .eq("branch_id", ctx.branchId);
 
   if (error) {
-    console.error('[deleteMealProductImage]', error);
-    return { error: '이미지 삭제에 실패했습니다.' };
+    console.error("[deleteMealProductImage]", error);
+    return { error: "이미지 삭제에 실패했습니다." };
   }
 
-  revalidatePath('/admin/meals');
-  revalidatePath(`/admin/meals/${productId}`);
-  revalidatePath('/student/meals');
-  revalidatePath('/parent/meals');
+  const adminBase = adminBasePath(product.category);
+  revalidatePath(adminBase);
+  revalidatePath(`${adminBase}/${productId}`);
+  revalidatePath(studentBasePath(product.category));
+  revalidatePath(parentBasePath(product.category));
 
   return { success: true };
 }
@@ -1016,26 +1094,26 @@ export async function deleteMealProductImage(
 export async function uploadMealMenuImage(
   productId: string,
   menuId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<{ data?: { url: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+  if (!product) return { error: "상품을 찾을 수 없습니다." };
 
   const { data: menu } = await supabase
-    .from('meal_menus')
-    .select('id, image_url')
-    .eq('id', menuId)
-    .eq('product_id', productId)
+    .from("meal_menus")
+    .select("id, image_url")
+    .eq("id", menuId)
+    .eq("product_id", productId)
     .maybeSingle();
 
-  if (!menu) return { error: '메뉴를 찾을 수 없습니다.' };
+  if (!menu) return { error: "메뉴를 찾을 수 없습니다." };
 
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
+  const file = formData.get("file") as File | null;
+  if (!file) return { error: "파일을 선택해 주세요." };
 
   const validationErr = validateImageFile(file);
   if (validationErr) return { error: validationErr };
@@ -1053,14 +1131,14 @@ export async function uploadMealMenuImage(
   const { data: uploaded, error: upErr } = await supabase.storage
     .from(MEAL_IMAGES_BUCKET)
     .upload(storagePath, file, {
-      cacheControl: '3600',
+      cacheControl: "3600",
       upsert: false,
       contentType: file.type || undefined,
     });
 
   if (upErr || !uploaded) {
-    console.error('[uploadMealMenuImage] storage', upErr);
-    return { error: '이미지 업로드에 실패했습니다.' };
+    console.error("[uploadMealMenuImage] storage", upErr);
+    return { error: "이미지 업로드에 실패했습니다." };
   }
 
   const {
@@ -1068,13 +1146,13 @@ export async function uploadMealMenuImage(
   } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
 
   const { error: dbErr } = await supabase
-    .from('meal_menus')
+    .from("meal_menus")
     .update({ image_url: publicUrl })
-    .eq('id', menuId);
+    .eq("id", menuId);
 
   if (dbErr) {
-    console.error('[uploadMealMenuImage] db', dbErr);
-    return { error: '이미지 정보 저장에 실패했습니다.' };
+    console.error("[uploadMealMenuImage] db", dbErr);
+    return { error: "이미지 정보 저장에 실패했습니다." };
   }
 
   revalidatePath(`/admin/meals/${productId}/menus`);
@@ -1086,23 +1164,23 @@ export async function uploadMealMenuImage(
 
 export async function deleteMealMenuImage(
   productId: string,
-  menuId: string
+  menuId: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return { error: '권한이 없습니다.' };
+  if (!ctx) return { error: "권한이 없습니다." };
 
   const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
-  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+  if (!product) return { error: "상품을 찾을 수 없습니다." };
 
   const { data: menu } = await supabase
-    .from('meal_menus')
-    .select('id, image_url')
-    .eq('id', menuId)
-    .eq('product_id', productId)
+    .from("meal_menus")
+    .select("id, image_url")
+    .eq("id", menuId)
+    .eq("product_id", productId)
     .maybeSingle();
 
-  if (!menu) return { error: '메뉴를 찾을 수 없습니다.' };
+  if (!menu) return { error: "메뉴를 찾을 수 없습니다." };
 
   if (menu.image_url) {
     const oldPath = storagePathFromPublicUrl(menu.image_url);
@@ -1111,14 +1189,11 @@ export async function deleteMealMenuImage(
     }
   }
 
-  const { error } = await supabase
-    .from('meal_menus')
-    .update({ image_url: null })
-    .eq('id', menuId);
+  const { error } = await supabase.from("meal_menus").update({ image_url: null }).eq("id", menuId);
 
   if (error) {
-    console.error('[deleteMealMenuImage]', error);
-    return { error: '이미지 삭제에 실패했습니다.' };
+    console.error("[deleteMealMenuImage]", error);
+    return { error: "이미지 삭제에 실패했습니다." };
   }
 
   revalidatePath(`/admin/meals/${productId}/menus`);
