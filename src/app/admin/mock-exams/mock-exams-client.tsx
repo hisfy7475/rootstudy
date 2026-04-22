@@ -1,26 +1,26 @@
-"use client";
+'use client';
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
-import { Card } from "@/components/ui/card";
-import { MealImage } from "@/components/shared/meal-image";
-import { Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { MealProduct } from "@/types/database";
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Card } from '@/components/ui/card';
+import { MealImage } from '@/components/shared/meal-image';
+import { Plus } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { MealProduct } from '@/types/database';
 
-type StatusFilter = "all" | "active" | "inactive" | "sold_out";
+type StatusFilter = 'all' | 'active' | 'inactive' | 'sold_out';
 
-const statusLabel: Record<MealProduct["status"], string> = {
-  active: "판매중",
-  inactive: "비활성",
-  sold_out: "마감",
+const statusLabel: Record<MealProduct['status'], string> = {
+  active: '판매중',
+  inactive: '비활성',
+  sold_out: '마감',
 };
 
 const tabs: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "전체" },
-  { key: "active", label: "판매중" },
-  { key: "inactive", label: "비활성" },
-  { key: "sold_out", label: "마감" },
+  { key: 'all', label: '전체' },
+  { key: 'active', label: '판매중' },
+  { key: 'inactive', label: '비활성' },
+  { key: 'sold_out', label: '마감' },
 ];
 
 interface AdminMockExamsClientProps {
@@ -28,10 +28,10 @@ interface AdminMockExamsClientProps {
 }
 
 export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientProps) {
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [filter, setFilter] = useState<StatusFilter>('all');
 
   const filtered = useMemo(() => {
-    if (filter === "all") return initialProducts;
+    if (filter === 'all') return initialProducts;
     return initialProducts.filter((p) => p.status === filter);
   }, [initialProducts, filter]);
 
@@ -45,9 +45,9 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
         <Link
           href='/admin/mock-exams/new'
           className={cn(
-            "inline-flex items-center justify-center gap-0 rounded-2xl font-medium transition-all duration-200",
-            "bg-primary text-white shadow-sm hover:bg-primary/90 hover:shadow-md",
-            "focus:ring-primary px-5 py-2.5 text-base focus:ring-2 focus:ring-offset-2 focus:outline-none",
+            'inline-flex items-center justify-center gap-0 rounded-2xl font-medium transition-all duration-200',
+            'bg-primary hover:bg-primary/90 text-white shadow-sm hover:shadow-md',
+            'focus:ring-primary px-5 py-2.5 text-base focus:ring-2 focus:ring-offset-2 focus:outline-none',
           )}
         >
           <Plus className='mr-2 size-4' />
@@ -62,10 +62,10 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
             type='button'
             onClick={() => setFilter(t.key)}
             className={cn(
-              "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
+              'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
               filter === t.key
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80",
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80',
             )}
           >
             {t.label}
@@ -78,7 +78,7 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 border-b text-left'>
               <tr>
-                <th className='p-3 font-medium w-16'></th>
+                <th className='w-16 p-3 font-medium'></th>
                 <th className='p-3 font-medium'>이름</th>
                 <th className='p-3 font-medium'>가격</th>
                 <th className='p-3 font-medium'>신청 기간</th>
@@ -96,7 +96,7 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
                 </tr>
               ) : (
                 filtered.map((p) => (
-                  <tr key={p.id} className='border-b last:border-0 hover:bg-muted/30'>
+                  <tr key={p.id} className='hover:bg-muted/30 border-b last:border-0'>
                     <td className='p-3'>
                       <div className='h-10 w-10 overflow-hidden rounded-md'>
                         <MealImage
@@ -122,18 +122,18 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
                       {p.sale_start_date} ~ {p.sale_end_date}
                     </td>
                     <td className='p-3 whitespace-nowrap'>
-                      {p.meal_start_date} ~ {p.meal_end_date}
+                      {p.product_start_date} ~ {p.product_end_date}
                     </td>
                     <td className='p-3'>
-                      {p.max_capacity == null ? "무제한" : `${p.max_capacity}명`}
+                      {p.max_capacity == null ? '무제한' : `${p.max_capacity}명`}
                     </td>
                     <td className='p-3'>
                       <span
                         className={cn(
-                          "rounded-full px-2 py-0.5 text-xs",
-                          p.status === "active" && "bg-emerald-100 text-emerald-800",
-                          p.status === "inactive" && "bg-slate-100 text-slate-700",
-                          p.status === "sold_out" && "bg-amber-100 text-amber-900",
+                          'rounded-full px-2 py-0.5 text-xs',
+                          p.status === 'active' && 'bg-emerald-100 text-emerald-800',
+                          p.status === 'inactive' && 'bg-slate-100 text-slate-700',
+                          p.status === 'sold_out' && 'bg-amber-100 text-amber-900',
                         )}
                       >
                         {statusLabel[p.status]}

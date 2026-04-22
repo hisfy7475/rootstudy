@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getMealProductDetail, getMealOrdersForAdmin } from "@/lib/actions/meal";
-import { AdminMockExamOrdersClient } from "./orders-client";
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { getMealProductDetail, getMealOrdersForAdmin } from '@/lib/actions/meal';
+import { AdminProductOrdersClient } from '@/components/shared/orders/admin-product-orders-client';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -9,13 +9,13 @@ interface PageProps {
 
 export default async function AdminMockExamOrdersPage({ params }: PageProps) {
   const { id } = await params;
-  const product = await getMealProductDetail(id, "exam");
+  const product = await getMealProductDetail(id, 'exam');
 
   if (!product) {
     notFound();
   }
 
-  const orders = await getMealOrdersForAdmin(id, { status: "all" });
+  const orders = await getMealOrdersForAdmin(id, { status: 'all' });
 
   return (
     <div className='mx-auto max-w-6xl space-y-4 p-4 md:p-8'>
@@ -30,7 +30,7 @@ export default async function AdminMockExamOrdersPage({ params }: PageProps) {
         <span className='text-muted-foreground'>/</span>
         <span className='text-muted-foreground'>신청 현황</span>
       </div>
-      <AdminMockExamOrdersClient product={product} initialOrders={orders} />
+      <AdminProductOrdersClient product={product} initialOrders={orders} category='exam' />
     </div>
   );
 }

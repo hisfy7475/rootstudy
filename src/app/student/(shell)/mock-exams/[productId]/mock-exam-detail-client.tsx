@@ -1,13 +1,13 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { MealImage } from "@/components/shared/meal-image";
-import { createMealOrder, cancelPendingMealOrder } from "@/lib/actions/meal";
-import type { MealOrder, MealProduct } from "@/types/database";
-import { Loader2 } from "lucide-react";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { MealImage } from '@/components/shared/meal-image';
+import { createMealOrder, cancelPendingMealOrder } from '@/lib/actions/meal';
+import type { MealOrder, MealProduct } from '@/types/database';
+import { Loader2 } from 'lucide-react';
 
 export function MockExamDetailClient({
   product,
@@ -52,7 +52,7 @@ export function MockExamDetailClient({
       setPendingOrder(null);
     } catch (e) {
       console.error(e);
-      setError("취소에 실패했습니다.");
+      setError('취소에 실패했습니다.');
     } finally {
       setCancelling(false);
     }
@@ -60,7 +60,7 @@ export function MockExamDetailClient({
 
   const handlePay = async () => {
     if (!studentId) {
-      setError("자녀를 선택해 주세요.");
+      setError('자녀를 선택해 주세요.');
       return;
     }
     setError(null);
@@ -68,14 +68,14 @@ export function MockExamDetailClient({
     try {
       const { data, error: err } = await createMealOrder(product.id, studentId);
       if (err || !data) {
-        setError(err || "주문 생성에 실패했습니다.");
+        setError(err || '주문 생성에 실패했습니다.');
         setLoading(false);
         return;
       }
       router.push(`${payBasePath}/${data.id}`);
     } catch (e) {
       console.error(e);
-      setError("오류가 발생했습니다.");
+      setError('오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -83,8 +83,8 @@ export function MockExamDetailClient({
 
   if (!studentId) {
     return (
-      <Card className='p-6 text-center space-y-3'>
-        <p className='text-sm text-muted-foreground'>
+      <Card className='space-y-3 p-6 text-center'>
+        <p className='text-muted-foreground text-sm'>
           모의고사를 신청할 자녀를 먼저 선택해 주세요.
         </p>
         <Button variant='outline' onClick={() => router.push(backHref)}>
@@ -98,7 +98,7 @@ export function MockExamDetailClient({
 
   return (
     <div className='space-y-4'>
-      <div className='relative h-48 w-full overflow-hidden rounded-xl -mx-0'>
+      <div className='relative -mx-0 h-48 w-full overflow-hidden rounded-xl'>
         <MealImage
           src={product.image_url}
           type='product'
@@ -110,21 +110,21 @@ export function MockExamDetailClient({
       </div>
 
       <div>
-        <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-muted'>모의고사</span>
-        <h1 className='text-xl font-bold mt-2'>{product.name}</h1>
-        <p className='text-lg font-semibold text-primary mt-2'>
-          {product.price.toLocaleString("ko-KR")}원
+        <span className='bg-muted rounded-full px-2 py-0.5 text-xs font-medium'>모의고사</span>
+        <h1 className='mt-2 text-xl font-bold'>{product.name}</h1>
+        <p className='text-primary mt-2 text-lg font-semibold'>
+          {product.price.toLocaleString('ko-KR')}원
         </p>
         {product.description ? (
-          <p className='text-sm text-muted-foreground mt-2 whitespace-pre-wrap'>
+          <p className='text-muted-foreground mt-2 text-sm whitespace-pre-wrap'>
             {product.description}
           </p>
         ) : null}
-        <p className='text-xs text-muted-foreground mt-2'>
-          시험 기간: {product.meal_start_date} ~ {product.meal_end_date}
+        <p className='text-muted-foreground mt-2 text-xs'>
+          시험 기간: {product.product_start_date} ~ {product.product_end_date}
         </p>
         {capacityLeft != null ? (
-          <p className='text-xs text-muted-foreground mt-1'>잔여 정원: {capacityLeft}명</p>
+          <p className='text-muted-foreground mt-1 text-xs'>잔여 정원: {capacityLeft}명</p>
         ) : null}
       </div>
 
@@ -153,11 +153,11 @@ export function MockExamDetailClient({
             >
               {cancelling ? (
                 <>
-                  <Loader2 className='w-4 h-4 mr-2 animate-spin' />
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   취소 중…
                 </>
               ) : (
-                "주문 취소"
+                '주문 취소'
               )}
             </Button>
           </div>
@@ -166,18 +166,18 @@ export function MockExamDetailClient({
         <Button
           className='w-full'
           size='lg'
-          disabled={loading || soldOut || product.status !== "active"}
+          disabled={loading || soldOut || product.status !== 'active'}
           onClick={() => void handlePay()}
         >
           {loading ? (
             <>
-              <Loader2 className='w-4 h-4 mr-2 animate-spin' />
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
               처리 중…
             </>
           ) : soldOut ? (
-            "정원 마감"
+            '정원 마감'
           ) : (
-            "결제하기"
+            '결제하기'
           )}
         </Button>
       )}

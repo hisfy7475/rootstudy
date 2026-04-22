@@ -7,7 +7,7 @@ type Body = {
 };
 
 /**
- * 로그인 사용자 본인 급식 주문 취소 (학생/학부모)
+ * 로그인 사용자 본인 주문 취소 (학생/학부모) — 급식·모의고사 공용
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -35,10 +35,7 @@ export async function POST(request: Request) {
   const result = await executePaidMealOrderCancel(admin, { userId: user.id, mealOrderId });
 
   if (!result.success) {
-    return NextResponse.json(
-      { error: result.error },
-      { status: result.status ?? 400 }
-    );
+    return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
   }
 
   return NextResponse.json({ success: true });

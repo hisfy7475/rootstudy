@@ -9,7 +9,7 @@ export interface Database {
           email: string;
           name: string;
           phone: string | null;
-          user_type: "student" | "parent" | "admin";
+          user_type: 'student' | 'parent' | 'admin';
           branch_id: string | null;
           is_approved: boolean;
           created_at: string;
@@ -20,7 +20,7 @@ export interface Database {
           email: string;
           name: string;
           phone?: string | null;
-          user_type: "student" | "parent" | "admin";
+          user_type: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
           created_at?: string;
@@ -31,7 +31,7 @@ export interface Database {
           email?: string;
           name?: string;
           phone?: string | null;
-          user_type?: "student" | "parent" | "admin";
+          user_type?: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
           created_at?: string;
@@ -43,7 +43,7 @@ export interface Database {
           id: string;
           user_id: string;
           expo_push_token: string;
-          platform: "ios" | "android";
+          platform: 'ios' | 'android';
           device_id: string | null;
           is_active: boolean;
           created_at: string;
@@ -53,7 +53,7 @@ export interface Database {
           id?: string;
           user_id: string;
           expo_push_token: string;
-          platform: "ios" | "android";
+          platform: 'ios' | 'android';
           device_id?: string | null;
           is_active?: boolean;
           created_at?: string;
@@ -63,7 +63,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           expo_push_token?: string;
-          platform?: "ios" | "android";
+          platform?: 'ios' | 'android';
           device_id?: string | null;
           is_active?: boolean;
           created_at?: string;
@@ -158,17 +158,17 @@ export interface Database {
           title: string;
           description: string | null;
           is_recurring: boolean;
-          recurrence_type: "weekly" | "one_time" | null;
+          recurrence_type: 'weekly' | 'one_time' | null;
           day_of_week: number[] | null;
           start_time: string;
           end_time: string;
-          date_type: "semester" | "vacation" | "all" | null;
+          date_type: 'semester' | 'vacation' | 'all' | null;
           valid_from: string | null;
           valid_until: string | null;
           specific_date: string | null;
           buffer_minutes: number;
           is_active: boolean;
-          status: "pending" | "approved" | "rejected";
+          status: 'pending' | 'approved' | 'rejected';
           created_by: string | null;
           approved_by: string | null;
           approved_at: string | null;
@@ -183,17 +183,17 @@ export interface Database {
           title: string;
           description?: string | null;
           is_recurring?: boolean;
-          recurrence_type?: "weekly" | "one_time" | null;
+          recurrence_type?: 'weekly' | 'one_time' | null;
           day_of_week?: number[] | null;
           start_time: string;
           end_time: string;
-          date_type?: "semester" | "vacation" | "all" | null;
+          date_type?: 'semester' | 'vacation' | 'all' | null;
           valid_from?: string | null;
           valid_until?: string | null;
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
-          status?: "pending" | "approved" | "rejected";
+          status?: 'pending' | 'approved' | 'rejected';
           created_by?: string | null;
           approved_by?: string | null;
           approved_at?: string | null;
@@ -208,17 +208,17 @@ export interface Database {
           title?: string;
           description?: string | null;
           is_recurring?: boolean;
-          recurrence_type?: "weekly" | "one_time" | null;
+          recurrence_type?: 'weekly' | 'one_time' | null;
           day_of_week?: number[] | null;
           start_time?: string;
           end_time?: string;
-          date_type?: "semester" | "vacation" | "all" | null;
+          date_type?: 'semester' | 'vacation' | 'all' | null;
           valid_from?: string | null;
           valid_until?: string | null;
           specific_date?: string | null;
           buffer_minutes?: number;
           is_active?: boolean;
-          status?: "pending" | "approved" | "rejected";
+          status?: 'pending' | 'approved' | 'rejected';
           created_by?: string | null;
           approved_by?: string | null;
           approved_at?: string | null;
@@ -382,23 +382,23 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
-          type: "check_in" | "check_out" | "break_start" | "break_end";
+          type: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp: string;
-          source: "caps" | "manual";
+          source: 'caps' | 'manual';
         };
         Insert: {
           id?: string;
           student_id: string;
-          type: "check_in" | "check_out" | "break_start" | "break_end";
+          type: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp?: string;
-          source?: "caps" | "manual";
+          source?: 'caps' | 'manual';
         };
         Update: {
           id?: string;
           student_id?: string;
-          type?: "check_in" | "check_out" | "break_start" | "break_end";
+          type?: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp?: string;
-          source?: "caps" | "manual";
+          source?: 'caps' | 'manual';
         };
       };
       study_goals: {
@@ -487,7 +487,7 @@ export interface Database {
           id: string;
           student_id: string;
           admin_id: string | null;
-          type: "reward" | "penalty";
+          type: 'reward' | 'penalty';
           amount: number;
           reason: string;
           is_auto: boolean;
@@ -497,7 +497,7 @@ export interface Database {
           id?: string;
           student_id: string;
           admin_id?: string | null;
-          type: "reward" | "penalty";
+          type: 'reward' | 'penalty';
           amount: number;
           reason: string;
           is_auto?: boolean;
@@ -507,7 +507,7 @@ export interface Database {
           id?: string;
           student_id?: string;
           admin_id?: string | null;
-          type?: "reward" | "penalty";
+          type?: 'reward' | 'penalty';
           amount?: number;
           reason?: string;
           is_auto?: boolean;
@@ -521,7 +521,7 @@ export interface Database {
           title: string;
           description: string | null;
           scheduled_date: string;
-          status: "pending" | "approved" | "rejected";
+          status: 'pending' | 'approved' | 'rejected';
           created_at: string;
           updated_at: string;
         };
@@ -531,7 +531,7 @@ export interface Database {
           title: string;
           description?: string | null;
           scheduled_date: string;
-          status?: "pending" | "approved" | "rejected";
+          status?: 'pending' | 'approved' | 'rejected';
           created_at?: string;
           updated_at?: string;
         };
@@ -541,7 +541,7 @@ export interface Database {
           title?: string;
           description?: string | null;
           scheduled_date?: string;
-          status?: "pending" | "approved" | "rejected";
+          status?: 'pending' | 'approved' | 'rejected';
           created_at?: string;
           updated_at?: string;
         };
@@ -612,9 +612,9 @@ export interface Database {
           id: string;
           parent_id: string | null;
           student_id: string | null;
-          type: "late" | "absent" | "point" | "schedule";
+          type: 'late' | 'absent' | 'point' | 'schedule';
           message: string;
-          sent_via: "kakao";
+          sent_via: 'kakao';
           sent_at: string;
           is_sent: boolean;
         };
@@ -622,9 +622,9 @@ export interface Database {
           id?: string;
           parent_id?: string | null;
           student_id?: string | null;
-          type: "late" | "absent" | "point" | "schedule";
+          type: 'late' | 'absent' | 'point' | 'schedule';
           message: string;
-          sent_via?: "kakao";
+          sent_via?: 'kakao';
           sent_at?: string;
           is_sent?: boolean;
         };
@@ -632,9 +632,9 @@ export interface Database {
           id?: string;
           parent_id?: string | null;
           student_id?: string | null;
-          type?: "late" | "absent" | "point" | "schedule";
+          type?: 'late' | 'absent' | 'point' | 'schedule';
           message?: string;
-          sent_via?: "kakao";
+          sent_via?: 'kakao';
           sent_at?: string;
           is_sent?: boolean;
         };
@@ -643,7 +643,7 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
-          type: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title: string;
           message: string;
           link: string | null;
@@ -653,7 +653,7 @@ export interface Database {
         Insert: {
           id?: string;
           student_id: string;
-          type: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title: string;
           message: string;
           link?: string | null;
@@ -663,7 +663,7 @@ export interface Database {
         Update: {
           id?: string;
           student_id?: string;
-          type?: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title?: string;
           message?: string;
           link?: string | null;
@@ -704,7 +704,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          type: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title: string;
           message: string;
           link: string | null;
@@ -714,7 +714,7 @@ export interface Database {
         Insert: {
           id?: string;
           user_id: string;
-          type: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title: string;
           message: string;
           link?: string | null;
@@ -724,7 +724,7 @@ export interface Database {
         Update: {
           id?: string;
           user_id?: string;
-          type?: "late" | "absent" | "point" | "schedule" | "system" | "chat";
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
           title?: string;
           message?: string;
           link?: string | null;
@@ -864,7 +864,7 @@ export interface Database {
           title: string;
           content: string;
           is_important: boolean;
-          target_audience: "all" | "student" | "parent";
+          target_audience: 'all' | 'student' | 'parent';
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -875,7 +875,7 @@ export interface Database {
           title: string;
           content: string;
           is_important?: boolean;
-          target_audience?: "all" | "student" | "parent";
+          target_audience?: 'all' | 'student' | 'parent';
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -886,7 +886,7 @@ export interface Database {
           title?: string;
           content?: string;
           is_important?: boolean;
-          target_audience?: "all" | "student" | "parent";
+          target_audience?: 'all' | 'student' | 'parent';
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -1060,15 +1060,15 @@ export interface Database {
           id: string;
           branch_id: string;
           name: string;
-          category: "meal" | "exam";
-          meal_type: "lunch" | "dinner" | null;
+          category: 'meal' | 'exam';
+          meal_type: 'lunch' | 'dinner' | null;
           price: number;
           sale_start_date: string;
           sale_end_date: string;
-          meal_start_date: string;
-          meal_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
           max_capacity: number | null;
-          status: "active" | "inactive" | "sold_out";
+          status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
           image_url: string | null;
           created_at: string;
@@ -1078,15 +1078,15 @@ export interface Database {
           id?: string;
           branch_id: string;
           name: string;
-          category?: "meal" | "exam";
-          meal_type?: "lunch" | "dinner" | null;
+          category?: 'meal' | 'exam';
+          meal_type?: 'lunch' | 'dinner' | null;
           price: number;
           sale_start_date: string;
           sale_end_date: string;
-          meal_start_date: string;
-          meal_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
           max_capacity?: number | null;
-          status?: "active" | "inactive" | "sold_out";
+          status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
           created_at?: string;
@@ -1096,15 +1096,15 @@ export interface Database {
           id?: string;
           branch_id?: string;
           name?: string;
-          category?: "meal" | "exam";
-          meal_type?: "lunch" | "dinner" | null;
+          category?: 'meal' | 'exam';
+          meal_type?: 'lunch' | 'dinner' | null;
           price?: number;
           sale_start_date?: string;
           sale_end_date?: string;
-          meal_start_date?: string;
-          meal_end_date?: string;
+          product_start_date?: string;
+          product_end_date?: string;
           max_capacity?: number | null;
-          status?: "active" | "inactive" | "sold_out";
+          status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
           created_at?: string;
@@ -1145,7 +1145,7 @@ export interface Database {
           product_id: string;
           order_id: string;
           amount: number;
-          status: "pending" | "paid" | "cancelled" | "refunded" | "failed";
+          status: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
           tid: string | null;
           paid_at: string | null;
           cancelled_at: string | null;
@@ -1160,7 +1160,7 @@ export interface Database {
           product_id: string;
           order_id: string;
           amount: number;
-          status?: "pending" | "paid" | "cancelled" | "refunded" | "failed";
+          status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
           tid?: string | null;
           paid_at?: string | null;
           cancelled_at?: string | null;
@@ -1175,7 +1175,7 @@ export interface Database {
           product_id?: string;
           order_id?: string;
           amount?: number;
-          status?: "pending" | "paid" | "cancelled" | "refunded" | "failed";
+          status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
           tid?: string | null;
           paid_at?: string | null;
           cancelled_at?: string | null;
@@ -1187,10 +1187,10 @@ export interface Database {
       payment_logs: {
         Row: {
           id: string;
-          order_type: "meal" | "exam" | "other";
+          order_type: 'meal' | 'exam' | 'other';
           order_id: string;
           tid: string | null;
-          action: "auth" | "approve" | "cancel" | "webhook" | "netcancel";
+          action: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
           amount: number | null;
           status: string;
           result_code: string | null;
@@ -1201,10 +1201,10 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          order_type: "meal" | "exam" | "other";
+          order_type: 'meal' | 'exam' | 'other';
           order_id: string;
           tid?: string | null;
-          action: "auth" | "approve" | "cancel" | "webhook" | "netcancel";
+          action: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
           amount?: number | null;
           status: string;
           result_code?: string | null;
@@ -1215,10 +1215,10 @@ export interface Database {
         };
         Update: {
           id?: string;
-          order_type?: "meal" | "exam" | "other";
+          order_type?: 'meal' | 'exam' | 'other';
           order_id?: string;
           tid?: string | null;
-          action?: "auth" | "approve" | "cancel" | "webhook" | "netcancel";
+          action?: 'auth' | 'approve' | 'cancel' | 'webhook' | 'netcancel';
           amount?: number | null;
           status?: string;
           result_code?: string | null;
@@ -1271,7 +1271,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: "mentoring" | "clinic";
+          type: 'mentoring' | 'clinic';
           subject: string | null;
           capacity: number;
           booked_count: number;
@@ -1288,7 +1288,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: "mentoring" | "clinic";
+          type: 'mentoring' | 'clinic';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1305,7 +1305,7 @@ export interface Database {
           date?: string;
           start_time?: string;
           end_time?: string;
-          type?: "mentoring" | "clinic";
+          type?: 'mentoring' | 'clinic';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1322,7 +1322,7 @@ export interface Database {
           slot_id: string;
           user_id: string;
           student_id: string;
-          status: "pending" | "confirmed" | "rejected" | "cancelled";
+          status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note: string | null;
           reject_reason: string | null;
           applied_at: string;
@@ -1338,7 +1338,7 @@ export interface Database {
           slot_id: string;
           user_id: string;
           student_id: string;
-          status?: "pending" | "confirmed" | "rejected" | "cancelled";
+          status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
           reject_reason?: string | null;
           applied_at?: string;
@@ -1354,7 +1354,7 @@ export interface Database {
           slot_id?: string;
           user_id?: string;
           student_id?: string;
-          status?: "pending" | "confirmed" | "rejected" | "cancelled";
+          status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
           reject_reason?: string | null;
           applied_at?: string;
@@ -1375,41 +1375,41 @@ export interface Database {
 }
 
 // 편의를 위한 타입 별칭
-export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
-export type StudentProfile = Database["public"]["Tables"]["student_profiles"]["Row"];
-export type ParentProfile = Database["public"]["Tables"]["parent_profiles"]["Row"];
-export type ParentStudentLink = Database["public"]["Tables"]["parent_student_links"]["Row"];
-export type Attendance = Database["public"]["Tables"]["attendance"]["Row"];
-export type StudyGoal = Database["public"]["Tables"]["study_goals"]["Row"];
-export type Subject = Database["public"]["Tables"]["subjects"]["Row"];
-export type FocusScore = Database["public"]["Tables"]["focus_scores"]["Row"];
-export type Point = Database["public"]["Tables"]["points"]["Row"];
-export type Schedule = Database["public"]["Tables"]["schedules"]["Row"];
-export type ChatRoom = Database["public"]["Tables"]["chat_rooms"]["Row"];
-export type ChatMessage = Database["public"]["Tables"]["chat_messages"]["Row"];
-export type Notification = Database["public"]["Tables"]["notifications"]["Row"];
-export type Branch = Database["public"]["Tables"]["branches"]["Row"];
-export type DateTypeDefinition = Database["public"]["Tables"]["date_type_definitions"]["Row"];
-export type DateAssignment = Database["public"]["Tables"]["date_assignments"]["Row"];
-export type StudentType = Database["public"]["Tables"]["student_types"]["Row"];
-export type StudentTypeSubject = Database["public"]["Tables"]["student_type_subjects"]["Row"];
+export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type StudentProfile = Database['public']['Tables']['student_profiles']['Row'];
+export type ParentProfile = Database['public']['Tables']['parent_profiles']['Row'];
+export type ParentStudentLink = Database['public']['Tables']['parent_student_links']['Row'];
+export type Attendance = Database['public']['Tables']['attendance']['Row'];
+export type StudyGoal = Database['public']['Tables']['study_goals']['Row'];
+export type Subject = Database['public']['Tables']['subjects']['Row'];
+export type FocusScore = Database['public']['Tables']['focus_scores']['Row'];
+export type Point = Database['public']['Tables']['points']['Row'];
+export type Schedule = Database['public']['Tables']['schedules']['Row'];
+export type ChatRoom = Database['public']['Tables']['chat_rooms']['Row'];
+export type ChatMessage = Database['public']['Tables']['chat_messages']['Row'];
+export type Notification = Database['public']['Tables']['notifications']['Row'];
+export type Branch = Database['public']['Tables']['branches']['Row'];
+export type DateTypeDefinition = Database['public']['Tables']['date_type_definitions']['Row'];
+export type DateAssignment = Database['public']['Tables']['date_assignments']['Row'];
+export type StudentType = Database['public']['Tables']['student_types']['Row'];
+export type StudentTypeSubject = Database['public']['Tables']['student_type_subjects']['Row'];
 export type StudentAbsenceSchedule =
-  Database["public"]["Tables"]["student_absence_schedules"]["Row"];
-export type StudentNotification = Database["public"]["Tables"]["student_notifications"]["Row"];
-export type UserNotification = Database["public"]["Tables"]["user_notifications"]["Row"];
-export type CapsSyncLog = Database["public"]["Tables"]["caps_sync_log"]["Row"];
-export type Announcement = Database["public"]["Tables"]["announcements"]["Row"];
+  Database['public']['Tables']['student_absence_schedules']['Row'];
+export type StudentNotification = Database['public']['Tables']['student_notifications']['Row'];
+export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
+export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
+export type Announcement = Database['public']['Tables']['announcements']['Row'];
 export type AnnouncementAttachment =
-  Database["public"]["Tables"]["announcement_attachments"]["Row"];
-export type AnnouncementRead = Database["public"]["Tables"]["announcement_reads"]["Row"];
-export type WeeklyGoalSetting = Database["public"]["Tables"]["weekly_goal_settings"]["Row"];
-export type WeeklyPointHistory = Database["public"]["Tables"]["weekly_point_history"]["Row"];
-export type CounselingReport = Database["public"]["Tables"]["counseling_reports"]["Row"];
-export type CounselingTemplate = Database["public"]["Tables"]["counseling_templates"]["Row"];
-export type MealProduct = Database["public"]["Tables"]["meal_products"]["Row"];
-export type MealMenu = Database["public"]["Tables"]["meal_menus"]["Row"];
-export type MealOrder = Database["public"]["Tables"]["meal_orders"]["Row"];
-export type PaymentLog = Database["public"]["Tables"]["payment_logs"]["Row"];
-export type Mentor = Database["public"]["Tables"]["mentors"]["Row"];
-export type MentoringSlot = Database["public"]["Tables"]["mentoring_slots"]["Row"];
-export type MentoringApplication = Database["public"]["Tables"]["mentoring_applications"]["Row"];
+  Database['public']['Tables']['announcement_attachments']['Row'];
+export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];
+export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
+export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];
+export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
+export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];
+export type MealProduct = Database['public']['Tables']['meal_products']['Row'];
+export type MealMenu = Database['public']['Tables']['meal_menus']['Row'];
+export type MealOrder = Database['public']['Tables']['meal_orders']['Row'];
+export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];
+export type Mentor = Database['public']['Tables']['mentors']['Row'];
+export type MentoringSlot = Database['public']['Tables']['mentoring_slots']['Row'];
+export type MentoringApplication = Database['public']['Tables']['mentoring_applications']['Row'];

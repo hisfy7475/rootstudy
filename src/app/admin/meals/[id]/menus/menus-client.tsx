@@ -5,13 +5,18 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { deleteMealMenu, upsertMealMenu, uploadMealMenuImage, deleteMealMenuImage } from '@/lib/actions/meal';
+import {
+  deleteMealMenu,
+  upsertMealMenu,
+  uploadMealMenuImage,
+  deleteMealMenuImage,
+} from '@/lib/actions/meal';
 import type { MealMenu, MealProduct } from '@/types/database';
 import { ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 
 function enumerateMealDates(start: string, end: string): string[] {
   const out: string[] = [];
-  let cur = new Date(`${start}T12:00:00+09:00`);
+  const cur = new Date(`${start}T12:00:00+09:00`);
   const endT = new Date(`${end}T12:00:00+09:00`).getTime();
   while (cur.getTime() <= endT) {
     out.push(cur.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }));
@@ -39,8 +44,8 @@ interface AdminMealMenusClientProps {
 
 export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusClientProps) {
   const dates = useMemo(
-    () => enumerateMealDates(product.meal_start_date, product.meal_end_date),
-    [product.meal_start_date, product.meal_end_date]
+    () => enumerateMealDates(product.product_start_date, product.product_end_date),
+    [product.product_start_date, product.product_end_date],
   );
 
   const initialMap = useMemo(() => {
@@ -50,10 +55,13 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
     }
     for (const menu of initialMenus) {
       const key =
-        typeof menu.date === 'string'
-          ? menu.date.slice(0, 10)
-          : (menu.date as unknown as string);
-      m.set(key, { id: menu.id, text: menu.menu_text, savedText: menu.menu_text, imageUrl: menu.image_url });
+        typeof menu.date === 'string' ? menu.date.slice(0, 10) : (menu.date as unknown as string);
+      m.set(key, {
+        id: menu.id,
+        text: menu.menu_text,
+        savedText: menu.menu_text,
+        imageUrl: menu.image_url,
+      });
     }
     return m;
   }, [dates, initialMenus]);
@@ -216,17 +224,17 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className='space-y-6'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <div>
-          <h1 className="text-2xl font-bold">메뉴 입력</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {product.name} · {product.meal_start_date} ~ {product.meal_end_date}
+          <h1 className='text-2xl font-bold'>메뉴 입력</h1>
+          <p className='text-muted-foreground mt-1 text-sm'>
+            {product.name} · {product.product_start_date} ~ {product.product_end_date}
           </p>
         </div>
         <Link
           href={`/admin/meals/${product.id}`}
-          className="border-primary text-primary hover:bg-primary/10 inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-sm font-medium transition-all focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none"
+          className='border-primary text-primary hover:bg-primary/10 focus:ring-primary inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-sm font-medium transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
         >
           상품 정보
         </Link>
@@ -244,7 +252,7 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className='space-y-4'>
         {dates.map((date) => {
           const row = rows.get(date) ?? { text: '', savedText: '' };
           const displayImage = row.pendingPreview ?? row.imageUrl;
@@ -255,26 +263,26 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
           const hasContent = row.text.trim().length > 0;
 
           return (
-            <Card key={date} className="p-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="font-medium">
+            <Card key={date} className='p-4'>
+              <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
+                <div className='font-medium'>
                   {date}{' '}
-                  <span className="text-muted-foreground font-normal">({weekdayKo(date)})</span>
+                  <span className='text-muted-foreground font-normal'>({weekdayKo(date)})</span>
                 </div>
-                <div className="flex gap-2">
+                <div className='flex gap-2'>
                   {row.id != null && (
                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      className='text-destructive hover:text-destructive'
                       disabled={deletingId === row.id}
                       onClick={() => removeMenu(date)}
                     >
                       {deletingId === row.id ? (
-                        <Loader2 className="size-4 animate-spin" />
+                        <Loader2 className='size-4 animate-spin' />
                       ) : (
-                        <Trash2 className="size-4" />
+                        <Trash2 className='size-4' />
                       )}
                     </Button>
                   )}
@@ -282,32 +290,32 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
               </div>
 
               <textarea
-                className="border-input bg-background mb-3 min-h-[72px] w-full rounded-md border px-3 py-2 text-sm"
-                placeholder="예: 쌀밥, 된장찌개, 불고기..."
+                className='border-input bg-background mb-3 min-h-[72px] w-full rounded-md border px-3 py-2 text-sm'
+                placeholder='예: 쌀밥, 된장찌개, 불고기...'
                 value={row.text}
                 onChange={(e) => updateText(date, e.target.value)}
               />
 
               {/* 이미지 영역 */}
-              <div className="mb-3">
+              <div className='mb-3'>
                 {displayImage ? (
-                  <div className="relative inline-block">
+                  <div className='relative inline-block'>
                     <Image
                       src={displayImage}
                       alt={`${date} 식단 사진`}
                       width={200}
                       height={150}
-                      className="rounded-md object-cover"
+                      className='rounded-md object-cover'
                       unoptimized
                     />
                     {isPending && (
-                      <span className="absolute left-2 top-2 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <span className='absolute top-2 left-2 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium text-white'>
                         저장 시 업로드
                       </span>
                     )}
                     <button
-                      type="button"
-                      className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white shadow-sm hover:bg-destructive/90"
+                      type='button'
+                      className='bg-destructive hover:bg-destructive/90 absolute -top-2 -right-2 rounded-full p-1 text-white shadow-sm'
                       disabled={deletingImageDate === date || isBusy}
                       onClick={() => {
                         if (isPending) {
@@ -318,20 +326,20 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
                       }}
                     >
                       {deletingImageDate === date ? (
-                        <Loader2 className="size-3 animate-spin" />
+                        <Loader2 className='size-3 animate-spin' />
                       ) : (
-                        <X className="size-3" />
+                        <X className='size-3' />
                       )}
                     </button>
                   </div>
                 ) : (
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-muted-foreground/30 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">
-                    <ImagePlus className="size-3.5" />
+                  <label className='border-muted-foreground/30 text-muted-foreground hover:border-primary/50 hover:text-primary inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-xs transition-colors'>
+                    <ImagePlus className='size-3.5' />
                     식단 사진 추가
                     <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      className="hidden"
+                      type='file'
+                      accept='image/jpeg,image/png,image/webp,image/gif'
+                      className='hidden'
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         if (f) setPendingImage(date, f);
@@ -343,12 +351,12 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
               </div>
 
               <Button
-                type="button"
-                size="sm"
+                type='button'
+                size='sm'
                 disabled={isBusy || !isDirty || !hasContent}
                 onClick={() => saveDate(date)}
               >
-                {isBusy ? <Loader2 className="size-4 animate-spin" /> : '저장'}
+                {isBusy ? <Loader2 className='size-4 animate-spin' /> : '저장'}
               </Button>
             </Card>
           );

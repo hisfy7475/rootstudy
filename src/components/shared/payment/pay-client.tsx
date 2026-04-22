@@ -1,21 +1,21 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { cancelPendingMealOrder } from "@/lib/actions/meal";
-import { NICEPAY_PGWEB_SCRIPT_SRC } from "@/lib/nicepay";
-import { isNativeApp } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { cancelPendingMealOrder } from '@/lib/actions/meal';
+import { NICEPAY_PGWEB_SCRIPT_SRC } from '@/lib/nicepay';
+import { isNativeApp } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 
 /** 네이티브 앱 URL scheme — studycafe-app/src/constants.ts의 URL_SCHEME과 동일해야 함 */
-const NATIVE_APP_SCHEME = "rootstudy://";
+const NATIVE_APP_SCHEME = 'rootstudy://';
 
 /** SSR/hydration 안전하게 네이티브 앱 scheme 반환. 서버: 빈 문자열, 클라이언트(네이티브 WebView): scheme. */
 const subscribeNoop = () => () => {};
-const getServerSchemeSnapshot = () => "";
-const getClientSchemeSnapshot = () => (isNativeApp() ? NATIVE_APP_SCHEME : "");
+const getServerSchemeSnapshot = () => '';
+const getClientSchemeSnapshot = () => (isNativeApp() ? NATIVE_APP_SCHEME : '');
 
 declare global {
   interface Window {
@@ -25,7 +25,7 @@ declare global {
   }
 }
 
-export type MealPaymentInit = {
+export type PaymentInit = {
   mid: string;
   ediDate: string;
   signData: string;
@@ -34,20 +34,24 @@ export type MealPaymentInit = {
   goodsNameShort: string;
 };
 
+/**
+ * NICEPay PG Web v3 결제창 클라이언트 (meal/exam 공용).
+ * 학생·학부모, 급식·모의고사 모든 결제 페이지에서 재사용된다.
+ */
 export function PayClient({
   paymentInit,
   returnUrl,
   mallReserved,
   backHref,
-  mealRowId,
+  orderRowId,
   displayAmount,
   displayGoodsName,
 }: {
-  paymentInit: MealPaymentInit | null;
+  paymentInit: PaymentInit | null;
   returnUrl: string;
-  mallReserved: "s" | "p";
+  mallReserved: 's' | 'p';
   backHref: string;
-  mealRowId: string;
+  orderRowId: string;
   displayAmount: number;
   displayGoodsName: string;
 }) {
@@ -64,7 +68,7 @@ export function PayClient({
   useEffect(() => {
     // 이전 마운트에서 이미 로드 완료된 경우 — window.goPay 존재로 판단.
     // queueMicrotask로 effect 본문 밖으로 빼서 cascading render lint 회피.
-    if (typeof window.goPay === "function") {
+    if (typeof window.goPay === 'function') {
       queueMicrotask(() => setScriptReady(true));
       return;
     }
@@ -72,14 +76,14 @@ export function PayClient({
     const existing = document.querySelector<HTMLScriptElement>('script[data-nicepay-pgweb="1"]');
     if (existing) {
       const onLoad = () => setScriptReady(true);
-      existing.addEventListener("load", onLoad, { once: true });
-      return () => existing.removeEventListener("load", onLoad);
+      existing.addEventListener('load', onLoad, { once: true });
+      return () => existing.removeEventListener('load', onLoad);
     }
     // 첫 마운트 — 스크립트 주입.
-    const s = document.createElement("script");
+    const s = document.createElement('script');
     s.src = NICEPAY_PGWEB_SCRIPT_SRC;
     s.async = true;
-    s.dataset.nicepayPgweb = "1";
+    s.dataset.nicepayPgweb = '1';
     s.onload = () => setScriptReady(true);
     document.body.appendChild(s);
   }, []);
@@ -91,7 +95,7 @@ export function PayClient({
     };
     window.nicepayClose = () => {
       setPaying(false);
-      alert("결제가 취소되었습니다.");
+      alert('결제가 취소되었습니다.');
     };
     return () => {
       delete window.nicepaySubmit;
@@ -101,15 +105,15 @@ export function PayClient({
 
   const startPay = useCallback(() => {
     if (!paymentInit) {
-      alert("결제 설정(NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY)을 확인해 주세요.");
+      alert('결제 설정(NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY)을 확인해 주세요.');
       return;
     }
-    if (!returnUrl.startsWith("http")) {
-      alert("NEXT_PUBLIC_SITE_URL(절대 URL)을 설정해 주세요.");
+    if (!returnUrl.startsWith('http')) {
+      alert('NEXT_PUBLIC_SITE_URL(절대 URL)을 설정해 주세요.');
       return;
     }
     if (!window.goPay) {
-      alert("결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      alert('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
     const form = formRef.current;
@@ -125,7 +129,7 @@ export function PayClient({
   }, [paymentInit, returnUrl]);
 
   const handleCancel = async () => {
-    await cancelPendingMealOrder(mealRowId);
+    await cancelPendingMealOrder(orderRowId);
     router.push(backHref);
   };
 
@@ -162,25 +166,25 @@ export function PayClient({
         </form>
       ) : null}
 
-      <Card className='p-4 space-y-2'>
-        <p className='text-sm text-muted-foreground'>결제 금액</p>
-        <p className='text-2xl font-bold'>{displayAmount.toLocaleString("ko-KR")}원</p>
+      <Card className='space-y-2 p-4'>
+        <p className='text-muted-foreground text-sm'>결제 금액</p>
+        <p className='text-2xl font-bold'>{displayAmount.toLocaleString('ko-KR')}원</p>
         <p className='text-sm font-medium'>{displayGoodsName}</p>
       </Card>
 
       {!paymentInit ? (
-        <p className='text-sm text-destructive'>
+        <p className='text-destructive text-sm'>
           결제 연동 정보가 없습니다. 서버 환경변수 NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY를
           확인해 주세요.
         </p>
       ) : !scriptReady ? (
-        <div className='flex items-center justify-center gap-2 text-muted-foreground text-sm py-8'>
-          <Loader2 className='w-4 h-4 animate-spin' />
+        <div className='text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm'>
+          <Loader2 className='h-4 w-4 animate-spin' />
           결제 준비 중…
         </div>
       ) : (
         <Button className='w-full' size='lg' disabled={paying} onClick={startPay}>
-          {paying ? "결제창 열림…" : "카드 결제하기"}
+          {paying ? '결제창 열림…' : '카드 결제하기'}
         </Button>
       )}
 

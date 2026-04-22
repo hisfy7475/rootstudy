@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "crypto";
+import { createHash, randomUUID } from 'crypto';
 
 /**
  * NICEPay PG Web v3 (developers.nicepay.co.kr)
@@ -9,45 +9,45 @@ import { createHash, randomUUID } from "crypto";
  */
 
 export const NICEPAY_PGWEB_SCRIPT_SRC =
-  "https://pg-web.nicepay.co.kr/v3/common/js/nicepay-pgweb.js";
+  'https://pg-web.nicepay.co.kr/v3/common/js/nicepay-pgweb.js';
 
-const CANCEL_PROCESS_URL = "https://pg-api.nicepay.co.kr/webapi/cancel_process.jsp";
+const CANCEL_PROCESS_URL = 'https://pg-api.nicepay.co.kr/webapi/cancel_process.jsp';
 
 /** 카드 승인 성공 ResultCode */
-export const NICEPAY_RESULT_CARD_APPROVED = "3001";
+export const NICEPAY_RESULT_CARD_APPROVED = '3001';
 
 /** 취소·망취소 성공 ResultCode (문서 예시) */
-export const NICEPAY_RESULT_CANCEL_OK = "2001";
+export const NICEPAY_RESULT_CANCEL_OK = '2001';
 
 export function sha256Hex(input: string): string {
-  return createHash("sha256").update(input, "utf8").digest("hex");
+  return createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
 /** KST 기준 YYYYMMDDHHmmss (나이스페이 EdiDate) */
 export function formatNicepayEdiDate(date: Date = new Date()): string {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   });
   const parts: Record<string, string> = {};
   for (const p of fmt.formatToParts(date)) {
-    if (p.type !== "literal") parts[p.type] = p.value;
+    if (p.type !== 'literal') parts[p.type] = p.value;
   }
   return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}${parts.second}`;
 }
 
 export function getNicepayMid(): string {
-  return process.env.NICEPAY_MID ?? process.env.NEXT_PUBLIC_NICEPAY_MID ?? "";
+  return process.env.NICEPAY_MID ?? process.env.NEXT_PUBLIC_NICEPAY_MID ?? '';
 }
 
 export function getNicepayMerchantKey(): string {
-  return process.env.NICEPAY_MERCHANT_KEY ?? "";
+  return process.env.NICEPAY_MERCHANT_KEY ?? '';
 }
 
 /** 결제창 요청 SignData: hex(sha256(EdiDate + MID + Amt + MerchantKey)) */
@@ -111,11 +111,11 @@ export function verifyApproveResponseSignature(
 }
 
 export function generateMealOrderId(): string {
-  return `MEAL-${randomUUID().replace(/-/g, "")}`;
+  return `MEAL-${randomUUID().replace(/-/g, '')}`;
 }
 
 export function generateExamOrderId(): string {
-  return `EXAM-${randomUUID().replace(/-/g, "")}`;
+  return `EXAM-${randomUUID().replace(/-/g, '')}`;
 }
 
 export type NicepayV3Response = {
@@ -191,17 +191,17 @@ export async function approvePayment(
     Amt: args.amt,
     EdiDate: ediDate,
     SignData: signData,
-    CharSet: "utf-8",
-    EdiType: "JSON",
+    CharSet: 'utf-8',
+    EdiType: 'JSON',
   });
 
   let httpOk = false;
-  let rawText = "";
+  let rawText = '';
   try {
     const res = await fetch(nextAppUrl, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
       },
       body,
       signal: options?.signal,
@@ -209,7 +209,7 @@ export async function approvePayment(
     httpOk = res.ok;
     rawText = await res.text();
   } catch {
-    rawText = "";
+    rawText = '';
     httpOk = false;
   }
 
@@ -250,18 +250,18 @@ export async function netcancelPayment(
     Amt: args.amt,
     EdiDate: args.ediDate,
     SignData: args.signData,
-    NetCancel: "1",
-    CharSet: "utf-8",
-    EdiType: "JSON",
+    NetCancel: '1',
+    CharSet: 'utf-8',
+    EdiType: 'JSON',
   });
 
   let httpOk = false;
-  let rawText = "";
+  let rawText = '';
   try {
     const res = await fetch(netCancelUrl, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
       },
       body,
       signal: options?.signal,
@@ -269,7 +269,7 @@ export async function netcancelPayment(
     httpOk = res.ok;
     rawText = await res.text();
   } catch {
-    rawText = "";
+    rawText = '';
     httpOk = false;
   }
 
@@ -277,11 +277,11 @@ export async function netcancelPayment(
 }
 
 export function isCardApproveSuccess(res: NicepayV3Response): boolean {
-  return String(res.ResultCode ?? "") === NICEPAY_RESULT_CARD_APPROVED;
+  return String(res.ResultCode ?? '') === NICEPAY_RESULT_CARD_APPROVED;
 }
 
 export function isCancelSuccess(res: NicepayV3Response): boolean {
-  return String(res.ResultCode ?? "") === NICEPAY_RESULT_CANCEL_OK;
+  return String(res.ResultCode ?? '') === NICEPAY_RESULT_CANCEL_OK;
 }
 
 export type CancelPaymentResult = {
@@ -300,10 +300,10 @@ export async function cancelPayment(
     merchantKey: string;
     /** 숫자만 문자열 (예 "10000") */
     cancelAmt: string;
-    /** 가맹점 주문번호 — 급식은 meal_orders.order_id 사용 */
+    /** 가맹점 주문번호 — meal_orders.order_id 사용 (meal/exam 공용) */
     moid: string;
     cancelMsg: string;
-    partialCancelCode?: "0" | "1";
+    partialCancelCode?: '0' | '1';
   },
   options?: { signal?: AbortSignal },
 ): Promise<CancelPaymentResult> {
@@ -316,20 +316,20 @@ export async function cancelPayment(
     Moid: args.moid,
     CancelAmt: args.cancelAmt,
     CancelMsg: args.cancelMsg,
-    PartialCancelCode: args.partialCancelCode ?? "0",
+    PartialCancelCode: args.partialCancelCode ?? '0',
     EdiDate: ediDate,
     SignData: signData,
-    CharSet: "utf-8",
-    EdiType: "JSON",
+    CharSet: 'utf-8',
+    EdiType: 'JSON',
   });
 
   let httpOk = false;
-  let rawText = "";
+  let rawText = '';
   try {
     const res = await fetch(CANCEL_PROCESS_URL, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
       },
       body,
       signal: options?.signal,
@@ -337,7 +337,7 @@ export async function cancelPayment(
     httpOk = res.ok;
     rawText = await res.text();
   } catch {
-    rawText = "";
+    rawText = '';
     httpOk = false;
   }
 
@@ -345,7 +345,8 @@ export async function cancelPayment(
 }
 
 /**
- * 급식 결제창용 서버에서만 계산 가능한 필드 + 공개 MID
+ * 결제창용 서버에서만 계산 가능한 필드 + 공개 MID (meal/exam 공용).
+ * 함수명은 historical — meal_orders 테이블을 공유하므로 그대로 유지.
  */
 export function buildMealPaymentWindowParams(input: {
   orderId: string;

@@ -1,18 +1,18 @@
-"use client";
+'use client';
 
-import { useRef, useState } from "react";
-import Link from "next/link";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useRef, useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   createMealProduct,
   uploadMealProductImage,
   type MealProductAdminInput,
-} from "@/lib/actions/meal";
-import { ArrowLeft, ImagePlus, Loader2, X } from "lucide-react";
+} from '@/lib/actions/meal';
+import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
 
 export function AdminMealsNewClient() {
   const router = useRouter();
@@ -22,16 +22,16 @@ export function AdminMealsNewClient() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [form, setForm] = useState({
-    name: "",
-    meal_type: "lunch" as "lunch" | "dinner",
-    price: "",
-    sale_start_date: "",
-    sale_end_date: "",
-    meal_start_date: "",
-    meal_end_date: "",
-    max_capacity: "" as string,
-    description: "",
-    status: "active" as MealProductAdminInput["status"],
+    name: '',
+    meal_type: 'lunch' as 'lunch' | 'dinner',
+    price: '',
+    sale_start_date: '',
+    sale_end_date: '',
+    product_start_date: '',
+    product_end_date: '',
+    max_capacity: '' as string,
+    description: '',
+    status: 'active' as MealProductAdminInput['status'],
   });
 
   const handleImageSelect = (file: File) => {
@@ -43,35 +43,35 @@ export function AdminMealsNewClient() {
     setImageFile(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
-    if (imageInputRef.current) imageInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = '';
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const price = Number(form.price.replace(/,/g, ""));
+    const price = Number(form.price.replace(/,/g, ''));
     if (!form.name.trim()) {
-      setError("상품명을 입력하세요.");
+      setError('상품명을 입력하세요.');
       return;
     }
     if (Number.isNaN(price) || price < 0) {
-      setError("가격을 올바르게 입력하세요.");
+      setError('가격을 올바르게 입력하세요.');
       return;
     }
     if (
       !form.sale_start_date ||
       !form.sale_end_date ||
-      !form.meal_start_date ||
-      !form.meal_end_date
+      !form.product_start_date ||
+      !form.product_end_date
     ) {
-      setError("날짜를 모두 입력하세요.");
+      setError('날짜를 모두 입력하세요.');
       return;
     }
 
     const maxRaw = form.max_capacity.trim();
-    const max_capacity = maxRaw === "" ? null : Number(maxRaw);
+    const max_capacity = maxRaw === '' ? null : Number(maxRaw);
     if (max_capacity != null && (Number.isNaN(max_capacity) || max_capacity <= 0)) {
-      setError("정원은 양의 정수이거나 비워 두세요(무제한).");
+      setError('정원은 양의 정수이거나 비워 두세요(무제한).');
       return;
     }
 
@@ -82,14 +82,14 @@ export function AdminMealsNewClient() {
       price,
       sale_start_date: form.sale_start_date,
       sale_end_date: form.sale_end_date,
-      meal_start_date: form.meal_start_date,
-      meal_end_date: form.meal_end_date,
+      product_start_date: form.product_start_date,
+      product_end_date: form.product_end_date,
       max_capacity,
       description: form.description.trim() || null,
       status: form.status,
     };
 
-    const res = await createMealProduct(payload, "meal");
+    const res = await createMealProduct(payload, 'meal');
 
     if (res.error) {
       setLoading(false);
@@ -99,7 +99,7 @@ export function AdminMealsNewClient() {
 
     if (res.data && imageFile) {
       const fd = new FormData();
-      fd.append("file", imageFile);
+      fd.append('file', imageFile);
       const uploadRes = await uploadMealProductImage(res.data.id, fd);
       if (uploadRes.error) {
         setLoading(false);
@@ -120,7 +120,7 @@ export function AdminMealsNewClient() {
         <Link
           href='/admin/meals'
           aria-label='목록'
-          className='text-text hover:bg-gray-100 inline-flex items-center justify-center rounded-2xl p-2 focus:ring-2 focus:ring-gray-300 focus:outline-none'
+          className='text-text inline-flex items-center justify-center rounded-2xl p-2 hover:bg-gray-100 focus:ring-2 focus:ring-gray-300 focus:outline-none'
         >
           <ArrowLeft className='size-5' />
         </Link>
@@ -153,7 +153,7 @@ export function AdminMealsNewClient() {
               className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
               value={form.meal_type}
               onChange={(e) =>
-                setForm((f) => ({ ...f, meal_type: e.target.value as "lunch" | "dinner" }))
+                setForm((f) => ({ ...f, meal_type: e.target.value as 'lunch' | 'dinner' }))
               }
             >
               <option value='lunch'>중식</option>
@@ -198,8 +198,8 @@ export function AdminMealsNewClient() {
               <label className='mb-1 block text-sm font-medium'>식사 시작</label>
               <Input
                 type='date'
-                value={form.meal_start_date}
-                onChange={(e) => setForm((f) => ({ ...f, meal_start_date: e.target.value }))}
+                value={form.product_start_date}
+                onChange={(e) => setForm((f) => ({ ...f, product_start_date: e.target.value }))}
                 required
               />
             </div>
@@ -207,8 +207,8 @@ export function AdminMealsNewClient() {
               <label className='mb-1 block text-sm font-medium'>식사 종료</label>
               <Input
                 type='date'
-                value={form.meal_end_date}
-                onChange={(e) => setForm((f) => ({ ...f, meal_end_date: e.target.value }))}
+                value={form.product_end_date}
+                onChange={(e) => setForm((f) => ({ ...f, product_end_date: e.target.value }))}
                 required
               />
             </div>
@@ -233,7 +233,7 @@ export function AdminMealsNewClient() {
               onChange={(e) =>
                 setForm((f) => ({
                   ...f,
-                  status: e.target.value as MealProductAdminInput["status"],
+                  status: e.target.value as MealProductAdminInput['status'],
                 }))
               }
             >
@@ -255,7 +255,7 @@ export function AdminMealsNewClient() {
           <div>
             <label className='mb-1 block text-sm font-medium'>대표 이미지 (선택)</label>
             <div
-              className='relative flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/25 transition-colors hover:border-primary/50'
+              className='border-muted-foreground/25 hover:border-primary/50 relative flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors'
               onClick={() => imageInputRef.current?.click()}
             >
               {imagePreview ? (
@@ -268,7 +268,7 @@ export function AdminMealsNewClient() {
                   unoptimized
                 />
               ) : (
-                <div className='flex flex-col items-center gap-2 py-8 text-muted-foreground'>
+                <div className='text-muted-foreground flex flex-col items-center gap-2 py-8'>
                   <ImagePlus className='size-8' />
                   <span className='text-sm'>클릭하여 이미지 선택</span>
                   <span className='text-xs'>JPG, PNG, WebP, GIF (최대 5MB)</span>
@@ -289,7 +289,7 @@ export function AdminMealsNewClient() {
               <button
                 type='button'
                 onClick={clearImage}
-                className='mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive'
+                className='text-muted-foreground hover:text-destructive mt-1 inline-flex items-center gap-1 text-xs'
               >
                 <X className='size-3' /> 이미지 제거
               </button>
@@ -298,11 +298,11 @@ export function AdminMealsNewClient() {
 
           <div className='flex gap-2 pt-2'>
             <Button type='submit' disabled={loading}>
-              {loading ? <Loader2 className='size-4 animate-spin' /> : "등록"}
+              {loading ? <Loader2 className='size-4 animate-spin' /> : '등록'}
             </Button>
             <Link
               href='/admin/meals'
-              className='border-primary text-primary hover:bg-primary/10 inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-base font-medium transition-all focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none'
+              className='border-primary text-primary hover:bg-primary/10 focus:ring-primary inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-base font-medium transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
             >
               취소
             </Link>
