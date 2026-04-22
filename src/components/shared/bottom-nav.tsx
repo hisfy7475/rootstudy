@@ -1,20 +1,19 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/supabase/client';
-import { getStudentUnreadChatCount, getParentUnreadChatCount } from '@/lib/actions/chat';
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { getStudentUnreadChatCount, getParentUnreadChatCount } from "@/lib/actions/chat";
 import {
   Home,
   MessageCircle,
   CalendarClock,
   BarChart3,
   LayoutGrid,
-  GraduationCap,
   type LucideIcon,
-} from 'lucide-react';
+} from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -22,54 +21,56 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// 학생: 홈 · 스케줄 · 통계 · 채팅 · 더보기(리포트·상벌점 등)
+// 학생: 홈 · 스케줄 · 통계 · 채팅 · 더보기(멘토링·급식·리포트·상벌점 등)
 const studentNavItems: NavItem[] = [
-  { href: '', label: '홈', icon: Home },
-  { href: '/schedule', label: '스케줄', icon: CalendarClock },
-  { href: '/stats', label: '통계', icon: BarChart3 },
-  // { href: '/mentoring', label: '멘토링', icon: GraduationCap },
-  { href: '/chat', label: '채팅', icon: MessageCircle },
-  { href: '/more', label: '더보기', icon: LayoutGrid },
+  { href: "", label: "홈", icon: Home },
+  { href: "/schedule", label: "스케줄", icon: CalendarClock },
+  { href: "/stats", label: "통계", icon: BarChart3 },
+  { href: "/chat", label: "채팅", icon: MessageCircle },
+  { href: "/more", label: "더보기", icon: LayoutGrid },
 ];
 
 const studentMorePathPrefixes = [
-  '/more',
-  // '/meals',
-  '/report',
-  '/points',
-  '/announcements',
-  '/notifications',
-  '/settings',
-  '/focus',
-  '/subject',
+  "/more",
+  "/mentoring",
+  "/meals",
+  "/mock-exams",
+  "/report",
+  "/points",
+  "/announcements",
+  "/notifications",
+  "/settings",
+  "/focus",
+  "/subject",
 ];
 
-// 학부모: 홈 · 스케줄 · 채팅 · 더보기(리포트·설정 등)
+// 학부모: 홈 · 스케줄 · 채팅 · 더보기(멘토링·급식·리포트·설정 등)
 const parentNavItems: NavItem[] = [
-  { href: '', label: '홈', icon: Home },
-  { href: '/schedule', label: '스케줄', icon: CalendarClock },
-  // { href: '/mentoring', label: '멘토링', icon: GraduationCap },
-  { href: '/chat', label: '채팅', icon: MessageCircle },
-  { href: '/more', label: '더보기', icon: LayoutGrid },
+  { href: "", label: "홈", icon: Home },
+  { href: "/schedule", label: "스케줄", icon: CalendarClock },
+  { href: "/chat", label: "채팅", icon: MessageCircle },
+  { href: "/more", label: "더보기", icon: LayoutGrid },
 ];
 
 const parentMorePathPrefixes = [
-  '/more',
-  // '/meals',
-  '/report',
-  '/settings',
-  '/announcements',
+  "/more",
+  "/mentoring",
+  "/meals",
+  "/mock-exams",
+  "/report",
+  "/settings",
+  "/announcements",
 ];
 
 interface BottomNavProps {
-  userType: 'student' | 'parent';
+  userType: "student" | "parent";
   basePath?: string;
   initialUnreadChatCount?: number;
 }
 
-export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 }: BottomNavProps) {
+export function BottomNav({ userType, basePath = "", initialUnreadChatCount = 0 }: BottomNavProps) {
   const pathname = usePathname();
-  const navItems = userType === 'student' ? studentNavItems : parentNavItems;
+  const navItems = userType === "student" ? studentNavItems : parentNavItems;
   const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
 
   useEffect(() => {
@@ -81,19 +82,17 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
 
     const fetchUnreadCount = async () => {
       const { count } =
-        userType === 'student'
+        userType === "student"
           ? await getStudentUnreadChatCount()
           : await getParentUnreadChatCount();
       setUnreadChatCount(count);
     };
 
     const channel = supabase
-      .channel('bottom-nav-chat-unread')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_messages' },
-        () => { fetchUnreadCount(); }
-      )
+      .channel("bottom-nav-chat-unread")
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => {
+        fetchUnreadCount();
+      })
       .subscribe();
 
     return () => {
@@ -102,22 +101,22 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
   }, [userType]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-gray-100 shadow-lg pb-safe">
-      <div className="max-w-lg mx-auto px-2">
-        <ul className="flex justify-around items-center">
+    <nav className='fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-gray-100 shadow-lg pb-safe'>
+      <div className='max-w-lg mx-auto px-2'>
+        <ul className='flex justify-around items-center'>
           {navItems.map((item) => {
             const fullPath = basePath + item.href;
             const isMoreTab =
-              item.href === '/more' &&
-              (userType === 'student'
+              item.href === "/more" &&
+              (userType === "student"
                 ? studentMorePathPrefixes.some((p) => pathname.startsWith(basePath + p))
                 : parentMorePathPrefixes.some((p) => pathname.startsWith(basePath + p)));
             const isActive =
               isMoreTab ||
               pathname === fullPath ||
-              (item.href !== '' && item.href !== '/more' && pathname.startsWith(fullPath));
+              (item.href !== "" && item.href !== "/more" && pathname.startsWith(fullPath));
             const Icon = item.icon;
-            const isChatItem = item.href === '/chat';
+            const isChatItem = item.href === "/chat";
             const showBadge = isChatItem && unreadChatCount > 0;
 
             return (
@@ -125,30 +124,26 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
                 <Link
                   href={fullPath}
                   className={cn(
-                    'flex flex-col items-center py-3 px-3 transition-all duration-200',
-                    'min-w-[60px]',
-                    isActive
-                      ? 'text-primary'
-                      : 'text-text-muted hover:text-text'
+                    "flex flex-col items-center py-3 px-3 transition-all duration-200",
+                    "min-w-[60px]",
+                    "active:scale-90 active:opacity-60",
+                    isActive ? "text-primary" : "text-text-muted hover:text-text",
                   )}
                 >
-                  <div className="relative mb-1">
+                  <div className='relative mb-1'>
                     <Icon
                       className={cn(
-                        'w-6 h-6 transition-transform duration-200',
-                        isActive && 'scale-110'
+                        "w-6 h-6 transition-transform duration-200",
+                        isActive && "scale-110",
                       )}
                     />
                     {showBadge && (
-                      <span className="absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                        {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                      <span className='absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none'>
+                        {unreadChatCount > 99 ? "99+" : unreadChatCount}
                       </span>
                     )}
                   </div>
-                  <span className={cn(
-                    'text-xs font-medium',
-                    isActive && 'font-semibold'
-                  )}>
+                  <span className={cn("text-xs font-medium", isActive && "font-semibold")}>
                     {item.label}
                   </span>
                 </Link>

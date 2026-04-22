@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "app": "npm run --prefix studycafe-app start",
     "app:ios": "npm run --prefix studycafe-app ios",
     "app:android": "npm run --prefix studycafe-app android",
@@ -35,6 +37,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.4",
     "mssql": "^12.2.0",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.7.2",
     "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"

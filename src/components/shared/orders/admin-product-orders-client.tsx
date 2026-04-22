@@ -4,7 +4,12 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { adminCancelMealOrder, type MealOrderForAdmin, type MealOrderAdminFilter } from '@/lib/actions/meal';
+import {
+  adminCancelMealOrder,
+  type MealOrderForAdmin,
+  type MealOrderAdminFilter,
+  type ProductCategory,
+} from '@/lib/actions/meal';
 import type { MealProduct } from '@/types/database';
 import { Download, Loader2 } from 'lucide-react';
 import { cn, getTodayKST } from '@/lib/utils';
@@ -19,12 +24,17 @@ const statusLabel: Record<string, string> = {
   failed: '실패',
 };
 
-interface AdminMealOrdersClientProps {
+interface Props {
   product: MealProduct;
   initialOrders: MealOrderForAdmin[];
+  category: ProductCategory;
 }
 
-export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrdersClientProps) {
+/**
+ * 관리자 상품별 주문 현황 (meal/exam 공용).
+ * category 로 상세 링크·Excel 컬럼·파일명·취소 placeholder 를 분기.
+ */
+export function AdminProductOrdersClient({ product, initialOrders, category }: Props) {
   const [orders, setOrders] = useState(initialOrders);
   const [statusTab, setStatusTab] = useState<StatusTab>('all');
   const [cancelId, setCancelId] = useState<string | null>(null);
@@ -32,6 +42,15 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
   const [cancelLoading, setCancelLoading] = useState(false);
   const [flash, setFlash] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  const isExam = category === 'exam';
+  const detailHref = `/admin/${isExam ? 'mock-exams' : 'meals'}/${product.id}`;
+  const startLabel = isExam ? '시험시작일' : '식사시작일';
+  const endLabel = isExam ? '시험종료일' : '식사종료일';
+  const filePrefix = isExam ? '모의고사신청' : '급식신청';
+  const cancelReasonPlaceholder = isExam
+    ? '취소 사유 (예: 일정 변경)'
+    : '취소 사유 (예: 수량 조정)';
 
   const paidCount = useMemo(() => orders.filter((o) => o.status === 'paid').length, [orders]);
 
@@ -66,8 +85,8 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
               cancelled_at: new Date().toISOString(),
               cancel_reason: reason,
             }
-          : o
-      )
+          : o,
+      ),
     );
     setCancelId(null);
     setFlash({ type: 'ok', text: '취소 처리되었습니다.' });
@@ -93,8 +112,8 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
           ? new Date(o.cancelled_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
           : '',
         취소사유: o.cancel_reason ?? '',
-        식사시작일: product.meal_start_date,
-        식사종료일: product.meal_end_date,
+        [startLabel]: product.product_start_date,
+        [endLabel]: product.product_end_date,
       }));
 
       const XLSX = await import('xlsx');
@@ -103,12 +122,12 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
       const colWidths = Object.keys(rows[0]).map((key) => ({
         wch: Math.max(
           key.length * 2,
-          ...rows.map((row) => String((row as Record<string, unknown>)[key] ?? '').length * 1.2)
+          ...rows.map((row) => String((row as Record<string, unknown>)[key] ?? '').length * 1.2),
         ),
       }));
       ws['!cols'] = colWidths;
       XLSX.utils.book_append_sheet(wb, ws, '신청현황');
-      XLSX.writeFile(wb, `급식신청_${product.name}_${getTodayKST()}.xlsx`);
+      XLSX.writeFile(wb, `${filePrefix}_${product.name}_${getTodayKST()}.xlsx`);
     } finally {
       setExporting(false);
     }
@@ -124,24 +143,28 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className='space-y-6'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
         <div>
-          <h1 className="text-2xl font-bold">신청 현황</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
+          <h1 className='text-2xl font-bold'>신청 현황</h1>
+          <p className='text-muted-foreground mt-1 text-sm'>
             {product.name} · 결제 완료 {paidCount}건
             {product.max_capacity != null ? ` / 정원 ${product.max_capacity}명` : ''}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className='flex flex-wrap gap-2'>
           <Link
-            href={`/admin/meals/${product.id}`}
-            className="border-primary text-primary hover:bg-primary/10 inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-sm font-medium transition-all focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none"
+            href={detailHref}
+            className='border-primary text-primary hover:bg-primary/10 focus:ring-primary inline-flex items-center justify-center rounded-2xl border-2 px-5 py-2.5 text-sm font-medium transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
           >
             상품 정보
           </Link>
-          <Button variant="outline" disabled={exporting} onClick={() => void exportXlsx()}>
-            {exporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}
+          <Button variant='outline' disabled={exporting} onClick={() => void exportXlsx()}>
+            {exporting ? (
+              <Loader2 className='mr-2 size-4 animate-spin' />
+            ) : (
+              <Download className='mr-2 size-4' />
+            )}
             Excel
           </Button>
         </div>
@@ -159,17 +182,17 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className='flex flex-wrap gap-2'>
         {tabs.map((t) => (
           <button
             key={t.key ?? 'all'}
-            type="button"
+            type='button'
             onClick={() => setStatusTab(t.key)}
             className={cn(
               'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
               statusTab === t.key
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80',
             )}
           >
             {t.label}
@@ -177,36 +200,36 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
         ))}
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b text-left">
+      <Card className='overflow-hidden'>
+        <div className='overflow-x-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-muted/50 border-b text-left'>
               <tr>
-                <th className="p-3 font-medium">학생</th>
-                <th className="p-3 font-medium">결제자</th>
-                <th className="p-3 font-medium">상태</th>
-                <th className="p-3 font-medium">금액</th>
-                <th className="p-3 font-medium">결제일</th>
-                <th className="p-3 font-medium">관리</th>
+                <th className='p-3 font-medium'>학생</th>
+                <th className='p-3 font-medium'>결제자</th>
+                <th className='p-3 font-medium'>상태</th>
+                <th className='p-3 font-medium'>금액</th>
+                <th className='p-3 font-medium'>결제일</th>
+                <th className='p-3 font-medium'>관리</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-muted-foreground p-8 text-center">
+                  <td colSpan={6} className='text-muted-foreground p-8 text-center'>
                     내역이 없습니다.
                   </td>
                 </tr>
               ) : (
                 filtered.map((o) => (
-                  <tr key={o.id} className="border-b last:border-0">
-                    <td className="p-3">{o.student_name ?? o.student_id.slice(0, 8)}</td>
-                    <td className="p-3">{o.payer_name ?? o.user_id.slice(0, 8)}</td>
-                    <td className="p-3">
-                      <span className="text-xs">{statusLabel[o.status] ?? o.status}</span>
+                  <tr key={o.id} className='border-b last:border-0'>
+                    <td className='p-3'>{o.student_name ?? o.student_id.slice(0, 8)}</td>
+                    <td className='p-3'>{o.payer_name ?? o.user_id.slice(0, 8)}</td>
+                    <td className='p-3'>
+                      <span className='text-xs'>{statusLabel[o.status] ?? o.status}</span>
                     </td>
-                    <td className="p-3">{o.amount.toLocaleString()}원</td>
-                    <td className="p-3 whitespace-nowrap text-xs">
+                    <td className='p-3'>{o.amount.toLocaleString()}원</td>
+                    <td className='p-3 text-xs whitespace-nowrap'>
                       {o.paid_at
                         ? new Date(o.paid_at).toLocaleString('ko-KR', {
                             timeZone: 'Asia/Seoul',
@@ -217,13 +240,18 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
                           })
                         : '-'}
                     </td>
-                    <td className="p-3">
+                    <td className='p-3'>
                       {o.status === 'paid' ? (
-                        <Button type="button" variant="outline" size="sm" onClick={() => openCancel(o.id)}>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => openCancel(o.id)}
+                        >
                           취소/환불
                         </Button>
                       ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
+                        <span className='text-muted-foreground text-xs'>-</span>
                       )}
                     </td>
                   </tr>
@@ -235,23 +263,33 @@ export function AdminMealOrdersClient({ product, initialOrders }: AdminMealOrder
       </Card>
 
       {cancelId != null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-md p-6 shadow-lg">
-            <h2 className="text-lg font-semibold">관리자 취소·환불</h2>
-            <p className="text-muted-foreground mt-2 text-sm">나이스페이 취소 API가 호출됩니다.</p>
-            <label className="mt-4 block text-sm font-medium">사유</label>
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
+          <Card className='max-w-md p-6 shadow-lg'>
+            <h2 className='text-lg font-semibold'>관리자 취소·환불</h2>
+            <p className='text-muted-foreground mt-2 text-sm'>나이스페이 취소 API가 호출됩니다.</p>
+            <label className='mt-4 block text-sm font-medium'>사유</label>
             <textarea
-              className="border-input bg-background mt-1 min-h-[80px] w-full rounded-md border px-3 py-2 text-sm"
+              className='border-input bg-background mt-1 min-h-[80px] w-full rounded-md border px-3 py-2 text-sm'
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="취소 사유 (예: 수량 조정)"
+              placeholder={cancelReasonPlaceholder}
             />
-            <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setCancelId(null)} disabled={cancelLoading}>
+            <div className='mt-4 flex justify-end gap-2'>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => setCancelId(null)}
+                disabled={cancelLoading}
+              >
                 닫기
               </Button>
-              <Button type="button" variant="danger" disabled={cancelLoading} onClick={() => void submitCancel()}>
-                {cancelLoading ? <Loader2 className="size-4 animate-spin" /> : '확인'}
+              <Button
+                type='button'
+                variant='danger'
+                disabled={cancelLoading}
+                onClick={() => void submitCancel()}
+              >
+                {cancelLoading ? <Loader2 className='size-4 animate-spin' /> : '확인'}
               </Button>
             </div>
           </Card>

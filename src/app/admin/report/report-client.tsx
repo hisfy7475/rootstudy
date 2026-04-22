@@ -103,6 +103,7 @@ export function AdminReportClient({
     { report: ImmersionReportData; trend: WeeklyTrendPoint[] }[] | null
   >(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [saveHint, setSaveHint] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<'report' | 'templates'>('report');
   const [templateRows, setTemplateRows] = useState<CounselingTemplateDTO[]>(
@@ -325,17 +326,27 @@ export function AdminReportClient({
       return;
     }
     setBulkLoading(true);
+    setBulkProgress({ done: 0, total: ids.length });
     try {
-      const results = await Promise.all(
-        ids.map(async (id) => {
-          const [r, t] = await Promise.all([
-            getImmersionReportData(id, weekStart),
-            getWeeklyStudyTrend(id, 8),
-          ]);
-          return r ? { report: r, trend: t } : null;
-        })
-      );
-      const ok = results.filter(
+      const BATCH = 3;
+      let completed = 0;
+      const allResults: ({ report: ImmersionReportData; trend: WeeklyTrendPoint[] } | null)[] = [];
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const chunk = ids.slice(i, i + BATCH);
+        const batch = await Promise.all(
+          chunk.map(async (id) => {
+            const [r, t] = await Promise.all([
+              getImmersionReportData(id, weekStart),
+              getWeeklyStudyTrend(id, 8),
+            ]);
+            completed++;
+            setBulkProgress({ done: completed, total: ids.length });
+            return r ? { report: r, trend: t } : null;
+          })
+        );
+        allResults.push(...batch);
+      }
+      const ok = allResults.filter(
         (x): x is { report: ImmersionReportData; trend: WeeklyTrendPoint[] } =>
           x != null
       );
@@ -657,10 +668,26 @@ export function AdminReportClient({
                   ) : (
                     <Printer className="w-4 h-4" />
                   )}
-                  일괄 출력
+                  {bulkLoading
+                    ? `${bulkProgress.done}/${bulkProgress.total}`
+                    : '일괄 출력'}
                 </Button>
               </div>
             </div>
+            {bulkLoading && bulkProgress.total > 0 && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-text-muted">
+                  <span>리포트 생성 중…</span>
+                  <span>{bulkProgress.done}/{bulkProgress.total}명 ({Math.round((bulkProgress.done / bulkProgress.total) * 100)}%)</span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                    style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
             {saveHint && (
               <p className="mt-3 text-xs text-primary">{saveHint}</p>
             )}

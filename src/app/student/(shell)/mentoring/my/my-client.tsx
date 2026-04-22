@@ -4,11 +4,9 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  cancelMentoringApplication,
-  type MentoringApplicationWithDetails,
-} from '@/lib/actions/mentoring';
-import { cn, mentoringSlotStartMs } from '@/lib/utils';
+import { cancelMentoringApplication } from '@/lib/actions/mentoring';
+import { mentoringSlotStartMs, type MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
+import { cn } from '@/lib/utils';
 
 type Tab = 'all' | 'pending' | 'confirmed' | 'ended';
 

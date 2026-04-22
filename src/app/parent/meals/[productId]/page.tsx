@@ -1,13 +1,15 @@
-import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
-import { ChevronLeft } from 'lucide-react';
-import { getLinkedStudents } from '@/lib/actions/parent';
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+import { getLinkedStudents } from "@/lib/actions/parent";
 import {
   getMealProductDetail,
   getMealMenus,
   getPaidOrderCountForProduct,
-} from '@/lib/actions/meal';
-import { ProductDetailClient } from '@/app/student/(shell)/meals/[productId]/product-detail-client';
+  getExistingPendingOrder,
+  getExistingPaidOrder,
+} from "@/lib/actions/meal";
+import { ProductDetailClient } from "@/app/student/(shell)/meals/[productId]/product-detail-client";
 
 export default async function ParentMealProductPage({
   params,
@@ -23,27 +25,29 @@ export default async function ParentMealProductPage({
   const students = await getLinkedStudents();
   const allowed = forStudentId && students.some((s) => s.id === forStudentId);
   if (!allowed) {
-    redirect('/parent/meals');
+    redirect("/parent/meals");
   }
 
-  const product = await getMealProductDetail(productId);
+  const product = await getMealProductDetail(productId, "meal");
   if (!product) notFound();
 
-  const [menus, paidCount] = await Promise.all([
+  const [menus, paidCount, pendingOrder, paidOrder] = await Promise.all([
     getMealMenus(productId),
     getPaidOrderCountForProduct(productId),
+    getExistingPendingOrder(productId, forStudentId!),
+    getExistingPaidOrder(productId, forStudentId!),
   ]);
 
   const capacityLeft =
     product.max_capacity != null ? Math.max(0, product.max_capacity - paidCount) : null;
 
   return (
-    <div className="px-4 pt-2 pb-6">
+    <div className='px-4 pt-2 pb-6'>
       <Link
-        href="/parent/meals"
-        className="inline-flex items-center text-sm text-muted-foreground mb-3 gap-1"
+        href='/parent/meals'
+        className='inline-flex items-center text-sm text-muted-foreground mb-3 gap-1'
       >
-        <ChevronLeft className="w-4 h-4" />
+        <ChevronLeft className='w-4 h-4' />
         목록
       </Link>
       <ProductDetailClient
@@ -52,7 +56,9 @@ export default async function ParentMealProductPage({
         capacityLeft={capacityLeft}
         payBasePath={`/parent/meals/pay`}
         studentId={forStudentId!}
-        backHref="/parent/meals"
+        backHref='/parent/meals'
+        pendingOrder={pendingOrder}
+        paidOrder={paidOrder}
       />
     </div>
   );

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createAdminClient } from '@/lib/supabase/server';
 import {
   approvePayment,
@@ -12,6 +13,8 @@ import {
 } from '@/lib/nicepay';
 import { sendPushToUser } from '@/lib/push';
 
+type OrderCategory = 'meal' | 'exam';
+
 function pickForm(formData: FormData, ...keys: string[]): string {
   for (const k of keys) {
     const v = formData.get(k);
@@ -20,25 +23,36 @@ function pickForm(formData: FormData, ...keys: string[]): string {
   return '';
 }
 
-function siteOrigin(request: Request): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
-    new URL(request.url).origin
-  );
+function categoryFromOrderId(orderId: string | undefined | null): OrderCategory {
+  return orderId && orderId.startsWith('EXAM-') ? 'exam' : 'meal';
+}
+
+function categorySlug(category: OrderCategory): string {
+  return category === 'exam' ? 'mock-exams' : 'meals';
 }
 
 function redirectResult(
   request: Request,
   role: 'student' | 'parent',
-  params: Record<string, string>
+  category: OrderCategory,
+  params: Record<string, string>,
 ): NextResponse {
-  const base = siteOrigin(request);
-  const path = role === 'parent' ? '/parent/meals/pay/result' : '/student/meals/pay/result';
+  // 요청이 들어온 호스트(request.url.origin) 그대로 리다이렉트 — NEXT_PUBLIC_SITE_URL 에 의존하면
+  // env 호스트와 실제 접속 호스트가 달라졌을 때(localhost vs LAN IP 등) 세션 쿠키 도메인이 어긋나
+  // /student 보호 경로에서 /login 으로 튕긴다.
+  const base = new URL(request.url).origin;
+  const slug = categorySlug(category);
+  const path = role === 'parent' ? `/parent/${slug}/pay/result` : `/student/${slug}/pay/result`;
   const u = new URL(path, base);
   for (const [k, v] of Object.entries(params)) {
     u.searchParams.set(k, v);
   }
-  return NextResponse.redirect(u.toString());
+  const dest = u.toString();
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script></head><body></body></html>`;
+  return new NextResponse(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
 }
 
 type MealOrderRow = {
@@ -57,15 +71,18 @@ export async function POST(request: Request) {
   try {
     formData = await request.formData();
   } catch {
-    return redirectResult(request, 'student', { fail: '1', reason: 'invalid_body' });
+    return redirectResult(request, 'student', 'meal', { fail: '1', reason: 'invalid_body' });
   }
 
   const reqReserved = pickForm(formData, 'ReqReserved', 'reqReserved');
   const role: 'student' | 'parent' = reqReserved === 'p' ? 'parent' : 'student';
 
+  const orderId = pickForm(formData, 'Moid', 'moid');
+  const category: OrderCategory = categoryFromOrderId(orderId);
+
   const authResultCode = pickForm(formData, 'AuthResultCode', 'authResultCode');
   if (authResultCode !== '0000') {
-    return redirectResult(request, role, {
+    return redirectResult(request, role, category, {
       fail: '1',
       code: authResultCode || 'unknown',
       msg: encodeURIComponent(pickForm(formData, 'AuthResultMsg', 'authResultMsg') || ''),
@@ -73,7 +90,6 @@ export async function POST(request: Request) {
   }
 
   const txTid = pickForm(formData, 'TxTid', 'txTid');
-  const orderId = pickForm(formData, 'Moid', 'moid');
   const amountRaw = pickForm(formData, 'Amt', 'amt');
   const authToken = pickForm(formData, 'AuthToken', 'authToken');
   const signature = pickForm(formData, 'Signature', 'signature');
@@ -84,21 +100,29 @@ export async function POST(request: Request) {
   const mid = getNicepayMid();
   const merchantKey = getNicepayMerchantKey();
 
-  if (!txTid || !orderId || !amountRaw || !authToken || !signature || !nextAppURL || !netCancelURL) {
-    return redirectResult(request, role, { fail: '1', reason: 'missing_fields' });
+  if (
+    !txTid ||
+    !orderId ||
+    !amountRaw ||
+    !authToken ||
+    !signature ||
+    !nextAppURL ||
+    !netCancelURL
+  ) {
+    return redirectResult(request, role, category, { fail: '1', reason: 'missing_fields' });
   }
 
   if (respMid !== mid) {
-    return redirectResult(request, role, { fail: '1', reason: 'mid_mismatch' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'mid_mismatch' });
   }
 
   const amount = parseInt(amountRaw, 10);
   if (!Number.isFinite(amount)) {
-    return redirectResult(request, role, { fail: '1', reason: 'invalid_amount' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_amount' });
   }
 
   if (!verifyAuthResponseSignature(authToken, respMid, amountRaw, merchantKey, signature)) {
-    return redirectResult(request, role, { fail: '1', reason: 'invalid_signature' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_signature' });
   }
 
   const admin = createAdminClient();
@@ -111,30 +135,30 @@ export async function POST(request: Request) {
 
   if (orderErr || !order) {
     console.error('[nicepay/confirm] order not found', orderErr, orderId);
-    return redirectResult(request, role, { fail: '1', reason: 'order_not_found' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'order_not_found' });
   }
 
   const row = order as MealOrderRow;
 
   if (row.status === 'paid' && row.tid) {
     if (row.tid === txTid) {
-      return redirectResult(request, role, { ok: '1', order: row.id });
+      return redirectResult(request, role, category, { ok: '1', order: row.id });
     }
-    return redirectResult(request, role, { fail: '1', reason: 'already_paid' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'already_paid' });
   }
 
   if (row.status !== 'pending') {
-    return redirectResult(request, role, { fail: '1', reason: 'invalid_order_status' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_order_status' });
   }
 
   if (row.amount !== amount) {
-    return redirectResult(request, role, { fail: '1', reason: 'amount_mismatch' });
+    return redirectResult(request, role, category, { fail: '1', reason: 'amount_mismatch' });
   }
 
   const rawAuth = Object.fromEntries(formData.entries());
 
   await admin.from('payment_logs').insert({
-    order_type: 'meal',
+    order_type: category,
     order_id: orderId,
     tid: txTid,
     action: 'auth',
@@ -158,7 +182,7 @@ export async function POST(request: Request) {
         amt: amountRaw,
         merchantKey,
       },
-      { signal: controller.signal }
+      { signal: controller.signal },
     );
     clearTimeout(timer);
   } catch (e) {
@@ -177,7 +201,7 @@ export async function POST(request: Request) {
       respMid,
       approveResult.result.Amt ?? amountRaw,
       merchantKey,
-      approveResult.result.Signature
+      approveResult.result.Signature,
     );
     if (!sigOk) {
       console.warn('[nicepay/confirm] approve Signature mismatch (승인은 ResultCode 기준 처리)', {
@@ -199,7 +223,7 @@ export async function POST(request: Request) {
           signData: approveResult.signData,
         });
         await admin.from('payment_logs').insert({
-          order_type: 'meal',
+          order_type: category,
           order_id: orderId,
           tid: txTid,
           action: 'netcancel',
@@ -220,9 +244,8 @@ export async function POST(request: Request) {
       .eq('id', row.id);
 
     const msg =
-      approveResult?.result.ResultMsg ||
-      (!approveResult?.httpOk ? '승인 통신 실패' : '승인 거절');
-    return redirectResult(request, role, {
+      approveResult?.result.ResultMsg || (!approveResult?.httpOk ? '승인 통신 실패' : '승인 거절');
+    return redirectResult(request, role, category, {
       fail: '1',
       reason: 'approve_failed',
       msg: encodeURIComponent(msg),
@@ -243,7 +266,7 @@ export async function POST(request: Request) {
     .eq('id', row.id);
 
   await admin.from('payment_logs').insert({
-    order_type: 'meal',
+    order_type: category,
     order_id: orderId,
     tid: settledTid,
     action: 'approve',
@@ -257,9 +280,14 @@ export async function POST(request: Request) {
     } as unknown as Record<string, unknown>,
   });
 
-  const ordersLink = role === 'parent' ? '/parent/meals/orders' : '/student/meals/orders';
-  const title = '급식 결제 완료';
-  const body = '급식 신청이 결제 완료되었습니다.';
+  const slug = categorySlug(category);
+  const ordersLink = role === 'parent' ? `/parent/${slug}/orders` : `/student/${slug}/orders`;
+  const studentOrdersLink = `/student/${slug}/orders`;
+  const title = category === 'exam' ? '모의고사 결제 완료' : '급식 결제 완료';
+  const body =
+    category === 'exam'
+      ? '모의고사 신청이 결제 완료되었습니다.'
+      : '급식 신청이 결제 완료되었습니다.';
 
   try {
     await admin.from('user_notifications').insert({
@@ -280,7 +308,7 @@ export async function POST(request: Request) {
         type: 'system',
         title,
         message: body,
-        link: '/student/meals/orders',
+        link: studentOrdersLink,
       });
     } catch (e) {
       console.error('[nicepay/confirm] student_notification', e);
@@ -288,13 +316,20 @@ export async function POST(request: Request) {
   }
 
   void sendPushToUser(row.user_id, title, body, { path: ordersLink }).catch((e) =>
-    console.error('[nicepay/confirm] push payer', e)
+    console.error('[nicepay/confirm] push payer', e),
   );
   if (row.student_id !== row.user_id) {
-    void sendPushToUser(row.student_id, title, body, { path: '/student/meals/orders' }).catch((e) =>
-      console.error('[nicepay/confirm] push student', e)
+    void sendPushToUser(row.student_id, title, body, { path: studentOrdersLink }).catch((e) =>
+      console.error('[nicepay/confirm] push student', e),
     );
   }
 
-  return redirectResult(request, role, { ok: '1', order: row.id });
+  revalidatePath(`/student/${slug}`);
+  revalidatePath(`/parent/${slug}`);
+  revalidatePath(`/student/${slug}/orders`);
+  revalidatePath(`/parent/${slug}/orders`);
+  revalidatePath(`/student/${slug}/${row.product_id}`);
+  revalidatePath(`/parent/${slug}/${row.product_id}`);
+
+  return redirectResult(request, role, category, { ok: '1', order: row.id });
 }

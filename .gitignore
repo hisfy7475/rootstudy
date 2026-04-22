@@ -44,6 +44,13 @@ next-env.d.ts
 
 /.manager
 /.cursor
+/.migration
+.00_manager/key/
+supabase/.temp/
+
+# Claude Code
+CLAUDE.md
+.claude/
 
 # Expo native app (studycafe-app/)
 studycafe-app/node_modules/

@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/server';
-import { isCancelSuccess, netcancelPayment } from '@/lib/nicepay';
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/server";
+import { isCancelSuccess, netcancelPayment } from "@/lib/nicepay";
 
 type Body = {
   netCancelURL?: string;
@@ -18,17 +18,17 @@ type Body = {
  */
 export async function POST(request: Request) {
   const secret = process.env.PAYMENTS_INTERNAL_SECRET;
-  const auth = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+  const auth = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
 
   if (!secret || auth !== secret) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let body: Body;
   try {
     body = (await request.json()) as Body;
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const netCancelURL = body.netCancelURL?.trim();
@@ -43,9 +43,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          'netCancelURL, tid, authToken, mid, amt, ediDate, signData are required (v3 망취소는 주문번호만으로 불가)',
+          "netCancelURL, tid, authToken, mid, amt, ediDate, signData are required (v3 망취소는 주문번호만으로 불가)",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -60,13 +60,13 @@ export async function POST(request: Request) {
 
   try {
     const admin = createAdminClient();
-    await admin.from('payment_logs').insert({
-      order_type: 'meal',
-      order_id: 'manual-netcancel',
+    await admin.from("payment_logs").insert({
+      order_type: "other",
+      order_id: "manual-netcancel",
       tid,
-      action: 'netcancel',
+      action: "netcancel",
       amount: parseInt(amt, 10) || null,
-      status: isCancelSuccess(net.result) ? 'success' : 'fail',
+      status: isCancelSuccess(net.result) ? "success" : "fail",
       result_code: net.result.ResultCode ?? null,
       result_msg: net.result.ResultMsg ?? null,
       raw_response: {
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       } as unknown as Record<string, unknown>,
     });
   } catch (e) {
-    console.error('[nicepay/netcancel] log', e);
+    console.error("[nicepay/netcancel] log", e);
   }
 
   return NextResponse.json({

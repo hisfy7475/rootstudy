@@ -1,10 +1,4 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface Database {
   public: {
@@ -1066,15 +1060,17 @@ export interface Database {
           id: string;
           branch_id: string;
           name: string;
-          meal_type: 'lunch' | 'dinner';
+          category: 'meal' | 'exam';
+          meal_type: 'lunch' | 'dinner' | null;
           price: number;
           sale_start_date: string;
           sale_end_date: string;
-          meal_start_date: string;
-          meal_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
           max_capacity: number | null;
           status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
+          image_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1082,15 +1078,17 @@ export interface Database {
           id?: string;
           branch_id: string;
           name: string;
-          meal_type: 'lunch' | 'dinner';
+          category?: 'meal' | 'exam';
+          meal_type?: 'lunch' | 'dinner' | null;
           price: number;
           sale_start_date: string;
           sale_end_date: string;
-          meal_start_date: string;
-          meal_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
+          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1098,15 +1096,17 @@ export interface Database {
           id?: string;
           branch_id?: string;
           name?: string;
-          meal_type?: 'lunch' | 'dinner';
+          category?: 'meal' | 'exam';
+          meal_type?: 'lunch' | 'dinner' | null;
           price?: number;
           sale_start_date?: string;
           sale_end_date?: string;
-          meal_start_date?: string;
-          meal_end_date?: string;
+          product_start_date?: string;
+          product_end_date?: string;
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
+          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1117,6 +1117,7 @@ export interface Database {
           product_id: string;
           date: string;
           menu_text: string;
+          image_url: string | null;
           created_at: string;
         };
         Insert: {
@@ -1124,6 +1125,7 @@ export interface Database {
           product_id: string;
           date: string;
           menu_text: string;
+          image_url?: string | null;
           created_at?: string;
         };
         Update: {
@@ -1131,6 +1133,7 @@ export interface Database {
           product_id?: string;
           date?: string;
           menu_text?: string;
+          image_url?: string | null;
           created_at?: string;
         };
       };
@@ -1390,12 +1393,14 @@ export type DateTypeDefinition = Database['public']['Tables']['date_type_definit
 export type DateAssignment = Database['public']['Tables']['date_assignments']['Row'];
 export type StudentType = Database['public']['Tables']['student_types']['Row'];
 export type StudentTypeSubject = Database['public']['Tables']['student_type_subjects']['Row'];
-export type StudentAbsenceSchedule = Database['public']['Tables']['student_absence_schedules']['Row'];
+export type StudentAbsenceSchedule =
+  Database['public']['Tables']['student_absence_schedules']['Row'];
 export type StudentNotification = Database['public']['Tables']['student_notifications']['Row'];
 export type UserNotification = Database['public']['Tables']['user_notifications']['Row'];
 export type CapsSyncLog = Database['public']['Tables']['caps_sync_log']['Row'];
 export type Announcement = Database['public']['Tables']['announcements']['Row'];
-export type AnnouncementAttachment = Database['public']['Tables']['announcement_attachments']['Row'];
+export type AnnouncementAttachment =
+  Database['public']['Tables']['announcement_attachments']['Row'];
 export type AnnouncementRead = Database['public']['Tables']['announcement_reads']['Row'];
 export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settings']['Row'];
 export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];

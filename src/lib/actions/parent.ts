@@ -12,6 +12,8 @@ export interface LinkedStudent {
   email: string;
   phone: string | null;
   seatNumber: number | null;
+  /** 학생의 소속 지점 id — 학부모 화면에서 상품 지점과 매칭 검증에 사용 */
+  branchId: string | null;
 }
 
 // 주간 학습 진행 데이터 타입
@@ -67,7 +69,8 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
       profiles!inner (
         name,
         email,
-        phone
+        phone,
+        branch_id
       )
     `)
     .in('id', studentIds);
@@ -79,6 +82,7 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
       name: string;
       email: string;
       phone: string | null;
+      branch_id: string | null;
     };
 
     return {
@@ -87,6 +91,7 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
       email: profile.email,
       phone: profile.phone,
       seatNumber: sp.seat_number,
+      branchId: profile.branch_id,
     };
   });
 }
@@ -122,7 +127,7 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
 
   // 학부모 뷰일 경우 외출 상태를 퇴실로 표시
   let displayStatus = actualStatus;
-  let displayLastUpdate = lastRecord.timestamp;
+  const displayLastUpdate = lastRecord.timestamp;
   
   if (options?.forParentView && actualStatus === 'on_break') {
     displayStatus = 'checked_out';

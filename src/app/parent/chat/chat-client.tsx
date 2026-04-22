@@ -21,7 +21,7 @@ export function ParentChatClient({
   studentName,
 }: ParentChatClientProps) {
   return (
-    <div className="fixed inset-x-0 top-16 bottom-20 flex justify-center bg-background">
+    <div className="fixed inset-x-0 flex justify-center bg-background" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)' }}>
       <div className="w-full max-w-lg bg-white">
         <ChatRoom
           roomId={roomId}

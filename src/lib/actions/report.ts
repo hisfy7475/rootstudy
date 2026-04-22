@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
 import {
   formatDateKST,
@@ -93,39 +94,34 @@ export interface WeeklyTrendPoint {
 
 type AttendanceRecord = { type: string; timestamp: string };
 
-const SUPABASE_PAGE_SIZE = 1000;
+const _peerAttendanceCache = new Map<
+  string,
+  { data: Array<{ student_id: string; type: string; timestamp: string }>; ts: number }
+>();
+const PEER_CACHE_TTL = 60_000;
+
+function getPeerCacheKey(typeId: string | null, rangeStart: string, rangeEnd: string) {
+  return `${typeId ?? 'none'}:${rangeStart}:${rangeEnd}`;
+}
 
 async function fetchPaginatedAttendance(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studentIds: string[],
   startIso: string,
   endIso: string,
-  endExclusive = false
+  endExclusive = false,
 ): Promise<Array<{ student_id: string; type: string; timestamp: string }>> {
-  const all: Array<{ student_id: string; type: string; timestamp: string }> = [];
-  let from = 0;
-
-  while (true) {
-    let query = supabase
+  return fetchAllPaged<{ student_id: string; type: string; timestamp: string }>((from, to) => {
+    const query = supabase
       .from('attendance')
       .select('student_id, type, timestamp')
       .in('student_id', studentIds)
       .gte('timestamp', startIso);
 
-    query = endExclusive
-      ? query.lt('timestamp', endIso)
-      : query.lte('timestamp', endIso);
-
-    const { data } = await query
+    return (endExclusive ? query.lt('timestamp', endIso) : query.lte('timestamp', endIso))
       .order('timestamp', { ascending: true })
-      .range(from, from + SUPABASE_PAGE_SIZE - 1);
-
-    all.push(...(data ?? []));
-    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
-    from += SUPABASE_PAGE_SIZE;
-  }
-
-  return all;
+      .range(from, to);
+  });
 }
 
 interface StudySessionChunk {
@@ -136,7 +132,7 @@ interface StudySessionChunk {
 
 function extractStudySessions(
   attendance: AttendanceRecord[],
-  periodEnd: Date
+  periodEnd: Date,
 ): StudySessionChunk[] {
   const sessions: StudySessionChunk[] = [];
   let checkInTime: Date | null = null;
@@ -153,9 +149,7 @@ function extractStudySessions(
           sessions.push({
             startTime: checkInTime,
             endTime: timestamp,
-            durationSeconds: Math.floor(
-              (timestamp.getTime() - checkInTime.getTime()) / 1000
-            ),
+            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
           });
           checkInTime = null;
         }
@@ -165,9 +159,7 @@ function extractStudySessions(
           sessions.push({
             startTime: checkInTime,
             endTime: timestamp,
-            durationSeconds: Math.floor(
-              (timestamp.getTime() - checkInTime.getTime()) / 1000
-            ),
+            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
           });
           checkInTime = null;
         }
@@ -184,9 +176,7 @@ function extractStudySessions(
     sessions.push({
       startTime: checkInTime,
       endTime,
-      durationSeconds: Math.floor(
-        (endTime.getTime() - checkInTime.getTime()) / 1000
-      ),
+      durationSeconds: Math.floor((endTime.getTime() - checkInTime.getTime()) / 1000),
     });
   }
 
@@ -196,17 +186,14 @@ function extractStudySessions(
 function calculateStudySeconds(
   attendanceRecords: AttendanceRecord[],
   dayStart: Date,
-  dayEnd: Date
+  dayEnd: Date,
 ): { studySeconds: number; hasAttendance: boolean } {
   const dayAttendance = attendanceRecords
     .filter((r) => {
       const t = new Date(r.timestamp);
       return t >= dayStart && t <= dayEnd;
     })
-    .sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const hasAttendance = dayAttendance.some((r) => r.type === 'check_in');
   const sessions = extractStudySessions(dayAttendance, dayEnd);
@@ -217,18 +204,12 @@ function calculateStudySeconds(
 function subjectOverlapSeconds(
   sessions: StudySessionChunk[],
   subjectStart: Date,
-  subjectEnd: Date
+  subjectEnd: Date,
 ): number {
   let effectiveSeconds = 0;
   for (const session of sessions) {
-    const overlapStart = Math.max(
-      subjectStart.getTime(),
-      session.startTime.getTime()
-    );
-    const overlapEnd = Math.min(
-      subjectEnd.getTime(),
-      session.endTime.getTime()
-    );
+    const overlapStart = Math.max(subjectStart.getTime(), session.startTime.getTime());
+    const overlapEnd = Math.min(subjectEnd.getTime(), session.endTime.getTime());
     if (overlapEnd > overlapStart) {
       effectiveSeconds += Math.floor((overlapEnd - overlapStart) / 1000);
     }
@@ -245,7 +226,7 @@ function emptyCategoryRecord(): Record<SubjectCategory, number> {
 }
 
 function groupPointsByReason(
-  rows: Array<{ type: string; amount: number; reason: string | null }>
+  rows: Array<{ type: string; amount: number; reason: string | null }>,
 ): {
   totalReward: number;
   totalPenalty: number;
@@ -292,23 +273,18 @@ function groupPointsByReason(
 function weeklyStudySecondsFromAttendance(
   records: AttendanceRecord[],
   rangeStart: Date,
-  rangeEndExclusive: Date
+  rangeEndExclusive: Date,
 ): number {
   const now = new Date();
   const sessionCap =
-    now.getTime() < rangeEndExclusive.getTime()
-      ? now
-      : new Date(rangeEndExclusive.getTime() - 1);
+    now.getTime() < rangeEndExclusive.getTime() ? now : new Date(rangeEndExclusive.getTime() - 1);
 
   const filtered = records
     .filter((r) => {
       const t = new Date(r.timestamp);
       return t >= rangeStart && t < rangeEndExclusive;
     })
-    .sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const sessions = extractStudySessions(filtered, sessionCap);
   return sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
@@ -318,7 +294,7 @@ async function assertReportViewer(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   userType: string,
-  studentId: string
+  studentId: string,
 ): Promise<boolean> {
   if (userType === 'student') return userId === studentId;
   if (userType === 'admin') return true;
@@ -340,7 +316,7 @@ async function resolveCounselingAutoFill(
   branchId: string | null,
   weeklyFocusAvg: number | null,
   studentName: string,
-  studyHoursWeekly: number
+  studyHoursWeekly: number,
 ): Promise<{
   studyFeedback: string;
   studyFeedbackFull: string;
@@ -353,11 +329,7 @@ async function resolveCounselingAutoFill(
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
       studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
       guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
-      parentSummary: COUNSELING_TEMPLATES.getParentSummary(
-        studentName,
-        null,
-        studyHoursWeekly
-      ),
+      parentSummary: COUNSELING_TEMPLATES.getParentSummary(studentName, null, studyHoursWeekly),
       scoreLabel: '',
     };
   }
@@ -388,7 +360,7 @@ async function resolveCounselingAutoFill(
     weeklyFocusAvg,
     studyHoursWeekly,
     label,
-    shortText
+    shortText,
   );
 
   return {
@@ -402,7 +374,7 @@ async function resolveCounselingAutoFill(
 
 export async function getImmersionReportData(
   studentId: string,
-  weekStartMonday: string
+  weekStartMonday: string,
 ): Promise<ImmersionReportData | null> {
   const supabase = await createClient();
   const {
@@ -433,7 +405,7 @@ export async function getImmersionReportData(
         name,
         branch_id
       )
-    `
+    `,
     )
     .eq('id', studentId)
     .single();
@@ -447,8 +419,7 @@ export async function getImmersionReportData(
   const studentName = profile.name;
   const branchId = profile.branch_id;
   const studentTypeId = studentRow.student_type_id as string | null;
-  const seatNumber =
-    studentRow.seat_number != null ? Number(studentRow.seat_number) : null;
+  const seatNumber = studentRow.seat_number != null ? Number(studentRow.seat_number) : null;
 
   let studentTypeName: string | null = null;
   if (studentTypeId) {
@@ -493,10 +464,7 @@ export async function getImmersionReportData(
       .select('subject_name, started_at, ended_at, is_current')
       .eq('student_id', studentId)
       .lt('started_at', periodEnd.toISOString()),
-    supabase
-      .from('points')
-      .select('type, amount, reason')
-      .eq('student_id', studentId),
+    supabase.from('points').select('type, amount, reason').eq('student_id', studentId),
     supabase
       .from('counseling_reports')
       .select('*')
@@ -523,7 +491,7 @@ export async function getImmersionReportData(
       supabase,
       peerIds,
       periodStart.toISOString(),
-      periodEnd.toISOString()
+      periodEnd.toISOString(),
     );
 
     const byStudent = new Map<string, AttendanceRecord[]>();
@@ -540,7 +508,7 @@ export async function getImmersionReportData(
       const recs = byStudent.get(sid) ?? [];
       const secs = extractStudySessions(recs, periodEnd).reduce(
         (acc, s) => acc + s.durationSeconds,
-        0
+        0,
       );
       sum += secs;
       n += 1;
@@ -552,11 +520,7 @@ export async function getImmersionReportData(
 
   const dailyData: DailyReportData[] = weekDates.map((dateStr, idx) => {
     const { start, end } = getStudyDayBounds(dateStr);
-    const { studySeconds, hasAttendance } = calculateStudySeconds(
-      attendance,
-      start,
-      end
-    );
+    const { studySeconds, hasAttendance } = calculateStudySeconds(attendance, start, end);
 
     const dayFocus = (focusScores ?? []).filter((f) => {
       const t = new Date(f.recorded_at);
@@ -565,9 +529,7 @@ export async function getImmersionReportData(
     const focusAvg =
       dayFocus.length > 0
         ? Math.round(
-            (dayFocus.reduce((sum, f) => sum + Number(f.score), 0) /
-              dayFocus.length) *
-              10
+            (dayFocus.reduce((sum, f) => sum + Number(f.score), 0) / dayFocus.length) * 10,
           ) / 10
         : null;
 
@@ -580,18 +542,14 @@ export async function getImmersionReportData(
   const attendedDays = pastWeekdays.filter((d) => d.hasAttendance).length;
   const absentDays = pastWeekdays.length - attendedDays;
   const totalWeekdays = pastWeekdays.length;
-  const attendanceRate =
-    totalWeekdays > 0 ? Math.round((attendedDays / totalWeekdays) * 100) : 0;
-  const absentRate =
-    totalWeekdays > 0 ? Math.round((absentDays / totalWeekdays) * 100) : 0;
+  const attendanceRate = totalWeekdays > 0 ? Math.round((attendedDays / totalWeekdays) * 100) : 0;
+  const absentRate = totalWeekdays > 0 ? Math.round((absentDays / totalWeekdays) * 100) : 0;
 
   const focusDays = dailyData.filter((d) => d.focusAvg !== null);
   const weeklyFocusAvg =
     focusDays.length > 0
       ? Math.round(
-          (focusDays.reduce((sum, d) => sum + (d.focusAvg ?? 0), 0) /
-            focusDays.length) *
-            10
+          (focusDays.reduce((sum, d) => sum + (d.focusAvg ?? 0), 0) / focusDays.length) * 10,
         ) / 10
       : null;
 
@@ -637,25 +595,21 @@ export async function getImmersionReportData(
       type: string;
       amount: number;
       reason: string | null;
-    }>
+    }>,
   );
 
-  const studyHoursWeekly =
-    dailyData.reduce((sum, d) => sum + d.studySeconds, 0) / 3600;
+  const studyHoursWeekly = dailyData.reduce((sum, d) => sum + d.studySeconds, 0) / 3600;
 
   let counseling: CounselingReportData;
 
   if (counselingRow) {
-    const fa =
-      counselingRow.focus_avg !== null
-        ? Number(counselingRow.focus_avg)
-        : weeklyFocusAvg;
+    const fa = counselingRow.focus_avg !== null ? Number(counselingRow.focus_avg) : weeklyFocusAvg;
     const auto = await resolveCounselingAutoFill(
       supabase,
       branchId,
       fa,
       studentName,
-      studyHoursWeekly
+      studyHoursWeekly,
     );
     counseling = {
       id: counselingRow.id,
@@ -673,7 +627,7 @@ export async function getImmersionReportData(
       branchId,
       weeklyFocusAvg,
       studentName,
-      studyHoursWeekly
+      studyHoursWeekly,
     );
     counseling = {
       id: null,
@@ -716,7 +670,7 @@ export async function getImmersionReportData(
 
 export async function getWeeklyStudyTrend(
   studentId: string,
-  weeks: number = 8
+  weeks: number = 8,
 ): Promise<WeeklyTrendPoint[]> {
   const supabase = await createClient();
   const {
@@ -743,10 +697,7 @@ export async function getWeeklyStudyTrend(
   const studentTypeId = sp?.student_type_id ?? null;
 
   const { data: peerRows } = studentTypeId
-    ? await supabase
-        .from('student_profiles')
-        .select('id')
-        .eq('student_type_id', studentTypeId)
+    ? await supabase.from('student_profiles').select('id').eq('student_type_id', studentTypeId)
     : { data: [] as { id: string }[] };
 
   const peerIds = (peerRows ?? []).map((p) => p.id);
@@ -755,8 +706,7 @@ export async function getWeeklyStudyTrend(
   const mondays: string[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
     const d = new Date(
-      new Date(`${currentMondayStr}T12:00:00+09:00`).getTime() -
-        i * 7 * 24 * 60 * 60 * 1000
+      new Date(`${currentMondayStr}T12:00:00+09:00`).getTime() - i * 7 * 24 * 60 * 60 * 1000,
     );
     mondays.push(formatDateKST(d));
   }
@@ -766,16 +716,48 @@ export async function getWeeklyStudyTrend(
   const rangeStart = getCalendarWeekBoundsKST(mondays[0]!).start;
   const rangeEnd = getCalendarWeekBoundsKST(mondays[mondays.length - 1]!).endExclusive;
 
-  const allStudentIds = peerIds.length > 0
-    ? [...new Set([...peerIds, studentId])]
-    : [studentId];
-  const trendAttendance = await fetchPaginatedAttendance(
-    supabase,
-    allStudentIds,
-    rangeStart.toISOString(),
-    rangeEnd.toISOString(),
-    true
-  );
+  const allStudentIds = peerIds.length > 0 ? [...new Set([...peerIds, studentId])] : [studentId];
+
+  const cacheKey = getPeerCacheKey(studentTypeId, rangeStart.toISOString(), rangeEnd.toISOString());
+  const cached = _peerAttendanceCache.get(cacheKey);
+  let trendAttendance: Array<{ student_id: string; type: string; timestamp: string }>;
+
+  if (cached && Date.now() - cached.ts < PEER_CACHE_TTL) {
+    const cachedIds = new Set(cached.data.map((r) => r.student_id));
+    if (allStudentIds.every((id) => cachedIds.has(id) || id === studentId)) {
+      const missing = allStudentIds.filter((id) => !cachedIds.has(id));
+      if (missing.length > 0) {
+        const extra = await fetchPaginatedAttendance(
+          supabase,
+          missing,
+          rangeStart.toISOString(),
+          rangeEnd.toISOString(),
+          true,
+        );
+        trendAttendance = [...cached.data, ...extra];
+      } else {
+        trendAttendance = cached.data;
+      }
+    } else {
+      trendAttendance = await fetchPaginatedAttendance(
+        supabase,
+        allStudentIds,
+        rangeStart.toISOString(),
+        rangeEnd.toISOString(),
+        true,
+      );
+      _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
+    }
+  } else {
+    trendAttendance = await fetchPaginatedAttendance(
+      supabase,
+      allStudentIds,
+      rangeStart.toISOString(),
+      rangeEnd.toISOString(),
+      true,
+    );
+    _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
+  }
 
   const byStudent = new Map<string, AttendanceRecord[]>();
   for (const row of trendAttendance) {
@@ -795,11 +777,7 @@ export async function getWeeklyStudyTrend(
     const weekLabel = weeksAgo === 0 ? '이번 주' : `${weeksAgo}주 전`;
 
     const myRecs = byStudent.get(studentId) ?? [];
-    const mySeconds = weeklyStudySecondsFromAttendance(
-      myRecs,
-      start,
-      endExclusive
-    );
+    const mySeconds = weeklyStudySecondsFromAttendance(myRecs, start, endExclusive);
 
     let gradeMaxSeconds = 0;
     let gradeAvgSeconds = 0;
@@ -807,17 +785,11 @@ export async function getWeeklyStudyTrend(
       const totals: number[] = [];
       for (const sid of peerIds) {
         const recs = byStudent.get(sid) ?? [];
-        totals.push(
-          weeklyStudySecondsFromAttendance(recs, start, endExclusive)
-        );
+        totals.push(weeklyStudySecondsFromAttendance(recs, start, endExclusive));
       }
       gradeMaxSeconds = totals.length > 0 ? Math.max(...totals) : 0;
       gradeAvgSeconds =
-        totals.length > 0
-          ? Math.round(
-              totals.reduce((a, b) => a + b, 0) / totals.length
-            )
-          : 0;
+        totals.length > 0 ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : 0;
     }
 
     result.push({
@@ -834,7 +806,7 @@ export async function getWeeklyStudyTrend(
 
 export async function getCounselingReport(
   studentId: string,
-  weekStartMonday: string
+  weekStartMonday: string,
 ): Promise<CounselingReportData> {
   const supabase = await createClient();
   const {
@@ -861,10 +833,7 @@ export async function getCounselingReport(
     .single();
   const userType = caller?.user_type as string | undefined;
 
-  if (
-    !userType ||
-    !(await assertReportViewer(supabase, user.id, userType, studentId))
-  ) {
+  if (!userType || !(await assertReportViewer(supabase, user.id, userType, studentId))) {
     return {
       id: null,
       focusAvg: null,
@@ -894,14 +863,16 @@ export async function getCounselingReport(
           name,
           branch_id
         )
-      `
+      `,
       )
       .eq('id', studentId)
       .single();
-    const prof = spBranch?.profiles as unknown as {
-      name: string;
-      branch_id: string | null;
-    } | undefined;
+    const prof = spBranch?.profiles as unknown as
+      | {
+          name: string;
+          branch_id: string | null;
+        }
+      | undefined;
     const nameForRow = prof?.name ?? '학생';
     const bId = prof?.branch_id ?? null;
 
@@ -923,13 +894,7 @@ export async function getCounselingReport(
     }
     const studyHoursWeek2 = studySecWeek2 / 3600;
 
-    const auto = await resolveCounselingAutoFill(
-      supabase,
-      bId,
-      fa,
-      nameForRow,
-      studyHoursWeek2
-    );
+    const auto = await resolveCounselingAutoFill(supabase, bId, fa, nameForRow, studyHoursWeek2);
 
     return {
       id: row.id,
@@ -957,10 +922,8 @@ export async function getCounselingReport(
   const focusList = focusRows ?? [];
   const focusAvg =
     focusList.length > 0
-      ? Math.round(
-          (focusList.reduce((s, f) => s + Number(f.score), 0) / focusList.length) *
-            10
-        ) / 10
+      ? Math.round((focusList.reduce((s, f) => s + Number(f.score), 0) / focusList.length) * 10) /
+        10
       : null;
 
   const { data: studentRow } = await supabase
@@ -969,8 +932,7 @@ export async function getCounselingReport(
     .eq('id', studentId)
     .single();
 
-  const studentName =
-    (studentRow?.profiles as unknown as { name: string })?.name ?? '학생';
+  const studentName = (studentRow?.profiles as unknown as { name: string })?.name ?? '학생';
 
   const { data: attRows } = await supabase
     .from('attendance')
@@ -994,15 +956,14 @@ export async function getCounselingReport(
     .eq('id', studentId)
     .single();
   const branchForStudent =
-    (spB?.profiles as unknown as { branch_id: string | null })?.branch_id ??
-    null;
+    (spB?.profiles as unknown as { branch_id: string | null })?.branch_id ?? null;
 
   const auto = await resolveCounselingAutoFill(
     supabase,
     branchForStudent,
     focusAvg,
     studentName,
-    studyHoursWeekly
+    studyHoursWeekly,
   );
 
   return {
@@ -1054,7 +1015,7 @@ export async function saveCounselingReport(params: {
       parent_summary: params.parentSummary,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'student_id,week_start' }
+    { onConflict: 'student_id,week_start' },
   );
 
   if (error) {
@@ -1066,9 +1027,7 @@ export async function saveCounselingReport(params: {
   return { success: true };
 }
 
-export async function getStudentsForReport(
-  branchId?: string
-): Promise<
+export async function getStudentsForReport(branchId?: string): Promise<
   Array<{
     id: string;
     name: string;
@@ -1119,9 +1078,7 @@ export async function getStudentsForReport(
       .from('student_types')
       .select('id, name')
       .in('id', typeIds);
-    typeNameById = Object.fromEntries(
-      (types ?? []).map((t) => [t.id, t.name])
-    );
+    typeNameById = Object.fromEntries((types ?? []).map((t) => [t.id, t.name]));
   }
 
   const spById = Object.fromEntries((sps ?? []).map((s) => [s.id, s]));
@@ -1132,7 +1089,7 @@ export async function getStudentsForReport(
     return {
       id: p.id,
       name: p.name,
-      studentTypeName: tid ? typeNameById[tid] ?? null : null,
+      studentTypeName: tid ? (typeNameById[tid] ?? null) : null,
       seatNumber: sp?.seat_number ?? null,
     };
   });
@@ -1141,7 +1098,7 @@ export async function getStudentsForReport(
 /** 관리자: 현재 주 지표로 상담 필드만 템플릿 재적용 (저장 전 폼용) */
 export async function getCounselingAutoFillForWeek(
   studentId: string,
-  weekStartMonday: string
+  weekStartMonday: string,
 ): Promise<{
   studyFeedback: string;
   studyFeedbackFull: string;
@@ -1171,7 +1128,7 @@ export async function getCounselingAutoFillForWeek(
         name,
         branch_id
       )
-    `
+    `,
     )
     .eq('id', studentId)
     .single();
@@ -1214,8 +1171,7 @@ export async function getCounselingAutoFillForWeek(
     const focusAvg =
       dayFocus.length > 0
         ? Math.round(
-            (dayFocus.reduce((sum, f) => sum + Number(f.score), 0) / dayFocus.length) *
-              10
+            (dayFocus.reduce((sum, f) => sum + Number(f.score), 0) / dayFocus.length) * 10,
           ) / 10
         : null;
     return focusAvg;
@@ -1224,9 +1180,7 @@ export async function getCounselingAutoFillForWeek(
   const focusDays = dailyFocus.filter((f): f is number => f !== null);
   const weeklyFocusAvg =
     focusDays.length > 0
-      ? Math.round(
-          (focusDays.reduce((sum, d) => sum + d, 0) / focusDays.length) * 10
-        ) / 10
+      ? Math.round((focusDays.reduce((sum, d) => sum + d, 0) / focusDays.length) * 10) / 10
       : null;
 
   let studySecondsWeek = 0;
@@ -1241,7 +1195,7 @@ export async function getCounselingAutoFillForWeek(
     branchId,
     weeklyFocusAvg,
     studentName,
-    studyHoursWeekly
+    studyHoursWeekly,
   );
 
   return { ...auto, focusAvg: weeklyFocusAvg };
@@ -1256,9 +1210,7 @@ export type CounselingTemplateDTO = {
   full_text: string;
 };
 
-export async function getCounselingTemplates(
-  branchId: string
-): Promise<CounselingTemplateDTO[]> {
+export async function getCounselingTemplates(branchId: string): Promise<CounselingTemplateDTO[]> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1340,7 +1292,7 @@ export async function saveCounselingTemplate(params: {
       full_text: params.fullText,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'branch_id,score' }
+    { onConflict: 'branch_id,score' },
   );
 
   if (error) {
@@ -1353,7 +1305,7 @@ export async function saveCounselingTemplate(params: {
 }
 
 export async function initDefaultTemplates(
-  branchId: string
+  branchId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   const {
@@ -1402,7 +1354,7 @@ export async function initDefaultTemplates(
 }
 
 export async function resetCounselingTemplatesToDefaults(
-  branchId: string
+  branchId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   const {

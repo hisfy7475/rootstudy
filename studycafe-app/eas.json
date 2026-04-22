@@ -6,25 +6,37 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://rootstudy-git-dev-rootstudy.vercel.app"
+      }
     },
     "development-simulator": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://localhost:3000"
       }
     },
     "preview": {
-      "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "autoIncrement": true,
+      "distribution": "store",
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://rootstudy-git-dev-rootstudy.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aautdcslwmbyjjwhmzqf.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhdXRkY3Nsd21ieWpqd2htenFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxODk1NDksImV4cCI6MjA4OTc2NTU0OX0.ByuqKUjT3Jp5HvVoHp_LdAi3xUauFryU6QYhOEFoEa4"
       }
     },
     "preview-simulator": {
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://localhost:3000"
       }
     },
     "production": {
@@ -32,6 +44,27 @@
     }
   },
   "submit": {
-    "production": {}
+    "preview": {
+      "android": {
+        "serviceAccountKeyPath": "../.00_manager/key/upheld-rain-492418-u5-b0a66144734d.json",
+        "track": "internal"
+      },
+      "ios": {
+        "ascApiKeyPath": "../.00_manager/key/AuthKey_FW3SASW59T.p8",
+        "ascApiKeyIssuerId": "71a68a30-6cd9-4b88-82cb-9b31b6cb1805",
+        "ascApiKeyId": "FW3SASW59T"
+      }
+    },
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "../.00_manager/key/upheld-rain-492418-u5-b0a66144734d.json",
+        "track": "internal"
+      },
+      "ios": {
+        "ascApiKeyPath": "../.00_manager/key/AuthKey_FW3SASW59T.p8",
+        "ascApiKeyIssuerId": "71a68a30-6cd9-4b88-82cb-9b31b6cb1805",
+        "ascApiKeyId": "FW3SASW59T"
+      }
+    }
   }
 }

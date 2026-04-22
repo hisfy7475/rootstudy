@@ -27,7 +27,10 @@ const ALLOWED_IMAGE_TYPES = new Set([
 ]);
 
 function sanitizeChatFileSegment(name: string): string {
-  const base = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+  const base = name
+    .replace(/[/\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/[^\x20-\x7E]/g, '');
   return base.slice(0, 200) || 'file';
 }
 
@@ -44,12 +47,50 @@ function createAuthedClient(session: StoredSession) {
   });
 }
 
-async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const res = await fetch(uri);
+/**
+ * React Native FormData를 사용하여 file:// URI를 Supabase Storage에 직접 업로드.
+ * RN의 fetch polyfill은 file:// URI의 arrayBuffer()/blob()을 지원하지 않으므로
+ * FormData에 { uri, name, type } 객체를 넘겨 네이티브 레이어에서 파일을 읽도록 함.
+ */
+async function uploadToStorage(
+  bucket: string,
+  storagePath: string,
+  fileUri: string,
+  fileName: string,
+  mimeType: string,
+  accessToken: string
+): Promise<string> {
+  const formData = new FormData();
+  formData.append('', {
+    uri: fileUri,
+    name: fileName,
+    type: mimeType,
+  } as unknown as Blob);
+
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${bucket}/${storagePath}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY,
+        'x-upsert': 'false',
+      },
+      body: formData,
+    }
+  );
+
   if (!res.ok) {
-    throw new Error('파일을 읽을 수 없습니다.');
+    const body = await res.text();
+    console.error('[nativeChatUpload] storage upload failed:', res.status, body);
+    throw new Error(`Storage upload failed: ${res.status}`);
   }
-  return res.arrayBuffer();
+
+  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    .storage.from(bucket)
+    .getPublicUrl(storagePath);
+
+  return pub.publicUrl;
 }
 
 export type NativeUploadOk = { url: string; filename: string; mime_type: string };
@@ -70,7 +111,7 @@ export async function uploadChatImageFromNative(
   }
 
   const supabase = createAuthedClient(session);
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  const { data: userData, error: userErr } = await supabase.auth.getUser(session.access_token);
   if (userErr || !userData.user) {
     throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
   }
@@ -83,24 +124,14 @@ export async function uploadChatImageFromNative(
         : mt === 'image/webp'
           ? 'webp'
           : 'jpg';
-  const path = `${userData.user.id}/${roomId}/${Date.now()}.${ext}`;
-  const body = await uriToArrayBuffer(uri);
+  const fileName = `${Date.now()}.${ext}`;
+  const storagePath = `${userData.user.id}/${roomId}/${fileName}`;
 
-  const { data, error } = await supabase.storage
-    .from('chat-images')
-    .upload(path, body, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: mt,
-    });
+  const publicUrl = await uploadToStorage(
+    'chat-images', storagePath, uri, fileName, mt, session.access_token
+  );
 
-  if (error) {
-    console.error('[nativeChatUpload] chat-images', error);
-    throw new Error('이미지 업로드에 실패했습니다.');
-  }
-
-  const { data: pub } = supabase.storage.from('chat-images').getPublicUrl(data.path);
-  return { url: pub.publicUrl, filename: `image.${ext}`, mime_type: mt };
+  return { url: publicUrl, filename: `image.${ext}`, mime_type: mt };
 }
 
 export async function uploadChatFileFromNative(
@@ -123,28 +154,17 @@ export async function uploadChatFileFromNative(
   }
 
   const supabase = createAuthedClient(session);
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  const { data: userData, error: userErr } = await supabase.auth.getUser(session.access_token);
   if (userErr || !userData.user) {
     throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
   }
 
   const safeBase = sanitizeChatFileSegment(filename || 'file');
-  const path = `${userData.user.id}/${roomId}/${Date.now()}_${safeBase}`;
-  const body = await uriToArrayBuffer(uri);
+  const storagePath = `${userData.user.id}/${roomId}/${Date.now()}_${safeBase}`;
 
-  const { data, error } = await supabase.storage
-    .from('chat-files')
-    .upload(path, body, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: mt || undefined,
-    });
+  const publicUrl = await uploadToStorage(
+    'chat-files', storagePath, uri, safeBase, mt, session.access_token
+  );
 
-  if (error) {
-    console.error('[nativeChatUpload] chat-files', error);
-    throw new Error('파일 업로드에 실패했습니다.');
-  }
-
-  const { data: pub } = supabase.storage.from('chat-files').getPublicUrl(data.path);
-  return { url: pub.publicUrl, filename: filename || safeBase, mime_type: mt };
+  return { url: publicUrl, filename: filename || safeBase, mime_type: mt };
 }

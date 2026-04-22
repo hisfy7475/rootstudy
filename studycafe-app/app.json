@@ -38,7 +38,29 @@
         "applinks:rootstudy.co.kr"
       ],
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "LSApplicationQueriesSchemes": [
+          "itms-appss",
+          "itms-apps",
+          "ispmobile",
+          "kftc-bankpay",
+          "kakaotalk",
+          "supertoss",
+          "lpayapp",
+          "samsungpay",
+          "shinhan-sr-ansimclick",
+          "kb-acp",
+          "hdcardappcardansimclick",
+          "lotteappcard",
+          "hanawalletmembers",
+          "nhappcardansimclick",
+          "citimobileapp",
+          "payco",
+          "cloudpay"
+        ]
       }
     },
     "android": {

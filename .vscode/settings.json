@@ -1,0 +1,10 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "window.titleBarStyle": "custom",
+    "workbench.colorCustomizations": {
+      "titleBar.activeBackground": "#9ccc65",
+      "titleBar.activeForeground": "#1b330d",
+      "titleBar.inactiveBackground": "#9ccc65",
+      "titleBar.inactiveForeground": "#3d5c33"
+    }
+}
