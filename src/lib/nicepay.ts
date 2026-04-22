@@ -55,7 +55,7 @@ export function buildPaymentWindowSignData(
   ediDate: string,
   mid: string,
   amt: string,
-  merchantKey: string
+  merchantKey: string,
 ): string {
   return sha256Hex(ediDate + mid + amt + merchantKey);
 }
@@ -68,7 +68,7 @@ export function verifyAuthResponseSignature(
   mid: string,
   amt: string,
   merchantKey: string,
-  signature: string
+  signature: string,
 ): boolean {
   const expected = sha256Hex(authToken + mid + amt + merchantKey);
   return expected.toLowerCase() === signature.toLowerCase();
@@ -80,7 +80,7 @@ export function buildApproveSignData(
   mid: string,
   amt: string,
   ediDate: string,
-  merchantKey: string
+  merchantKey: string,
 ): string {
   return sha256Hex(authToken + mid + amt + ediDate + merchantKey);
 }
@@ -90,7 +90,7 @@ export function buildCancelSignData(
   mid: string,
   cancelAmt: string,
   ediDate: string,
-  merchantKey: string
+  merchantKey: string,
 ): string {
   return sha256Hex(mid + cancelAmt + ediDate + merchantKey);
 }
@@ -103,7 +103,7 @@ export function verifyApproveResponseSignature(
   mid: string,
   amt: string,
   merchantKey: string,
-  signature: string | undefined
+  signature: string | undefined,
 ): boolean {
   if (!signature) return true;
   const expected = sha256Hex(tid + mid + amt + merchantKey);
@@ -112,6 +112,10 @@ export function verifyApproveResponseSignature(
 
 export function generateMealOrderId(): string {
   return `MEAL-${randomUUID().replace(/-/g, '')}`;
+}
+
+export function generateExamOrderId(): string {
+  return `EXAM-${randomUUID().replace(/-/g, '')}`;
 }
 
 export type NicepayV3Response = {
@@ -169,7 +173,7 @@ export async function approvePayment(
     amt: string;
     merchantKey: string;
   },
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<ApprovePaymentResult> {
   const ediDate = formatNicepayEdiDate();
   const signData = buildApproveSignData(
@@ -177,7 +181,7 @@ export async function approvePayment(
     args.mid,
     args.amt,
     ediDate,
-    args.merchantKey
+    args.merchantKey,
   );
 
   const body = formEncode({
@@ -237,7 +241,7 @@ export async function netcancelPayment(
     ediDate: string;
     signData: string;
   },
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<NetcancelPaymentResult> {
   const body = formEncode({
     TID: args.tid,
@@ -296,12 +300,12 @@ export async function cancelPayment(
     merchantKey: string;
     /** 숫자만 문자열 (예 "10000") */
     cancelAmt: string;
-    /** 가맹점 주문번호 — 급식은 meal_orders.order_id 사용 */
+    /** 가맹점 주문번호 — meal_orders.order_id 사용 (meal/exam 공용) */
     moid: string;
     cancelMsg: string;
     partialCancelCode?: '0' | '1';
   },
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal },
 ): Promise<CancelPaymentResult> {
   const ediDate = formatNicepayEdiDate();
   const signData = buildCancelSignData(args.mid, args.cancelAmt, ediDate, args.merchantKey);
@@ -341,7 +345,8 @@ export async function cancelPayment(
 }
 
 /**
- * 급식 결제창용 서버에서만 계산 가능한 필드 + 공개 MID
+ * 결제창용 서버에서만 계산 가능한 필드 + 공개 MID (meal/exam 공용).
+ * 함수명은 historical — meal_orders 테이블을 공유하므로 그대로 유지.
  */
 export function buildMealPaymentWindowParams(input: {
   orderId: string;
@@ -380,7 +385,7 @@ export function verifyWebhookStyleSignature(
   amt: string,
   mid: string,
   merchantKey: string,
-  signature: string
+  signature: string,
 ): boolean {
   const expected = sha256Hex(tid + mid + amt + merchantKey);
   return expected.toLowerCase() === signature.toLowerCase();

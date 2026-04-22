@@ -4,7 +4,7 @@ import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
+import {
   User,
   Search,
   Filter,
@@ -20,11 +20,17 @@ import {
 } from 'lucide-react';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
-import { DAY_NAMES, ABSENCE_BUFFER_MINUTES, SCHEDULE_DATE_TYPES, ABSENCE_REASONS } from '@/lib/constants';
+import {
+  DAY_NAMES,
+  ABSENCE_BUFFER_MINUTES,
+  SCHEDULE_DATE_TYPES,
+  ABSENCE_REASONS,
+  type ScheduleDateType,
+} from '@/lib/constants';
 import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { 
-  createAbsenceScheduleForStudent, 
+import {
+  createAbsenceScheduleForStudent,
   getAllAbsenceSchedules,
   approveAbsenceSchedule,
   rejectAbsenceSchedule,
@@ -56,11 +62,16 @@ interface SchedulesClientProps {
   branchId: string | null;
 }
 
-export default function SchedulesClient({ initialSchedules, pendingSchedules: initialPending, students, branchId }: SchedulesClientProps) {
+export default function SchedulesClient({
+  initialSchedules,
+  pendingSchedules: initialPending,
+  students,
+  branchId,
+}: SchedulesClientProps) {
   const [schedules, setSchedules] = useState(initialSchedules);
   const [pendingList, setPendingList] = useState(initialPending);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>('recurring');
+  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>('all');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'approved' | 'pending'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -91,7 +102,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
   const getTitle = () => {
     if (formData.reasonType === 'other') return formData.customReason.trim();
-    const reason = ABSENCE_REASONS.find(r => r.value === formData.reasonType);
+    const reason = ABSENCE_REASONS.find((r) => r.value === formData.reasonType);
     return reason?.label || '';
   };
 
@@ -132,9 +143,10 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const filteredStudentOptions = useMemo(() => {
     if (!studentSearchQuery.trim()) return [];
     const q = studentSearchQuery.toLowerCase();
-    return students.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      (s.seatNumber != null && String(s.seatNumber).includes(q))
+    return students.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.seatNumber != null && String(s.seatNumber).includes(q)),
     );
   }, [students, studentSearchQuery]);
 
@@ -142,12 +154,12 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const hasMoreStudents = filteredStudentOptions.length > MAX_DROPDOWN_ITEMS;
 
   const selectedStudent = useMemo(
-    () => students.find(s => s.id === formData.studentId) ?? null,
-    [students, formData.studentId]
+    () => students.find((s) => s.id === formData.studentId) ?? null,
+    [students, formData.studentId],
   );
 
   const openEditModal = (schedule: ScheduleWithStudent) => {
-    const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
+    const foundReason = ABSENCE_REASONS.find((r) => r.label === schedule.title);
     const reasonType = foundReason?.value || 'other';
     const customReason = reasonType === 'other' ? schedule.title : '';
 
@@ -171,7 +183,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
   const handleDayToggle = (day: number) => {
     if (formData.dayOfWeek.includes(day)) {
-      setFormData({ ...formData, dayOfWeek: formData.dayOfWeek.filter(d => d !== day) });
+      setFormData({ ...formData, dayOfWeek: formData.dayOfWeek.filter((d) => d !== day) });
     } else {
       setFormData({ ...formData, dayOfWeek: [...formData.dayOfWeek, day].sort() });
     }
@@ -203,7 +215,11 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       alert('시작일을 선택해주세요.');
       return;
     }
-    if (formData.isRecurring && formData.recurringEndDate && formData.recurringStartDate > formData.recurringEndDate) {
+    if (
+      formData.isRecurring &&
+      formData.recurringEndDate &&
+      formData.recurringStartDate > formData.recurringEndDate
+    ) {
       alert('종료일은 시작일 이후여야 합니다.');
       return;
     }
@@ -225,7 +241,8 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         end_time: formData.endTime + ':00',
         date_type: formData.dateType,
         valid_from: formData.isRecurring ? formData.recurringStartDate : null,
-        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
+        valid_until:
+          formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : null,
         specific_date: !formData.isRecurring ? formData.specificDate : null,
       });
 
@@ -248,7 +265,8 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
         end_time: formData.endTime + ':00',
         date_type: formData.dateType,
         valid_from: formData.isRecurring ? formData.recurringStartDate : undefined,
-        valid_until: formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
+        valid_until:
+          formData.isRecurring && formData.recurringEndDate ? formData.recurringEndDate : undefined,
         specific_date: !formData.isRecurring ? formData.specificDate : undefined,
       });
 
@@ -266,12 +284,13 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   };
 
   const handleDelete = async (schedule: ScheduleWithStudent) => {
-    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`)) return;
+    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`))
+      return;
 
     startTransition(async () => {
       const result = await deleteAbsenceSchedule(schedule.id);
       if (result.success) {
-        setSchedules(prev => prev.filter(s => s.id !== schedule.id));
+        setSchedules((prev) => prev.filter((s) => s.id !== schedule.id));
       } else {
         alert(result.error || '삭제에 실패했습니다.');
       }
@@ -283,7 +302,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       const result = await approveAbsenceSchedule(scheduleId);
       if (result.success) {
         // 승인 대기 목록에서 제거하고 전체 목록 새로고침
-        setPendingList(prev => prev.filter(s => s.id !== scheduleId));
+        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
         const newSchedules = await getAllAbsenceSchedules(branchId);
         setSchedules(newSchedules);
       } else {
@@ -294,11 +313,11 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
   const handleReject = async (scheduleId: string) => {
     if (!confirm('이 부재 일정 요청을 거부하시겠습니까? 거부된 일정은 삭제됩니다.')) return;
-    
+
     startTransition(async () => {
       const result = await rejectAbsenceSchedule(scheduleId);
       if (result.success) {
-        setPendingList(prev => prev.filter(s => s.id !== scheduleId));
+        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
       } else {
         alert(result.error || '거부에 실패했습니다.');
       }
@@ -307,7 +326,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
   // 필터링된 스케줄 (승인된 것만)
   const filteredSchedules = useMemo(() => {
-    return schedules.filter(schedule => {
+    return schedules.filter((schedule) => {
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
         if (
@@ -341,7 +360,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '매일';
     if (days.length === 7) return '매일';
-    return days.map(d => DAY_NAMES[d]).join(', ');
+    return days.map((d) => DAY_NAMES[d]).join(', ');
   };
 
   const formatTimeRange = (start: string, end: string) => {
@@ -353,17 +372,23 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
   const formatExemptionRange = (start: string, end: string, buffer: number) => {
     const [startH, startM] = start.split(':').map(Number);
     const [endH, endM] = end.split(':').map(Number);
-    
+
     const exemptStartH = startH - Math.floor(buffer / 60);
     const exemptStartM = startM - (buffer % 60);
     const exemptEndH = endH + Math.floor(buffer / 60);
     const exemptEndM = endM + (buffer % 60);
-    
+
     const formatTime = (h: number, m: number) => {
       let hours = h;
       let mins = m;
-      if (mins < 0) { hours--; mins += 60; }
-      if (mins >= 60) { hours++; mins -= 60; }
+      if (mins < 0) {
+        hours--;
+        mins += 60;
+      }
+      if (mins >= 60) {
+        hours++;
+        mins -= 60;
+      }
       if (hours < 0) hours += 24;
       if (hours >= 24) hours -= 24;
       return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
@@ -374,46 +399,50 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
   const formatDateType = (dateType: string | null) => {
     switch (dateType) {
-      case 'semester': return '학기중';
-      case 'vacation': return '방학';
-      case 'all': return '항상';
-      default: return '항상';
+      case 'semester':
+        return '학기중';
+      case 'vacation':
+        return '방학';
+      case 'all':
+        return '항상';
+      default:
+        return '항상';
     }
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
+      <div className='flex items-center justify-between'>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">부재 스케줄 관리</h1>
-          <p className="text-gray-500 mt-1">학생들의 부재 일정을 관리합니다.</p>
+          <h1 className='text-2xl font-bold text-gray-800'>부재 스케줄 관리</h1>
+          <p className='mt-1 text-gray-500'>학생들의 부재 일정을 관리합니다.</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => setShowAddModal(true)} className="flex items-center gap-2">
-            <Plus className="w-4 h-4" />
+        <div className='flex gap-2'>
+          <Button onClick={() => setShowAddModal(true)} className='flex items-center gap-2'>
+            <Plus className='h-4 w-4' />
             스케줄 추가
           </Button>
           <Button
-            variant="outline"
+            variant='outline'
             onClick={() => window.location.reload()}
-            className="flex items-center gap-2"
+            className='flex items-center gap-2'
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className='h-4 w-4' />
             새로고침
           </Button>
         </div>
       </div>
 
       {/* 버퍼 시간 안내 */}
-      <Card className="p-4 bg-blue-50 border-blue-200">
-        <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-500 mt-0.5" />
+      <Card className='border-blue-200 bg-blue-50 p-4'>
+        <div className='flex items-start gap-3'>
+          <Info className='mt-0.5 h-5 w-5 text-blue-500' />
           <div>
-            <p className="text-blue-800 font-medium">면제 시간 버퍼 안내</p>
-            <p className="text-blue-600 text-sm mt-1">
-              등록된 부재 시간 앞뒤로 {ABSENCE_BUFFER_MINUTES}분씩 버퍼가 적용됩니다. 
-              버퍼 시간을 포함한 전체 구간 동안 알림과 벌점이 면제됩니다.
+            <p className='font-medium text-blue-800'>면제 시간 버퍼 안내</p>
+            <p className='mt-1 text-sm text-blue-600'>
+              등록된 부재 시간 앞뒤로 {ABSENCE_BUFFER_MINUTES}분씩 버퍼가 적용됩니다. 버퍼 시간을
+              포함한 전체 구간 동안 알림과 벌점이 면제됩니다.
             </p>
           </div>
         </div>
@@ -421,84 +450,96 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
       {/* 승인 대기 섹션 — 출석부와 유사한 컴팩트 테이블 */}
       {pendingList.length > 0 && (
-        <Card className="p-3 border-amber-200 bg-amber-50/50">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-            <h2 className="text-sm font-semibold text-gray-800">승인 대기</h2>
-            <span className="px-1.5 py-0 bg-amber-100 text-amber-700 text-[11px] rounded">
+        <Card className='border-amber-200 bg-amber-50/50 p-3'>
+          <div className='mb-2 flex items-center gap-2'>
+            <AlertCircle className='h-4 w-4 shrink-0 text-amber-500' />
+            <h2 className='text-sm font-semibold text-gray-800'>승인 대기</h2>
+            <span className='rounded bg-amber-100 px-1.5 py-0 text-[11px] text-amber-700'>
               {pendingList.length}건
             </span>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-amber-100 bg-white">
-            <table className="w-full text-xs">
-              <thead className="bg-amber-50/80 border-b border-amber-100">
+          <div className='overflow-x-auto rounded-lg border border-amber-100 bg-white'>
+            <table className='w-full text-xs'>
+              <thead className='border-b border-amber-100 bg-amber-50/80'>
                 <tr>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 w-8"> </th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">좌석·이름</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">사유</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">시간</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">반복/날짜</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">적용</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 whitespace-nowrap w-[1%]">처리</th>
+                  <th className='w-8 px-2 py-1.5 text-left font-medium text-gray-600'> </th>
+                  <th className='px-2 py-1.5 text-left font-medium whitespace-nowrap text-gray-600'>
+                    좌석·이름
+                  </th>
+                  <th className='px-2 py-1.5 text-left font-medium text-gray-600'>사유</th>
+                  <th className='px-2 py-1.5 text-left font-medium whitespace-nowrap text-gray-600'>
+                    시간
+                  </th>
+                  <th className='px-2 py-1.5 text-left font-medium text-gray-600'>반복/날짜</th>
+                  <th className='px-2 py-1.5 text-left font-medium whitespace-nowrap text-gray-600'>
+                    적용
+                  </th>
+                  <th className='w-[1%] px-2 py-1.5 text-right font-medium whitespace-nowrap text-gray-600'>
+                    처리
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-50">
-                {pendingList.map(schedule => (
-                  <tr key={schedule.id} className="hover:bg-amber-50/40">
-                    <td className="px-2 py-1 align-middle">
+              <tbody className='divide-y divide-amber-50'>
+                {pendingList.map((schedule) => (
+                  <tr key={schedule.id} className='hover:bg-amber-50/40'>
+                    <td className='px-2 py-1 align-middle'>
                       <div
                         className={cn(
-                          'w-7 h-7 rounded flex items-center justify-center shrink-0',
-                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
+                          'flex h-7 w-7 shrink-0 items-center justify-center rounded',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
                         )}
                       >
                         {schedule.is_recurring ? (
-                          <Repeat className="w-3.5 h-3.5 text-primary" />
+                          <Repeat className='text-primary h-3.5 w-3.5' />
                         ) : (
-                          <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
+                          <CalendarDays className='h-3.5 w-3.5 text-amber-600' />
                         )}
                       </div>
                     </td>
-                    <td className="px-2 py-1 align-middle whitespace-nowrap">
-                      <span className="font-medium text-gray-800">
+                    <td className='px-2 py-1 align-middle whitespace-nowrap'>
+                      <span className='font-medium text-gray-800'>
                         {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
                         {schedule.student_name}
                       </span>
                     </td>
-                    <td className="px-2 py-1 align-middle text-gray-800 max-w-[140px] sm:max-w-[200px]">
-                      <span className="truncate block" title={schedule.title}>
+                    <td className='max-w-[140px] px-2 py-1 align-middle text-gray-800 sm:max-w-[200px]'>
+                      <span className='block truncate' title={schedule.title}>
                         {schedule.title}
                       </span>
                     </td>
-                    <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-600 tabular-nums">
+                    <td className='px-2 py-1 align-middle whitespace-nowrap text-gray-600 tabular-nums'>
                       {formatTimeRange(schedule.start_time, schedule.end_time)}
                     </td>
-                    <td className="px-2 py-1 align-middle text-gray-600">
+                    <td className='px-2 py-1 align-middle text-gray-600'>
                       {schedule.is_recurring
                         ? formatDaysOfWeek(schedule.day_of_week)
                         : schedule.specific_date
-                          ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', { locale: ko })
+                          ? format(
+                              new Date(schedule.specific_date + 'T12:00:00+09:00'),
+                              'M/d (eee)',
+                              { locale: ko },
+                            )
                           : '—'}
                     </td>
-                    <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-500">
+                    <td className='px-2 py-1 align-middle whitespace-nowrap text-gray-500'>
                       {formatDateType(schedule.date_type)}
                     </td>
-                    <td className="px-2 py-1 align-middle text-right whitespace-nowrap">
-                      <div className="inline-flex gap-1 justify-end">
+                    <td className='px-2 py-1 text-right align-middle whitespace-nowrap'>
+                      <div className='inline-flex justify-end gap-1'>
                         <Button
-                          variant="outline"
-                          size="sm"
+                          variant='outline'
+                          size='sm'
                           onClick={() => handleReject(schedule.id)}
                           disabled={isPending}
-                          className="h-7 px-2 text-[11px] text-red-600 border-red-200 hover:bg-red-50"
+                          className='h-7 border-red-200 px-2 text-[11px] text-red-600 hover:bg-red-50'
                         >
                           거부
                         </Button>
                         <Button
-                          size="sm"
+                          size='sm'
                           onClick={() => handleApprove(schedule.id)}
                           disabled={isPending}
-                          className="h-7 px-2 text-[11px] bg-primary hover:bg-primary/90"
+                          className='bg-primary hover:bg-primary/90 h-7 px-2 text-[11px]'
                         >
                           승인
                         </Button>
@@ -513,38 +554,38 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
       )}
 
       {/* 필터 */}
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      <Card className='p-4'>
+        <div className='flex flex-wrap items-center gap-4'>
+          <div className='min-w-[200px] flex-1'>
+            <div className='relative'>
+              <Search className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400' />
               <Input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="학생 이름 또는 일정 제목 검색"
-                className="pl-10"
+                placeholder='학생 이름 또는 일정 제목 검색'
+                className='pl-10'
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
+          <div className='flex items-center gap-2'>
+            <Filter className='h-4 w-4 text-gray-400' />
             <select
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value as any)}
-              className="h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              onChange={(e) => setFilterType(e.target.value as 'all' | 'recurring' | 'one_time')}
+              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
             >
-              <option value="all">모든 유형</option>
-              <option value="recurring">반복 일정</option>
-              <option value="one_time">일회성 일정</option>
+              <option value='all'>모든 유형</option>
+              <option value='recurring'>반복 일정</option>
+              <option value='one_time'>일회성 일정</option>
             </select>
             <select
               value={filterActive}
-              onChange={(e) => setFilterActive(e.target.value as any)}
-              className="h-10 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              onChange={(e) => setFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
+              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
             >
-              <option value="all">모든 상태</option>
-              <option value="active">활성</option>
-              <option value="inactive">비활성</option>
+              <option value='all'>모든 상태</option>
+              <option value='active'>활성</option>
+              <option value='inactive'>비활성</option>
             </select>
           </div>
         </div>
@@ -552,156 +593,180 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
       {/* 스케줄 목록 — 출석부와 유사한 컴팩트 테이블 */}
       {filteredSchedules.length === 0 ? (
-        <Card className="p-6 text-center text-gray-500 text-sm">
+        <Card className='p-6 text-center text-sm text-gray-500'>
           {noSchedulesMatchNarrowFilters
             ? '검색 결과가 없습니다.'
             : '등록된 부재 스케줄이 없습니다.'}
         </Card>
       ) : (
-        <Card className="relative overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50 border-b">
+        <Card className='relative overflow-hidden p-0'>
+          <div className='overflow-x-auto'>
+            <table className='w-full text-xs'>
+              <thead className='border-b bg-gray-50'>
                 <tr>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600 w-8"> </th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">좌석·이름</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">사유·상태</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">시간</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">면제(버퍼)</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">반복/날짜</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">구분·기간</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">비고</th>
-                  <th className="px-2 py-2 text-right font-medium text-gray-600 w-[1%] whitespace-nowrap"> </th>
+                  <th className='w-8 px-2 py-2 text-left font-medium text-gray-600'> </th>
+                  <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
+                    좌석·이름
+                  </th>
+                  <th className='px-2 py-2 text-left font-medium text-gray-600'>사유·상태</th>
+                  <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
+                    시간
+                  </th>
+                  <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
+                    면제(버퍼)
+                  </th>
+                  <th className='px-2 py-2 text-left font-medium text-gray-600'>반복/날짜</th>
+                  <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
+                    구분·기간
+                  </th>
+                  <th className='px-2 py-2 text-left font-medium text-gray-600'>비고</th>
+                  <th className='w-[1%] px-2 py-2 text-right font-medium whitespace-nowrap text-gray-600'>
+                    {' '}
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredSchedules.map(schedule => (
+              <tbody className='divide-y divide-gray-100'>
+                {filteredSchedules.map((schedule) => (
                   <tr
                     key={schedule.id}
                     className={cn(
                       'hover:bg-gray-50',
-                      !schedule.is_active && 'opacity-60 bg-gray-50/80'
+                      !schedule.is_active && 'bg-gray-50/80 opacity-60',
                     )}
                   >
-                    <td className="px-2 py-1.5 align-middle">
+                    <td className='px-2 py-1.5 align-middle'>
                       <div
                         className={cn(
-                          'w-7 h-7 rounded flex items-center justify-center shrink-0',
-                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
+                          'flex h-7 w-7 shrink-0 items-center justify-center rounded',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
                         )}
                       >
                         {schedule.is_recurring ? (
-                          <Repeat className="w-3.5 h-3.5 text-primary" />
+                          <Repeat className='text-primary h-3.5 w-3.5' />
                         ) : (
-                          <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
+                          <CalendarDays className='h-3.5 w-3.5 text-amber-600' />
                         )}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 align-middle whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <User className="w-3 h-3 text-gray-400 shrink-0" />
-                        <span className="font-medium text-gray-800">
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
+                      <div className='flex items-center gap-1'>
+                        <User className='h-3 w-3 shrink-0 text-gray-400' />
+                        <span className='font-medium text-gray-800'>
                           {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
                           {schedule.student_name}
                         </span>
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 align-middle">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span className="font-medium text-gray-800 truncate max-w-[120px] sm:max-w-[200px]" title={schedule.title}>
+                    <td className='px-2 py-1.5 align-middle'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        <span
+                          className='max-w-[120px] truncate font-medium text-gray-800 sm:max-w-[200px]'
+                          title={schedule.title}
+                        >
                           {schedule.title}
                         </span>
                         {!schedule.is_active && (
-                          <span className="px-1 py-0 text-[10px] bg-gray-200 text-gray-600 rounded shrink-0">
+                          <span className='shrink-0 rounded bg-gray-200 px-1 py-0 text-[10px] text-gray-600'>
                             비활성
                           </span>
                         )}
                         {schedule.status === 'approved' && (
                           <span
-                            className="text-[10px] text-gray-500 truncate max-w-[160px]"
-                            title={approvedByCaption(schedule.status, schedule.approver_display) ?? undefined}
+                            className='max-w-[160px] truncate text-[10px] text-gray-500'
+                            title={
+                              approvedByCaption(schedule.status, schedule.approver_display) ??
+                              undefined
+                            }
                           >
                             {approvedByCaption(schedule.status, schedule.approver_display)}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 align-middle whitespace-nowrap text-gray-700 tabular-nums">
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap text-gray-700 tabular-nums'>
                       {formatTimeRange(schedule.start_time, schedule.end_time)}
                     </td>
-                    <td className="px-2 py-1.5 align-middle whitespace-nowrap text-[11px] text-gray-500 tabular-nums">
+                    <td className='px-2 py-1.5 align-middle text-[11px] whitespace-nowrap text-gray-500 tabular-nums'>
                       {formatExemptionRange(
                         schedule.start_time,
                         schedule.end_time,
-                        schedule.buffer_minutes
+                        schedule.buffer_minutes,
                       )}
                     </td>
-                    <td className="px-2 py-1.5 align-middle text-gray-600">
+                    <td className='px-2 py-1.5 align-middle text-gray-600'>
                       {schedule.is_recurring ? (
                         <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
                       ) : (
                         <span>
                           {schedule.specific_date
-                            ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', { locale: ko })
+                            ? format(
+                                new Date(schedule.specific_date + 'T12:00:00+09:00'),
+                                'M/d (eee)',
+                                { locale: ko },
+                              )
                             : '—'}
                         </span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 align-middle whitespace-nowrap">
-                      <div className="flex flex-wrap items-center gap-1">
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
+                      <div className='flex flex-wrap items-center gap-1'>
                         <span
                           className={cn(
-                            'inline-block px-1.5 py-0 text-[10px] rounded',
+                            'inline-block rounded px-1.5 py-0 text-[10px]',
                             !schedule.is_recurring
                               ? 'bg-amber-100 text-amber-700'
                               : schedule.date_type === 'semester'
                                 ? 'bg-blue-100 text-blue-700'
                                 : schedule.date_type === 'vacation'
                                   ? 'bg-green-100 text-green-700'
-                                  : 'bg-gray-100 text-gray-600'
+                                  : 'bg-gray-100 text-gray-600',
                           )}
                         >
                           {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
                         </span>
                         {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
-                          <span className="text-[10px] text-gray-500 tabular-nums">
+                          <span className='text-[10px] text-gray-500 tabular-nums'>
                             {schedule.valid_from
-                              ? format(new Date(schedule.valid_from + 'T12:00:00+09:00'), 'M/d', { locale: ko })
+                              ? format(new Date(schedule.valid_from + 'T12:00:00+09:00'), 'M/d', {
+                                  locale: ko,
+                                })
                               : ''}
                             ~
                             {schedule.valid_until
-                              ? format(new Date(schedule.valid_until + 'T12:00:00+09:00'), 'M/d', { locale: ko })
+                              ? format(new Date(schedule.valid_until + 'T12:00:00+09:00'), 'M/d', {
+                                  locale: ko,
+                                })
                               : '∞'}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 align-middle text-gray-500 max-w-[100px] sm:max-w-[180px]">
+                    <td className='max-w-[100px] px-2 py-1.5 align-middle text-gray-500 sm:max-w-[180px]'>
                       {schedule.description ? (
-                        <span className="truncate block" title={schedule.description}>
+                        <span className='block truncate' title={schedule.description}>
                           {schedule.description}
                         </span>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className='text-gray-300'>—</span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 align-middle text-right whitespace-nowrap">
+                    <td className='px-2 py-1.5 text-right align-middle whitespace-nowrap'>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant='ghost'
+                        size='sm'
                         onClick={() => openEditModal(schedule)}
-                        className="h-7 w-7 p-0 text-gray-400 hover:text-primary"
+                        className='hover:text-primary h-7 w-7 p-0 text-gray-400'
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className='h-3.5 w-3.5' />
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant='ghost'
+                        size='sm'
                         onClick={() => handleDelete(schedule)}
                         disabled={isPending}
-                        className="h-7 w-7 p-0 text-gray-400 hover:text-red-500"
+                        className='h-7 w-7 p-0 text-gray-400 hover:text-red-500'
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className='h-3.5 w-3.5' />
                       </Button>
                     </td>
                   </tr>
@@ -714,54 +779,61 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
       {/* 추가 모달 */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4 pb-28 sm:items-center sm:pb-4">
-          <Card className="w-full max-w-md p-5 bg-white max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">{editingScheduleId ? '부재 스케줄 수정' : '부재 스케줄 추가'}</h3>
+        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 pb-28 sm:items-center sm:pb-4'>
+          <Card className='max-h-[80vh] w-full max-w-md overflow-y-auto bg-white p-5'>
+            <div className='mb-4 flex items-center justify-between'>
+              <h3 className='text-lg font-bold'>
+                {editingScheduleId ? '부재 스케줄 수정' : '부재 스케줄 추가'}
+              </h3>
               <Button
-                variant="ghost"
-                size="sm"
+                variant='ghost'
+                size='sm'
                 onClick={() => {
                   setShowAddModal(false);
                   resetForm();
                 }}
               >
-                <X className="w-5 h-5" />
+                <X className='h-5 w-5' />
               </Button>
             </div>
 
-            <div className="space-y-4 pb-8">
+            <div className='space-y-4 pb-8'>
               {/* 학생 선택 - 수정 모드에서는 숨김 */}
               {!editingScheduleId && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className='mb-1 block text-sm font-medium text-gray-700'>
                     학생 선택 *
                   </label>
-                  <div ref={studentSearchRef} className="relative">
+                  <div ref={studentSearchRef} className='relative'>
                     <div
                       className={cn(
-                        "w-full h-10 px-3 flex items-center gap-2 rounded-xl border cursor-pointer bg-white",
+                        'flex h-10 w-full cursor-pointer items-center gap-2 rounded-xl border bg-white px-3',
                         showStudentDropdown
-                          ? "border-primary ring-2 ring-primary/20"
-                          : "border-gray-200"
+                          ? 'border-primary ring-primary/20 ring-2'
+                          : 'border-gray-200',
                       )}
                       onClick={() => {
                         setShowStudentDropdown(true);
                         setStudentSearchQuery('');
                       }}
                     >
-                      <Search className="w-4 h-4 text-gray-400 shrink-0" />
+                      <Search className='h-4 w-4 shrink-0 text-gray-400' />
                       {showStudentDropdown ? (
                         <input
                           autoFocus
-                          className="flex-1 outline-none text-sm bg-transparent"
-                          placeholder="이름 또는 좌석번호 검색"
+                          className='flex-1 bg-transparent text-sm outline-none'
+                          placeholder='이름 또는 좌석번호 검색'
                           value={studentSearchQuery}
-                          onChange={e => setStudentSearchQuery(e.target.value)}
-                          onClick={e => e.stopPropagation()}
+                          onChange={(e) => setStudentSearchQuery(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
-                        <span className={cn("flex-1 text-sm truncate", !selectedStudent && "text-gray-400")}>
+                        <span
+                          className={cn(
+                            'flex-1 truncate text-sm',
+                            !selectedStudent && 'text-gray-400',
+                          )}
+                        >
                           {selectedStudent
                             ? `${selectedStudent.seatNumber != null ? `${selectedStudent.seatNumber}번 ` : ''}${selectedStudent.name}`
                             : '학생을 선택하세요'}
@@ -769,33 +841,37 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                       )}
                     </div>
                     {showStudentDropdown && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                      <div className='absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg'>
                         {!studentSearchQuery.trim() ? (
-                          <div className="px-3 py-2 text-sm text-gray-400">이름 또는 좌석번호를 입력하세요</div>
+                          <div className='px-3 py-2 text-sm text-gray-400'>
+                            이름 또는 좌석번호를 입력하세요
+                          </div>
                         ) : filteredStudentOptions.length === 0 ? (
-                          <div className="px-3 py-2 text-sm text-gray-400">검색 결과 없음</div>
+                          <div className='px-3 py-2 text-sm text-gray-400'>검색 결과 없음</div>
                         ) : (
                           <>
-                            {displayedStudentOptions.map(student => (
+                            {displayedStudentOptions.map((student) => (
                               <div
                                 key={student.id}
                                 className={cn(
-                                  "px-3 py-2 text-sm cursor-pointer hover:bg-primary/5",
-                                  formData.studentId === student.id && "bg-primary/10 font-medium"
+                                  'hover:bg-primary/5 cursor-pointer px-3 py-2 text-sm',
+                                  formData.studentId === student.id && 'bg-primary/10 font-medium',
                                 )}
-                                onMouseDown={e => {
+                                onMouseDown={(e) => {
                                   e.preventDefault();
                                   setFormData({ ...formData, studentId: student.id });
                                   setShowStudentDropdown(false);
                                   setStudentSearchQuery('');
                                 }}
                               >
-                                {student.seatNumber != null ? `${student.seatNumber}번 ` : ''}{student.name}
+                                {student.seatNumber != null ? `${student.seatNumber}번 ` : ''}
+                                {student.name}
                               </div>
                             ))}
                             {hasMoreStudents && (
-                              <div className="px-3 py-2 text-xs text-gray-400 text-center border-t">
-                                외 {filteredStudentOptions.length - MAX_DROPDOWN_ITEMS}명 — 검색어를 더 입력하세요
+                              <div className='border-t px-3 py-2 text-center text-xs text-gray-400'>
+                                외 {filteredStudentOptions.length - MAX_DROPDOWN_ITEMS}명 — 검색어를
+                                더 입력하세요
                               </div>
                             )}
                           </>
@@ -808,28 +884,28 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
 
               {/* 부재 사유 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  부재 사유 *
-                </label>
-                <div className="space-y-2">
+                <label className='mb-2 block text-sm font-medium text-gray-700'>부재 사유 *</label>
+                <div className='space-y-2'>
                   {ABSENCE_REASONS.map((reason) => (
                     <label
                       key={reason.value}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
                         formData.reasonType === reason.value
                           ? 'border-primary bg-primary/5'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <input
-                        type="radio"
-                        name="absenceReasonAdmin"
+                        type='radio'
+                        name='absenceReasonAdmin'
                         value={reason.value}
                         checked={formData.reasonType === reason.value}
-                        onChange={(e) => setFormData({ ...formData, reasonType: e.target.value, customReason: '' })}
-                        className="w-4 h-4 text-primary"
+                        onChange={(e) =>
+                          setFormData({ ...formData, reasonType: e.target.value, customReason: '' })
+                        }
+                        className='text-primary h-4 w-4'
                       />
-                      <span className="text-sm text-gray-700">{reason.label}</span>
+                      <span className='text-sm text-gray-700'>{reason.label}</span>
                     </label>
                   ))}
                 </div>
@@ -838,51 +914,47 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {/* 기타 사유 직접 입력 */}
               {formData.reasonType === 'other' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className='mb-1 block text-sm font-medium text-gray-700'>
                     기타 사유 입력 *
                   </label>
                   <Input
                     value={formData.customReason}
                     onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
-                    placeholder="부재 사유를 입력해주세요"
+                    placeholder='부재 사유를 입력해주세요'
                   />
                 </div>
               )}
 
               {/* 설명 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  설명 (선택)
-                </label>
+                <label className='mb-1 block text-sm font-medium text-gray-700'>설명 (선택)</label>
                 <Input
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="추가 설명"
+                  placeholder='추가 설명'
                 />
               </div>
 
               {/* 반복 여부 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  일정 유형
-                </label>
-                <div className="flex gap-2">
+                <label className='mb-2 block text-sm font-medium text-gray-700'>일정 유형</label>
+                <div className='flex gap-2'>
                   <Button
                     variant={formData.isRecurring ? 'default' : 'outline'}
-                    size="sm"
+                    size='sm'
                     onClick={() => setFormData({ ...formData, isRecurring: true })}
-                    className="flex-1"
+                    className='flex-1'
                   >
-                    <Repeat className="w-4 h-4 mr-2" />
+                    <Repeat className='mr-2 h-4 w-4' />
                     매주 반복
                   </Button>
                   <Button
                     variant={!formData.isRecurring ? 'default' : 'outline'}
-                    size="sm"
+                    size='sm'
                     onClick={() => setFormData({ ...formData, isRecurring: false })}
-                    className="flex-1"
+                    className='flex-1'
                   >
-                    <CalendarDays className="w-4 h-4 mr-2" />
+                    <CalendarDays className='mr-2 h-4 w-4' />
                     일회성
                   </Button>
                 </div>
@@ -891,17 +963,17 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {/* 반복 요일 선택 */}
               {formData.isRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>
                     반복 요일 *
                   </label>
-                  <div className="flex gap-1">
+                  <div className='flex gap-1'>
                     {DAY_NAMES.map((day, index) => (
                       <Button
                         key={index}
                         variant={formData.dayOfWeek.includes(index) ? 'default' : 'outline'}
-                        size="sm"
+                        size='sm'
                         onClick={() => handleDayToggle(index)}
-                        className="flex-1 px-0"
+                        className='flex-1 px-0'
                       >
                         {day}
                       </Button>
@@ -913,11 +985,9 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {/* 일회성 날짜 선택 */}
               {!formData.isRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    날짜 *
-                  </label>
+                  <label className='mb-1 block text-sm font-medium text-gray-700'>날짜 *</label>
                   <Input
-                    type="date"
+                    type='date'
                     value={formData.specificDate}
                     onChange={(e) => setFormData({ ...formData, specificDate: e.target.value })}
                     min={format(new Date(), 'yyyy-MM-dd')}
@@ -926,23 +996,23 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               )}
 
               {/* 시간 설정 */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className='grid grid-cols-2 gap-4'>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className='mb-1 block text-sm font-medium text-gray-700'>
                     시작 시간 *
                   </label>
                   <Input
-                    type="time"
+                    type='time'
                     value={formData.startTime}
                     onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className='mb-1 block text-sm font-medium text-gray-700'>
                     종료 시간 *
                   </label>
                   <Input
-                    type="time"
+                    type='time'
                     value={formData.endTime}
                     onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
                   />
@@ -952,17 +1022,20 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {/* 날짜 타입 */}
               {formData.isRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    적용 구분
-                  </label>
-                  <div className="flex gap-2">
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>적용 구분</label>
+                  <div className='flex gap-2'>
                     {Object.entries(SCHEDULE_DATE_TYPES).map(([key, value]) => (
                       <Button
                         key={key}
                         variant={formData.dateType === value ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFormData({ ...formData, dateType: value as any })}
-                        className="flex-1"
+                        size='sm'
+                        onClick={() =>
+                          setFormData({
+                            ...formData,
+                            dateType: value as ScheduleDateType,
+                          })
+                        }
+                        className='flex-1'
                       >
                         {value === 'semester' ? '학기중' : value === 'vacation' ? '방학' : '항상'}
                       </Button>
@@ -974,31 +1047,29 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               {/* 반복 기간 설정 (시작일/종료일) */}
               {formData.isRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    적용 기간
-                  </label>
-                  <div className="space-y-3">
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>적용 기간</label>
+                  <div className='space-y-3'>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        시작일 *
-                      </label>
+                      <label className='mb-1 block text-xs text-gray-500'>시작일 *</label>
                       <Input
-                        type="date"
+                        type='date'
                         value={formData.recurringStartDate}
-                        onChange={(e) => setFormData({ ...formData, recurringStartDate: e.target.value })}
+                        onChange={(e) =>
+                          setFormData({ ...formData, recurringStartDate: e.target.value })
+                        }
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        종료일 (선택)
-                      </label>
+                      <label className='mb-1 block text-xs text-gray-500'>종료일 (선택)</label>
                       <Input
-                        type="date"
+                        type='date'
                         value={formData.recurringEndDate}
-                        onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
+                        onChange={(e) =>
+                          setFormData({ ...formData, recurringEndDate: e.target.value })
+                        }
                         min={formData.recurringStartDate}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className='mt-1 text-xs text-gray-400'>
                         종료일을 비워두면 무기한 적용됩니다
                       </p>
                     </div>
@@ -1007,10 +1078,10 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
               )}
 
               {/* 저장 버튼 */}
-              <div className="flex gap-2 pt-2">
+              <div className='flex gap-2 pt-2'>
                 <Button
-                  variant="outline"
-                  className="flex-1"
+                  variant='outline'
+                  className='flex-1'
                   onClick={() => {
                     setShowAddModal(false);
                     resetForm();
@@ -1018,11 +1089,7 @@ export default function SchedulesClient({ initialSchedules, pendingSchedules: in
                 >
                   취소
                 </Button>
-                <Button
-                  className="flex-1"
-                  onClick={handleSubmit}
-                  disabled={isLoading}
-                >
+                <Button className='flex-1' onClick={handleSubmit} disabled={isLoading}>
                   {editingScheduleId ? '수정' : '등록'}
                 </Button>
               </div>

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { ChevronLeft } from 'lucide-react';
 import { getMealOrderById } from '@/lib/actions/meal';
 import { buildMealPaymentWindowParams } from '@/lib/nicepay';
-import { PayClient } from './pay-client';
+import { PayClient } from '@/components/shared/payment/pay-client';
 
 export default async function StudentMealPayPage({
   params,
@@ -14,9 +14,7 @@ export default async function StudentMealPayPage({
   const order = await getMealOrderById(orderId);
   if (!order || order.status !== 'pending') notFound();
 
-  const product = Array.isArray(order.meal_products)
-    ? order.meal_products[0]
-    : order.meal_products;
+  const product = Array.isArray(order.meal_products) ? order.meal_products[0] : order.meal_products;
 
   if (!product) notFound();
 
@@ -26,24 +24,20 @@ export default async function StudentMealPayPage({
     goodsName: product.name,
   });
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? '';
-  const returnUrl = `${baseUrl}/api/payments/nicepay/confirm`;
-
   return (
-    <div className="px-4 pt-2 pb-6">
+    <div className='px-4 pt-2 pb-6'>
       <Link
         href={`/student/meals/${order.product_id}`}
-        className="inline-flex items-center text-sm text-muted-foreground mb-3 gap-1"
+        className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
-        <ChevronLeft className="w-4 h-4" />
+        <ChevronLeft className='h-4 w-4' />
         상품
       </Link>
       <PayClient
         paymentInit={paymentInit}
-        returnUrl={returnUrl}
-        mallReserved="s"
+        mallReserved='s'
         backHref={`/student/meals/${order.product_id}`}
-        mealRowId={order.id}
+        orderRowId={order.id}
         displayAmount={order.amount}
         displayGoodsName={product.name}
       />

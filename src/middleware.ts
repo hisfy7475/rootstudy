@@ -2,6 +2,17 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  // NICEPay 콜백 / 웹훅 — 세션을 건드리지 않고 통과.
+  // PC 결제에서 부모창의 form.submit()이 여기로 top-level POST를 보내는데,
+  // 이때 getUser()로 access_token 을 갱신하면 refresh_token 이 소비되고,
+  // route handler 가 반환하는 새 NextResponse 에는 갱신된 Set-Cookie 가 병합되지 않아
+  // 이후 /student/meals/pay/result GET 에서 세션이 만료 상태가 되어 /login 으로 튕긴다.
+  if (pathname.startsWith('/api/payments')) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -15,18 +26,16 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
   // 사용자 세션 확인
@@ -34,15 +43,8 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const pathname = request.nextUrl.pathname;
-
   // 푸시 토큰 API — 세션 쿠키만 갱신하고 리다이렉트하지 않음 (공개 경로로 두면 로그인 사용자가 오히려 홈으로 보내짐)
   if (pathname.startsWith('/api/push')) {
-    return supabaseResponse;
-  }
-
-  // NICEPay returnUrl / 웹훅 — 쿠키 갱신만 하고 통과 (본인 인증은 각 라우트에서 처리)
-  if (pathname.startsWith('/api/payments')) {
     return supabaseResponse;
   }
 
@@ -112,7 +114,7 @@ export async function middleware(request: NextRequest) {
     // 잘못된 타입의 경로 접근 시 → 본인 타입 페이지로 리다이렉트
     if (userType && correctPath) {
       const isAccessingOtherUserPath = Object.entries(userTypeRoutes).some(
-        ([type, route]) => type !== userType && pathname.startsWith(route)
+        ([type, route]) => type !== userType && pathname.startsWith(route),
       );
 
       if (isAccessingOtherUserPath) {

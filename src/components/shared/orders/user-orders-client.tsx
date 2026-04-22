@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { cancelMealOrder, type MealOrderWithProduct } from '@/lib/actions/meal';
+import {
+  cancelMealOrder,
+  type MealOrderWithProduct,
+  type ProductCategory,
+} from '@/lib/actions/meal';
 import { canCancelMealOrderByDeadline } from '@/lib/meal-order-rules';
 import { Loader2 } from 'lucide-react';
 
@@ -24,9 +28,21 @@ function statusLabel(s: MealOrderWithProduct['status']): string {
   }
 }
 
-export function OrdersClient({ initialOrders }: { initialOrders: MealOrderWithProduct[] }) {
+/**
+ * 학생·학부모 본인/자녀 주문 내역 목록 (meal/exam 공용).
+ * fallbackName 만 category 로 분기하고 나머지 로직은 공유.
+ */
+export function UserOrdersClient({
+  initialOrders,
+  category,
+}: {
+  initialOrders: MealOrderWithProduct[];
+  category: ProductCategory;
+}) {
   const [orders, setOrders] = useState(initialOrders);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const fallbackName = category === 'exam' ? '모의고사' : '급식';
 
   const onCancel = async (id: string) => {
     if (!confirm('결제를 취소하고 환불하시겠습니까?')) return;
@@ -38,49 +54,48 @@ export function OrdersClient({ initialOrders }: { initialOrders: MealOrderWithPr
       return;
     }
     setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, status: 'cancelled' as const } : o))
+      prev.map((o) => (o.id === id ? { ...o, status: 'cancelled' as const } : o)),
     );
   };
 
   if (orders.length === 0) {
     return (
-      <Card className="p-6 text-center text-sm text-muted-foreground">신청 내역이 없습니다.</Card>
+      <Card className='text-muted-foreground p-6 text-center text-sm'>신청 내역이 없습니다.</Card>
     );
   }
 
   return (
-    <ul className="space-y-3">
+    <ul className='space-y-3'>
       {orders.map((o) => {
         const p = Array.isArray(o.meal_products) ? o.meal_products[0] : o.meal_products;
-        const name = p?.name ?? '급식';
-        const mealStart = p?.meal_start_date;
+        const name = p?.name ?? fallbackName;
+        const productStart = p?.product_start_date;
         const canCancel =
-          o.status === 'paid' &&
-          mealStart &&
-          canCancelMealOrderByDeadline(mealStart);
+          o.status === 'paid' && productStart && canCancelMealOrderByDeadline(productStart);
 
         return (
           <li key={o.id}>
-            <Card className="p-4 space-y-2">
-              <div className="flex justify-between gap-2">
-                <h2 className="font-semibold leading-tight">{name}</h2>
-                <span className="text-xs shrink-0 px-2 py-0.5 rounded-full bg-muted h-fit">
+            <Card className='space-y-2 p-4'>
+              <div className='flex justify-between gap-2'>
+                <h2 className='leading-tight font-semibold'>{name}</h2>
+                <span className='bg-muted h-fit shrink-0 rounded-full px-2 py-0.5 text-xs'>
                   {statusLabel(o.status)}
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {o.amount.toLocaleString('ko-KR')}원 · {new Date(o.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+              <p className='text-muted-foreground text-sm'>
+                {o.amount.toLocaleString('ko-KR')}원 ·{' '}
+                {new Date(o.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
               </p>
               {o.status === 'paid' && canCancel ? (
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant='outline'
+                  size='sm'
                   disabled={busyId === o.id}
                   onClick={() => void onCancel(o.id)}
                 >
                   {busyId === o.id ? (
                     <>
-                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      <Loader2 className='mr-1 h-3 w-3 animate-spin' />
                       처리 중…
                     </>
                   ) : (

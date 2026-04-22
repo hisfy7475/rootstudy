@@ -3,79 +3,101 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { StudentAbsenceSchedule } from '@/types/database';
-import { formatAbsenceApproverDisplay, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
+import {
+  formatAbsenceApproverDisplay,
+  type AbsenceScheduleListItem,
+} from '@/lib/absence-approver-label';
 import { ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
 import { format, parse, addMinutes, subMinutes, isWithinInterval, getDay } from 'date-fns';
 
 type ApproverProfileRow = { name: string; user_type: 'student' | 'parent' | 'admin' } | null;
 
-function mapRowWithApprover(row: StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }): AbsenceScheduleListItem {
+function mapRowWithApprover(
+  row: StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow },
+): AbsenceScheduleListItem {
   const { approver_profile, ...rest } = row;
-  const approver_display = formatAbsenceApproverDisplay(approver_profile?.name, approver_profile?.user_type);
+  const approver_display = formatAbsenceApproverDisplay(
+    approver_profile?.name,
+    approver_profile?.user_type,
+  );
   return { ...rest, approver_display };
 }
 
 // 부재 스케줄 목록 조회 (학생용)
 export async function getMyAbsenceSchedules(): Promise<AbsenceScheduleListItem[]> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
-  
+
   const { data, error } = await supabase
     .from('student_absence_schedules')
-    .select(`
+    .select(
+      `
       *,
       approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
-    `)
+    `,
+    )
     .eq('student_id', user.id)
     .order('created_at', { ascending: false });
-  
+
   if (error) {
     console.error('Error fetching absence schedules:', error);
     return [];
   }
-  
-  return (data || []).map((row) => mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }));
+
+  return (data || []).map((row) =>
+    mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }),
+  );
 }
 
 // 특정 학생의 부재 스케줄 조회 (관리자/학부모용)
-export async function getStudentAbsenceSchedules(studentId: string): Promise<AbsenceScheduleListItem[]> {
+export async function getStudentAbsenceSchedules(
+  studentId: string,
+): Promise<AbsenceScheduleListItem[]> {
   const supabase = await createClient();
-  
+
   const { data, error } = await supabase
     .from('student_absence_schedules')
-    .select(`
+    .select(
+      `
       *,
       approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
-    `)
+    `,
+    )
     .eq('student_id', studentId)
     .order('created_at', { ascending: false });
-  
+
   if (error) {
     console.error('Error fetching student absence schedules:', error);
     return [];
   }
-  
-  return (data || []).map((row) => mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }));
+
+  return (data || []).map((row) =>
+    mapRowWithApprover(row as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow }),
+  );
 }
 
 // 모든 학생의 부재 스케줄 조회 (관리자용)
-export async function getAllAbsenceSchedules(branchId?: string | null): Promise<
-  (AbsenceScheduleListItem & { student_name?: string; seat_number?: number | null })[]
-> {
+export async function getAllAbsenceSchedules(
+  branchId?: string | null,
+): Promise<(AbsenceScheduleListItem & { student_name?: string; seat_number?: number | null })[]> {
   const supabase = await createClient();
 
   let query = supabase
     .from('student_absence_schedules')
-    .select(`
+    .select(
+      `
       *,
       student_profiles!inner(
         seat_number,
         profiles!inner(name, branch_id)
       ),
       approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
-    `)
+    `,
+    )
     .order('created_at', { ascending: false });
 
   if (branchId) {
@@ -122,12 +144,14 @@ export async function createAbsenceSchedule(data: {
   specific_date?: string;
 }): Promise<{ success: boolean; data?: StudentAbsenceSchedule; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return { success: false, error: '로그인이 필요합니다.' };
   }
-  
+
   const { data: newSchedule, error } = await supabase
     .from('student_absence_schedules')
     .insert({
@@ -135,7 +159,7 @@ export async function createAbsenceSchedule(data: {
       title: data.title,
       description: data.description || null,
       is_recurring: data.is_recurring,
-      recurrence_type: data.is_recurring ? (data.recurrence_type || 'weekly') : 'one_time',
+      recurrence_type: data.is_recurring ? data.recurrence_type || 'weekly' : 'one_time',
       day_of_week: data.day_of_week || null,
       start_time: data.start_time,
       end_time: data.end_time,
@@ -150,14 +174,15 @@ export async function createAbsenceSchedule(data: {
     })
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating absence schedule:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/student/schedule');
   revalidatePath('/parent/schedule');
+  revalidatePath('/admin/attendance');
   return { success: true, data: newSchedule };
 }
 
@@ -176,12 +201,14 @@ export async function createAbsenceScheduleForStudent(
     valid_from?: string;
     valid_until?: string;
     specific_date?: string;
-  }
+  },
 ): Promise<{ success: boolean; data?: StudentAbsenceSchedule; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { data: newSchedule, error } = await supabase
     .from('student_absence_schedules')
     .insert({
@@ -189,7 +216,7 @@ export async function createAbsenceScheduleForStudent(
       title: data.title,
       description: data.description || null,
       is_recurring: data.is_recurring,
-      recurrence_type: data.is_recurring ? (data.recurrence_type || 'weekly') : 'one_time',
+      recurrence_type: data.is_recurring ? data.recurrence_type || 'weekly' : 'one_time',
       day_of_week: data.day_of_week || null,
       start_time: data.start_time,
       end_time: data.end_time,
@@ -206,14 +233,15 @@ export async function createAbsenceScheduleForStudent(
     })
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating absence schedule for student:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/admin/schedules');
   revalidatePath('/student/schedule');
+  revalidatePath('/admin/attendance');
   return { success: true, data: newSchedule };
 }
 
@@ -232,11 +260,13 @@ export async function createAbsenceScheduleForChild(
     valid_from?: string;
     valid_until?: string;
     specific_date?: string;
-  }
+  },
 ): Promise<{ success: boolean; data?: StudentAbsenceSchedule; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return { success: false, error: '로그인이 필요합니다.' };
   }
@@ -252,7 +282,7 @@ export async function createAbsenceScheduleForChild(
   if (!link) {
     return { success: false, error: '연결된 자녀가 아닙니다.' };
   }
-  
+
   const { data: newSchedule, error } = await supabase
     .from('student_absence_schedules')
     .insert({
@@ -260,7 +290,7 @@ export async function createAbsenceScheduleForChild(
       title: data.title,
       description: data.description || null,
       is_recurring: data.is_recurring,
-      recurrence_type: data.is_recurring ? (data.recurrence_type || 'weekly') : 'one_time',
+      recurrence_type: data.is_recurring ? data.recurrence_type || 'weekly' : 'one_time',
       day_of_week: data.day_of_week || null,
       start_time: data.start_time,
       end_time: data.end_time,
@@ -277,22 +307,27 @@ export async function createAbsenceScheduleForChild(
     })
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating absence schedule for child:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/parent/schedule');
   revalidatePath('/student/schedule');
+  revalidatePath('/admin/attendance');
   return { success: true, data: newSchedule };
 }
 
 // 부재 스케줄 승인 (학부모/관리자용)
-export async function approveAbsenceSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
+export async function approveAbsenceSchedule(
+  scheduleId: string,
+): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return { success: false, error: '로그인이 필요합니다.' };
   }
@@ -316,14 +351,19 @@ export async function approveAbsenceSchedule(scheduleId: string): Promise<{ succ
   revalidatePath('/parent/schedule');
   revalidatePath('/admin/schedules');
   revalidatePath('/student/schedule');
+  revalidatePath('/admin/attendance');
   return { success: true };
 }
 
 // 부재 스케줄 거부 (상태 변경)
-export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
+export async function rejectAbsenceSchedule(
+  scheduleId: string,
+): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return { success: false, error: '로그인이 필요합니다.' };
   }
@@ -331,7 +371,7 @@ export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ succe
   // 대기 중인 스케줄만 거부 가능 (raw SQL로 스키마 캐시 우회)
   const { error } = await supabase.rpc('reject_absence_schedule', {
     p_schedule_id: scheduleId,
-    p_rejected_by: user.id
+    p_rejected_by: user.id,
   });
 
   if (error) {
@@ -342,14 +382,19 @@ export async function rejectAbsenceSchedule(scheduleId: string): Promise<{ succe
   revalidatePath('/parent/schedule');
   revalidatePath('/admin/schedules');
   revalidatePath('/student/schedule');
+  revalidatePath('/admin/attendance');
   return { success: true };
 }
 
 // 승인 대기 중인 부재 스케줄 조회 (학부모용 - 연결된 모든 자녀)
-export async function getPendingAbsenceSchedulesForParent(): Promise<(StudentAbsenceSchedule & { student_name: string })[]> {
+export async function getPendingAbsenceSchedulesForParent(): Promise<
+  (StudentAbsenceSchedule & { student_name: string })[]
+> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // 연결된 자녀 ID 목록 조회
@@ -360,16 +405,18 @@ export async function getPendingAbsenceSchedulesForParent(): Promise<(StudentAbs
 
   if (!links || links.length === 0) return [];
 
-  const studentIds = links.map(link => link.student_id);
+  const studentIds = links.map((link) => link.student_id);
 
   const { data, error } = await supabase
     .from('student_absence_schedules')
-    .select(`
+    .select(
+      `
       *,
       student_profiles!inner(
         profiles!inner(name)
       )
-    `)
+    `,
+    )
     .in('student_id', studentIds)
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
@@ -379,25 +426,34 @@ export async function getPendingAbsenceSchedulesForParent(): Promise<(StudentAbs
     return [];
   }
 
-  return (data || []).map(schedule => ({
-    ...schedule,
-    student_name: (schedule.student_profiles as any)?.profiles?.name || '알 수 없음',
-  }));
+  return (data || []).map((schedule) => {
+    const studentProfiles = schedule.student_profiles as {
+      profiles?: { name?: string } | null;
+    } | null;
+    return {
+      ...schedule,
+      student_name: studentProfiles?.profiles?.name || '알 수 없음',
+    };
+  });
 }
 
 // 승인 대기 중인 부재 스케줄 조회 (관리자용 - 모든 학생)
-export async function getPendingAbsenceSchedulesForAdmin(branchId?: string | null): Promise<(StudentAbsenceSchedule & { student_name: string; seat_number?: number | null })[]> {
+export async function getPendingAbsenceSchedulesForAdmin(
+  branchId?: string | null,
+): Promise<(StudentAbsenceSchedule & { student_name: string; seat_number?: number | null })[]> {
   const supabase = await createClient();
 
   let query = supabase
     .from('student_absence_schedules')
-    .select(`
+    .select(
+      `
       *,
       student_profiles!inner(
         seat_number,
         profiles!inner(name, branch_id)
       )
-    `)
+    `,
+    )
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
 
@@ -412,11 +468,17 @@ export async function getPendingAbsenceSchedulesForAdmin(branchId?: string | nul
     return [];
   }
 
-  return (data || []).map(schedule => ({
-    ...schedule,
-    student_name: (schedule.student_profiles as any)?.profiles?.name || '알 수 없음',
-    seat_number: (schedule.student_profiles as any)?.seat_number ?? null,
-  }));
+  return (data || []).map((schedule) => {
+    const studentProfiles = schedule.student_profiles as {
+      seat_number?: number | null;
+      profiles?: { name?: string } | null;
+    } | null;
+    return {
+      ...schedule,
+      student_name: studentProfiles?.profiles?.name || '알 수 없음',
+      seat_number: studentProfiles?.seat_number ?? null,
+    };
+  });
 }
 
 // 부재 스케줄 수정 (학생 본인·학부모·관리자)
@@ -436,11 +498,13 @@ export async function updateAbsenceSchedule(
     specific_date: string | null;
     is_active: boolean;
     status: 'pending' | 'approved' | 'rejected';
-  }>
+  }>,
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { success: false, error: '로그인이 필요합니다.' };
 
   // 대상 스케줄 조회 (student_id 확인용)
@@ -499,14 +563,19 @@ export async function updateAbsenceSchedule(
   revalidatePath('/student/schedule');
   revalidatePath('/parent/schedule');
   revalidatePath('/admin/schedules');
+  revalidatePath('/admin/attendance');
   return { success: true };
 }
 
 // 부재 스케줄 삭제 (관리자·학부모 전용)
-export async function deleteAbsenceSchedule(id: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteAbsenceSchedule(
+  id: string,
+): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { success: false, error: '로그인이 필요합니다.' };
 
   // 대상 스케줄 조회 (student_id 확인용)
@@ -557,39 +626,45 @@ export async function deleteAbsenceSchedule(id: string): Promise<{ success: bool
   revalidatePath('/student/schedule');
   revalidatePath('/parent/schedule');
   revalidatePath('/admin/schedules');
+  revalidatePath('/admin/attendance');
   return { success: true };
 }
 
 // 부재 스케줄 활성/비활성 토글
-export async function toggleAbsenceSchedule(id: string): Promise<{ success: boolean; error?: string }> {
+export async function toggleAbsenceSchedule(
+  id: string,
+): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
-  
+
   // 현재 상태 조회
   const { data: schedule, error: fetchError } = await supabase
     .from('student_absence_schedules')
     .select('is_active')
     .eq('id', id)
     .single();
-  
+
   if (fetchError) {
     return { success: false, error: fetchError.message };
   }
-  
+
   // 상태 토글
   const { error } = await supabase
     .from('student_absence_schedules')
-    .update({ 
+    .update({
       is_active: !schedule.is_active,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);
-  
+
   if (error) {
     console.error('Error toggling absence schedule:', error);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath('/student/schedule');
+  revalidatePath('/parent/schedule');
+  revalidatePath('/admin/schedules');
+  revalidatePath('/admin/attendance');
   return { success: true };
 }
 
@@ -598,7 +673,7 @@ export async function toggleAbsenceSchedule(id: string): Promise<{ success: bool
 export async function isInAbsencePeriod(
   studentId: string,
   checkTime: Date,
-  currentDateType?: 'semester' | 'vacation' | 'special'
+  currentDateType?: 'semester' | 'vacation' | 'special',
 ): Promise<{
   isExempted: boolean;
   schedule?: StudentAbsenceSchedule;
@@ -606,7 +681,7 @@ export async function isInAbsencePeriod(
   exemptionEnd?: Date;
 }> {
   const supabase = await createClient();
-  
+
   // 활성화되고 승인된 부재 스케줄만 조회
   const { data: schedules, error } = await supabase
     .from('student_absence_schedules')
@@ -614,25 +689,25 @@ export async function isInAbsencePeriod(
     .eq('student_id', studentId)
     .eq('is_active', true)
     .eq('status', 'approved'); // 승인된 것만
-  
+
   if (error || !schedules) {
     return { isExempted: false };
   }
-  
+
   const checkDate = format(checkTime, 'yyyy-MM-dd');
   const checkDayOfWeek = getDay(checkTime);
-  
+
   for (const schedule of schedules) {
     // 날짜 타입 체크
     if (schedule.date_type !== 'all' && currentDateType) {
       if (schedule.date_type === 'semester' && currentDateType !== 'semester') continue;
       if (schedule.date_type === 'vacation' && currentDateType !== 'vacation') continue;
     }
-    
+
     // 유효 기간 체크
     if (schedule.valid_from && checkDate < schedule.valid_from) continue;
     if (schedule.valid_until && checkDate > schedule.valid_until) continue;
-    
+
     // 일회성 스케줄 체크
     if (!schedule.is_recurring) {
       if (schedule.specific_date !== checkDate) continue;
@@ -640,15 +715,15 @@ export async function isInAbsencePeriod(
       // 반복 스케줄: 요일 체크
       if (schedule.day_of_week && !schedule.day_of_week.includes(checkDayOfWeek)) continue;
     }
-    
+
     // 시간 체크 (버퍼 포함)
     const scheduleStart = parse(schedule.start_time, 'HH:mm:ss', checkTime);
     const scheduleEnd = parse(schedule.end_time, 'HH:mm:ss', checkTime);
-    
+
     const bufferMinutes = schedule.buffer_minutes || ABSENCE_BUFFER_MINUTES;
     const exemptionStart = subMinutes(scheduleStart, bufferMinutes);
     const exemptionEnd = addMinutes(scheduleEnd, bufferMinutes);
-    
+
     if (isWithinInterval(checkTime, { start: exemptionStart, end: exemptionEnd })) {
       return {
         isExempted: true,
@@ -658,43 +733,45 @@ export async function isInAbsencePeriod(
       };
     }
   }
-  
+
   return { isExempted: false };
 }
 
 // 오늘 해당하는 부재 스케줄 조회 (승인된 것만)
-export async function getTodayAbsenceSchedules(studentId: string): Promise<StudentAbsenceSchedule[]> {
+export async function getTodayAbsenceSchedules(
+  studentId: string,
+): Promise<StudentAbsenceSchedule[]> {
   const supabase = await createClient();
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
   const todayDayOfWeek = getDay(today);
-  
+
   const { data: schedules, error } = await supabase
     .from('student_absence_schedules')
     .select('*')
     .eq('student_id', studentId)
     .eq('is_active', true)
     .eq('status', 'approved'); // 승인된 것만
-  
+
   if (error || !schedules) {
     return [];
   }
-  
-  return schedules.filter(schedule => {
+
+  return schedules.filter((schedule) => {
     // 유효 기간 체크
     if (schedule.valid_from && todayStr < schedule.valid_from) return false;
     if (schedule.valid_until && todayStr > schedule.valid_until) return false;
-    
+
     // 일회성 스케줄
     if (!schedule.is_recurring) {
       return schedule.specific_date === todayStr;
     }
-    
+
     // 반복 스케줄
     if (schedule.day_of_week && !schedule.day_of_week.includes(todayDayOfWeek)) {
       return false;
     }
-    
+
     return true;
   });
 }
