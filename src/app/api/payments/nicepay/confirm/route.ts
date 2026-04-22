@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/server";
+import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
+import { createAdminClient } from '@/lib/supabase/server';
 import {
   approvePayment,
   getNicepayMerchantKey,
@@ -10,40 +10,39 @@ import {
   netcancelPayment,
   verifyApproveResponseSignature,
   verifyAuthResponseSignature,
-} from "@/lib/nicepay";
-import { sendPushToUser } from "@/lib/push";
+} from '@/lib/nicepay';
+import { sendPushToUser } from '@/lib/push';
 
-type OrderCategory = "meal" | "exam";
+type OrderCategory = 'meal' | 'exam';
 
 function pickForm(formData: FormData, ...keys: string[]): string {
   for (const k of keys) {
     const v = formData.get(k);
     if (v != null && String(v).length > 0) return String(v);
   }
-  return "";
-}
-
-function siteOrigin(request: Request): string {
-  return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || new URL(request.url).origin;
+  return '';
 }
 
 function categoryFromOrderId(orderId: string | undefined | null): OrderCategory {
-  return orderId && orderId.startsWith("EXAM-") ? "exam" : "meal";
+  return orderId && orderId.startsWith('EXAM-') ? 'exam' : 'meal';
 }
 
 function categorySlug(category: OrderCategory): string {
-  return category === "exam" ? "mock-exams" : "meals";
+  return category === 'exam' ? 'mock-exams' : 'meals';
 }
 
 function redirectResult(
   request: Request,
-  role: "student" | "parent",
+  role: 'student' | 'parent',
   category: OrderCategory,
   params: Record<string, string>,
 ): NextResponse {
-  const base = siteOrigin(request);
+  // 요청이 들어온 호스트(request.url.origin) 그대로 리다이렉트 — NEXT_PUBLIC_SITE_URL 에 의존하면
+  // env 호스트와 실제 접속 호스트가 달라졌을 때(localhost vs LAN IP 등) 세션 쿠키 도메인이 어긋나
+  // /student 보호 경로에서 /login 으로 튕긴다.
+  const base = new URL(request.url).origin;
   const slug = categorySlug(category);
-  const path = role === "parent" ? `/parent/${slug}/pay/result` : `/student/${slug}/pay/result`;
+  const path = role === 'parent' ? `/parent/${slug}/pay/result` : `/student/${slug}/pay/result`;
   const u = new URL(path, base);
   for (const [k, v] of Object.entries(params)) {
     u.searchParams.set(k, v);
@@ -52,7 +51,7 @@ function redirectResult(
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script></head><body></body></html>`;
   return new NextResponse(html, {
     status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }
 
@@ -72,31 +71,31 @@ export async function POST(request: Request) {
   try {
     formData = await request.formData();
   } catch {
-    return redirectResult(request, "student", "meal", { fail: "1", reason: "invalid_body" });
+    return redirectResult(request, 'student', 'meal', { fail: '1', reason: 'invalid_body' });
   }
 
-  const reqReserved = pickForm(formData, "ReqReserved", "reqReserved");
-  const role: "student" | "parent" = reqReserved === "p" ? "parent" : "student";
+  const reqReserved = pickForm(formData, 'ReqReserved', 'reqReserved');
+  const role: 'student' | 'parent' = reqReserved === 'p' ? 'parent' : 'student';
 
-  const orderId = pickForm(formData, "Moid", "moid");
+  const orderId = pickForm(formData, 'Moid', 'moid');
   const category: OrderCategory = categoryFromOrderId(orderId);
 
-  const authResultCode = pickForm(formData, "AuthResultCode", "authResultCode");
-  if (authResultCode !== "0000") {
+  const authResultCode = pickForm(formData, 'AuthResultCode', 'authResultCode');
+  if (authResultCode !== '0000') {
     return redirectResult(request, role, category, {
-      fail: "1",
-      code: authResultCode || "unknown",
-      msg: encodeURIComponent(pickForm(formData, "AuthResultMsg", "authResultMsg") || ""),
+      fail: '1',
+      code: authResultCode || 'unknown',
+      msg: encodeURIComponent(pickForm(formData, 'AuthResultMsg', 'authResultMsg') || ''),
     });
   }
 
-  const txTid = pickForm(formData, "TxTid", "txTid");
-  const amountRaw = pickForm(formData, "Amt", "amt");
-  const authToken = pickForm(formData, "AuthToken", "authToken");
-  const signature = pickForm(formData, "Signature", "signature");
-  const respMid = pickForm(formData, "MID", "mid");
-  const nextAppURL = pickForm(formData, "NextAppURL", "nextAppURL");
-  const netCancelURL = pickForm(formData, "NetCancelURL", "netCancelURL");
+  const txTid = pickForm(formData, 'TxTid', 'txTid');
+  const amountRaw = pickForm(formData, 'Amt', 'amt');
+  const authToken = pickForm(formData, 'AuthToken', 'authToken');
+  const signature = pickForm(formData, 'Signature', 'signature');
+  const respMid = pickForm(formData, 'MID', 'mid');
+  const nextAppURL = pickForm(formData, 'NextAppURL', 'nextAppURL');
+  const netCancelURL = pickForm(formData, 'NetCancelURL', 'netCancelURL');
 
   const mid = getNicepayMid();
   const merchantKey = getNicepayMerchantKey();
@@ -110,63 +109,63 @@ export async function POST(request: Request) {
     !nextAppURL ||
     !netCancelURL
   ) {
-    return redirectResult(request, role, category, { fail: "1", reason: "missing_fields" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'missing_fields' });
   }
 
   if (respMid !== mid) {
-    return redirectResult(request, role, category, { fail: "1", reason: "mid_mismatch" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'mid_mismatch' });
   }
 
   const amount = parseInt(amountRaw, 10);
   if (!Number.isFinite(amount)) {
-    return redirectResult(request, role, category, { fail: "1", reason: "invalid_amount" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_amount' });
   }
 
   if (!verifyAuthResponseSignature(authToken, respMid, amountRaw, merchantKey, signature)) {
-    return redirectResult(request, role, category, { fail: "1", reason: "invalid_signature" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_signature' });
   }
 
   const admin = createAdminClient();
 
   const { data: order, error: orderErr } = await admin
-    .from("meal_orders")
-    .select("id, user_id, student_id, product_id, order_id, amount, status, tid")
-    .eq("order_id", orderId)
+    .from('meal_orders')
+    .select('id, user_id, student_id, product_id, order_id, amount, status, tid')
+    .eq('order_id', orderId)
     .maybeSingle();
 
   if (orderErr || !order) {
-    console.error("[nicepay/confirm] order not found", orderErr, orderId);
-    return redirectResult(request, role, category, { fail: "1", reason: "order_not_found" });
+    console.error('[nicepay/confirm] order not found', orderErr, orderId);
+    return redirectResult(request, role, category, { fail: '1', reason: 'order_not_found' });
   }
 
   const row = order as MealOrderRow;
 
-  if (row.status === "paid" && row.tid) {
+  if (row.status === 'paid' && row.tid) {
     if (row.tid === txTid) {
-      return redirectResult(request, role, category, { ok: "1", order: row.id });
+      return redirectResult(request, role, category, { ok: '1', order: row.id });
     }
-    return redirectResult(request, role, category, { fail: "1", reason: "already_paid" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'already_paid' });
   }
 
-  if (row.status !== "pending") {
-    return redirectResult(request, role, category, { fail: "1", reason: "invalid_order_status" });
+  if (row.status !== 'pending') {
+    return redirectResult(request, role, category, { fail: '1', reason: 'invalid_order_status' });
   }
 
   if (row.amount !== amount) {
-    return redirectResult(request, role, category, { fail: "1", reason: "amount_mismatch" });
+    return redirectResult(request, role, category, { fail: '1', reason: 'amount_mismatch' });
   }
 
   const rawAuth = Object.fromEntries(formData.entries());
 
-  await admin.from("payment_logs").insert({
+  await admin.from('payment_logs').insert({
     order_type: category,
     order_id: orderId,
     tid: txTid,
-    action: "auth",
+    action: 'auth',
     amount,
-    status: "success",
+    status: 'success',
     result_code: authResultCode,
-    result_msg: pickForm(formData, "AuthResultMsg", "authResultMsg") || null,
+    result_msg: pickForm(formData, 'AuthResultMsg', 'authResultMsg') || null,
     raw_request: rawAuth as unknown as Record<string, unknown>,
   });
 
@@ -187,7 +186,7 @@ export async function POST(request: Request) {
     );
     clearTimeout(timer);
   } catch (e) {
-    console.error("[nicepay/confirm] approve error", e);
+    console.error('[nicepay/confirm] approve error', e);
     approveResult = null;
   }
 
@@ -205,7 +204,7 @@ export async function POST(request: Request) {
       approveResult.result.Signature,
     );
     if (!sigOk) {
-      console.warn("[nicepay/confirm] approve Signature mismatch (승인은 ResultCode 기준 처리)", {
+      console.warn('[nicepay/confirm] approve Signature mismatch (승인은 ResultCode 기준 처리)', {
         orderId,
         tid: approveResult.result.TID ?? txTid,
       });
@@ -223,56 +222,56 @@ export async function POST(request: Request) {
           ediDate: approveResult.ediDate,
           signData: approveResult.signData,
         });
-        await admin.from("payment_logs").insert({
+        await admin.from('payment_logs').insert({
           order_type: category,
           order_id: orderId,
           tid: txTid,
-          action: "netcancel",
+          action: 'netcancel',
           amount,
-          status: isCancelSuccess(net.result) ? "success" : "fail",
+          status: isCancelSuccess(net.result) ? 'success' : 'fail',
           result_code: net.result.ResultCode ?? null,
           result_msg: net.result.ResultMsg ?? null,
           raw_response: { ...net.result, _raw: net.rawText } as unknown as Record<string, unknown>,
         });
       } catch (netErr) {
-        console.error("[nicepay/confirm] netcancel", netErr);
+        console.error('[nicepay/confirm] netcancel', netErr);
       }
     }
 
     await admin
-      .from("meal_orders")
-      .update({ status: "failed", updated_at: paidAt })
-      .eq("id", row.id);
+      .from('meal_orders')
+      .update({ status: 'failed', updated_at: paidAt })
+      .eq('id', row.id);
 
     const msg =
-      approveResult?.result.ResultMsg || (!approveResult?.httpOk ? "승인 통신 실패" : "승인 거절");
+      approveResult?.result.ResultMsg || (!approveResult?.httpOk ? '승인 통신 실패' : '승인 거절');
     return redirectResult(request, role, category, {
-      fail: "1",
-      reason: "approve_failed",
+      fail: '1',
+      reason: 'approve_failed',
       msg: encodeURIComponent(msg),
-      code: approveResult?.result.ResultCode || "",
+      code: approveResult?.result.ResultCode || '',
     });
   }
 
   const settledTid = approveResult!.result.TID ?? txTid;
 
   await admin
-    .from("meal_orders")
+    .from('meal_orders')
     .update({
-      status: "paid",
+      status: 'paid',
       tid: settledTid,
       paid_at: paidAt,
       updated_at: paidAt,
     })
-    .eq("id", row.id);
+    .eq('id', row.id);
 
-  await admin.from("payment_logs").insert({
+  await admin.from('payment_logs').insert({
     order_type: category,
     order_id: orderId,
     tid: settledTid,
-    action: "approve",
+    action: 'approve',
     amount,
-    status: "success",
+    status: 'success',
     result_code: approveResult!.result.ResultCode ?? null,
     result_msg: approveResult!.result.ResultMsg ?? null,
     raw_response: {
@@ -282,46 +281,46 @@ export async function POST(request: Request) {
   });
 
   const slug = categorySlug(category);
-  const ordersLink = role === "parent" ? `/parent/${slug}/orders` : `/student/${slug}/orders`;
+  const ordersLink = role === 'parent' ? `/parent/${slug}/orders` : `/student/${slug}/orders`;
   const studentOrdersLink = `/student/${slug}/orders`;
-  const title = category === "exam" ? "모의고사 결제 완료" : "급식 결제 완료";
+  const title = category === 'exam' ? '모의고사 결제 완료' : '급식 결제 완료';
   const body =
-    category === "exam"
-      ? "모의고사 신청이 결제 완료되었습니다."
-      : "급식 신청이 결제 완료되었습니다.";
+    category === 'exam'
+      ? '모의고사 신청이 결제 완료되었습니다.'
+      : '급식 신청이 결제 완료되었습니다.';
 
   try {
-    await admin.from("user_notifications").insert({
+    await admin.from('user_notifications').insert({
       user_id: row.user_id,
-      type: "system",
+      type: 'system',
       title,
       message: body,
       link: ordersLink,
     });
   } catch (e) {
-    console.error("[nicepay/confirm] user_notification", e);
+    console.error('[nicepay/confirm] user_notification', e);
   }
 
   if (row.student_id !== row.user_id) {
     try {
-      await admin.from("student_notifications").insert({
+      await admin.from('student_notifications').insert({
         student_id: row.student_id,
-        type: "system",
+        type: 'system',
         title,
         message: body,
         link: studentOrdersLink,
       });
     } catch (e) {
-      console.error("[nicepay/confirm] student_notification", e);
+      console.error('[nicepay/confirm] student_notification', e);
     }
   }
 
   void sendPushToUser(row.user_id, title, body, { path: ordersLink }).catch((e) =>
-    console.error("[nicepay/confirm] push payer", e),
+    console.error('[nicepay/confirm] push payer', e),
   );
   if (row.student_id !== row.user_id) {
     void sendPushToUser(row.student_id, title, body, { path: studentOrdersLink }).catch((e) =>
-      console.error("[nicepay/confirm] push student", e),
+      console.error('[nicepay/confirm] push student', e),
     );
   }
 
@@ -332,5 +331,5 @@ export async function POST(request: Request) {
   revalidatePath(`/student/${slug}/${row.product_id}`);
   revalidatePath(`/parent/${slug}/${row.product_id}`);
 
-  return redirectResult(request, role, category, { ok: "1", order: row.id });
+  return redirectResult(request, role, category, { ok: '1', order: row.id });
 }

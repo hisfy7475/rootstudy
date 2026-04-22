@@ -12,10 +12,23 @@ import { Loader2 } from 'lucide-react';
 /** 네이티브 앱 URL scheme — studycafe-app/src/constants.ts의 URL_SCHEME과 동일해야 함 */
 const NATIVE_APP_SCHEME = 'rootstudy://';
 
+/** NICEPay 승인 콜백 경로 (meal/exam 공용). */
+const RETURN_PATH = '/api/payments/nicepay/confirm';
+
 /** SSR/hydration 안전하게 네이티브 앱 scheme 반환. 서버: 빈 문자열, 클라이언트(네이티브 WebView): scheme. */
 const subscribeNoop = () => () => {};
 const getServerSchemeSnapshot = () => '';
 const getClientSchemeSnapshot = () => (isNativeApp() ? NATIVE_APP_SCHEME : '');
+
+/**
+ * 클라이언트 window.location.origin 기반 절대 returnUrl.
+ * NEXT_PUBLIC_SITE_URL 같은 빌드-타임 env 에 의존하지 않고 현재 브라우저 호스트를 그대로 쓴다.
+ * — 이렇게 해야 PC(localhost)·모바일 WebView(LAN IP/프로덕션) 어느 쪽에서 접속해도
+ *   form action 호스트가 세션 쿠키가 있는 호스트와 일치한다.
+ */
+const getServerReturnUrlSnapshot = () => '';
+const getClientReturnUrlSnapshot = () =>
+  typeof window === 'undefined' ? '' : `${window.location.origin}${RETURN_PATH}`;
 
 declare global {
   interface Window {
@@ -40,7 +53,6 @@ export type PaymentInit = {
  */
 export function PayClient({
   paymentInit,
-  returnUrl,
   mallReserved,
   backHref,
   orderRowId,
@@ -48,7 +60,6 @@ export function PayClient({
   displayGoodsName,
 }: {
   paymentInit: PaymentInit | null;
-  returnUrl: string;
   mallReserved: 's' | 'p';
   backHref: string;
   orderRowId: string;
@@ -63,6 +74,11 @@ export function PayClient({
     subscribeNoop,
     getClientSchemeSnapshot,
     getServerSchemeSnapshot,
+  );
+  const returnUrl = useSyncExternalStore(
+    subscribeNoop,
+    getClientReturnUrlSnapshot,
+    getServerReturnUrlSnapshot,
   );
 
   useEffect(() => {
@@ -109,7 +125,7 @@ export function PayClient({
       return;
     }
     if (!returnUrl.startsWith('http')) {
-      alert('NEXT_PUBLIC_SITE_URL(절대 URL)을 설정해 주세요.');
+      alert('결제 준비가 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
     if (!window.goPay) {
@@ -140,6 +156,7 @@ export function PayClient({
           ref={formRef}
           name='payForm'
           method='post'
+          action={returnUrl}
           acceptCharset='utf-8'
           className='hidden'
           aria-hidden
@@ -177,7 +194,7 @@ export function PayClient({
           결제 연동 정보가 없습니다. 서버 환경변수 NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY를
           확인해 주세요.
         </p>
-      ) : !scriptReady ? (
+      ) : !scriptReady || !returnUrl ? (
         <div className='text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm'>
           <Loader2 className='h-4 w-4 animate-spin' />
           결제 준비 중…

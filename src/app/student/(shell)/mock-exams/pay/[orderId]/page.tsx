@@ -24,9 +24,6 @@ export default async function StudentMockExamPayPage({
     goodsName: product.name,
   });
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? '';
-  const returnUrl = `${baseUrl}/api/payments/nicepay/confirm`;
-
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
@@ -38,7 +35,6 @@ export default async function StudentMockExamPayPage({
       </Link>
       <PayClient
         paymentInit={paymentInit}
-        returnUrl={returnUrl}
         mallReserved='s'
         backHref={`/student/mock-exams/${order.product_id}`}
         orderRowId={order.id}

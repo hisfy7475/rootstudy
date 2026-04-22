@@ -24,9 +24,6 @@ export default async function ParentMockExamPayPage({
     goodsName: product.name,
   });
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? '';
-  const returnUrl = `${baseUrl}/api/payments/nicepay/confirm`;
-
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
@@ -38,7 +35,6 @@ export default async function ParentMockExamPayPage({
       </Link>
       <PayClient
         paymentInit={paymentInit}
-        returnUrl={returnUrl}
         mallReserved='p'
         backHref={`/parent/mock-exams/${order.product_id}?for=${encodeURIComponent(order.student_id)}`}
         orderRowId={order.id}
