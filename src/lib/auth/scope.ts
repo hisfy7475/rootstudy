@@ -60,24 +60,25 @@ async function resolveScope(): Promise<UserScope | null> {
     };
   }
 
-  // parent: 자녀들의 지점 수집
+  // parent: 연결된 자녀 id 수집 후, 각 자녀의 profiles.branch_id UNION.
+  // parent_student_links.student_id FK 는 student_profiles(id)를 참조하므로
+  // 프로필로 직접 조인할 수 없다. 두 단계 조회로 분리.
   const { data: links } = await supabase
     .from("parent_student_links")
-    .select("student_id, profiles!parent_student_links_student_id_fkey(branch_id)")
+    .select("student_id")
     .eq("parent_id", user.id);
 
-  type LinkRow = {
-    student_id: string;
-    profiles: { branch_id: string | null } | { branch_id: string | null }[] | null;
-  };
+  const studentIds = (links ?? []).map((l) => l.student_id as string);
 
-  const studentIds: string[] = [];
   const branchIdSet = new Set<string>();
-
-  for (const raw of (links ?? []) as LinkRow[]) {
-    studentIds.push(raw.student_id);
-    const p = Array.isArray(raw.profiles) ? raw.profiles[0] : raw.profiles;
-    if (p?.branch_id) branchIdSet.add(p.branch_id);
+  if (studentIds.length > 0) {
+    const { data: studentProfiles } = await supabase
+      .from("profiles")
+      .select("id, branch_id")
+      .in("id", studentIds);
+    for (const sp of studentProfiles ?? []) {
+      if (sp.branch_id) branchIdSet.add(sp.branch_id as string);
+    }
   }
 
   const branchIds = [...branchIdSet];
