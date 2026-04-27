@@ -1,13 +1,14 @@
-"use client";
+'use client';
 
-import { useState, useCallback, useEffect } from "react";
-import Link from "next/link";
-import Image from "next/image";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { SignOutForm } from "@/components/SignOutForm";
-import { useSidebar } from "./sidebar-context";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import { SignOutForm } from '@/components/SignOutForm';
+import { useSidebar } from './sidebar-context';
+import { createClient } from '@/lib/supabase/client';
+import { getAdminUnreadChatCount } from '@/lib/actions/chat';
 import {
   LayoutDashboard,
   Brain,
@@ -33,7 +34,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   type LucideIcon,
-} from "lucide-react";
+} from 'lucide-react';
 
 interface NavItem {
   href: string;
@@ -42,24 +43,24 @@ interface NavItem {
 }
 
 const adminNavItems: NavItem[] = [
-  { href: "", label: "대시보드", icon: LayoutDashboard },
-  { href: "/attendance", label: "출석부", icon: ClipboardList },
-  { href: "/focus", label: "몰입도 관리", icon: Brain },
-  { href: "/report", label: "몰입도 리포트", icon: FileBarChart2 },
-  { href: "/points", label: "상벌점 관리", icon: Award },
-  { href: "/members", label: "회원 관리", icon: Users },
-  { href: "/student-types", label: "학생 타입", icon: GraduationCap },
-  { href: "/schedules", label: "부재 스케줄", icon: CalendarClock },
-  { href: "/branches", label: "지점 관리", icon: Building2 },
-  { href: "/date-types", label: "날짜 타입", icon: Calendar },
-  { href: "/periods", label: "교시 관리", icon: Clock },
-  { href: "/notifications", label: "알림 관리", icon: Bell },
-  { href: "/announcements", label: "공지사항 관리", icon: Megaphone },
-  { href: "/meals", label: "급식 관리", icon: UtensilsCrossed },
-  { href: "/mock-exams", label: "모의고사 관리", icon: FileText },
-  { href: "/mentoring", label: "멘토링 관리", icon: BookOpen },
-  { href: "/download", label: "데이터 다운로드", icon: Download },
-  { href: "/chat", label: "채팅 관리", icon: MessageCircle },
+  { href: '', label: '대시보드', icon: LayoutDashboard },
+  { href: '/chat', label: '채팅 관리', icon: MessageCircle },
+  { href: '/attendance', label: '출석부', icon: ClipboardList },
+  { href: '/focus', label: '몰입도 관리', icon: Brain },
+  { href: '/report', label: '몰입도 리포트', icon: FileBarChart2 },
+  { href: '/points', label: '상벌점 관리', icon: Award },
+  { href: '/members', label: '회원 관리', icon: Users },
+  { href: '/student-types', label: '학생 타입', icon: GraduationCap },
+  { href: '/schedules', label: '부재 스케줄', icon: CalendarClock },
+  { href: '/branches', label: '지점 관리', icon: Building2 },
+  { href: '/date-types', label: '날짜 타입', icon: Calendar },
+  { href: '/periods', label: '교시 관리', icon: Clock },
+  { href: '/notifications', label: '알림 관리', icon: Bell },
+  { href: '/announcements', label: '공지사항 관리', icon: Megaphone },
+  { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
+  { href: '/mock-exams', label: '모의고사 관리', icon: FileText },
+  { href: '/mentoring', label: '멘토링 관리', icon: BookOpen },
+  { href: '/download', label: '데이터 다운로드', icon: Download },
 ];
 
 interface SidebarProps {
@@ -68,7 +69,7 @@ interface SidebarProps {
   initialUnreadChatCount?: number;
 }
 
-export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 }: SidebarProps) {
+export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
@@ -80,24 +81,49 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
 
   useEffect(() => {
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
     const fetchUnreadCount = async () => {
-      const { count } = await supabase
-        .from("chat_messages")
-        .select("*", { count: "exact", head: true })
-        .eq("is_read_by_admin", false);
-      setUnreadChatCount(count || 0);
+      const { count } = await getAdminUnreadChatCount();
+      console.info('[Sidebar] unread refetched:', count);
+      setUnreadChatCount(count);
     };
 
-    const channel = supabase
-      .channel("sidebar-chat-unread")
-      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => {
-        fetchUnreadCount();
-      })
-      .subscribe();
+    // Realtime postgres_changes 는 listener 별 RLS 평가에 access_token 이 필요하다.
+    // session 을 먼저 await + setAuth 한 뒤에 subscribe 해야 realtime.subscription 의
+    // claims_role 이 'authenticated' 로 등록되고, RLS `TO authenticated` 정책이 통과한다.
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel('sidebar-chat-unread')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'chat_messages' },
+          (payload) => {
+            console.info('[Sidebar] postgres_changes event:', payload.eventType);
+            fetchUnreadCount();
+          },
+        )
+        .subscribe((status, err) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('[Sidebar] Realtime channel error:', status, err);
+          } else if (status === 'SUBSCRIBED') {
+            console.info('[Sidebar] Realtime subscribed');
+          }
+        });
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 
@@ -109,15 +135,15 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
   // ESC 키로 모바일 메뉴 닫기
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileOpen(false);
+      if (e.key === 'Escape') setMobileOpen(false);
     };
     if (mobileOpen) {
-      document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
     }
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
     };
   }, [mobileOpen]);
 
@@ -128,7 +154,7 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
   // 모바일용 사이드바 콘텐츠 (항상 펼침)
   const mobileSidebarContent = (
     <>
-      <div className='p-4 border-b border-gray-100'>
+      <div className='border-b border-gray-100 p-4'>
         <Link href='/admin' className='block'>
           <Image
             src='/logo.png'
@@ -138,42 +164,42 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
             className='object-contain'
           />
         </Link>
-        <p className='text-xs text-text-muted mt-2'>관리자</p>
+        <p className='text-text-muted mt-2 text-xs'>관리자</p>
         {branchName && (
-          <div className='mt-2 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20'>
+          <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
             <div className='flex items-center gap-1.5'>
-              <Building2 className='w-3.5 h-3.5 text-primary flex-shrink-0' />
-              <span className='text-sm font-semibold text-primary'>{branchName}</span>
+              <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
+              <span className='text-primary text-sm font-semibold'>{branchName}</span>
             </div>
           </div>
         )}
       </div>
 
-      <nav className='flex-1 py-4 overflow-y-auto'>
-        <ul className='space-y-1 px-3'>
+      <nav className='flex-1 overflow-y-auto py-3'>
+        <ul className='space-y-0.5 px-3'>
           {adminNavItems.map((item) => {
             const fullPath = basePath + item.href;
             const isActive =
-              pathname === fullPath || (item.href !== "" && pathname.startsWith(fullPath));
+              pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));
             const Icon = item.icon;
-            const isChatItem = item.href === "/chat";
+            const isChatItem = item.href === '/chat';
             const showBadge = isChatItem && unreadChatCount > 0;
             return (
               <li key={item.href}>
                 <Link
                   href={fullPath}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200",
+                    'flex items-center gap-3 rounded-2xl px-4 py-2 transition-all duration-200',
                     isActive
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-text hover:bg-gray-50 hover:text-primary",
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-text hover:text-primary hover:bg-gray-50',
                   )}
                 >
-                  <Icon className='w-5 h-5 flex-shrink-0' />
+                  <Icon className='h-5 w-5 flex-shrink-0' />
                   <span className='text-sm'>{item.label}</span>
                   {showBadge && (
-                    <span className='ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none'>
-                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    <span className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs leading-none font-bold text-white'>
+                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
                     </span>
                   )}
                 </Link>
@@ -183,16 +209,16 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
         </ul>
       </nav>
 
-      <div className='p-4 border-t border-gray-100'>
+      <div className='border-t border-gray-100 p-4'>
         <SignOutForm>
           <button
             type='submit'
             className={cn(
-              "flex items-center gap-3 w-full px-4 py-3 rounded-2xl",
-              "text-text-muted hover:bg-gray-50 hover:text-error transition-all duration-200",
+              'flex w-full items-center gap-3 rounded-2xl px-4 py-3',
+              'text-text-muted hover:text-error transition-all duration-200 hover:bg-gray-50',
             )}
           >
-            <LogOut className='w-5 h-5 flex-shrink-0' />
+            <LogOut className='h-5 w-5 flex-shrink-0' />
             <span className='text-sm'>로그아웃</span>
           </button>
         </SignOutForm>
@@ -206,10 +232,10 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
       <button
         type='button'
         onClick={toggleMobile}
-        className='no-print fixed left-4 z-50 md:hidden flex items-center justify-center w-10 h-10 rounded-xl bg-card border border-gray-200 shadow-sm text-text hover:bg-gray-50 transition-colors top-[max(1rem,env(safe-area-inset-top))]'
-        aria-label={mobileOpen ? "메뉴 닫기" : "메뉴 열기"}
+        className='no-print bg-card text-text fixed top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 md:hidden'
+        aria-label={mobileOpen ? '메뉴 닫기' : '메뉴 열기'}
       >
-        {mobileOpen ? <X className='w-5 h-5' /> : <Menu className='w-5 h-5' />}
+        {mobileOpen ? <X className='h-5 w-5' /> : <Menu className='h-5 w-5' />}
       </button>
 
       {/* 모바일 오버레이 배경 */}
@@ -224,16 +250,16 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
       {/* ========== 데스크톱 사이드바 ========== */}
       <aside
         className={cn(
-          "no-print hidden md:flex fixed left-0 top-0 h-screen bg-card border-r border-gray-100 shadow-sm flex-col z-30",
-          "transition-[width] duration-300 ease-in-out overflow-hidden",
-          collapsed ? "w-[68px]" : "w-64",
+          'no-print bg-card fixed top-0 left-0 z-30 hidden h-screen flex-col border-r border-gray-100 shadow-sm md:flex',
+          'overflow-hidden transition-[width] duration-300 ease-in-out',
+          collapsed ? 'w-[68px]' : 'w-64',
         )}
       >
         {/* 헤더 */}
         <div
           className={cn(
-            "border-b border-gray-100 transition-all duration-300",
-            collapsed ? "px-2 py-3" : "p-4",
+            'border-b border-gray-100 transition-all duration-300',
+            collapsed ? 'px-2 py-3' : 'p-4',
           )}
         >
           {collapsed ? (
@@ -257,12 +283,12 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
                   className='object-contain'
                 />
               </Link>
-              <p className='text-xs text-text-muted mt-2'>관리자</p>
+              <p className='text-text-muted mt-2 text-xs'>관리자</p>
               {branchName && (
-                <div className='mt-2 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20'>
+                <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
                   <div className='flex items-center gap-1.5'>
-                    <Building2 className='w-3.5 h-3.5 text-primary flex-shrink-0' />
-                    <span className='text-sm font-semibold text-primary whitespace-nowrap'>
+                    <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
+                    <span className='text-primary text-sm font-semibold whitespace-nowrap'>
                       {branchName}
                     </span>
                   </div>
@@ -277,23 +303,23 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
           type='button'
           onClick={toggleCollapsed}
           className={cn(
-            "flex items-center justify-center mx-auto my-2 rounded-lg text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors",
-            collapsed ? "w-10 h-8" : "w-[calc(100%-24px)] h-8",
+            'hover:text-primary mx-auto my-2 flex items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100',
+            collapsed ? 'h-8 w-10' : 'h-8 w-[calc(100%-24px)]',
           )}
-          title={collapsed ? "메뉴 펼치기" : "메뉴 접기"}
+          title={collapsed ? '메뉴 펼치기' : '메뉴 접기'}
         >
-          {collapsed ? <ChevronsRight className='w-4 h-4' /> : <ChevronsLeft className='w-4 h-4' />}
+          {collapsed ? <ChevronsRight className='h-4 w-4' /> : <ChevronsLeft className='h-4 w-4' />}
         </button>
 
         {/* 네비게이션 */}
-        <nav className='flex-1 py-1 overflow-y-auto overflow-x-hidden'>
-          <ul className={cn("space-y-1", collapsed ? "px-1.5" : "px-3")}>
+        <nav className='flex-1 overflow-x-hidden overflow-y-auto py-1'>
+          <ul className={cn('space-y-0.5', collapsed ? 'px-1.5' : 'px-3')}>
             {adminNavItems.map((item) => {
               const fullPath = basePath + item.href;
               const isActive =
-                pathname === fullPath || (item.href !== "" && pathname.startsWith(fullPath));
+                pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));
               const Icon = item.icon;
-              const isChatItem = item.href === "/chat";
+              const isChatItem = item.href === '/chat';
               const showBadge = isChatItem && unreadChatCount > 0;
 
               return (
@@ -302,18 +328,18 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
                     href={fullPath}
                     title={collapsed ? item.label : undefined}
                     className={cn(
-                      "flex items-center rounded-2xl transition-all duration-200",
-                      collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-3",
+                      'flex items-center rounded-2xl transition-all duration-200',
+                      collapsed ? 'justify-center px-0 py-2' : 'gap-3 px-4 py-2',
                       isActive
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-text hover:bg-gray-50 hover:text-primary",
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-text hover:text-primary hover:bg-gray-50',
                     )}
                   >
                     <div className='relative flex-shrink-0'>
-                      <Icon className='w-5 h-5' />
+                      <Icon className='h-5 w-5' />
                       {showBadge && collapsed && (
-                        <span className='absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none'>
-                          {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                        <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] leading-none font-bold text-white'>
+                          {unreadChatCount > 99 ? '99+' : unreadChatCount}
                         </span>
                       )}
                     </div>
@@ -321,8 +347,8 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
                       <>
                         <span className='text-sm whitespace-nowrap'>{item.label}</span>
                         {showBadge && (
-                          <span className='ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none'>
-                            {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                          <span className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs leading-none font-bold text-white'>
+                            {unreadChatCount > 99 ? '99+' : unreadChatCount}
                           </span>
                         )}
                       </>
@@ -335,18 +361,18 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
         </nav>
 
         {/* 하단 로그아웃 */}
-        <div className={cn("border-t border-gray-100", collapsed ? "p-1.5" : "p-4")}>
+        <div className={cn('border-t border-gray-100', collapsed ? 'p-1.5' : 'p-4')}>
           <SignOutForm>
             <button
               type='submit'
-              title={collapsed ? "로그아웃" : undefined}
+              title={collapsed ? '로그아웃' : undefined}
               className={cn(
-                "flex items-center rounded-2xl w-full",
-                collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-3",
-                "text-text-muted hover:bg-gray-50 hover:text-error transition-all duration-200",
+                'flex w-full items-center rounded-2xl',
+                collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-4 py-3',
+                'text-text-muted hover:text-error transition-all duration-200 hover:bg-gray-50',
               )}
             >
-              <LogOut className='w-5 h-5 flex-shrink-0' />
+              <LogOut className='h-5 w-5 flex-shrink-0' />
               {!collapsed && <span className='text-sm whitespace-nowrap'>로그아웃</span>}
             </button>
           </SignOutForm>
@@ -356,9 +382,9 @@ export function Sidebar({ basePath = "", branchName, initialUnreadChatCount = 0 
       {/* ========== 모바일 사이드바 드로어 ========== */}
       <aside
         className={cn(
-          "no-print fixed left-0 top-0 h-screen w-64 bg-card border-r border-gray-100 shadow-lg flex flex-col z-50 md:hidden",
-          "transition-transform duration-300 ease-in-out",
-          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          'no-print bg-card fixed top-0 left-0 z-50 flex h-screen w-64 flex-col border-r border-gray-100 shadow-lg md:hidden',
+          'transition-transform duration-300 ease-in-out',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {mobileSidebarContent}

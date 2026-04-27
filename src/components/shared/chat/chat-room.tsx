@@ -115,101 +115,128 @@ export function ChatRoom({
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    const channel = supabase
-      .channel(`room:${roomId}:${realtimeChannelGen}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `room_id=eq.${roomId}`,
-        },
-        async (payload) => {
-          if (pendingMessageIds.current.has(payload.new.id)) {
-            pendingMessageIds.current.delete(payload.new.id);
+    // RLS `TO authenticated` 정책이 통과하려면 realtime.subscription 의 claims_role 이
+    // 'authenticated' 여야 한다. 세션을 먼저 await + setAuth 한 뒤 subscribe 한다.
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`room:${roomId}:${realtimeChannelGen}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+            filter: `room_id=eq.${roomId}`,
+          },
+          async (payload) => {
+            if (pendingMessageIds.current.has(payload.new.id)) {
+              pendingMessageIds.current.delete(payload.new.id);
+              return;
+            }
+
+            const senderId = payload.new.sender_id as string;
+            let cached = profileCacheRef.current.get(senderId);
+
+            if (!cached) {
+              const { data: senderProfile } = await supabase
+                .from('profiles')
+                .select('name, user_type')
+                .eq('id', senderId)
+                .single();
+              cached = {
+                name: senderProfile?.name || '알 수 없음',
+                user_type: senderProfile?.user_type || 'unknown',
+              };
+              profileCacheRef.current.set(senderId, cached);
+            }
+
+            const senderName = cached.user_type === 'admin' ? '루트스터디센터' : cached.name;
+
+            const newMessage: ChatMessageData = {
+              id: payload.new.id,
+              room_id: payload.new.room_id,
+              sender_id: senderId,
+              sender_name: senderName,
+              sender_type: cached.user_type,
+              content: payload.new.content,
+              image_url: payload.new.image_url,
+              file_url: payload.new.file_url ?? null,
+              file_name: payload.new.file_name ?? null,
+              file_type: payload.new.file_type ?? null,
+              is_read_by_student: payload.new.is_read_by_student,
+              is_read_by_parent: payload.new.is_read_by_parent,
+              is_read_by_admin: payload.new.is_read_by_admin,
+              created_at: payload.new.created_at,
+            };
+
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMessage.id)) return prev;
+              // 자신이 보낸 메시지의 realtime echo 가 sendMessage 의 await 보다
+              // 먼저 도착하면 optimistic temp 메시지가 그대로 남아 있다가
+              // 곧이어 await 결과로 tempId→realId 매핑이 실행되며 동일 id 가
+              // 두 번 들어가 React key 중복 에러가 발생한다. 같은 발신자의
+              // optimistic temp 메시지가 있으면 그것을 교체한다.
+              if (newMessage.sender_id === currentUserId) {
+                const tempIdx = prev.findIndex(
+                  (m) =>
+                    m.id.startsWith('temp-') &&
+                    m.sender_id === currentUserId &&
+                    m.content === newMessage.content,
+                );
+                if (tempIdx >= 0) {
+                  return prev.map((m, i) => (i === tempIdx ? newMessage : m));
+                }
+              }
+              return [...prev, newMessage];
+            });
+
+            if (senderId !== currentUserId) {
+              markAsRead(roomId);
+            }
+          },
+        )
+        .subscribe((status, err) => {
+          if (cancelled) return;
+          if (status === 'SUBSCRIBED') {
+            setRealtimeBanner(null);
+            realtimeRetryRef.current = 0;
             return;
           }
-
-          const senderId = payload.new.sender_id as string;
-          let cached = profileCacheRef.current.get(senderId);
-
-          if (!cached) {
-            const { data: senderProfile } = await supabase
-              .from('profiles')
-              .select('name, user_type')
-              .eq('id', senderId)
-              .single();
-            cached = {
-              name: senderProfile?.name || '알 수 없음',
-              user_type: senderProfile?.user_type || 'unknown',
-            };
-            profileCacheRef.current.set(senderId, cached);
+          if (status === 'CLOSED') {
+            return;
           }
-
-          const senderName = cached.user_type === 'admin'
-            ? '루트스터디센터'
-            : cached.name;
-
-          const newMessage: ChatMessageData = {
-            id: payload.new.id,
-            room_id: payload.new.room_id,
-            sender_id: senderId,
-            sender_name: senderName,
-            sender_type: cached.user_type,
-            content: payload.new.content,
-            image_url: payload.new.image_url,
-            file_url: payload.new.file_url ?? null,
-            file_name: payload.new.file_name ?? null,
-            file_type: payload.new.file_type ?? null,
-            is_read_by_student: payload.new.is_read_by_student,
-            is_read_by_parent: payload.new.is_read_by_parent,
-            is_read_by_admin: payload.new.is_read_by_admin,
-            created_at: payload.new.created_at,
-          };
-
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMessage.id)) return prev;
-            return [...prev, newMessage];
-          });
-
-          if (senderId !== currentUserId) {
-            markAsRead(roomId);
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('[ChatRoom] Realtime', status, err);
+            if (realtimeRetryTimerRef.current) {
+              clearTimeout(realtimeRetryTimerRef.current);
+              realtimeRetryTimerRef.current = null;
+            }
+            const attempt = realtimeRetryRef.current;
+            if (attempt < 3) {
+              setRealtimeBanner('연결이 끊어졌습니다. 재연결 중…');
+              realtimeRetryRef.current = attempt + 1;
+              const delayMs = 1000 * Math.pow(2, attempt);
+              realtimeRetryTimerRef.current = setTimeout(() => {
+                if (!cancelled) {
+                  setRealtimeChannelGen((g) => g + 1);
+                }
+              }, delayMs);
+            } else {
+              setRealtimeBanner('실시간 연결에 실패했습니다. 페이지를 새로고침해 주세요.');
+            }
           }
-        }
-      )
-      .subscribe((status, err) => {
-        if (cancelled) return;
-        if (status === 'SUBSCRIBED') {
-          setRealtimeBanner(null);
-          realtimeRetryRef.current = 0;
-          return;
-        }
-        if (status === 'CLOSED') {
-          return;
-        }
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('[ChatRoom] Realtime', status, err);
-          if (realtimeRetryTimerRef.current) {
-            clearTimeout(realtimeRetryTimerRef.current);
-            realtimeRetryTimerRef.current = null;
-          }
-          const attempt = realtimeRetryRef.current;
-          if (attempt < 3) {
-            setRealtimeBanner('연결이 끊어졌습니다. 재연결 중…');
-            realtimeRetryRef.current = attempt + 1;
-            const delayMs = 1000 * Math.pow(2, attempt);
-            realtimeRetryTimerRef.current = setTimeout(() => {
-              if (!cancelled) {
-                setRealtimeChannelGen((g) => g + 1);
-              }
-            }, delayMs);
-          } else {
-            setRealtimeBanner('실시간 연결에 실패했습니다. 페이지를 새로고침해 주세요.');
-          }
-        }
-      });
+        });
+    })();
 
     return () => {
       cancelled = true;
@@ -217,7 +244,7 @@ export function ChatRoom({
         clearTimeout(realtimeRetryTimerRef.current);
         realtimeRetryTimerRef.current = null;
       }
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [roomId, currentUserId, realtimeChannelGen]);
 
@@ -227,7 +254,7 @@ export function ChatRoom({
 
     const sendAfterNativeUpload = async (
       imageUrl: string | null,
-      attachment: ChatFileAttachment | null
+      attachment: ChatFileAttachment | null,
     ) => {
       setIsSending(true);
       const tempId = `temp-${Date.now()}`;
@@ -268,8 +295,8 @@ export function ChatRoom({
                     file_name: result.data!.file_name ?? m.file_name,
                     file_type: result.data!.file_type ?? m.file_type,
                   }
-                : m
-            )
+                : m,
+            ),
           );
         }
       } catch {
@@ -408,8 +435,8 @@ export function ChatRoom({
                     file_name: result.data!.file_name ?? m.file_name,
                     file_type: result.data!.file_type ?? m.file_type,
                   }
-                : m
-            )
+                : m,
+            ),
           );
         }
       } catch (error) {
@@ -421,31 +448,29 @@ export function ChatRoom({
         if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
       }
     },
-    [roomId, currentUserId, currentUserName, currentUserType]
+    [roomId, currentUserId, currentUserName, currentUserType],
   );
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className='flex h-full flex-col bg-white'>
       {realtimeBanner && (
-        <div className="shrink-0 px-3 py-2 text-center text-sm bg-amber-50 text-amber-900 border-b border-amber-100">
+        <div className='shrink-0 border-b border-amber-100 bg-amber-50 px-3 py-2 text-center text-sm text-amber-900'>
           {realtimeBanner}
         </div>
       )}
       {/* 헤더 */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 bg-white">
+      <div className='flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3'>
         {showBackButton && onBack && (
           <button
             onClick={onBack}
-            className="p-2 -ml-2 rounded-full hover:bg-gray-100 transition-colors"
+            className='-ml-2 rounded-full p-2 transition-colors hover:bg-gray-100'
           >
-            <ArrowLeft className="w-5 h-5 text-text" />
+            <ArrowLeft className='text-text h-5 w-5' />
           </button>
         )}
-        <div className="flex-1 min-w-0">
-          <h2 className="font-semibold text-text truncate">{title}</h2>
-          {subtitle && (
-            <p className="text-sm text-text-muted truncate">{subtitle}</p>
-          )}
+        <div className='min-w-0 flex-1'>
+          <h2 className='text-text truncate font-semibold'>{title}</h2>
+          {subtitle && <p className='text-text-muted truncate text-sm'>{subtitle}</p>}
         </div>
       </div>
 

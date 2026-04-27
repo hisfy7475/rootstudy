@@ -1,7 +1,6 @@
 'use server';
 
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { revalidatePath } from 'next/cache';
 
 // ============================================
 // 채팅방 관련
@@ -10,7 +9,9 @@ import { revalidatePath } from 'next/cache';
 // 학생의 채팅방 조회 또는 생성
 export async function getOrCreateChatRoom(studentId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -47,7 +48,9 @@ export async function getOrCreateChatRoom(studentId: string) {
 // 학부모의 경우 studentId를 지정하면 해당 자녀의 채팅방을 조회
 export async function getMyChatRoom(studentId?: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -80,7 +83,7 @@ export async function getMyChatRoom(studentId?: string) {
 
     // 특정 학생이 지정된 경우 연결 확인
     if (studentId) {
-      const isLinked = links.some(link => link.student_id === studentId);
+      const isLinked = links.some((link) => link.student_id === studentId);
       if (!isLinked) {
         return { error: '연결되지 않은 학생입니다.' };
       }
@@ -97,7 +100,9 @@ export async function getMyChatRoom(studentId?: string) {
 // 학생용 미읽음 채팅 개수 조회
 export async function getStudentUnreadChatCount() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return { count: 0 };
 
@@ -121,7 +126,9 @@ export async function getStudentUnreadChatCount() {
 // 학부모용 미읽음 채팅 개수 조회
 export async function getParentUnreadChatCount() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return { count: 0 };
 
@@ -153,37 +160,22 @@ export async function getParentUnreadChatCount() {
 }
 
 // 관리자용 미읽음 채팅 총 개수 조회 (자기 센터 학생만)
+// chat_rooms.student_id → student_profiles → profiles 경유 조인 +
+// auth.uid() 기반 자기 지점 필터링은 RPC 안에서 수행한다.
 export async function getAdminUnreadChatCount() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return { count: 0 };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, branch_id')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile || profile.user_type !== 'admin') return { count: 0 };
-
-  // 자기 센터 학생들의 채팅방 ID 조회
-  const { data: rooms } = await supabase
-    .from('chat_rooms')
-    .select('id, profiles!inner(branch_id)')
-    .eq('profiles.branch_id', profile.branch_id);
-
-  if (!rooms || rooms.length === 0) return { count: 0 };
-
-  const roomIds = rooms.map((r) => r.id);
-
-  const { count } = await supabase
-    .from('chat_messages')
-    .select('*', { count: 'exact', head: true })
-    .in('room_id', roomIds)
-    .eq('is_read_by_admin', false);
-
-  return { count: count || 0 };
+  const { data, error } = await supabase.rpc('get_admin_unread_chat_count');
+  if (error) {
+    console.error('Error fetching admin unread chat count:', error);
+    return { count: 0 };
+  }
+  return { count: Number(data) || 0 };
 }
 
 // 관리자용 채팅방 목록 조회 (페이지네이션 + 서버사이드 검색)
@@ -193,7 +185,9 @@ export async function getChatRoomList(options?: {
   search?: string;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -229,25 +223,27 @@ export async function getChatRoomList(options?: {
   const hasMore = allRows.length > limit;
   const sliced = hasMore ? allRows.slice(0, limit) : allRows;
 
-  const formatted = sliced.map((room: {
-    id: string;
-    student_id: string;
-    created_at: string;
-    student_name: string;
-    seat_number: number | null;
-    unread_count: number;
-    last_message: string | null;
-    last_message_at: string;
-  }) => ({
-    id: room.id,
-    student_id: room.student_id,
-    student_name: room.student_name || '알 수 없음',
-    seat_number: room.seat_number,
-    unread_count: Number(room.unread_count) || 0,
-    last_message: room.last_message,
-    last_message_at: room.last_message_at || room.created_at,
-    created_at: room.created_at,
-  }));
+  const formatted = sliced.map(
+    (room: {
+      id: string;
+      student_id: string;
+      created_at: string;
+      student_name: string;
+      seat_number: number | null;
+      unread_count: number;
+      last_message: string | null;
+      last_message_at: string;
+    }) => ({
+      id: room.id,
+      student_id: room.student_id,
+      student_name: room.student_name || '알 수 없음',
+      seat_number: room.seat_number,
+      unread_count: Number(room.unread_count) || 0,
+      last_message: room.last_message,
+      last_message_at: room.last_message_at || room.created_at,
+      created_at: room.created_at,
+    }),
+  );
 
   return { data: formatted, hasMore };
 }
@@ -259,14 +255,10 @@ export async function getChatRoomList(options?: {
 // 메시지 포맷 변환 헬퍼
 function formatMessages(messages: Array<Record<string, unknown>>) {
   return messages.map((msg) => {
-    const senderProfile = Array.isArray(msg.profiles)
-      ? msg.profiles[0]
-      : msg.profiles;
+    const senderProfile = Array.isArray(msg.profiles) ? msg.profiles[0] : msg.profiles;
 
     const sp = senderProfile as { user_type?: string; name?: string } | null;
-    const senderName = sp?.user_type === 'admin'
-      ? '루트스터디센터'
-      : (sp?.name || '알 수 없음');
+    const senderName = sp?.user_type === 'admin' ? '루트스터디센터' : sp?.name || '알 수 없음';
 
     return {
       id: msg.id as string,
@@ -290,7 +282,9 @@ function formatMessages(messages: Array<Record<string, unknown>>) {
 // 채팅 메시지 목록 조회 (최근 N개, 페이지네이션)
 export async function getChatMessages(roomId: string, limit = 50) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -300,13 +294,15 @@ export async function getChatMessages(roomId: string, limit = 50) {
   const adminSupabase = createAdminClient();
   const { data: messages, error } = await adminSupabase
     .from('chat_messages')
-    .select(`
+    .select(
+      `
       *,
       profiles:sender_id (
         name,
         user_type
       )
-    `)
+    `,
+    )
     .eq('room_id', roomId)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -323,7 +319,9 @@ export async function getChatMessages(roomId: string, limit = 50) {
 // 이전 메시지 조회 (커서 기반 페이지네이션)
 export async function getOlderMessages(roomId: string, before: string, limit = 50) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -333,13 +331,15 @@ export async function getOlderMessages(roomId: string, before: string, limit = 5
   const adminSupabase = createAdminClient();
   const { data: messages, error } = await adminSupabase
     .from('chat_messages')
-    .select(`
+    .select(
+      `
       *,
       profiles:sender_id (
         name,
         user_type
       )
-    `)
+    `,
+    )
     .eq('room_id', roomId)
     .lt('created_at', before)
     .order('created_at', { ascending: false })
@@ -357,7 +357,9 @@ export async function getOlderMessages(roomId: string, before: string, limit = 5
 // 이미지 업로드
 export async function uploadChatImage(roomId: string, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -383,12 +385,10 @@ export async function uploadChatImage(roomId: string, formData: FormData) {
   const ext = file.name.split('.').pop() || 'jpg';
   const fileName = `${user.id}/${roomId}/${Date.now()}.${ext}`;
 
-  const { data, error } = await supabase.storage
-    .from('chat-images')
-    .upload(fileName, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
+  const { data, error } = await supabase.storage.from('chat-images').upload(fileName, file, {
+    cacheControl: '3600',
+    upsert: false,
+  });
 
   if (error) {
     console.error('Error uploading image:', error);
@@ -396,9 +396,9 @@ export async function uploadChatImage(roomId: string, formData: FormData) {
   }
 
   // public URL 생성
-  const { data: { publicUrl } } = supabase.storage
-    .from('chat-images')
-    .getPublicUrl(data.path);
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('chat-images').getPublicUrl(data.path);
 
   return { data: { url: publicUrl } };
 }
@@ -428,7 +428,9 @@ function sanitizeChatFileSegment(name: string): string {
 /** 일반 파일 첨부 업로드 (이미지 제외 → `uploadChatImage` 사용) */
 export async function uploadChatFile(roomId: string, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -454,22 +456,20 @@ export async function uploadChatFile(roomId: string, formData: FormData) {
   const safeBase = sanitizeChatFileSegment(file.name);
   const fileName = `${user.id}/${roomId}/${Date.now()}_${safeBase}`;
 
-  const { data, error } = await supabase.storage
-    .from('chat-files')
-    .upload(fileName, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    });
+  const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
 
   if (error) {
     console.error('Error uploading chat file:', error);
     return { error: '파일 업로드에 실패했습니다.' };
   }
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('chat-files')
-    .getPublicUrl(data.path);
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('chat-files').getPublicUrl(data.path);
 
   return {
     data: {
@@ -491,10 +491,12 @@ export async function sendMessage(
   roomId: string,
   content: string,
   imageUrl?: string | null,
-  fileAttachment?: ChatFileAttachment | null
+  fileAttachment?: ChatFileAttachment | null,
 ) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -573,7 +575,9 @@ async function sendChatNotifications(params: {
   const notificationMessage = params.fileName
     ? `📎 ${params.fileName}`
     : params.imageUrl
-      ? (params.content ? `📷 ${params.content.slice(0, 40)}...` : '📷 이미지를 보냈습니다')
+      ? params.content
+        ? `📷 ${params.content.slice(0, 40)}...`
+        : '📷 이미지를 보냈습니다'
       : params.content.slice(0, 50) + (params.content.length > 50 ? '...' : '');
 
   // 채팅방의 학생 ID 조회
@@ -591,7 +595,7 @@ async function sendChatNotifications(params: {
     .select('parent_id')
     .eq('student_id', room.student_id);
 
-  const parentIds = (parentLinks || []).map(link => link.parent_id);
+  const parentIds = (parentLinks || []).map((link) => link.parent_id);
 
   // 관리자 목록 조회 (같은 지점)
   const { data: studentProfile } = await supabase
@@ -606,15 +610,19 @@ async function sendChatNotifications(params: {
     .eq('user_type', 'admin')
     .eq('branch_id', studentProfile?.branch_id || '');
 
-  const adminIds = (admins || []).map(admin => admin.id);
+  const adminIds = (admins || []).map((admin) => admin.id);
 
   // 발신자 라벨 설정
   const getSenderLabel = () => {
     switch (params.senderType) {
-      case 'student': return '학생';
-      case 'parent': return '학부모님';
-      case 'admin': return '선생님';
-      default: return params.senderName;
+      case 'student':
+        return '학생';
+      case 'parent':
+        return '학부모님';
+      case 'admin':
+        return '선생님';
+      default:
+        return params.senderName;
     }
   };
   const senderLabel = getSenderLabel();
@@ -631,7 +639,7 @@ async function sendChatNotifications(params: {
         title: `${senderLabel}의 새 메시지`,
         message: notificationMessage,
         link: '/student/chat',
-      })
+      }),
     );
   }
 
@@ -646,7 +654,7 @@ async function sendChatNotifications(params: {
             title: `${senderLabel}의 새 메시지`,
             message: notificationMessage,
             link: '/parent/chat',
-          })
+          }),
         );
       }
     }
@@ -663,7 +671,7 @@ async function sendChatNotifications(params: {
             title: `${senderLabel}의 새 메시지`,
             message: notificationMessage,
             link: '/admin/chat',
-          })
+          }),
         );
       }
     }
@@ -676,7 +684,9 @@ async function sendChatNotifications(params: {
 // 읽음 표시 업데이트
 export async function markAsRead(roomId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -727,7 +737,9 @@ export async function markAsRead(roomId: string) {
 // 읽지 않은 메시지 수 조회
 export async function getUnreadCount(roomId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { count: 0 };
@@ -777,7 +789,9 @@ export async function getUnreadCount(roomId: string) {
 // 채팅방 정보 조회 (학생 정보 포함)
 export async function getChatRoomInfo(roomId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     return { error: '로그인이 필요합니다.' };
@@ -785,7 +799,8 @@ export async function getChatRoomInfo(roomId: string) {
 
   const { data: room, error } = await supabase
     .from('chat_rooms')
-    .select(`
+    .select(
+      `
       *,
       student_profiles!inner (
         id,
@@ -794,7 +809,8 @@ export async function getChatRoomInfo(roomId: string) {
           name
         )
       )
-    `)
+    `,
+    )
     .eq('id', roomId)
     .single();
 

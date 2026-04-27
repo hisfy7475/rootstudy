@@ -550,16 +550,19 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
+          branch_id: string;
           created_at: string;
         };
         Insert: {
           id?: string;
           student_id: string;
+          branch_id?: string;
           created_at?: string;
         };
         Update: {
           id?: string;
           student_id?: string;
+          branch_id?: string;
           created_at?: string;
         };
       };
@@ -568,6 +571,7 @@ export interface Database {
           id: string;
           room_id: string;
           sender_id: string;
+          branch_id: string;
           content: string;
           image_url: string | null;
           file_url: string | null;
@@ -582,6 +586,7 @@ export interface Database {
           id?: string;
           room_id: string;
           sender_id: string;
+          branch_id?: string;
           content: string;
           image_url?: string | null;
           file_url?: string | null;
@@ -596,6 +601,7 @@ export interface Database {
           id?: string;
           room_id?: string;
           sender_id?: string;
+          branch_id?: string;
           content?: string;
           image_url?: string | null;
           file_url?: string | null;
