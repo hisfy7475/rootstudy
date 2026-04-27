@@ -1,18 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MealImageUploader } from '@/components/shared/meal-image-uploader';
 import {
-  updateMealProduct,
+  updateMealProductAndVariant,
   uploadMealProductImage,
   deleteMealProductImage,
-  updateMealProductVariant,
   type MealProductWithVariants,
-  type VariantInput,
 } from '@/lib/actions/meal';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import { ListOrdered, Loader2 } from 'lucide-react';
@@ -22,6 +21,8 @@ interface AdminMockExamsDetailClientProps {
 }
 
 export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsDetailClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [product, setProduct] = useState<MealProduct>(initial);
   const [variant, setVariant] = useState<MealProductVariant | null>(initial.variants[0] ?? null);
   const [loading, setLoading] = useState(false);
@@ -39,6 +40,16 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
     description: initial.description ?? '',
     status: initial.status,
   });
+
+  // 등록 직후 이미지 업로드 실패 안내 (?image_error=...). 한 번 보여주고 쿼리 정리.
+  useEffect(() => {
+    const imageErr = searchParams.get('image_error');
+    if (imageErr) {
+      setError(`이미지 업로드 실패: ${imageErr}`);
+      router.replace(`/admin/mock-exams/${initial.id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,33 +70,49 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
     }
 
     setLoading(true);
-    const productRes = await updateMealProduct(product.id, {
+    const res = await updateMealProductAndVariant(product.id, variant.id, {
+      product: {
+        name: form.name,
+        description: form.description.trim() || null,
+        status: form.status,
+      },
+      variant: {
+        kind: 'one_time',
+        price,
+        sale_start_date: form.sale_start_date,
+        sale_end_date: form.sale_end_date,
+        product_start_date: form.product_start_date,
+        product_end_date: form.product_end_date,
+        max_capacity,
+        status: variant.status,
+      },
+    });
+    setLoading(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+
+    // 서버가 값을 정규화하지 않으므로 form 입력값 그대로 로컬 상태에 반영.
+    setProduct((prev) => ({
+      ...prev,
       name: form.name,
       description: form.description.trim() || null,
       status: form.status,
-    });
-    if (productRes.error) {
-      setLoading(false);
-      setError(productRes.error);
-      return;
-    }
-    if (productRes.data) setProduct(productRes.data);
-
-    const variantPayload: Partial<VariantInput> = {
-      price,
-      sale_start_date: form.sale_start_date,
-      sale_end_date: form.sale_end_date,
-      product_start_date: form.product_start_date,
-      product_end_date: form.product_end_date,
-      max_capacity,
-    };
-    const variantRes = await updateMealProductVariant(variant.id, variantPayload);
-    setLoading(false);
-    if (variantRes.error) {
-      setError(variantRes.error);
-      return;
-    }
-    if (variantRes.data) setVariant(variantRes.data);
+    }));
+    setVariant((prev) =>
+      prev
+        ? {
+            ...prev,
+            price,
+            sale_start_date: form.sale_start_date,
+            sale_end_date: form.sale_end_date,
+            product_start_date: form.product_start_date,
+            product_end_date: form.product_end_date,
+            max_capacity,
+          }
+        : prev,
+    );
     setMessage('저장되었습니다.');
   };
 

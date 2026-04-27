@@ -111,20 +111,22 @@ export function AdminMealsNewClient() {
       return;
     }
 
+    let imageError: string | null = null;
     if (res.data && imageFile) {
       const fd = new FormData();
       fd.append('file', imageFile);
       const uploadRes = await uploadMealProductImage(res.data.product_id, fd);
-      if (uploadRes.error) {
-        setLoading(false);
-        setError(`상품은 등록됐지만 이미지 업로드 실패: ${uploadRes.error}`);
-        return;
-      }
+      if (uploadRes.error) imageError = uploadRes.error;
     }
 
     setLoading(false);
     if (res.data) {
-      router.push(`/admin/meals/${res.data.product_id}`);
+      // 이미지 업로드 실패하더라도 상품은 이미 생성됨 → 좀비 상품 방지를 위해
+      // 항상 상세 페이지로 이동. 실패 사유는 쿼리스트링으로 전달.
+      const url = imageError
+        ? `/admin/meals/${res.data.product_id}?image_error=${encodeURIComponent(imageError)}`
+        : `/admin/meals/${res.data.product_id}`;
+      router.push(url);
     }
   };
 

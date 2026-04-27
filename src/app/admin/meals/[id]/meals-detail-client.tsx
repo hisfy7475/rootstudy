@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +66,8 @@ function variantToForm(v: MealProductVariant): VariantInput & { _editingId: stri
 }
 
 export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [product, setProduct] = useState<MealProduct>(initial);
   const [variants, setVariants] = useState<MealProductVariant[]>(initial.variants);
   const [productLoading, setProductLoading] = useState(false);
@@ -76,6 +79,16 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
     description: initial.description ?? '',
     status: initial.status,
   });
+
+  // 등록 직후 이미지 업로드 실패 안내 (?image_error=...). 한 번 보여주고 쿼리 정리.
+  useEffect(() => {
+    const imageErr = searchParams.get('image_error');
+    if (imageErr) {
+      setProductError(`이미지 업로드 실패: ${imageErr}`);
+      router.replace(`/admin/meals/${initial.id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [variantFormOpen, setVariantFormOpen] = useState(false);
   const [variantForm, setVariantForm] = useState(emptyVariantForm);

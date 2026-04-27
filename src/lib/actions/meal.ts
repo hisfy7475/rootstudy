@@ -387,14 +387,19 @@ export async function updateMealProductVariant(
     .eq('status', 'paid');
 
   const hasPaid = (paidCount ?? 0) > 0;
-  const wantsCriticalChange =
-    input.kind !== undefined ||
-    input.price !== undefined ||
-    input.product_start_date !== undefined ||
-    input.product_end_date !== undefined ||
-    input.max_capacity !== undefined;
-  if (hasPaid && wantsCriticalChange) {
-    return { error: '결제 완료된 주문이 있어 가격·기간·정원·종류는 수정할 수 없습니다.' };
+  // 실제로 값이 바뀐 critical 필드만 가드 발동.
+  // sale_start_date / sale_end_date 는 결제 후에도 수정 가능 (정책).
+  const criticalChanged =
+    merged.kind !== variant.kind ||
+    merged.price !== variant.price ||
+    merged.product_start_date !== variant.product_start_date ||
+    merged.product_end_date !== variant.product_end_date ||
+    merged.max_capacity !== variant.max_capacity;
+  if (hasPaid && criticalChanged) {
+    return {
+      error:
+        '결제 완료된 주문이 있어 가격·시험 기간·정원·종류는 수정할 수 없습니다. (신청 기간은 수정 가능)',
+    };
   }
 
   const patch: Record<string, unknown> = {
@@ -428,6 +433,80 @@ export async function updateMealProductVariant(
   revalidatePath(parentBasePath(meta.category));
 
   return { data: updated as MealProductVariant };
+}
+
+// ---------------------------------------------------------------------------
+// product 메타 + variant 동시 update (단일 트랜잭션 RPC)
+// 어드민 detail 폼에서 두 번의 호출이 부분 저장을 일으키던 문제 해결.
+// ---------------------------------------------------------------------------
+
+export type ProductAndVariantUpdateInput = {
+  product: {
+    name: string;
+    description: string | null;
+    status: 'active' | 'inactive' | 'sold_out';
+    meal_type?: 'lunch' | 'dinner' | null;
+  };
+  variant: VariantInput;
+};
+
+export async function updateMealProductAndVariant(
+  productId: string,
+  variantId: string,
+  input: ProductAndVariantUpdateInput,
+): Promise<{ data?: { productId: string; variantId: string }; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  // RPC 가 admin 권한 / branch 일치 / paid 가드 / category 보정을 모두 처리.
+  const { data, error } = await supabase.rpc('update_meal_product_with_variant', {
+    p_product_id: productId,
+    p_variant_id: variantId,
+    p_name: input.product.name.trim(),
+    p_description: input.product.description?.trim() || null,
+    p_status: input.product.status,
+    p_meal_type: input.product.meal_type ?? null,
+    p_variant_kind: input.variant.kind,
+    p_variant_price: input.variant.price,
+    p_variant_sale_start: input.variant.sale_start_date,
+    p_variant_sale_end: input.variant.sale_end_date,
+    p_variant_product_start: input.variant.product_start_date,
+    p_variant_product_end: input.variant.product_end_date,
+    p_variant_max_capacity: input.variant.max_capacity,
+    p_variant_status: input.variant.status ?? 'active',
+  });
+
+  if (error) {
+    logPostgrestQueryError('[updateMealProductAndVariant]', error);
+    const raw = (error.message ?? '').replace(/^ERROR:\s*/i, '').trim();
+    return { error: raw || '저장에 실패했습니다.' };
+  }
+  if (!data || !data.length) {
+    return { error: '저장에 실패했습니다.' };
+  }
+
+  // 카테고리는 productId 로 다시 조회하지 않고, 호출 시 제공된 paths 를 모두 무효화.
+  // (가벼운 비용으로 admin/student/parent 모두 새 데이터 노출)
+  const { data: cat } = await supabase
+    .from('meal_products')
+    .select('category')
+    .eq('id', productId)
+    .maybeSingle();
+  const category = (cat?.category ?? 'meal') as ProductCategory;
+
+  const adminBase = adminBasePath(category);
+  revalidatePath(adminBase);
+  revalidatePath(`${adminBase}/${productId}`);
+  revalidatePath(`${adminBase}/${productId}/orders`);
+  if (category === 'meal') {
+    revalidatePath(`${adminBase}/${productId}/menus`);
+  }
+  revalidatePath(studentBasePath(category));
+  revalidatePath(parentBasePath(category));
+
+  const row = data[0] as { out_product_id: string; out_variant_id: string };
+  return { data: { productId: row.out_product_id, variantId: row.out_variant_id } };
 }
 
 export async function deleteMealProductVariant(
