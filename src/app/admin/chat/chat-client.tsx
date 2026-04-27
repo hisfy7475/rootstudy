@@ -124,12 +124,24 @@ export function AdminChatClient({
   }, [loadMore]);
 
   // Realtime 업데이트
-  // selectedRoomId 는 ref 로 캡처해 채널을 매 선택마다 재생성하지 않는다
-  // (채널 재생성 사이의 짧은 윈도우 동안 INSERT 이벤트가 누락될 수 있음).
+  // 채널 useEffect 는 mount 1회만 실행되고 핸들러가 클로저로 캡처되므로,
+  // 핸들러 내부에서 참조하는 값은 모두 ref 화해 stale 을 방지한다.
+  // (selectedRoomId — 현재 보는 방 / roomsCount — 무한스크롤 누적 개수 /
+  // debouncedSearch — 검색 컨텍스트)
   const selectedRoomIdRef = useRef<string | null>(null);
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoom?.id ?? null;
   }, [selectedRoom?.id]);
+
+  const roomsCountRef = useRef(rooms.length);
+  useEffect(() => {
+    roomsCountRef.current = rooms.length;
+  }, [rooms.length]);
+
+  const debouncedSearchRef = useRef(debouncedSearch);
+  useEffect(() => {
+    debouncedSearchRef.current = debouncedSearch;
+  }, [debouncedSearch]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -190,11 +202,12 @@ export function AdminChatClient({
           },
           async () => {
             // 다른 탭/기기에서 markAsRead 가 발생하면 unread_count 가 stale 해진다.
-            // 가벼운 재조회로 동기화 (페이지 첫 페이지만, 무한스크롤 영역은 유지).
+            // 가벼운 재조회로 동기화 — 무한스크롤 누적 개수와 현재 검색어를 모두 ref 로
+            // 읽어 최신 컨텍스트로 첫 페이지(최대 누적 개수만큼) 재조회.
             const result = await getChatRoomList({
-              limit: Math.max(rooms.length, PAGE_SIZE),
+              limit: Math.max(roomsCountRef.current, PAGE_SIZE),
               offset: 0,
-              search: debouncedSearch || undefined,
+              search: debouncedSearchRef.current || undefined,
             });
             if (result.data) {
               const fresh = result.data;
@@ -241,8 +254,7 @@ export function AdminChatClient({
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-    // 채널 자체는 mount 1회만 생성. selectedRoom 변경은 ref 로 처리.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 채널 자체는 mount 1회만 생성. 핸들러가 참조하는 모든 값은 ref 로 캡처.
   }, []);
 
   const handleSelectRoom = async (room: ChatRoomItem) => {
