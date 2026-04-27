@@ -14,9 +14,11 @@ export default async function StudentMockExamPayPage({
   const order = await getMealOrderById(orderId);
   if (!order || order.status !== 'pending') notFound();
 
-  const product = Array.isArray(order.meal_products) ? order.meal_products[0] : order.meal_products;
+  const product = order.product;
+  const variant = order.variant;
+  if (!product || !variant) notFound();
 
-  if (!product) notFound();
+  const productId = variant.product_id ?? product.id;
 
   const paymentInit = buildMealPaymentWindowParams({
     orderId: order.order_id,
@@ -27,7 +29,7 @@ export default async function StudentMockExamPayPage({
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href={`/student/mock-exams/${order.product_id}`}
+        href={`/student/mock-exams/${productId}`}
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -36,7 +38,7 @@ export default async function StudentMockExamPayPage({
       <PayClient
         paymentInit={paymentInit}
         mallReserved='s'
-        backHref={`/student/mock-exams/${order.product_id}`}
+        backHref={`/student/mock-exams/${productId}`}
         orderRowId={order.id}
         displayAmount={order.amount}
         displayGoodsName={product.name}

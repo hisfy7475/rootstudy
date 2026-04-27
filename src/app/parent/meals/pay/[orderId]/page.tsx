@@ -14,20 +14,25 @@ export default async function ParentMealPayPage({
   const order = await getMealOrderById(orderId);
   if (!order || order.status !== 'pending') notFound();
 
-  const product = Array.isArray(order.meal_products) ? order.meal_products[0] : order.meal_products;
+  const product = order.product;
+  const variant = order.variant;
+  if (!product || !variant) notFound();
 
-  if (!product) notFound();
+  const kindLabel = variant.kind === 'recurring' ? '정기' : '일일';
+  const goodsName = `${product.name} · ${kindLabel}`;
+  const productId = variant.product_id ?? product.id;
+  const backHref = `/parent/meals/${productId}?for=${encodeURIComponent(order.student_id)}`;
 
   const paymentInit = buildMealPaymentWindowParams({
     orderId: order.order_id,
     amount: order.amount,
-    goodsName: product.name,
+    goodsName,
   });
 
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href={`/parent/meals/${order.product_id}?for=${encodeURIComponent(order.student_id)}`}
+        href={backHref}
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -36,10 +41,10 @@ export default async function ParentMealPayPage({
       <PayClient
         paymentInit={paymentInit}
         mallReserved='p'
-        backHref={`/parent/meals/${order.product_id}?for=${encodeURIComponent(order.student_id)}`}
+        backHref={backHref}
         orderRowId={order.id}
         displayAmount={order.amount}
-        displayGoodsName={product.name}
+        displayGoodsName={goodsName}
       />
     </div>
   );

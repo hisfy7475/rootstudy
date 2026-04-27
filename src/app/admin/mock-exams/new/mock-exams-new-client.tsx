@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import {
   createMealProduct,
   uploadMealProductImage,
-  type MealProductAdminInput,
+  type MealProductCreateInput,
 } from '@/lib/actions/meal';
 import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
 
@@ -28,9 +28,9 @@ export function AdminMockExamsNewClient() {
     sale_end_date: '',
     product_start_date: '',
     product_end_date: '',
-    max_capacity: '' as string,
+    max_capacity: '',
     description: '',
-    status: 'active' as MealProductAdminInput['status'],
+    productStatus: 'active' as 'active' | 'inactive' | 'sold_out',
   });
 
   const handleImageSelect = (file: File) => {
@@ -49,42 +49,38 @@ export function AdminMockExamsNewClient() {
     e.preventDefault();
     setError(null);
     const price = Number(form.price.replace(/,/g, ''));
-    if (!form.name.trim()) {
-      setError('상품명을 입력하세요.');
-      return;
-    }
-    if (Number.isNaN(price) || price < 0) {
-      setError('가격을 올바르게 입력하세요.');
-      return;
-    }
+    if (!form.name.trim()) return setError('상품명을 입력하세요.');
+    if (Number.isNaN(price) || price < 0) return setError('가격을 올바르게 입력하세요.');
     if (
       !form.sale_start_date ||
       !form.sale_end_date ||
       !form.product_start_date ||
       !form.product_end_date
     ) {
-      setError('날짜를 모두 입력하세요.');
-      return;
+      return setError('날짜를 모두 입력하세요.');
     }
 
     const maxRaw = form.max_capacity.trim();
     const max_capacity = maxRaw === '' ? null : Number(maxRaw);
     if (max_capacity != null && (Number.isNaN(max_capacity) || max_capacity <= 0)) {
-      setError('정원은 양의 정수이거나 비워 두세요(무제한).');
-      return;
+      return setError('정원은 양의 정수이거나 비워 두세요(무제한).');
     }
 
     setLoading(true);
-    const payload: MealProductAdminInput = {
+    const payload: MealProductCreateInput = {
       name: form.name,
-      price,
-      sale_start_date: form.sale_start_date,
-      sale_end_date: form.sale_end_date,
-      product_start_date: form.product_start_date,
-      product_end_date: form.product_end_date,
-      max_capacity,
       description: form.description.trim() || null,
-      status: form.status,
+      status: form.productStatus,
+      variant: {
+        kind: 'one_time',
+        price,
+        sale_start_date: form.sale_start_date,
+        sale_end_date: form.sale_end_date,
+        product_start_date: form.product_start_date,
+        product_end_date: form.product_end_date,
+        max_capacity,
+        status: 'active',
+      },
     };
 
     const res = await createMealProduct(payload, 'exam');
@@ -98,7 +94,7 @@ export function AdminMockExamsNewClient() {
     if (res.data && imageFile) {
       const fd = new FormData();
       fd.append('file', imageFile);
-      const uploadRes = await uploadMealProductImage(res.data.id, fd);
+      const uploadRes = await uploadMealProductImage(res.data.product_id, fd);
       if (uploadRes.error) {
         setLoading(false);
         setError(`상품은 등록됐지만 이미지 업로드 실패: ${uploadRes.error}`);
@@ -108,7 +104,7 @@ export function AdminMockExamsNewClient() {
 
     setLoading(false);
     if (res.data) {
-      router.push(`/admin/mock-exams/${res.data.id}`);
+      router.push(`/admin/mock-exams/${res.data.product_id}`);
     }
   };
 
@@ -213,11 +209,11 @@ export function AdminMockExamsNewClient() {
             <label className='mb-1 block text-sm font-medium'>상태</label>
             <select
               className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
-              value={form.status}
+              value={form.productStatus}
               onChange={(e) =>
                 setForm((f) => ({
                   ...f,
-                  status: e.target.value as MealProductAdminInput['status'],
+                  productStatus: e.target.value as 'active' | 'inactive' | 'sold_out',
                 }))
               }
             >

@@ -6,11 +6,10 @@ import { generateExamOrderId, generateMealOrderId } from '@/lib/nicepay';
 import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from '@/lib/meal-payment-cancel';
 import { getUserScope } from '@/lib/auth/scope';
 import { getTodayKST } from '@/lib/utils';
-import type { MealMenu, MealProduct, MealOrder } from '@/types/database';
+import type { MealMenu, MealOrder, MealProduct, MealProductVariant } from '@/types/database';
 
 const MEAL_IMAGES_BUCKET = 'meal-images';
 
-/** PostgrestError 등이 콘솔에서 `{}`로만 보이는 경우 대비 — 문자열로 출력 */
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
   try {
@@ -80,29 +79,75 @@ function parentBasePath(category: ProductCategory): string {
   return category === 'exam' ? '/parent/mock-exams' : '/parent/meals';
 }
 
-export type MealProductAdminInput = {
-  name: string;
-  meal_type?: 'lunch' | 'dinner' | null;
+// ---------------------------------------------------------------------------
+// Variant 검증
+// ---------------------------------------------------------------------------
+
+export type VariantKind = 'one_time' | 'recurring';
+
+export type VariantInput = {
+  kind: VariantKind;
   price: number;
   sale_start_date: string;
   sale_end_date: string;
   product_start_date: string;
   product_end_date: string;
   max_capacity: number | null;
+  status?: 'active' | 'inactive' | 'sold_out';
+};
+
+/** ISO 요일: 1=월요일 ... 7=일요일 */
+function isoDayOfWeek(ymd: string): number {
+  const d = new Date(`${ymd}T12:00:00+09:00`);
+  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+  // d 는 KST 정오 기준이므로 UTC 요일과 KST 요일은 동일.
+  return dow;
+}
+
+function validateVariantInput(input: VariantInput): string | null {
+  if (input.price < 0) return '가격은 0 이상이어야 합니다.';
+  if (input.sale_start_date > input.sale_end_date) {
+    return '판매 시작일이 종료일보다 늦을 수 없습니다.';
+  }
+  if (input.product_start_date > input.product_end_date) {
+    return '식사/시험 시작일이 종료일보다 늦을 수 없습니다.';
+  }
+  if (input.max_capacity != null && input.max_capacity <= 0) {
+    return '최대 인원은 1 이상이어야 합니다.';
+  }
+  if (input.kind === 'recurring') {
+    if (isoDayOfWeek(input.product_start_date) !== 1) {
+      return '정기 상품은 월요일에 시작해야 합니다.';
+    }
+    if (isoDayOfWeek(input.product_end_date) !== 5) {
+      return '정기 상품은 금요일에 종료해야 합니다.';
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Admin: 상품(meta) + variant CRUD
+// ---------------------------------------------------------------------------
+
+export type MealProductCreateInput = {
+  name: string;
+  meal_type?: 'lunch' | 'dinner' | null;
   description: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
+  variant: VariantInput;
 };
 
 export async function getMealProductsForAdmin(
   category: ProductCategory = 'meal',
-): Promise<MealProduct[]> {
+): Promise<Array<MealProduct & { variants: MealProductVariant[] }>> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
   const { data, error } = await supabase
     .from('meal_products')
-    .select('*')
+    .select('*, meal_product_variants(*)')
     .eq('branch_id', ctx.branchId)
     .eq('category', category)
     .order('created_at', { ascending: false });
@@ -112,54 +157,72 @@ export async function getMealProductsForAdmin(
     return [];
   }
 
-  return (data ?? []) as MealProduct[];
+  return (data ?? []).map((row) => {
+    const r = row as MealProduct & { meal_product_variants: MealProductVariant[] | null };
+    return { ...r, variants: r.meal_product_variants ?? [] };
+  });
 }
 
+/**
+ * 상품(메타) + 첫 variant 1개 동시 생성. RPC 로 단일 트랜잭션 보장.
+ * 모의고사(category='exam')는 variant.kind='one_time' 자동.
+ */
 export async function createMealProduct(
-  data: MealProductAdminInput,
+  input: MealProductCreateInput,
   category: ProductCategory = 'meal',
-): Promise<{ data?: MealProduct; error?: string }> {
+): Promise<{ data?: { product_id: string; variant_id: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const status = data.status ?? 'active';
-
-  if (category === 'meal' && data.meal_type !== 'lunch' && data.meal_type !== 'dinner') {
+  if (category === 'meal' && input.meal_type !== 'lunch' && input.meal_type !== 'dinner') {
     return { error: '식사 시간(중식/석식)을 선택해 주세요.' };
   }
 
-  const { data: inserted, error } = await supabase
-    .from('meal_products')
-    .insert({
-      branch_id: ctx.branchId,
-      name: data.name.trim(),
-      category,
-      meal_type: category === 'exam' ? null : (data.meal_type ?? null),
-      price: data.price,
-      sale_start_date: data.sale_start_date,
-      sale_end_date: data.sale_end_date,
-      product_start_date: data.product_start_date,
-      product_end_date: data.product_end_date,
-      max_capacity: data.max_capacity,
-      description: data.description?.trim() || null,
-      status,
-    })
-    .select()
-    .single();
+  const variantInput: VariantInput =
+    category === 'exam' ? { ...input.variant, kind: 'one_time' } : input.variant;
 
-  if (error || !inserted) {
-    console.error('[createMealProduct]', error);
+  const validationErr = validateVariantInput(variantInput);
+  if (validationErr) return { error: validationErr };
+
+  const { data, error } = await supabase.rpc('create_meal_product_with_variant', {
+    p_branch_id: ctx.branchId,
+    p_name: input.name.trim(),
+    p_category: category,
+    p_meal_type: category === 'exam' ? null : (input.meal_type ?? null),
+    p_description: input.description?.trim() || null,
+    p_image_url: null,
+    p_product_status: input.status ?? 'active',
+    p_variant_kind: variantInput.kind,
+    p_variant_price: variantInput.price,
+    p_variant_sale_start: variantInput.sale_start_date,
+    p_variant_sale_end: variantInput.sale_end_date,
+    p_variant_product_start: variantInput.product_start_date,
+    p_variant_product_end: variantInput.product_end_date,
+    p_variant_max_capacity: variantInput.max_capacity,
+    p_variant_status: variantInput.status ?? 'active',
+  });
+
+  if (error || !data || !data.length) {
+    logPostgrestQueryError('[createMealProduct]', error);
     return { error: '상품 등록에 실패했습니다.' };
   }
 
+  const row = data[0] as { product_id: string; variant_id: string };
   revalidatePath(adminBasePath(category));
-  return { data: inserted as MealProduct };
+  return { data: row };
 }
+
+export type MealProductUpdateInput = {
+  name?: string;
+  meal_type?: 'lunch' | 'dinner' | null;
+  description?: string | null;
+  status?: 'active' | 'inactive' | 'sold_out';
+};
 
 export async function updateMealProduct(
   productId: string,
-  data: Partial<MealProductAdminInput>,
+  input: MealProductUpdateInput,
 ): Promise<{ data?: MealProduct; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -168,20 +231,12 @@ export async function updateMealProduct(
   const existing = await assertMealProductInBranch(supabase, productId, ctx.branchId);
   if (!existing) return { error: '상품을 찾을 수 없습니다.' };
 
-  const patch: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  };
-
-  if (data.name !== undefined) patch.name = data.name.trim();
-  if (data.meal_type !== undefined) patch.meal_type = data.meal_type;
-  if (data.price !== undefined) patch.price = data.price;
-  if (data.sale_start_date !== undefined) patch.sale_start_date = data.sale_start_date;
-  if (data.sale_end_date !== undefined) patch.sale_end_date = data.sale_end_date;
-  if (data.product_start_date !== undefined) patch.product_start_date = data.product_start_date;
-  if (data.product_end_date !== undefined) patch.product_end_date = data.product_end_date;
-  if (data.max_capacity !== undefined) patch.max_capacity = data.max_capacity;
-  if (data.description !== undefined) patch.description = data.description?.trim() || null;
-  if (data.status !== undefined) patch.status = data.status;
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.meal_type !== undefined && existing.category === 'meal')
+    patch.meal_type = input.meal_type;
+  if (input.description !== undefined) patch.description = input.description?.trim() || null;
+  if (input.status !== undefined) patch.status = input.status;
 
   const { data: updated, error } = await supabase
     .from('meal_products')
@@ -204,8 +259,251 @@ export async function updateMealProduct(
     revalidatePath(`${base}/${productId}/menus`);
   }
   revalidatePath(`${base}/${productId}/orders`);
+  revalidatePath(studentBasePath(updatedProduct.category));
+  revalidatePath(parentBasePath(updatedProduct.category));
 
   return { data: updatedProduct };
+}
+
+export async function getMealProductVariants(productId: string): Promise<MealProductVariant[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('meal_product_variants')
+    .select('*')
+    .eq('product_id', productId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logPostgrestQueryError('[getMealProductVariants]', error);
+    return [];
+  }
+  return (data ?? []) as MealProductVariant[];
+}
+
+export async function createMealProductVariant(
+  productId: string,
+  input: VariantInput,
+): Promise<{ data?: MealProductVariant; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  const variantInput: VariantInput =
+    product.category === 'exam' ? { ...input, kind: 'one_time' } : input;
+
+  const validationErr = validateVariantInput(variantInput);
+  if (validationErr) return { error: validationErr };
+
+  if (product.category === 'exam') {
+    const { count } = await supabase
+      .from('meal_product_variants')
+      .select('*', { count: 'exact', head: true })
+      .eq('product_id', productId);
+    if ((count ?? 0) >= 1) {
+      return { error: '모의고사는 한 개의 옵션만 등록할 수 있습니다.' };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('meal_product_variants')
+    .insert({
+      product_id: productId,
+      kind: variantInput.kind,
+      price: variantInput.price,
+      sale_start_date: variantInput.sale_start_date,
+      sale_end_date: variantInput.sale_end_date,
+      product_start_date: variantInput.product_start_date,
+      product_end_date: variantInput.product_end_date,
+      max_capacity: variantInput.max_capacity,
+      status: variantInput.status ?? 'active',
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    logPostgrestQueryError('[createMealProductVariant]', error);
+    return { error: '옵션 등록에 실패했습니다.' };
+  }
+
+  const base = adminBasePath(product.category);
+  revalidatePath(base);
+  revalidatePath(`${base}/${productId}`);
+  revalidatePath(studentBasePath(product.category));
+  revalidatePath(parentBasePath(product.category));
+
+  return { data: data as MealProductVariant };
+}
+
+export async function updateMealProductVariant(
+  variantId: string,
+  input: Partial<VariantInput>,
+): Promise<{ data?: MealProductVariant; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('meal_product_variants')
+    .select('*, meal_products!inner(branch_id, category)')
+    .eq('id', variantId)
+    .maybeSingle();
+
+  if (fetchErr || !row) return { error: '옵션을 찾을 수 없습니다.' };
+
+  const variant = row as MealProductVariant & {
+    meal_products:
+      | { branch_id: string; category: ProductCategory }
+      | { branch_id: string; category: ProductCategory }[];
+  };
+  const meta = Array.isArray(variant.meal_products)
+    ? variant.meal_products[0]
+    : variant.meal_products;
+  if (!meta || meta.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
+
+  const merged: VariantInput = {
+    kind: input.kind ?? variant.kind,
+    price: input.price ?? variant.price,
+    sale_start_date: input.sale_start_date ?? variant.sale_start_date,
+    sale_end_date: input.sale_end_date ?? variant.sale_end_date,
+    product_start_date: input.product_start_date ?? variant.product_start_date,
+    product_end_date: input.product_end_date ?? variant.product_end_date,
+    max_capacity: input.max_capacity !== undefined ? input.max_capacity : variant.max_capacity,
+    status: input.status ?? variant.status,
+  };
+  if (meta.category === 'exam') merged.kind = 'one_time';
+
+  const validationErr = validateVariantInput(merged);
+  if (validationErr) return { error: validationErr };
+
+  const { count: paidCount } = await supabase
+    .from('meal_orders')
+    .select('*', { count: 'exact', head: true })
+    .eq('variant_id', variantId)
+    .eq('status', 'paid');
+
+  const hasPaid = (paidCount ?? 0) > 0;
+  const wantsCriticalChange =
+    input.kind !== undefined ||
+    input.price !== undefined ||
+    input.product_start_date !== undefined ||
+    input.product_end_date !== undefined ||
+    input.max_capacity !== undefined;
+  if (hasPaid && wantsCriticalChange) {
+    return { error: '결제 완료된 주문이 있어 가격·기간·정원·종류는 수정할 수 없습니다.' };
+  }
+
+  const patch: Record<string, unknown> = {
+    kind: merged.kind,
+    price: merged.price,
+    sale_start_date: merged.sale_start_date,
+    sale_end_date: merged.sale_end_date,
+    product_start_date: merged.product_start_date,
+    product_end_date: merged.product_end_date,
+    max_capacity: merged.max_capacity,
+    status: merged.status,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: updated, error } = await supabase
+    .from('meal_product_variants')
+    .update(patch)
+    .eq('id', variantId)
+    .select()
+    .single();
+
+  if (error || !updated) {
+    logPostgrestQueryError('[updateMealProductVariant]', error);
+    return { error: '옵션 수정에 실패했습니다.' };
+  }
+
+  const base = adminBasePath(meta.category);
+  revalidatePath(base);
+  revalidatePath(`${base}/${variant.product_id}`);
+  revalidatePath(studentBasePath(meta.category));
+  revalidatePath(parentBasePath(meta.category));
+
+  return { data: updated as MealProductVariant };
+}
+
+export async function deleteMealProductVariant(
+  variantId: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('meal_product_variants')
+    .select('id, product_id, meal_products!inner(branch_id, category)')
+    .eq('id', variantId)
+    .maybeSingle();
+
+  if (fetchErr || !row) return { error: '옵션을 찾을 수 없습니다.' };
+
+  const variant = row as {
+    id: string;
+    product_id: string;
+    meal_products:
+      | { branch_id: string; category: ProductCategory }
+      | { branch_id: string; category: ProductCategory }[];
+  };
+  const meta = Array.isArray(variant.meal_products)
+    ? variant.meal_products[0]
+    : variant.meal_products;
+  if (!meta || meta.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
+
+  const { count: orderCount } = await supabase
+    .from('meal_orders')
+    .select('*', { count: 'exact', head: true })
+    .eq('variant_id', variantId)
+    .in('status', ['pending', 'paid']);
+
+  if ((orderCount ?? 0) > 0) {
+    return { error: '진행 중이거나 결제 완료된 주문이 있어 삭제할 수 없습니다.' };
+  }
+
+  const { error } = await supabase.from('meal_product_variants').delete().eq('id', variantId);
+  if (error) {
+    logPostgrestQueryError('[deleteMealProductVariant]', error);
+    return { error: '옵션 삭제에 실패했습니다.' };
+  }
+
+  const base = adminBasePath(meta.category);
+  revalidatePath(base);
+  revalidatePath(`${base}/${variant.product_id}`);
+  revalidatePath(studentBasePath(meta.category));
+  revalidatePath(parentBasePath(meta.category));
+
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: 메뉴 (product FK 유지)
+// ---------------------------------------------------------------------------
+
+async function getProductMenuDateRange(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  productId: string,
+): Promise<{ minStart: string; maxEnd: string } | null> {
+  const { data } = await supabase
+    .from('meal_product_variants')
+    .select('product_start_date, product_end_date')
+    .eq('product_id', productId);
+  if (!data?.length) return null;
+  let min = data[0].product_start_date as string;
+  let max = data[0].product_end_date as string;
+  for (const r of data) {
+    if ((r.product_start_date as string) < min) min = r.product_start_date as string;
+    if ((r.product_end_date as string) > max) max = r.product_end_date as string;
+  }
+  return { minStart: min, maxEnd: max };
 }
 
 export async function upsertMealMenu(
@@ -223,19 +521,18 @@ export async function upsertMealMenu(
   const text = menuText.trim();
   if (!text) return { error: '메뉴 내용을 입력해 주세요.' };
 
-  // date within meal period (KST date string compare works for YYYY-MM-DD)
-  if (dateYmd < product.product_start_date || dateYmd > product.product_end_date) {
+  const range = await getProductMenuDateRange(supabase, productId);
+  if (!range) {
+    return { error: '먼저 옵션(판매 단위)을 등록해 주세요.' };
+  }
+  if (dateYmd < range.minStart || dateYmd > range.maxEnd) {
     return { error: '식사 기간 내 날짜만 입력할 수 있습니다.' };
   }
 
   const { data: saved, error } = await supabase
     .from('meal_menus')
     .upsert(
-      {
-        product_id: productId,
-        date: dateYmd,
-        menu_text: text,
-      },
+      { product_id: productId, date: dateYmd, menu_text: text },
       { onConflict: 'product_id,date' },
     )
     .select()
@@ -246,7 +543,6 @@ export async function upsertMealMenu(
     return { error: '메뉴 저장에 실패했습니다.' };
   }
 
-  // 메뉴는 meal 카테고리 전용 기능 — "meal" 리터럴 고정.
   revalidatePath(`${adminBasePath('meal')}/${productId}/menus`);
   revalidatePath(`${studentBasePath('meal')}/${productId}`);
   revalidatePath(`${parentBasePath('meal')}/${productId}`);
@@ -295,13 +591,22 @@ export async function deleteMealMenu(menuId: string): Promise<{ success?: true; 
   return { success: true };
 }
 
+// ---------------------------------------------------------------------------
+// Admin: 주문 관리
+// ---------------------------------------------------------------------------
+
 export type MealOrderAdminFilter = {
   status?: 'all' | 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
+  variantId?: string;
 };
 
 export type MealOrderForAdmin = MealOrder & {
   student_name: string | null;
   payer_name: string | null;
+  variant: Pick<
+    MealProductVariant,
+    'id' | 'kind' | 'product_start_date' | 'product_end_date'
+  > | null;
 };
 
 export async function getMealOrdersForAdmin(
@@ -317,14 +622,15 @@ export async function getMealOrdersForAdmin(
 
   let q = supabase
     .from('meal_orders')
-    .select('*')
-    .eq('product_id', productId)
+    .select(
+      `*, meal_product_variants!inner(id, kind, product_start_date, product_end_date, product_id)`,
+    )
+    .eq('meal_product_variants.product_id', productId)
     .order('created_at', { ascending: false });
 
   const st = filters?.status ?? 'all';
-  if (st !== 'all') {
-    q = q.eq('status', st);
-  }
+  if (st !== 'all') q = q.eq('status', st);
+  if (filters?.variantId) q = q.eq('variant_id', filters.variantId);
 
   const { data: orders, error } = await q;
 
@@ -332,13 +638,23 @@ export async function getMealOrdersForAdmin(
     logPostgrestQueryError('[getMealOrdersForAdmin]', error);
     return [];
   }
+  if (!orders?.length) return [];
 
-  if (!orders?.length) {
-    return [];
-  }
+  const rows = orders as Array<
+    MealOrder & {
+      meal_product_variants:
+        | (Pick<MealProductVariant, 'id' | 'kind' | 'product_start_date' | 'product_end_date'> & {
+            product_id: string;
+          })
+        | (Pick<MealProductVariant, 'id' | 'kind' | 'product_start_date' | 'product_end_date'> & {
+            product_id: string;
+          })[]
+        | null;
+    }
+  >;
 
   const ids = new Set<string>();
-  for (const o of orders as MealOrder[]) {
+  for (const o of rows) {
     ids.add(o.student_id);
     ids.add(o.user_id);
   }
@@ -350,11 +666,24 @@ export async function getMealOrdersForAdmin(
 
   const nameById = new Map((profiles ?? []).map((p) => [p.id, p.name]));
 
-  return (orders as MealOrder[]).map((o) => ({
-    ...o,
-    student_name: nameById.get(o.student_id) ?? null,
-    payer_name: nameById.get(o.user_id) ?? null,
-  }));
+  return rows.map((o) => {
+    const v = Array.isArray(o.meal_product_variants)
+      ? o.meal_product_variants[0]
+      : o.meal_product_variants;
+    return {
+      ...o,
+      student_name: nameById.get(o.student_id) ?? null,
+      payer_name: nameById.get(o.user_id) ?? null,
+      variant: v
+        ? {
+            id: v.id,
+            kind: v.kind,
+            product_start_date: v.product_start_date,
+            product_end_date: v.product_end_date,
+          }
+        : null,
+    };
+  });
 }
 
 export async function adminCancelMealOrder(
@@ -370,80 +699,111 @@ export async function adminCancelMealOrder(
   const { data: orderRow, error: oErr } = await admin
     .from('meal_orders')
     .select(
-      `
-      id,
-      product_id,
-      meal_products!inner(branch_id, category)
-    `,
+      `id, variant_id,
+       meal_product_variants!inner(
+         product_id,
+         meal_products!inner(branch_id, category)
+       )`,
     )
     .eq('id', mealOrderId)
     .maybeSingle();
 
-  if (oErr || !orderRow) {
-    return { error: '주문을 찾을 수 없습니다.' };
-  }
+  if (oErr || !orderRow) return { error: '주문을 찾을 수 없습니다.' };
 
   const row = orderRow as {
     id: string;
-    product_id: string;
-    meal_products:
-      | { branch_id: string; category: ProductCategory }
-      | { branch_id: string; category: ProductCategory }[];
+    variant_id: string;
+    meal_product_variants:
+      | {
+          product_id: string;
+          meal_products:
+            | { branch_id: string; category: ProductCategory }
+            | { branch_id: string; category: ProductCategory }[];
+        }
+      | {
+          product_id: string;
+          meal_products:
+            | { branch_id: string; category: ProductCategory }
+            | { branch_id: string; category: ProductCategory }[];
+        }[];
   };
-  const mp = Array.isArray(row.meal_products) ? row.meal_products[0] : row.meal_products;
-  if (!mp || mp.branch_id !== ctx.branchId) {
+  const v = Array.isArray(row.meal_product_variants)
+    ? row.meal_product_variants[0]
+    : row.meal_product_variants;
+  const meta = Array.isArray(v?.meal_products) ? v?.meal_products[0] : v?.meal_products;
+  if (!meta || meta.branch_id !== ctx.branchId) {
     return { error: '권한이 없습니다.' };
   }
 
   const result = await executeAdminMealOrderCancel(admin, { mealOrderId, reason });
+  if (!result.success) return { error: result.error };
 
-  if (!result.success) {
-    return { error: result.error };
-  }
-
-  const adminBase = adminBasePath(mp.category);
-  revalidatePath(`${adminBase}/${row.product_id}/orders`);
+  const adminBase = adminBasePath(meta.category);
+  revalidatePath(`${adminBase}/${v.product_id}/orders`);
   revalidatePath(adminBase);
-  revalidatePath(`${studentBasePath(mp.category)}/orders`);
-  revalidatePath(`${parentBasePath(mp.category)}/orders`);
+  revalidatePath(`${studentBasePath(meta.category)}/orders`);
+  revalidatePath(`${parentBasePath(meta.category)}/orders`);
 
   return { success: true };
 }
 
-export async function getMealProducts(category: ProductCategory = 'meal'): Promise<MealProduct[]> {
+// ---------------------------------------------------------------------------
+// 학생/학부모: 상품 조회
+// ---------------------------------------------------------------------------
+
+export type MealProductWithVariants = MealProduct & {
+  variants: MealProductVariant[];
+};
+
+/**
+ * 학생/학부모 리스트용 — 활성 variant 1개 이상 + 판매기간 내인 상품.
+ */
+export async function getMealProducts(
+  category: ProductCategory = 'meal',
+): Promise<MealProductWithVariants[]> {
   const scope = await getUserScope();
   if (!scope || !scope.hasAccess) return [];
 
   const supabase = await createClient();
   const today = getTodayKST();
 
-  let query = supabase
+  const { data, error } = await supabase
     .from('meal_products')
-    .select('*')
+    .select('*, meal_product_variants(*)')
     .in('branch_id', scope.branchIds)
     .eq('category', category)
-    .eq('status', 'active')
-    .lte('sale_start_date', today)
-    .gte('sale_end_date', today);
-
-  if (category === 'meal') {
-    query = query.order('meal_type', { ascending: true });
-  }
-  query = query.order('name', { ascending: true });
-
-  const { data, error } = await query;
+    .eq('status', 'active');
 
   if (error) {
-    logPostgrestQueryError('[getMealProducts] meal_products', error);
+    logPostgrestQueryError('[getMealProducts]', error);
     return [];
   }
 
-  return (data ?? []) as MealProduct[];
+  const result: MealProductWithVariants[] = [];
+  for (const row of data ?? []) {
+    const r = row as MealProduct & { meal_product_variants: MealProductVariant[] | null };
+    const variants = (r.meal_product_variants ?? []).filter(
+      (v) => v.status === 'active' && v.sale_start_date <= today && v.sale_end_date >= today,
+    );
+    if (variants.length === 0) continue;
+    result.push({ ...r, variants });
+  }
+
+  result.sort((a, b) => {
+    if (category === 'meal') {
+      const am = a.meal_type ?? '';
+      const bm = b.meal_type ?? '';
+      if (am !== bm) return am.localeCompare(bm);
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  return result;
 }
 
 /**
- * 자녀(학생)별로 상품당 진행 중인 급식 주문 상태.
- * student 시: 본인 id만 허용, parent 시: 연결된 자녀 id만 허용.
+ * 자녀(학생)별로 상품당 진행 중인 주문 상태.
+ * 키는 product_id (variant 단위가 아닌 상품 단위 — 리스트 카드 표시용).
  */
 export async function getMealActiveOrderStatusByStudentIds(
   studentIds: string[],
@@ -463,9 +823,7 @@ export async function getMealActiveOrderStatusByStudentIds(
   let allowedStudentIds: string[] = [];
 
   if (profile?.user_type === 'student') {
-    if (studentIds.length !== 1 || studentIds[0] !== user.id) {
-      return {};
-    }
+    if (studentIds.length !== 1 || studentIds[0] !== user.id) return {};
     allowedStudentIds = [user.id];
   } else if (profile?.user_type === 'parent') {
     const { data: links } = await supabase
@@ -482,7 +840,7 @@ export async function getMealActiveOrderStatusByStudentIds(
 
   const { data, error } = await supabase
     .from('meal_orders')
-    .select('student_id, product_id, status')
+    .select('student_id, status, meal_product_variants!inner(product_id)')
     .in('student_id', allowedStudentIds)
     .in('status', ['pending', 'paid']);
 
@@ -492,24 +850,28 @@ export async function getMealActiveOrderStatusByStudentIds(
   }
 
   const out: Record<string, Record<string, 'pending' | 'paid'>> = {};
-  for (const id of allowedStudentIds) {
-    out[id] = {};
-  }
+  for (const id of allowedStudentIds) out[id] = {};
+
   for (const row of data ?? []) {
-    const sid = row.student_id as string;
-    const pid = row.product_id as string;
-    const st = row.status as 'pending' | 'paid';
-    const bucket = out[sid];
+    const r = row as {
+      student_id: string;
+      status: 'pending' | 'paid';
+      meal_product_variants: { product_id: string } | { product_id: string }[];
+    };
+    const v = Array.isArray(r.meal_product_variants)
+      ? r.meal_product_variants[0]
+      : r.meal_product_variants;
+    if (!v) continue;
+    const bucket = out[r.student_id];
     if (!bucket) continue;
-    const prev = bucket[pid];
-    if (!prev || (prev === 'pending' && st === 'paid')) {
-      bucket[pid] = st;
+    const prev = bucket[v.product_id];
+    if (!prev || (prev === 'pending' && r.status === 'paid')) {
+      bucket[v.product_id] = r.status;
     }
   }
   return out;
 }
 
-/** 학생 급식 목록용: 본인 student_id 기준 상품별 pending | paid */
 export async function getMealActiveOrderStatusForMealListStudent(): Promise<
   Record<string, 'pending' | 'paid'>
 > {
@@ -525,7 +887,7 @@ export async function getMealActiveOrderStatusForMealListStudent(): Promise<
 export async function getMealProductDetail(
   productId: string,
   category?: ProductCategory,
-): Promise<MealProduct | null> {
+): Promise<MealProductWithVariants | null> {
   const scope = await getUserScope();
   if (!scope || !scope.hasAccess) return null;
 
@@ -533,25 +895,24 @@ export async function getMealProductDetail(
 
   let query = supabase
     .from('meal_products')
-    .select('*')
+    .select('*, meal_product_variants(*)')
     .eq('id', productId)
     .in('branch_id', scope.branchIds);
 
-  if (category) {
-    query = query.eq('category', category);
-  }
+  if (category) query = query.eq('category', category);
 
   const { data, error } = await query.maybeSingle();
-
   if (error) {
     logPostgrestQueryError('[getMealProductDetail]', error);
     return null;
   }
+  if (!data) return null;
 
-  return data as MealProduct | null;
+  const r = data as MealProduct & { meal_product_variants: MealProductVariant[] | null };
+  return { ...r, variants: r.meal_product_variants ?? [] };
 }
 
-export async function getPaidOrderCountForProduct(productId: string): Promise<number> {
+export async function getPaidOrderCountForVariant(variantId: string): Promise<number> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -561,14 +922,13 @@ export async function getPaidOrderCountForProduct(productId: string): Promise<nu
   const { count, error } = await supabase
     .from('meal_orders')
     .select('*', { count: 'exact', head: true })
-    .eq('product_id', productId)
+    .eq('variant_id', variantId)
     .eq('status', 'paid');
 
   if (error) {
-    console.error('[getPaidOrderCountForProduct]', error);
+    console.error('[getPaidOrderCountForVariant]', error);
     return 0;
   }
-
   return count ?? 0;
 }
 
@@ -589,16 +949,64 @@ export async function getMealMenus(productId: string): Promise<MealMenu[]> {
     logPostgrestQueryError('[getMealMenus]', error);
     return [];
   }
-
   return (data ?? []) as MealMenu[];
 }
 
+// ---------------------------------------------------------------------------
+// 학생/학부모: 주문
+// ---------------------------------------------------------------------------
+
+export type OrderProductInfo = Pick<MealProduct, 'id' | 'name' | 'meal_type' | 'category'>;
+export type OrderVariantInfo = Pick<
+  MealProductVariant,
+  | 'id'
+  | 'kind'
+  | 'price'
+  | 'product_id'
+  | 'product_start_date'
+  | 'product_end_date'
+  | 'sale_start_date'
+  | 'sale_end_date'
+>;
+
 export type MealOrderWithProduct = MealOrder & {
-  meal_products: Pick<
-    MealProduct,
-    'name' | 'meal_type' | 'price' | 'product_start_date' | 'product_end_date'
-  > | null;
+  variant: OrderVariantInfo | null;
+  product: OrderProductInfo | null;
 };
+
+function pickVariantWithProduct(raw: unknown): {
+  variant: OrderVariantInfo | null;
+  product: OrderProductInfo | null;
+} {
+  type VariantJoin = OrderVariantInfo & {
+    meal_products: OrderProductInfo | OrderProductInfo[] | null;
+  };
+  if (raw == null) return { variant: null, product: null };
+  const v = Array.isArray(raw) ? (raw[0] ?? null) : (raw as VariantJoin);
+  if (!v) return { variant: null, product: null };
+  const mealProducts = (v as VariantJoin).meal_products;
+  const product = Array.isArray(mealProducts) ? (mealProducts[0] ?? null) : (mealProducts ?? null);
+  return {
+    variant: {
+      id: v.id,
+      kind: v.kind,
+      price: v.price,
+      product_id: v.product_id,
+      product_start_date: v.product_start_date,
+      product_end_date: v.product_end_date,
+      sale_start_date: v.sale_start_date,
+      sale_end_date: v.sale_end_date,
+    },
+    product: product
+      ? {
+          id: product.id,
+          name: product.name,
+          meal_type: product.meal_type,
+          category: product.category,
+        }
+      : null,
+  };
+}
 
 export async function getMealOrders(
   category: ProductCategory = 'meal',
@@ -616,9 +1024,12 @@ export async function getMealOrders(
     .single();
 
   const selectFields = `
-      *,
-      meal_products!inner (name, meal_type, price, product_start_date, product_end_date, category)
-    `;
+    *,
+    meal_product_variants!inner(
+      id, kind, price, product_id, product_start_date, product_end_date, sale_start_date, sale_end_date,
+      meal_products!inner(id, name, meal_type, category)
+    )
+  `;
 
   let data: unknown[] | null = null;
   let error: Error | null = null;
@@ -636,7 +1047,7 @@ export async function getMealOrders(
       .from('meal_orders')
       .select(selectFields)
       .or(`user_id.eq.${user.id},student_id.in.(${childIds.join(',')})`)
-      .eq('meal_products.category', category)
+      .eq('meal_product_variants.meal_products.category', category)
       .order('created_at', { ascending: false });
     data = res.data as unknown[] | null;
     error = res.error as Error | null;
@@ -645,7 +1056,7 @@ export async function getMealOrders(
       .from('meal_orders')
       .select(selectFields)
       .or(`user_id.eq.${user.id},student_id.eq.${user.id}`)
-      .eq('meal_products.category', category)
+      .eq('meal_product_variants.meal_products.category', category)
       .order('created_at', { ascending: false });
     data = res.data as unknown[] | null;
     error = res.error as Error | null;
@@ -656,7 +1067,11 @@ export async function getMealOrders(
     return [];
   }
 
-  return (data ?? []) as MealOrderWithProduct[];
+  return (data ?? []).map((row) => {
+    const r = row as MealOrder & { meal_product_variants: unknown };
+    const { variant, product } = pickVariantWithProduct(r.meal_product_variants);
+    return { ...r, variant, product } as MealOrderWithProduct;
+  });
 }
 
 export async function getMealOrderById(id: string): Promise<MealOrderWithProduct | null> {
@@ -677,18 +1092,18 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
     .select(
       `
       *,
-      meal_products (name, meal_type, price, product_start_date, product_end_date, status, sale_start_date, sale_end_date)
+      meal_product_variants(
+        id, kind, price, product_id, product_start_date, product_end_date, sale_start_date, sale_end_date, status,
+        meal_products(id, name, meal_type, category, status)
+      )
     `,
     )
     .eq('id', id)
     .maybeSingle();
 
-  if (error || !row) {
-    return null;
-  }
+  if (error || !row) return null;
 
-  const order = row as MealOrderWithProduct;
-
+  const order = row as MealOrder & { meal_product_variants: unknown };
   const allowed =
     order.user_id === user.id ||
     order.student_id === user.id ||
@@ -704,11 +1119,12 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
 
   if (!allowed) return null;
 
-  return order;
+  const { variant, product } = pickVariantWithProduct(order.meal_product_variants);
+  return { ...order, variant, product };
 }
 
 export async function getExistingPendingOrder(
-  productId: string,
+  variantId: string,
   studentId: string,
 ): Promise<MealOrder | null> {
   const supabase = await createClient();
@@ -720,7 +1136,7 @@ export async function getExistingPendingOrder(
   const { data } = await supabase
     .from('meal_orders')
     .select('*')
-    .eq('product_id', productId)
+    .eq('variant_id', variantId)
     .eq('student_id', studentId)
     .eq('status', 'pending')
     .maybeSingle();
@@ -729,7 +1145,7 @@ export async function getExistingPendingOrder(
 }
 
 export async function getExistingPaidOrder(
-  productId: string,
+  variantId: string,
   studentId: string,
 ): Promise<MealOrder | null> {
   const supabase = await createClient();
@@ -741,7 +1157,7 @@ export async function getExistingPaidOrder(
   const { data } = await supabase
     .from('meal_orders')
     .select('*')
-    .eq('product_id', productId)
+    .eq('variant_id', variantId)
     .eq('student_id', studentId)
     .eq('status', 'paid')
     .maybeSingle();
@@ -749,10 +1165,112 @@ export async function getExistingPaidOrder(
   return (data as MealOrder | null) ?? null;
 }
 
-export async function createMealOrder(
-  productId: string,
+export type OrderConflictItem = {
+  variant_id: string;
+  product_name: string;
+  variant_kind: 'one_time' | 'recurring';
+  product_start_date: string;
+  product_end_date: string;
+  status: 'pending' | 'paid';
+};
+
+export type CreateMealOrderResult = {
+  data?: MealOrder;
+  error?: string;
+  conflict?: OrderConflictItem[];
+};
+
+/**
+ * 식사 일자 겹침 검사 — 같은 학생의 active(pending|paid) 주문 중,
+ * 같은 (category, meal_type) 범위에서 식사 기간이 겹치는 항목을 반환.
+ * - exam 끼리도 동일 검증 적용 (시험 일정 충돌)
+ * - 동일 variant 자기 자신은 결과에서 제외 (그건 별도 차단)
+ */
+async function findOverlappingActiveOrders(
+  supabase: Awaited<ReturnType<typeof createClient>>,
   studentId: string,
-): Promise<{ data?: MealOrder; error?: string }> {
+  newVariant: {
+    id: string;
+    product_start_date: string;
+    product_end_date: string;
+    category: 'meal' | 'exam';
+    meal_type: 'lunch' | 'dinner' | null;
+  },
+): Promise<OrderConflictItem[]> {
+  const { data, error } = await supabase
+    .from('meal_orders')
+    .select(
+      `id, status, variant_id,
+       meal_product_variants!inner(
+         kind, product_start_date, product_end_date,
+         meal_products!inner(name, meal_type, category)
+       )`,
+    )
+    .eq('student_id', studentId)
+    .in('status', ['pending', 'paid']);
+
+  if (error) {
+    logPostgrestQueryError('[findOverlappingActiveOrders]', error);
+    return [];
+  }
+
+  type Row = {
+    id: string;
+    status: 'pending' | 'paid';
+    variant_id: string;
+    meal_product_variants:
+      | {
+          kind: 'one_time' | 'recurring';
+          product_start_date: string;
+          product_end_date: string;
+          meal_products:
+            | { name: string; meal_type: 'lunch' | 'dinner' | null; category: 'meal' | 'exam' }
+            | { name: string; meal_type: 'lunch' | 'dinner' | null; category: 'meal' | 'exam' }[];
+        }
+      | {
+          kind: 'one_time' | 'recurring';
+          product_start_date: string;
+          product_end_date: string;
+          meal_products:
+            | { name: string; meal_type: 'lunch' | 'dinner' | null; category: 'meal' | 'exam' }
+            | { name: string; meal_type: 'lunch' | 'dinner' | null; category: 'meal' | 'exam' }[];
+        }[];
+  };
+
+  const out: OrderConflictItem[] = [];
+  for (const row of (data ?? []) as Row[]) {
+    if (row.variant_id === newVariant.id) continue;
+    const v = Array.isArray(row.meal_product_variants)
+      ? row.meal_product_variants[0]
+      : row.meal_product_variants;
+    if (!v) continue;
+    const p = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
+    if (!p) continue;
+    if (p.category !== newVariant.category) continue;
+    if (p.category === 'meal' && p.meal_type !== newVariant.meal_type) continue;
+    // 기간 겹침: existing.start <= new.end AND new.start <= existing.end
+    if (
+      v.product_start_date <= newVariant.product_end_date &&
+      newVariant.product_start_date <= v.product_end_date
+    ) {
+      out.push({
+        variant_id: row.variant_id,
+        product_name: p.name,
+        variant_kind: v.kind,
+        product_start_date: v.product_start_date,
+        product_end_date: v.product_end_date,
+        status: row.status,
+      });
+    }
+  }
+  return out;
+}
+
+export async function createMealOrder(
+  variantId: string,
+  studentId: string,
+  options?: { force?: boolean },
+): Promise<CreateMealOrderResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -781,14 +1299,9 @@ export async function createMealOrder(
       .eq('parent_id', user.id)
       .eq('student_id', studentId)
       .maybeSingle();
-
-    if (!link) {
-      return { error: '연결된 자녀만 선택할 수 있습니다.' };
-    }
+    if (!link) return { error: '연결된 자녀만 선택할 수 있습니다.' };
   }
 
-  // 상품 branch 검증의 권위는 **대상 학생의 branch_id**.
-  // 학생 본인이면 본인의 branch, 학부모면 자녀의 branch.
   const { data: studentProfile } = await supabase
     .from('profiles')
     .select('branch_id')
@@ -799,28 +1312,43 @@ export async function createMealOrder(
     return { error: '학생의 지점 정보가 없습니다.' };
   }
 
-  const { data: product, error: productErr } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('id', productId)
-    .eq('branch_id', studentProfile.branch_id)
-    .eq('status', 'active')
+  const { data: variantRow, error: variantErr } = await supabase
+    .from('meal_product_variants')
+    .select('*, meal_products!inner(id, branch_id, category, meal_type, status)')
+    .eq('id', variantId)
     .maybeSingle();
 
-  if (productErr || !product) {
-    return { error: '상품을 찾을 수 없습니다.' };
+  if (variantErr || !variantRow) {
+    return { error: '옵션을 찾을 수 없습니다.' };
   }
 
-  const p = product as MealProduct;
+  type ProductJoinForOrder = {
+    id: string;
+    branch_id: string;
+    category: ProductCategory;
+    meal_type: 'lunch' | 'dinner' | null;
+    status: string;
+  };
+  const v = variantRow as MealProductVariant & {
+    meal_products: ProductJoinForOrder | ProductJoinForOrder[];
+  };
+  const product = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
+  if (!product || product.branch_id !== studentProfile.branch_id) {
+    return { error: '상품을 찾을 수 없습니다.' };
+  }
+  if (product.status !== 'active' || v.status !== 'active') {
+    return { error: '판매 중이 아닙니다.' };
+  }
+
   const today = getTodayKST();
-  if (p.sale_start_date > today || p.sale_end_date < today) {
+  if (v.sale_start_date > today || v.sale_end_date < today) {
     return { error: '신청 기간이 아닙니다.' };
   }
 
   const { data: existing } = await supabase
     .from('meal_orders')
     .select('id, status')
-    .eq('product_id', productId)
+    .eq('variant_id', variantId)
     .eq('student_id', studentId)
     .in('status', ['pending', 'paid'])
     .maybeSingle();
@@ -829,26 +1357,42 @@ export async function createMealOrder(
     return { error: '이미 신청 중이거나 결제 완료된 주문이 있습니다.' };
   }
 
-  const admin = createAdminClient();
-  const { count: paidCount } = await admin
-    .from('meal_orders')
-    .select('*', { count: 'exact', head: true })
-    .eq('product_id', productId)
-    .eq('status', 'paid');
-
-  if (p.max_capacity != null && paidCount != null && paidCount >= p.max_capacity) {
-    return { error: '정원이 마감되었습니다.' };
+  // 식사 일자 겹침 검증: 동일 (category, meal_type) 범위에서 다른 variant 와 기간 겹치면 conflict 반환.
+  // 사용자가 모달에서 명시 동의(force=true)한 경우만 통과.
+  if (!options?.force) {
+    const overlaps = await findOverlappingActiveOrders(supabase, studentId, {
+      id: variantId,
+      product_start_date: v.product_start_date,
+      product_end_date: v.product_end_date,
+      category: product.category,
+      meal_type: product.meal_type ?? null,
+    });
+    if (overlaps.length > 0) {
+      return { conflict: overlaps };
+    }
   }
 
-  const orderId = p.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
+  const admin = createAdminClient();
+  if (v.max_capacity != null) {
+    const { count: paidCount } = await admin
+      .from('meal_orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('variant_id', variantId)
+      .eq('status', 'paid');
+    if ((paidCount ?? 0) >= v.max_capacity) {
+      return { error: '정원이 마감되었습니다.' };
+    }
+  }
+
+  const orderId = product.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
   const { data: inserted, error: insertErr } = await supabase
     .from('meal_orders')
     .insert({
       user_id: user.id,
       student_id: studentId,
-      product_id: productId,
+      variant_id: variantId,
       order_id: orderId,
-      amount: p.price,
+      amount: v.price,
       status: 'pending',
     })
     .select()
@@ -859,12 +1403,72 @@ export async function createMealOrder(
     return { error: '주문 생성에 실패했습니다.' };
   }
 
-  revalidatePath(studentBasePath(p.category));
-  revalidatePath(parentBasePath(p.category));
-  revalidatePath(`${studentBasePath(p.category)}/orders`);
-  revalidatePath(`${parentBasePath(p.category)}/orders`);
+  revalidatePath(studentBasePath(product.category));
+  revalidatePath(parentBasePath(product.category));
+  revalidatePath(`${studentBasePath(product.category)}/orders`);
+  revalidatePath(`${parentBasePath(product.category)}/orders`);
 
   return { data: inserted as MealOrder };
+}
+
+/**
+ * 결제 미완료(pending) 주문을 이어서 결제할 때, 그 시점의 식사일 겹침을 재검사.
+ * createMealOrder 처음 호출 후 사용자가 결제 페이지에서 취소하고 돌아왔을 때,
+ * 그 사이 다른 variant가 추가됐을 수도 있으니 다시 한 번 사용자 동의를 받기 위함.
+ */
+export async function getOrderResumeConflicts(
+  orderId: string,
+): Promise<{ conflicts?: OrderConflictItem[]; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: order, error } = await supabase
+    .from('meal_orders')
+    .select(
+      `
+      id, status, student_id, variant_id,
+      meal_product_variants!inner(
+        product_start_date, product_end_date,
+        meal_products!inner(category, meal_type)
+      )
+    `,
+    )
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (error || !order) return { error: '주문을 찾을 수 없습니다.' };
+  if (order.status !== 'pending') return { conflicts: [] };
+
+  type VRow = {
+    product_start_date: string;
+    product_end_date: string;
+    meal_products:
+      | { category: ProductCategory; meal_type: 'lunch' | 'dinner' | null }
+      | { category: ProductCategory; meal_type: 'lunch' | 'dinner' | null }[];
+  };
+  const raw = order as {
+    student_id: string;
+    variant_id: string;
+    meal_product_variants: VRow | VRow[];
+  };
+  const v = Array.isArray(raw.meal_product_variants)
+    ? raw.meal_product_variants[0]
+    : raw.meal_product_variants;
+  if (!v) return { conflicts: [] };
+  const p = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
+  if (!p) return { conflicts: [] };
+
+  const conflicts = await findOverlappingActiveOrders(supabase, raw.student_id, {
+    id: raw.variant_id,
+    product_start_date: v.product_start_date,
+    product_end_date: v.product_end_date,
+    category: p.category,
+    meal_type: p.meal_type ?? null,
+  });
+  return { conflicts };
 }
 
 export async function cancelMealOrder(
@@ -880,9 +1484,7 @@ export async function cancelMealOrder(
   const admin = createAdminClient();
   const result = await executePaidMealOrderCancel(admin, { userId: user.id, mealOrderId });
 
-  if (!result.success) {
-    return { error: result.error };
-  }
+  if (!result.success) return { error: result.error };
 
   for (const cat of ['meal', 'exam'] as const) {
     revalidatePath(`${studentBasePath(cat)}/orders`);
@@ -894,7 +1496,6 @@ export async function cancelMealOrder(
   return { success: true };
 }
 
-/** 결제 전 대기 주문 삭제(취소) — DB만 */
 export async function cancelPendingMealOrder(
   mealOrderId: string,
 ): Promise<{ success?: true; error?: string }> {
@@ -926,7 +1527,7 @@ export async function cancelPendingMealOrder(
 }
 
 // ---------------------------------------------------------------------------
-// Image helpers
+// Image helpers (변경 없음 — product 레벨)
 // ---------------------------------------------------------------------------
 
 function storagePathFromPublicUrl(publicUrl: string): string | null {
@@ -942,8 +1543,6 @@ function storagePathFromPublicUrl(publicUrl: string): string | null {
 }
 
 function sanitizeFileName(name: string): string {
-  // Storage가 한글/decomposed unicode 포함 파일명을 400으로 거부하므로
-  // 비-ASCII 문자는 모두 제거. 확장자만 보존되면 충분.
   const base = name
     .replace(/[/\\]/g, '_')
     .replace(/\s+/g, '_')
@@ -956,7 +1555,7 @@ function sanitizeFileName(name: string): string {
 }
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 function validateImageFile(file: File): string | null {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -967,10 +1566,6 @@ function validateImageFile(file: File): string | null {
   }
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Meal product image
-// ---------------------------------------------------------------------------
 
 export async function uploadMealProductImage(
   productId: string,
@@ -1072,10 +1667,6 @@ export async function deleteMealProductImage(
 
   return { success: true };
 }
-
-// ---------------------------------------------------------------------------
-// Meal menu image
-// ---------------------------------------------------------------------------
 
 export async function uploadMealMenuImage(
   productId: string,

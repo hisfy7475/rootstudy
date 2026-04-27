@@ -10,8 +10,9 @@ import {
   upsertMealMenu,
   uploadMealMenuImage,
   deleteMealMenuImage,
+  type MealProductWithVariants,
 } from '@/lib/actions/meal';
-import type { MealMenu, MealProduct } from '@/types/database';
+import type { MealMenu } from '@/types/database';
 import { ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 
 function enumerateMealDates(start: string, end: string): string[] {
@@ -23,6 +24,19 @@ function enumerateMealDates(start: string, end: string): string[] {
     cur.setDate(cur.getDate() + 1);
   }
   return out;
+}
+
+function variantUnionRange(
+  variants: MealProductWithVariants['variants'],
+): { start: string; end: string } | null {
+  if (variants.length === 0) return null;
+  let start = variants[0].product_start_date;
+  let end = variants[0].product_end_date;
+  for (const v of variants) {
+    if (v.product_start_date < start) start = v.product_start_date;
+    if (v.product_end_date > end) end = v.product_end_date;
+  }
+  return { start, end };
 }
 
 interface RowState {
@@ -38,14 +52,15 @@ interface RowState {
 }
 
 interface AdminMealMenusClientProps {
-  product: MealProduct;
+  product: MealProductWithVariants;
   initialMenus: MealMenu[];
 }
 
 export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusClientProps) {
+  const range = useMemo(() => variantUnionRange(product.variants), [product.variants]);
   const dates = useMemo(
-    () => enumerateMealDates(product.product_start_date, product.product_end_date),
-    [product.product_start_date, product.product_end_date],
+    () => (range ? enumerateMealDates(range.start, range.end) : []),
+    [range],
   );
 
   const initialMap = useMemo(() => {
@@ -229,7 +244,8 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
         <div>
           <h1 className='text-2xl font-bold'>메뉴 입력</h1>
           <p className='text-muted-foreground mt-1 text-sm'>
-            {product.name} · {product.product_start_date} ~ {product.product_end_date}
+            {product.name}
+            {range ? ` · ${range.start} ~ ${range.end}` : ' · 옵션 없음'}
           </p>
         </div>
         <Link

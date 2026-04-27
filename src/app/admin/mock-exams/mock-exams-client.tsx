@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { MealImage } from '@/components/shared/meal-image';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MealProduct } from '@/types/database';
+import type { MealProduct, MealProductVariant } from '@/types/database';
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'sold_out';
 
@@ -23,8 +23,10 @@ const tabs: { key: StatusFilter; label: string }[] = [
   { key: 'sold_out', label: '마감' },
 ];
 
+type ProductWithVariants = MealProduct & { variants: MealProductVariant[] };
+
 interface AdminMockExamsClientProps {
-  initialProducts: MealProduct[];
+  initialProducts: ProductWithVariants[];
 }
 
 export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientProps) {
@@ -95,52 +97,59 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
                   </td>
                 </tr>
               ) : (
-                filtered.map((p) => (
-                  <tr key={p.id} className='hover:bg-muted/30 border-b last:border-0'>
-                    <td className='p-3'>
-                      <div className='h-10 w-10 overflow-hidden rounded-md'>
-                        <MealImage
-                          src={p.image_url}
-                          type='product'
-                          alt={p.name}
-                          width={40}
-                          height={40}
-                          className='h-10 w-10 rounded-md'
-                        />
-                      </div>
-                    </td>
-                    <td className='p-3'>
-                      <Link
-                        href={`/admin/mock-exams/${p.id}`}
-                        className='text-primary font-medium hover:underline'
-                      >
-                        {p.name}
-                      </Link>
-                    </td>
-                    <td className='p-3'>{p.price.toLocaleString()}원</td>
-                    <td className='p-3 whitespace-nowrap'>
-                      {p.sale_start_date} ~ {p.sale_end_date}
-                    </td>
-                    <td className='p-3 whitespace-nowrap'>
-                      {p.product_start_date} ~ {p.product_end_date}
-                    </td>
-                    <td className='p-3'>
-                      {p.max_capacity == null ? '무제한' : `${p.max_capacity}명`}
-                    </td>
-                    <td className='p-3'>
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-xs',
-                          p.status === 'active' && 'bg-emerald-100 text-emerald-800',
-                          p.status === 'inactive' && 'bg-slate-100 text-slate-700',
-                          p.status === 'sold_out' && 'bg-amber-100 text-amber-900',
-                        )}
-                      >
-                        {statusLabel[p.status]}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                filtered.map((p) => {
+                  const v = p.variants[0];
+                  return (
+                    <tr key={p.id} className='hover:bg-muted/30 border-b last:border-0'>
+                      <td className='p-3'>
+                        <div className='h-10 w-10 overflow-hidden rounded-md'>
+                          <MealImage
+                            src={p.image_url}
+                            type='product'
+                            alt={p.name}
+                            width={40}
+                            height={40}
+                            className='h-10 w-10 rounded-md'
+                          />
+                        </div>
+                      </td>
+                      <td className='p-3'>
+                        <Link
+                          href={`/admin/mock-exams/${p.id}`}
+                          className='text-primary font-medium hover:underline'
+                        >
+                          {p.name}
+                        </Link>
+                      </td>
+                      <td className='p-3'>{v ? `${v.price.toLocaleString()}원` : '-'}</td>
+                      <td className='p-3 whitespace-nowrap'>
+                        {v ? `${v.sale_start_date} ~ ${v.sale_end_date}` : '-'}
+                      </td>
+                      <td className='p-3 whitespace-nowrap'>
+                        {v ? `${v.product_start_date} ~ ${v.product_end_date}` : '-'}
+                      </td>
+                      <td className='p-3'>
+                        {v == null
+                          ? '-'
+                          : v.max_capacity == null
+                            ? '무제한'
+                            : `${v.max_capacity}명`}
+                      </td>
+                      <td className='p-3'>
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-xs',
+                            p.status === 'active' && 'bg-emerald-100 text-emerald-800',
+                            p.status === 'inactive' && 'bg-slate-100 text-slate-700',
+                            p.status === 'sold_out' && 'bg-amber-100 text-amber-900',
+                          )}
+                        >
+                          {statusLabel[p.status]}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

@@ -1,22 +1,29 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import Link from "next/link";
-import type { MealProduct } from "@/types/database";
-import { Card } from "@/components/ui/card";
-import { MealImage } from "@/components/shared/meal-image";
-import { cn } from "@/lib/utils";
+import { useState } from 'react';
+import Link from 'next/link';
+import type { MealProduct, MealProductVariant } from '@/types/database';
+import { Card } from '@/components/ui/card';
+import { MealImage } from '@/components/shared/meal-image';
+import { cn } from '@/lib/utils';
 
 type Student = { id: string; name: string; branchId?: string | null };
+
+type ProductWithVariants = MealProduct & { variants: MealProductVariant[] };
+
+function priceLabel(variants: MealProductVariant[]): string {
+  if (variants.length === 0) return '-';
+  return `${variants[0].price.toLocaleString('ko-KR')}원`;
+}
 
 export function ParentMockExamsClient({
   initialProducts,
   students,
   orderStatusByStudentId = {},
 }: {
-  initialProducts: MealProduct[];
+  initialProducts: ProductWithVariants[];
   students: Student[];
-  orderStatusByStudentId?: Record<string, Record<string, "pending" | "paid">>;
+  orderStatusByStudentId?: Record<string, Record<string, 'pending' | 'paid'>>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(students[0]?.id ?? null);
 
@@ -45,10 +52,10 @@ export function ParentMockExamsClient({
               type='button'
               onClick={() => setSelectedId(s.id)}
               className={cn(
-                "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
                 selectedId === s.id
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background border-border text-foreground",
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background border-border text-foreground',
               )}
             >
               {s.name}
@@ -68,17 +75,18 @@ export function ParentMockExamsClient({
               const orderState = orderStatusByProductId[p.id];
               const branchMismatch =
                 selectedBranchId != null && p.branch_id !== selectedBranchId;
+              const price = priceLabel(p.variants);
 
               const cardBody = (
                 <Card
                   className={cn(
-                    "overflow-hidden transition-transform",
-                    !branchMismatch && "active:scale-[0.99]",
-                    orderState === "paid" && "ring-1 ring-emerald-500/25",
-                    branchMismatch && "opacity-50",
+                    'overflow-hidden transition-transform',
+                    !branchMismatch && 'active:scale-[0.99]',
+                    orderState === 'paid' && 'ring-1 ring-emerald-500/25',
+                    branchMismatch && 'opacity-50',
                   )}
                   aria-disabled={branchMismatch}
-                  title={branchMismatch ? "선택한 자녀의 지점이 아닙니다" : undefined}
+                  title={branchMismatch ? '선택한 자녀의 지점이 아닙니다' : undefined}
                 >
                   <div className='relative h-36 w-full'>
                     <MealImage
@@ -89,11 +97,11 @@ export function ParentMockExamsClient({
                       className='rounded-t-lg'
                     />
                     <div className='absolute left-2 top-2 flex flex-wrap gap-1.5'>
-                      {orderState === "paid" ? (
+                      {orderState === 'paid' ? (
                         <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm'>
                           결제 완료
                         </span>
-                      ) : orderState === "pending" ? (
+                      ) : orderState === 'pending' ? (
                         <span className='text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/95 text-white shadow-sm'>
                           결제 대기
                         </span>
@@ -106,31 +114,22 @@ export function ParentMockExamsClient({
                       <p className='mt-1 text-sm text-muted-foreground'>
                         선택한 자녀의 지점이 아닙니다.
                       </p>
-                    ) : orderState === "paid" ? (
+                    ) : orderState === 'paid' ? (
                       <div className='mt-1 space-y-0.5 text-sm'>
                         <p className='font-medium text-emerald-700 dark:text-emerald-400'>
                           결제가 완료된 모의고사입니다.
                         </p>
-                        <p className='text-muted-foreground'>
-                          {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                          {p.sale_end_date}
-                        </p>
+                        <p className='text-muted-foreground'>{price}</p>
                       </div>
-                    ) : orderState === "pending" ? (
+                    ) : orderState === 'pending' ? (
                       <div className='mt-1 space-y-0.5 text-sm'>
                         <p className='font-medium text-amber-700 dark:text-amber-400'>
                           결제를 이어서 진행해 주세요.
                         </p>
-                        <p className='text-muted-foreground'>
-                          {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                          {p.sale_end_date}
-                        </p>
+                        <p className='text-muted-foreground'>{price}</p>
                       </div>
                     ) : (
-                      <p className='text-sm text-muted-foreground mt-1'>
-                        {p.price.toLocaleString("ko-KR")}원 · 신청 {p.sale_start_date} ~{" "}
-                        {p.sale_end_date}
-                      </p>
+                      <p className='text-sm text-muted-foreground mt-1'>{price}</p>
                     )}
                   </div>
                 </Card>

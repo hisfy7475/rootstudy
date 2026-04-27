@@ -1068,12 +1068,6 @@ export interface Database {
           name: string;
           category: 'meal' | 'exam';
           meal_type: 'lunch' | 'dinner' | null;
-          price: number;
-          sale_start_date: string;
-          sale_end_date: string;
-          product_start_date: string;
-          product_end_date: string;
-          max_capacity: number | null;
           status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
           image_url: string | null;
@@ -1086,12 +1080,6 @@ export interface Database {
           name: string;
           category?: 'meal' | 'exam';
           meal_type?: 'lunch' | 'dinner' | null;
-          price: number;
-          sale_start_date: string;
-          sale_end_date: string;
-          product_start_date: string;
-          product_end_date: string;
-          max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
@@ -1104,6 +1092,46 @@ export interface Database {
           name?: string;
           category?: 'meal' | 'exam';
           meal_type?: 'lunch' | 'dinner' | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          description?: string | null;
+          image_url?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      meal_product_variants: {
+        Row: {
+          id: string;
+          product_id: string;
+          kind: 'one_time' | 'recurring';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
+          max_capacity: number | null;
+          status: 'active' | 'inactive' | 'sold_out';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          kind: 'one_time' | 'recurring';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
+          max_capacity?: number | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          kind?: 'one_time' | 'recurring';
           price?: number;
           sale_start_date?: string;
           sale_end_date?: string;
@@ -1111,8 +1139,6 @@ export interface Database {
           product_end_date?: string;
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
-          description?: string | null;
-          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1148,7 +1174,7 @@ export interface Database {
           id: string;
           user_id: string;
           student_id: string;
-          product_id: string;
+          variant_id: string;
           order_id: string;
           amount: number;
           status: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1163,7 +1189,7 @@ export interface Database {
           id?: string;
           user_id: string;
           student_id: string;
-          product_id: string;
+          variant_id: string;
           order_id: string;
           amount: number;
           status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1178,7 +1204,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           student_id?: string;
-          product_id?: string;
+          variant_id?: string;
           order_id?: string;
           amount?: number;
           status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1413,6 +1439,7 @@ export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_hist
 export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
 export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];
 export type MealProduct = Database['public']['Tables']['meal_products']['Row'];
+export type MealProductVariant = Database['public']['Tables']['meal_product_variants']['Row'];
 export type MealMenu = Database['public']['Tables']['meal_menus']['Row'];
 export type MealOrder = Database['public']['Tables']['meal_orders']['Row'];
 export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];

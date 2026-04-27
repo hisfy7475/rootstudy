@@ -2,15 +2,36 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import type { MealProduct } from '@/types/database';
+import type { MealProduct, MealProductVariant } from '@/types/database';
 import { Card } from '@/components/ui/card';
 import { MealImage } from '@/components/shared/meal-image';
 import { cn } from '@/lib/utils';
 
 type Student = { id: string; name: string; branchId?: string | null };
 
+type ProductWithVariants = MealProduct & { variants: MealProductVariant[] };
+
 function mealTypeLabel(t: MealProduct['meal_type']): string {
   return t === 'lunch' ? '중식' : '석식';
+}
+
+function priceLabel(variants: MealProductVariant[]): string {
+  if (variants.length === 0) return '-';
+  const prices = variants.map((v) => v.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) return `${min.toLocaleString('ko-KR')}원`;
+  return `${min.toLocaleString('ko-KR')}원~`;
+}
+
+function variantSummary(variants: MealProductVariant[]): string | null {
+  if (variants.length <= 1) return null;
+  const oneTime = variants.filter((v) => v.kind === 'one_time').length;
+  const recurring = variants.filter((v) => v.kind === 'recurring').length;
+  const parts: string[] = [];
+  if (oneTime) parts.push(`일일 ${oneTime}`);
+  if (recurring) parts.push(`정기 ${recurring}`);
+  return `옵션 ${parts.join(', ')}`;
 }
 
 export function ParentMealsClient({
@@ -18,7 +39,7 @@ export function ParentMealsClient({
   students,
   orderStatusByStudentId = {},
 }: {
-  initialProducts: MealProduct[];
+  initialProducts: ProductWithVariants[];
   students: Student[];
   orderStatusByStudentId?: Record<string, Record<string, 'pending' | 'paid'>>;
 }) {
@@ -32,27 +53,27 @@ export function ParentMealsClient({
 
   if (students.length === 0) {
     return (
-      <Card className="p-6 text-center text-sm text-muted-foreground">
+      <Card className='text-muted-foreground p-6 text-center text-sm'>
         연결된 자녀가 없습니다. 관리자에게 문의하세요.
       </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="p-3">
-        <p className="text-xs text-muted-foreground mb-2">자녀 선택</p>
-        <div className="flex flex-wrap gap-2">
+    <div className='space-y-4'>
+      <Card className='p-3'>
+        <p className='text-muted-foreground mb-2 text-xs'>자녀 선택</p>
+        <div className='flex flex-wrap gap-2'>
           {students.map((s) => (
             <button
               key={s.id}
-              type="button"
+              type='button'
               onClick={() => setSelectedId(s.id)}
               className={cn(
-                'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
+                'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
                 selectedId === s.id
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-background border-border text-foreground'
+                  : 'bg-background border-border text-foreground',
               )}
             >
               {s.name}
@@ -62,17 +83,17 @@ export function ParentMealsClient({
       </Card>
 
       {selectedId ? (
-        <ul className="space-y-3">
+        <ul className='space-y-3'>
           {initialProducts.length === 0 ? (
-            <Card className="p-6 text-center text-muted-foreground text-sm">
+            <Card className='text-muted-foreground p-6 text-center text-sm'>
               현재 신청 가능한 급식이 없습니다.
             </Card>
           ) : (
             initialProducts.map((p) => {
               const orderState = orderStatusByProductId[p.id];
-              // 선택된 자녀의 지점과 상품 지점이 다르면 신청 불가(다자녀 다지점 대응)
-              const branchMismatch =
-                selectedBranchId != null && p.branch_id !== selectedBranchId;
+              const branchMismatch = selectedBranchId != null && p.branch_id !== selectedBranchId;
+              const summary = variantSummary(p.variants);
+              const price = priceLabel(p.variants);
 
               const cardBody = (
                 <Card
@@ -80,65 +101,61 @@ export function ParentMealsClient({
                     'overflow-hidden transition-transform',
                     !branchMismatch && 'active:scale-[0.99]',
                     orderState === 'paid' && 'ring-1 ring-emerald-500/25',
-                    branchMismatch && 'opacity-50'
+                    branchMismatch && 'opacity-50',
                   )}
                   aria-disabled={branchMismatch}
                   title={branchMismatch ? '선택한 자녀의 지점이 아닙니다' : undefined}
                 >
-                  <div className="relative h-36 w-full">
+                  <div className='relative h-36 w-full'>
                     <MealImage
                       src={p.image_url}
-                      type="product"
+                      type='product'
                       alt={p.name}
                       fill
-                      className="rounded-t-lg"
+                      className='rounded-t-lg'
                     />
-                    <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-background/80 backdrop-blur-sm">
+                    <div className='absolute top-2 left-2 flex flex-wrap gap-1.5'>
+                      <span className='bg-background/80 rounded-full px-2 py-0.5 text-xs font-medium backdrop-blur-sm'>
                         {mealTypeLabel(p.meal_type)}
                       </span>
+                      {summary && (
+                        <span className='bg-background/80 rounded-full px-2 py-0.5 text-xs font-medium backdrop-blur-sm'>
+                          {summary}
+                        </span>
+                      )}
                       {orderState === 'paid' ? (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm">
+                        <span className='rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white shadow-sm'>
                           결제 완료
                         </span>
                       ) : orderState === 'pending' ? (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/95 text-white shadow-sm">
+                        <span className='rounded-full bg-amber-500/95 px-2 py-0.5 text-xs font-medium text-white shadow-sm'>
                           결제 대기
                         </span>
                       ) : null}
                     </div>
                   </div>
-                  <div className="p-4">
-                    <h2 className="font-semibold text-foreground truncate">{p.name}</h2>
+                  <div className='p-4'>
+                    <h2 className='text-foreground truncate font-semibold'>{p.name}</h2>
                     {branchMismatch ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <p className='text-muted-foreground mt-1 text-sm'>
                         선택한 자녀의 지점이 아닙니다.
                       </p>
                     ) : orderState === 'paid' ? (
-                      <div className="mt-1 space-y-0.5 text-sm">
-                        <p className="font-medium text-emerald-700 dark:text-emerald-400">
-                          결제가 완료된 급식입니다.
+                      <div className='mt-1 space-y-0.5 text-sm'>
+                        <p className='font-medium text-emerald-700 dark:text-emerald-400'>
+                          결제가 완료된 옵션이 있습니다.
                         </p>
-                        <p className="text-muted-foreground">
-                          {p.price.toLocaleString('ko-KR')}원 · 판매 {p.sale_start_date} ~{' '}
-                          {p.sale_end_date}
-                        </p>
+                        <p className='text-muted-foreground'>{price}</p>
                       </div>
                     ) : orderState === 'pending' ? (
-                      <div className="mt-1 space-y-0.5 text-sm">
-                        <p className="font-medium text-amber-700 dark:text-amber-400">
+                      <div className='mt-1 space-y-0.5 text-sm'>
+                        <p className='font-medium text-amber-700 dark:text-amber-400'>
                           결제를 이어서 진행해 주세요.
                         </p>
-                        <p className="text-muted-foreground">
-                          {p.price.toLocaleString('ko-KR')}원 · 판매 {p.sale_start_date} ~{' '}
-                          {p.sale_end_date}
-                        </p>
+                        <p className='text-muted-foreground'>{price}</p>
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {p.price.toLocaleString('ko-KR')}원 · 판매 {p.sale_start_date} ~{' '}
-                        {p.sale_end_date}
-                      </p>
+                      <p className='text-muted-foreground mt-1 text-sm'>{price}</p>
                     )}
                   </div>
                 </Card>
