@@ -155,8 +155,20 @@ export async function GET(request: Request) {
       // 타임스탬프를 UTC ISO로 정규화하는 헬퍼 (KST/UTC 형식 차이 해결)
       const normalizeTimestamp = (ts: string) => new Date(ts).toISOString();
 
-      const studentIds = [...new Set(attendanceRecords.map((r) => r.student_id))];
-      const timestamps = [...new Set(attendanceRecords.map((r) => r.timestamp))];
+      // 배치 내부 (student_id, timestamp) 중복 제거
+      // CAPS는 한 사람이 같은 초에 여러 게이트로 찍히는 경우가 있으며,
+      // 이때 idx_attendance_caps_unique 위반으로 bulk insert 전체가 실패해 동기화가 멈춘다.
+      const dedupedRecords: typeof attendanceRecords = [];
+      const seenInBatch = new Set<string>();
+      for (const r of attendanceRecords) {
+        const key = `${r.student_id}_${normalizeTimestamp(r.timestamp)}`;
+        if (seenInBatch.has(key)) continue;
+        seenInBatch.add(key);
+        dedupedRecords.push(r);
+      }
+
+      const studentIds = [...new Set(dedupedRecords.map((r) => r.student_id))];
+      const timestamps = [...new Set(dedupedRecords.map((r) => r.timestamp))];
 
       // 기존 기록 조회 (배치 처리로 Supabase 행 제한 대응)
       const existingSet = new Set<string>();
@@ -177,7 +189,7 @@ export async function GET(request: Request) {
         });
       }
 
-      const newRecords = attendanceRecords.filter(
+      const newRecords = dedupedRecords.filter(
         (r) => !existingSet.has(`${r.student_id}_${normalizeTimestamp(r.timestamp)}`)
       );
 
