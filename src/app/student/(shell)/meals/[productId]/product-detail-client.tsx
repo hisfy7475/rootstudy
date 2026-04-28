@@ -34,6 +34,7 @@ export function ProductDetailClient({
   payBasePath,
   studentId,
   backHref,
+  initialVariantId,
 }: {
   product: MealProductWithVariants;
   menus: MealMenu[];
@@ -43,6 +44,7 @@ export function ProductDetailClient({
   payBasePath: string;
   studentId: string | null;
   backHref: string;
+  initialVariantId?: string | null;
 }) {
   const router = useRouter();
 
@@ -52,7 +54,9 @@ export function ProductDetailClient({
   );
 
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
-    variants[0]?.id ?? null,
+    initialVariantId && variants.some((v) => v.id === initialVariantId)
+      ? initialVariantId
+      : (variants[0]?.id ?? null),
   );
   const [tab, setTab] = useState<'policy' | 'detail'>('policy');
   const [loading, setLoading] = useState(false);

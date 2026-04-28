@@ -51,7 +51,7 @@ export default async function StudentMockExamProductPage({
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href='/student/mock-exams'
+        href='/student/order'
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -64,7 +64,7 @@ export default async function StudentMockExamProductPage({
         paidOrderByVariant={paidOrderByVariant}
         payBasePath='/student/mock-exams/pay'
         studentId={studentId}
-        backHref='/student/mock-exams'
+        backHref='/student/order'
       />
     </div>
   );

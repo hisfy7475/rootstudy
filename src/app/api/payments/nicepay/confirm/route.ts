@@ -310,8 +310,11 @@ export async function POST(request: Request) {
   });
 
   const slug = categorySlug(category);
-  const ordersLink = role === 'parent' ? `/parent/${slug}/orders` : `/student/${slug}/orders`;
-  const studentOrdersLink = `/student/${slug}/orders`;
+  const ordersLink =
+    role === 'parent'
+      ? `/parent/order?tab=orders&category=${category}`
+      : `/student/order?tab=orders&category=${category}`;
+  const studentOrdersLink = `/student/order?tab=orders&category=${category}`;
   const title = category === 'exam' ? '모의고사 결제 완료' : '급식 결제 완료';
   const body =
     category === 'exam'
@@ -355,8 +358,8 @@ export async function POST(request: Request) {
 
   revalidatePath(`/student/${slug}`);
   revalidatePath(`/parent/${slug}`);
-  revalidatePath(`/student/${slug}/orders`);
-  revalidatePath(`/parent/${slug}/orders`);
+  revalidatePath('/student/order');
+  revalidatePath('/parent/order');
   if (row.product_id) {
     revalidatePath(`/student/${slug}/${row.product_id}`);
     revalidatePath(`/parent/${slug}/${row.product_id}`);

@@ -17,7 +17,7 @@ export default async function ParentMealProductPage({
   searchParams,
 }: {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ for?: string }>;
+  searchParams: Promise<{ for?: string; variant?: string }>;
 }) {
   const { productId } = await params;
   const sp = await searchParams;
@@ -26,7 +26,7 @@ export default async function ParentMealProductPage({
   const students = await getLinkedStudents();
   const allowed = forStudentId && students.some((s) => s.id === forStudentId);
   if (!allowed) {
-    redirect('/parent/meals');
+    redirect('/parent/order');
   }
 
   const product = await getMealProductDetail(productId, 'meal');
@@ -59,7 +59,7 @@ export default async function ParentMealProductPage({
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href='/parent/meals'
+        href='/parent/order'
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -73,7 +73,7 @@ export default async function ParentMealProductPage({
         paidOrderByVariant={paidOrderByVariant}
         payBasePath='/parent/meals/pay'
         studentId={forStudentId!}
-        backHref='/parent/meals'
+        backHref='/parent/order'
       />
     </div>
   );

@@ -10,9 +10,9 @@ export default function StudentMealPayResultPage() {
         }
       >
         <PayResultClient
-          ordersHref='/student/meals/orders'
-          homeHref='/student/meals'
-          homeLabel='급식 목록'
+          ordersHref='/student/order?tab=orders&category=meal'
+          homeHref='/student/order?category=meal'
+          homeLabel='급식 · 모의고사'
         />
       </Suspense>
     </div>

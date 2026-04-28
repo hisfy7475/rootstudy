@@ -37,14 +37,14 @@ function variantKindLabel(kind: 'one_time' | 'recurring' | undefined): string | 
 export function UserOrdersClient({
   initialOrders,
   category,
+  studentNameById,
 }: {
   initialOrders: MealOrderWithProduct[];
-  category: ProductCategory;
+  category?: ProductCategory;
+  studentNameById?: Record<string, string>;
 }) {
   const [orders, setOrders] = useState(initialOrders);
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  const fallbackName = category === 'exam' ? '모의고사' : '급식';
 
   const onCancel = async (id: string) => {
     if (!confirm('결제를 취소하고 환불하시겠습니까?')) return;
@@ -69,8 +69,8 @@ export function UserOrdersClient({
   return (
     <ul className='space-y-3'>
       {orders.map((o) => {
-        const productName = o.product?.name ?? fallbackName;
-        const productCategory = o.product?.category ?? category;
+        const productCategory: ProductCategory = o.product?.category ?? category ?? 'meal';
+        const productName = o.product?.name ?? (productCategory === 'exam' ? '모의고사' : '급식');
         const variantKindText = variantKindLabel(o.variant?.kind);
         const decision =
           o.variant && o.variant.product_start_date
@@ -98,9 +98,16 @@ export function UserOrdersClient({
                     </span>
                   ) : null}
                 </h2>
-                <span className='bg-muted h-fit shrink-0 rounded-full px-2 py-0.5 text-xs'>
-                  {statusLabel(o.status)}
-                </span>
+                <div className='flex h-fit shrink-0 items-center gap-1.5'>
+                  {studentNameById?.[o.student_id] ? (
+                    <span className='bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs font-medium'>
+                      {studentNameById[o.student_id]}
+                    </span>
+                  ) : null}
+                  <span className='bg-muted rounded-full px-2 py-0.5 text-xs'>
+                    {statusLabel(o.status)}
+                  </span>
+                </div>
               </div>
               <p className='text-muted-foreground text-sm'>
                 {o.amount.toLocaleString('ko-KR')}원 ·{' '}

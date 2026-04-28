@@ -25,7 +25,7 @@ export default async function ParentMockExamProductPage({
   const students = await getLinkedStudents();
   const allowed = forStudentId && students.some((s) => s.id === forStudentId);
   if (!allowed) {
-    redirect('/parent/mock-exams');
+    redirect('/parent/order');
   }
 
   const product = await getMealProductDetail(productId, 'exam');
@@ -56,7 +56,7 @@ export default async function ParentMockExamProductPage({
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href='/parent/mock-exams'
+        href='/parent/order'
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -69,7 +69,7 @@ export default async function ParentMockExamProductPage({
         paidOrderByVariant={paidOrderByVariant}
         payBasePath='/parent/mock-exams/pay'
         studentId={forStudentId!}
-        backHref='/parent/mock-exams'
+        backHref='/parent/order'
       />
     </div>
   );

@@ -71,12 +71,12 @@ function adminBasePath(category: ProductCategory): string {
   return category === 'exam' ? '/admin/mock-exams' : '/admin/meals';
 }
 
-function studentBasePath(category: ProductCategory): string {
-  return category === 'exam' ? '/student/mock-exams' : '/student/meals';
+function studentBasePath(_category: ProductCategory): string {
+  return '/student/order';
 }
 
-function parentBasePath(category: ProductCategory): string {
-  return category === 'exam' ? '/parent/mock-exams' : '/parent/meals';
+function parentBasePath(_category: ProductCategory): string {
+  return '/parent/order';
 }
 
 // ---------------------------------------------------------------------------
@@ -820,8 +820,8 @@ export async function adminCancelMealOrder(
   const adminBase = adminBasePath(meta.category);
   revalidatePath(`${adminBase}/${v.product_id}/orders`);
   revalidatePath(adminBase);
-  revalidatePath(`${studentBasePath(meta.category)}/orders`);
-  revalidatePath(`${parentBasePath(meta.category)}/orders`);
+  revalidatePath(studentBasePath(meta.category));
+  revalidatePath(parentBasePath(meta.category));
 
   return { success: true };
 }
@@ -1484,8 +1484,6 @@ export async function createMealOrder(
 
   revalidatePath(studentBasePath(product.category));
   revalidatePath(parentBasePath(product.category));
-  revalidatePath(`${studentBasePath(product.category)}/orders`);
-  revalidatePath(`${parentBasePath(product.category)}/orders`);
 
   return { data: inserted as MealOrder };
 }
@@ -1566,8 +1564,6 @@ export async function cancelMealOrder(
   if (!result.success) return { error: result.error };
 
   for (const cat of ['meal', 'exam'] as const) {
-    revalidatePath(`${studentBasePath(cat)}/orders`);
-    revalidatePath(`${parentBasePath(cat)}/orders`);
     revalidatePath(studentBasePath(cat));
     revalidatePath(parentBasePath(cat));
   }

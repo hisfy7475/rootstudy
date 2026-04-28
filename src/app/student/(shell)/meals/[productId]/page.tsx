@@ -14,10 +14,13 @@ import type { MealOrder } from '@/types/database';
 
 export default async function StudentMealProductPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ productId: string }>;
+  searchParams: Promise<{ variant?: string }>;
 }) {
   const { productId } = await params;
+  const { variant: initialVariantId } = await searchParams;
   const product = await getMealProductDetail(productId, 'meal');
   if (!product) notFound();
 
@@ -54,7 +57,7 @@ export default async function StudentMealProductPage({
   return (
     <div className='px-4 pt-2 pb-6'>
       <Link
-        href='/student/meals'
+        href='/student/order'
         className='text-muted-foreground mb-3 inline-flex items-center gap-1 text-sm'
       >
         <ChevronLeft className='h-4 w-4' />
@@ -68,7 +71,8 @@ export default async function StudentMealProductPage({
         paidOrderByVariant={paidOrderByVariant}
         payBasePath='/student/meals/pay'
         studentId={studentId}
-        backHref='/student/meals'
+        backHref='/student/order'
+        initialVariantId={initialVariantId ?? null}
       />
     </div>
   );
