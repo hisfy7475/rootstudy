@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { MealImage } from '@/components/shared/meal-image';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MealProduct } from '@/types/database';
+import type { MealProduct, MealProductVariant } from '@/types/database';
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'sold_out';
 
@@ -23,8 +23,29 @@ const tabs: { key: StatusFilter; label: string }[] = [
   { key: 'sold_out', label: '마감' },
 ];
 
+type ProductWithVariants = MealProduct & { variants: MealProductVariant[] };
+
 interface AdminMealsClientProps {
-  initialProducts: MealProduct[];
+  initialProducts: ProductWithVariants[];
+}
+
+function priceRangeLabel(variants: MealProductVariant[]): string {
+  if (variants.length === 0) return '-';
+  const prices = variants.map((v) => v.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) return `${min.toLocaleString()}원`;
+  return `${min.toLocaleString()} ~ ${max.toLocaleString()}원`;
+}
+
+function variantSummary(variants: MealProductVariant[]): string {
+  if (variants.length === 0) return '옵션 없음';
+  const oneTime = variants.filter((v) => v.kind === 'one_time').length;
+  const recurring = variants.filter((v) => v.kind === 'recurring').length;
+  const parts: string[] = [];
+  if (oneTime) parts.push(`일일 ${oneTime}`);
+  if (recurring) parts.push(`정기 ${recurring}`);
+  return parts.join(', ');
 }
 
 export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
@@ -40,7 +61,7 @@ export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold tracking-tight'>급식 관리</h1>
-          <p className='text-muted-foreground mt-1 text-sm'>상품 등록·메뉴·신청 현황</p>
+          <p className='text-muted-foreground mt-1 text-sm'>상품 등록·옵션·메뉴·신청 현황</p>
         </div>
         <Link
           href='/admin/meals/new'
@@ -81,17 +102,15 @@ export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
                 <th className='w-16 p-3 font-medium'></th>
                 <th className='p-3 font-medium'>이름</th>
                 <th className='p-3 font-medium'>유형</th>
+                <th className='p-3 font-medium'>옵션</th>
                 <th className='p-3 font-medium'>가격</th>
-                <th className='p-3 font-medium'>판매 기간</th>
-                <th className='p-3 font-medium'>식사 기간</th>
-                <th className='p-3 font-medium'>정원</th>
                 <th className='p-3 font-medium'>상태</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={6} className='text-muted-foreground p-8 text-center'>
                     등록된 상품이 없습니다.
                   </td>
                 </tr>
@@ -119,16 +138,8 @@ export function AdminMealsClient({ initialProducts }: AdminMealsClientProps) {
                       </Link>
                     </td>
                     <td className='p-3'>{p.meal_type === 'lunch' ? '중식' : '석식'}</td>
-                    <td className='p-3'>{p.price.toLocaleString()}원</td>
-                    <td className='p-3 whitespace-nowrap'>
-                      {p.sale_start_date} ~ {p.sale_end_date}
-                    </td>
-                    <td className='p-3 whitespace-nowrap'>
-                      {p.product_start_date} ~ {p.product_end_date}
-                    </td>
-                    <td className='p-3'>
-                      {p.max_capacity == null ? '무제한' : `${p.max_capacity}명`}
-                    </td>
+                    <td className='p-3 whitespace-nowrap'>{variantSummary(p.variants)}</td>
+                    <td className='p-3 whitespace-nowrap'>{priceRangeLabel(p.variants)}</td>
                     <td className='p-3'>
                       <span
                         className={cn(

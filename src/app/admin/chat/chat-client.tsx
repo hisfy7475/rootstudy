@@ -79,8 +79,10 @@ export function AdminChatClient({
     };
 
     fetchSearchResults();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
   // 무한 스크롤: IntersectionObserver
@@ -114,7 +116,7 @@ export function AdminChatClient({
           loadMore();
         }
       },
-      { root: listContainerRef.current, threshold: 0.1 }
+      { root: listContainerRef.current, threshold: 0.1 },
     );
 
     observer.observe(sentinel);
@@ -122,68 +124,138 @@ export function AdminChatClient({
   }, [loadMore]);
 
   // Realtime 업데이트
+  // 채널 useEffect 는 mount 1회만 실행되고 핸들러가 클로저로 캡처되므로,
+  // 핸들러 내부에서 참조하는 값은 모두 ref 화해 stale 을 방지한다.
+  // (selectedRoomId — 현재 보는 방 / roomsCount — 무한스크롤 누적 개수 /
+  // debouncedSearch — 검색 컨텍스트)
+  const selectedRoomIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedRoomIdRef.current = selectedRoom?.id ?? null;
+  }, [selectedRoom?.id]);
+
+  const roomsCountRef = useRef(rooms.length);
+  useEffect(() => {
+    roomsCountRef.current = rooms.length;
+  }, [rooms.length]);
+
+  const debouncedSearchRef = useRef(debouncedSearch);
+  useEffect(() => {
+    debouncedSearchRef.current = debouncedSearch;
+  }, [debouncedSearch]);
+
   useEffect(() => {
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
-    const channel = supabase
-      .channel('admin_chat_rooms')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-        },
-        (payload) => {
-          const msgRoomId = payload.new.room_id as string;
-          const msgContent = payload.new.content as string;
-          const msgCreatedAt = payload.new.created_at as string;
-          const isCurrentRoom = selectedRoom?.id === msgRoomId;
+    // Realtime postgres_changes 는 listener 별 RLS 평가에 access_token 이 필요하다.
+    // setAuth 가 끝나기 전에 subscribe 하면 realtime.subscription 에 claims_role='anon' 으로
+    // 등록되어 RLS `TO authenticated` 정책이 차단해 INSERT/UPDATE 이벤트가 도달하지 않는다.
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
 
-          setRooms((prev) => {
-            const updated = prev.map((r) =>
-              r.id === msgRoomId
-                ? {
-                    ...r,
-                    last_message: msgContent,
-                    last_message_at: msgCreatedAt,
-                    unread_count: isCurrentRoom ? r.unread_count : r.unread_count + 1,
-                  }
-                : r
-            );
-            return updated.sort(
-              (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
-            );
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_rooms',
-        },
-        async (payload) => {
-          const newRoomId = payload.new.id as string;
-          const result = await getChatRoomList({ limit: 1, offset: 0, search: undefined });
-          if (result.data) {
-            const newRoom = result.data.find((r: ChatRoomItem) => r.id === newRoomId);
-            if (newRoom) {
-              setRooms((prev) => {
-                if (prev.some((r) => r.id === newRoomId)) return prev;
-                return [newRoom, ...prev];
-              });
+      channel = supabase
+        .channel('admin_chat_rooms')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+          },
+          (payload) => {
+            const msgRoomId = payload.new.room_id as string;
+            const msgContent = payload.new.content as string;
+            const msgCreatedAt = payload.new.created_at as string;
+            const isCurrentRoom = selectedRoomIdRef.current === msgRoomId;
+
+            setRooms((prev) => {
+              const updated = prev.map((r) =>
+                r.id === msgRoomId
+                  ? {
+                      ...r,
+                      last_message: msgContent,
+                      last_message_at: msgCreatedAt,
+                      unread_count: isCurrentRoom ? r.unread_count : r.unread_count + 1,
+                    }
+                  : r,
+              );
+              return updated.sort(
+                (a, b) =>
+                  new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
+              );
+            });
+          },
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'chat_messages',
+          },
+          async () => {
+            // 다른 탭/기기에서 markAsRead 가 발생하면 unread_count 가 stale 해진다.
+            // 가벼운 재조회로 동기화 — 무한스크롤 누적 개수와 현재 검색어를 모두 ref 로
+            // 읽어 최신 컨텍스트로 첫 페이지(최대 누적 개수만큼) 재조회.
+            const result = await getChatRoomList({
+              limit: Math.max(roomsCountRef.current, PAGE_SIZE),
+              offset: 0,
+              search: debouncedSearchRef.current || undefined,
+            });
+            if (result.data) {
+              const fresh = result.data;
+              setRooms((prev) =>
+                prev.map((r) => {
+                  const updated = fresh.find((f: ChatRoomItem) => f.id === r.id);
+                  return updated ? { ...r, unread_count: updated.unread_count } : r;
+                }),
+              );
             }
+          },
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_rooms',
+          },
+          async (payload) => {
+            const newRoomId = payload.new.id as string;
+            const result = await getChatRoomList({ limit: 1, offset: 0, search: undefined });
+            if (result.data) {
+              const newRoom = result.data.find((r: ChatRoomItem) => r.id === newRoomId);
+              if (newRoom) {
+                setRooms((prev) => {
+                  if (prev.some((r) => r.id === newRoomId)) return prev;
+                  return [newRoom, ...prev];
+                });
+              }
+            }
+          },
+        )
+        .subscribe((status, err) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('[AdminChat] Realtime channel error:', status, err);
+          } else if (status === 'SUBSCRIBED') {
+            console.info('[AdminChat] Realtime subscribed');
           }
-        }
-      )
-      .subscribe();
+        });
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
     };
-  }, [selectedRoom?.id]);
+    // 채널 자체는 mount 1회만 생성. 핸들러가 참조하는 모든 값은 ref 로 캡처.
+  }, []);
 
   const handleSelectRoom = async (room: ChatRoomItem) => {
     setSelectedRoom(room);
@@ -201,9 +273,7 @@ export function AdminChatClient({
       setIsLoadingMessages(false);
     }
 
-    setRooms((prev) =>
-      prev.map((r) => r.id === room.id ? { ...r, unread_count: 0 } : r)
-    );
+    setRooms((prev) => prev.map((r) => (r.id === room.id ? { ...r, unread_count: 0 } : r)));
   };
 
   const handleBack = () => {
@@ -214,9 +284,7 @@ export function AdminChatClient({
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
-    );
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diffDays === 0) {
       return format(date, 'a h:mm', { locale: ko });
@@ -232,132 +300,124 @@ export function AdminChatClient({
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text">채팅 관리</h1>
-        <p className="text-text-muted mt-1">학생 · 학부모와 실시간 소통</p>
+    <div className='p-6'>
+      <div className='mb-6'>
+        <h1 className='text-text text-2xl font-bold'>채팅 관리</h1>
+        <p className='text-text-muted mt-1'>학생 · 학부모와 실시간 소통</p>
       </div>
 
-      <div className="flex gap-6 h-[calc(100vh-180px)]">
+      <div className='flex h-[calc(100vh-180px)] gap-6'>
         {/* 채팅방 목록 */}
         <div
           className={cn(
-            'bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden',
-            'w-80 flex-shrink-0 flex flex-col',
-            selectedRoom && 'hidden lg:flex'
+            'overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm',
+            'flex w-80 flex-shrink-0 flex-col',
+            selectedRoom && 'hidden lg:flex',
           )}
         >
-          <div className="p-4 border-b border-gray-100 space-y-3">
+          <div className='space-y-3 border-b border-gray-100 p-4'>
             <div>
-              <h2 className="font-semibold text-text">채팅방 목록</h2>
-              <p className="text-sm text-text-muted mt-0.5">
+              <h2 className='text-text font-semibold'>채팅방 목록</h2>
+              <p className='text-text-muted mt-0.5 text-sm'>
                 {rooms.length}개{hasMore ? '+' : ''}의 채팅방
               </p>
             </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <div className='relative'>
+              <Search className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
               <input
-                type="text"
-                placeholder="학생명으로 검색..."
+                type='text'
+                placeholder='학생명으로 검색...'
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-9 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-colors placeholder:text-text-muted/60"
+                className='focus:ring-primary/30 focus:border-primary/50 placeholder:text-text-muted/60 w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pr-9 pl-9 text-sm transition-colors focus:ring-2 focus:outline-none'
               />
               {searchQuery && (
                 <button
                   onClick={handleClearSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                  className='text-text-muted hover:text-text absolute top-1/2 right-3 -translate-y-1/2 transition-colors'
                 >
-                  <X className="w-4 h-4" />
+                  <X className='h-4 w-4' />
                 </button>
               )}
             </div>
           </div>
 
-          <div ref={listContainerRef} className="flex-1 overflow-y-auto">
+          <div ref={listContainerRef} className='flex-1 overflow-y-auto'>
             {isSearching ? (
-              <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
-                <Loader2 className="w-8 h-8 mb-3 animate-spin opacity-50" />
-                <p className="text-sm">검색 중...</p>
+              <div className='text-text-muted flex h-full flex-col items-center justify-center p-6'>
+                <Loader2 className='mb-3 h-8 w-8 animate-spin opacity-50' />
+                <p className='text-sm'>검색 중...</p>
               </div>
             ) : rooms.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
+              <div className='text-text-muted flex h-full flex-col items-center justify-center p-6'>
                 {debouncedSearch ? (
                   <>
-                    <Search className="w-12 h-12 mb-3 opacity-50" />
-                    <p className="text-center">검색 결과가 없습니다</p>
-                    <p className="text-sm text-center mt-1">
-                      다른 이름으로 검색해보세요
-                    </p>
+                    <Search className='mb-3 h-12 w-12 opacity-50' />
+                    <p className='text-center'>검색 결과가 없습니다</p>
+                    <p className='mt-1 text-center text-sm'>다른 이름으로 검색해보세요</p>
                   </>
                 ) : (
                   <>
-                    <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
-                    <p className="text-center">아직 채팅방이 없습니다</p>
-                    <p className="text-sm text-center mt-1">
-                      학생이 채팅을 시작하면 표시됩니다
-                    </p>
+                    <MessageCircle className='mb-3 h-12 w-12 opacity-50' />
+                    <p className='text-center'>아직 채팅방이 없습니다</p>
+                    <p className='mt-1 text-center text-sm'>학생이 채팅을 시작하면 표시됩니다</p>
                   </>
                 )}
               </div>
             ) : (
-              <ul className="divide-y divide-gray-100">
+              <ul className='divide-y divide-gray-100'>
                 {rooms.map((room) => (
                   <li key={room.id}>
                     <button
                       onClick={() => handleSelectRoom(room)}
                       className={cn(
-                        'w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors',
-                        selectedRoom?.id === room.id && 'bg-primary/5'
+                        'w-full px-4 py-3 text-left transition-colors hover:bg-gray-50',
+                        selectedRoom?.id === room.id && 'bg-primary/5',
                       )}
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <User className="w-5 h-5 text-primary" />
+                      <div className='flex items-start gap-3'>
+                        <div className='bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full'>
+                          <User className='text-primary h-5 w-5' />
                         </div>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-text truncate">
+                        <div className='min-w-0 flex-1'>
+                          <div className='flex items-center justify-between gap-2'>
+                            <span className='text-text truncate font-medium'>
                               {room.student_name}
                               {room.seat_number && (
-                                <span className="text-text-muted font-normal ml-1">
+                                <span className='text-text-muted ml-1 font-normal'>
                                   ({room.seat_number}번)
                                 </span>
                               )}
                             </span>
                             {room.unread_count > 0 && (
-                              <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 bg-secondary text-white text-xs font-medium rounded-full flex items-center justify-center">
-                                {room.unread_count > 99
-                                  ? '99+'
-                                  : room.unread_count}
+                              <span className='bg-secondary flex h-5 min-w-[20px] flex-shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium text-white'>
+                                {room.unread_count > 99 ? '99+' : room.unread_count}
                               </span>
                             )}
                           </div>
 
-                          <p className="text-sm text-text-muted truncate mt-0.5">
+                          <p className='text-text-muted mt-0.5 truncate text-sm'>
                             {room.last_message || '새로운 채팅방'}
                           </p>
 
-                          <div className="flex items-center gap-1 mt-1">
-                            <Clock className="w-3 h-3 text-text-muted" />
-                            <span className="text-xs text-text-muted">
+                          <div className='mt-1 flex items-center gap-1'>
+                            <Clock className='text-text-muted h-3 w-3' />
+                            <span className='text-text-muted text-xs'>
                               {formatTime(room.last_message_at)}
                             </span>
                           </div>
                         </div>
 
-                        <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0 mt-1" />
+                        <ChevronRight className='text-text-muted mt-1 h-4 w-4 flex-shrink-0' />
                       </div>
                     </button>
                   </li>
                 ))}
                 {/* 무한 스크롤 sentinel */}
                 {hasMore && (
-                  <li ref={sentinelRef} className="py-4 flex justify-center">
-                    {isLoadingMore && (
-                      <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
-                    )}
+                  <li ref={sentinelRef} className='flex justify-center py-4'>
+                    {isLoadingMore && <Loader2 className='text-text-muted h-5 w-5 animate-spin' />}
                   </li>
                 )}
               </ul>
@@ -368,8 +428,8 @@ export function AdminChatClient({
         {/* 채팅 영역 */}
         <div
           className={cn(
-            'flex-1 bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden',
-            !selectedRoom && 'hidden lg:flex'
+            'flex-1 overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm',
+            !selectedRoom && 'hidden lg:flex',
           )}
         >
           {selectedRoom ? (
@@ -378,22 +438,18 @@ export function AdminChatClient({
               initialMessages={messages}
               initialHasMore={messagesHasMore}
               currentUserId={currentUserId}
-              currentUserType="admin"
+              currentUserType='admin'
               currentUserName={currentUserName}
               title={selectedRoom.student_name}
-              subtitle={
-                selectedRoom.seat_number
-                  ? `${selectedRoom.seat_number}번 좌석`
-                  : undefined
-              }
+              subtitle={selectedRoom.seat_number ? `${selectedRoom.seat_number}번 좌석` : undefined}
               onBack={handleBack}
               showBackButton
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-text-muted">
-              <MessageCircle className="w-16 h-16 mb-4 opacity-30" />
-              <p className="text-lg">채팅방을 선택해주세요</p>
-              <p className="text-sm mt-1">
+            <div className='text-text-muted flex h-full flex-col items-center justify-center'>
+              <MessageCircle className='mb-4 h-16 w-16 opacity-30' />
+              <p className='text-lg'>채팅방을 선택해주세요</p>
+              <p className='mt-1 text-sm'>
                 왼쪽 목록에서 채팅방을 선택하면 대화를 시작할 수 있습니다
               </p>
             </div>

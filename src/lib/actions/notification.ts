@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { sendPushToUser, sendPushToUsers } from '@/lib/push';
 import { revalidatePath } from 'next/cache';
+import { MENTORING_TYPE_LABEL } from '@/lib/constants';
+import type { MentoringType } from '@/types/database';
 
 // ============================================
 // 학생 알림 관련
@@ -584,10 +586,33 @@ export async function sendKakaoAlimtalkToParent(params: {
   };
 }
 
-/** 멘토링 전용 알림톡 (카카오 템플릿 코드는 환경변수로 분기; 미설정 시 기본 템플릿 코드 사용) */
+/**
+ * 멘토링/클리닉/상담 전용 알림톡.
+ * 템플릿은 (slotType, kind) 조합으로 분기하며, 신규 유형 템플릿이 등록되지 않은 환경에서는
+ * 기존 mentoring 템플릿으로 폴백한다(라벨 불일치는 남지만 발송 자체는 보존).
+ */
+const MENTORING_ALIMTALK_TEMPLATE_ENV = {
+  mentoring: {
+    confirmed: 'NCLOUD_KAKAO_MENTORING_CONFIRMED_TEMPLATE',
+    rejected: 'NCLOUD_KAKAO_MENTORING_REJECTED_TEMPLATE',
+    cancelled: 'NCLOUD_KAKAO_MENTORING_CANCELLED_TEMPLATE',
+  },
+  clinic: {
+    confirmed: 'NCLOUD_KAKAO_CLINIC_CONFIRMED_TEMPLATE',
+    rejected: 'NCLOUD_KAKAO_CLINIC_REJECTED_TEMPLATE',
+    cancelled: 'NCLOUD_KAKAO_CLINIC_CANCELLED_TEMPLATE',
+  },
+  consult: {
+    confirmed: 'NCLOUD_KAKAO_CONSULT_CONFIRMED_TEMPLATE',
+    rejected: 'NCLOUD_KAKAO_CONSULT_REJECTED_TEMPLATE',
+    cancelled: 'NCLOUD_KAKAO_CONSULT_CANCELLED_TEMPLATE',
+  },
+} as const satisfies Record<MentoringType, Record<'confirmed' | 'rejected' | 'cancelled', string>>;
+
 export async function sendMentoringAlimtalkToParent(params: {
   parentId: string;
   studentId: string;
+  slotType: MentoringType;
   kind: 'confirmed' | 'rejected' | 'cancelled';
   studentName: string;
   subjectLabel: string;
@@ -601,12 +626,10 @@ export async function sendMentoringAlimtalkToParent(params: {
 
   const supabase = await createClient();
 
-  const templateOverride =
-    params.kind === 'confirmed'
-      ? process.env.NCLOUD_KAKAO_MENTORING_CONFIRMED_TEMPLATE
-      : params.kind === 'rejected'
-        ? process.env.NCLOUD_KAKAO_MENTORING_REJECTED_TEMPLATE
-        : process.env.NCLOUD_KAKAO_MENTORING_CANCELLED_TEMPLATE;
+  const typeSpecific = process.env[MENTORING_ALIMTALK_TEMPLATE_ENV[params.slotType][params.kind]];
+  const mentoringFallback =
+    process.env[MENTORING_ALIMTALK_TEMPLATE_ENV.mentoring[params.kind]];
+  const templateOverride = typeSpecific || mentoringFallback;
 
   const { data: parent, error: parentError } = await supabase
     .from('profiles')
@@ -618,13 +641,18 @@ export async function sendMentoringAlimtalkToParent(params: {
     return { success: true, skipped: true };
   }
 
+  // 본문 라벨은 실제 슬롯 유형을 따른다. 카카오 템플릿이 mentoring으로 폴백된 경우 본문 검수에서
+  // 클리닉/상담 라벨이 불일치로 판정될 수 있으므로, 폴백 시에는 기존 '멘토링' 라벨을 유지.
+  const typeLabel = typeSpecific
+    ? MENTORING_TYPE_LABEL[params.slotType]
+    : MENTORING_TYPE_LABEL.mentoring;
   let content: string;
   if (params.kind === 'confirmed') {
-    content = `[멘토링 확정]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링이 확정되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
+    content = `[${typeLabel} 확정]\n\n${params.studentName}님의 ${params.subjectLabel} ${typeLabel}이(가) 확정되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
   } else if (params.kind === 'rejected') {
-    content = `[멘토링 거절]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링 신청이 거절되었습니다.\n사유: ${params.reason ?? '-'}`;
+    content = `[${typeLabel} 거절]\n\n${params.studentName}님의 ${params.subjectLabel} ${typeLabel} 신청이 거절되었습니다.\n사유: ${params.reason ?? '-'}`;
   } else {
-    content = `[멘토링 취소]\n\n${params.studentName}님의 ${params.subjectLabel} 멘토링이 취소되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
+    content = `[${typeLabel} 취소]\n\n${params.studentName}님의 ${params.subjectLabel} ${typeLabel}이(가) 취소되었습니다.\n일시: ${params.dateLabel} ${params.timeLabel}`;
   }
 
   const response = await sendBulkAlimtalk({

@@ -8,7 +8,7 @@ import {
   type MealOrderWithProduct,
   type ProductCategory,
 } from '@/lib/actions/meal';
-import { canCancelMealOrderByDeadline } from '@/lib/meal-order-rules';
+import { canCancelOrder, cancelReasonMessage } from '@/lib/meal-order-rules';
 import { Loader2 } from 'lucide-react';
 
 function statusLabel(s: MealOrderWithProduct['status']): string {
@@ -28,21 +28,23 @@ function statusLabel(s: MealOrderWithProduct['status']): string {
   }
 }
 
-/**
- * 학생·학부모 본인/자녀 주문 내역 목록 (meal/exam 공용).
- * fallbackName 만 category 로 분기하고 나머지 로직은 공유.
- */
+function variantKindLabel(kind: 'one_time' | 'recurring' | undefined): string | null {
+  if (kind === 'recurring') return '정기';
+  if (kind === 'one_time') return '일일';
+  return null;
+}
+
 export function UserOrdersClient({
   initialOrders,
   category,
+  studentNameById,
 }: {
   initialOrders: MealOrderWithProduct[];
-  category: ProductCategory;
+  category?: ProductCategory;
+  studentNameById?: Record<string, string>;
 }) {
   const [orders, setOrders] = useState(initialOrders);
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  const fallbackName = category === 'exam' ? '모의고사' : '급식';
 
   const onCancel = async (id: string) => {
     if (!confirm('결제를 취소하고 환불하시겠습니까?')) return;
@@ -67,26 +69,57 @@ export function UserOrdersClient({
   return (
     <ul className='space-y-3'>
       {orders.map((o) => {
-        const p = Array.isArray(o.meal_products) ? o.meal_products[0] : o.meal_products;
-        const name = p?.name ?? fallbackName;
-        const productStart = p?.product_start_date;
-        const canCancel =
-          o.status === 'paid' && productStart && canCancelMealOrderByDeadline(productStart);
+        const productCategory: ProductCategory = o.product?.category ?? category ?? 'meal';
+        const productName = o.product?.name ?? (productCategory === 'exam' ? '모의고사' : '급식');
+        const variantKindText = variantKindLabel(o.variant?.kind);
+        const decision =
+          o.variant && o.variant.product_start_date
+            ? canCancelOrder({
+                category: productCategory,
+                variantKind: o.variant.kind,
+                productStart: o.variant.product_start_date,
+              })
+            : null;
+        const showCancel = o.status === 'paid' && decision?.ok === true;
+        const cancelHint =
+          o.status === 'paid' && decision && !decision.ok
+            ? cancelReasonMessage(decision.reason)
+            : null;
 
         return (
           <li key={o.id}>
             <Card className='space-y-2 p-4'>
               <div className='flex justify-between gap-2'>
-                <h2 className='leading-tight font-semibold'>{name}</h2>
-                <span className='bg-muted h-fit shrink-0 rounded-full px-2 py-0.5 text-xs'>
-                  {statusLabel(o.status)}
-                </span>
+                <h2 className='leading-tight font-semibold'>
+                  {productName}
+                  {variantKindText ? (
+                    <span className='text-muted-foreground ml-1 text-xs font-normal'>
+                      · {variantKindText}
+                    </span>
+                  ) : null}
+                </h2>
+                <div className='flex h-fit shrink-0 items-center gap-1.5'>
+                  {studentNameById?.[o.student_id] ? (
+                    <span className='bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs font-medium'>
+                      {studentNameById[o.student_id]}
+                    </span>
+                  ) : null}
+                  <span className='bg-muted rounded-full px-2 py-0.5 text-xs'>
+                    {statusLabel(o.status)}
+                  </span>
+                </div>
               </div>
               <p className='text-muted-foreground text-sm'>
                 {o.amount.toLocaleString('ko-KR')}원 ·{' '}
                 {new Date(o.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
               </p>
-              {o.status === 'paid' && canCancel ? (
+              {o.variant?.product_start_date && o.variant?.product_end_date ? (
+                <p className='text-muted-foreground text-xs'>
+                  {productCategory === 'exam' ? '시험 기간' : '식사 기간'}:{' '}
+                  {o.variant.product_start_date} ~ {o.variant.product_end_date}
+                </p>
+              ) : null}
+              {showCancel ? (
                 <Button
                   variant='outline'
                   size='sm'
@@ -102,6 +135,8 @@ export function UserOrdersClient({
                     '결제 취소'
                   )}
                 </Button>
+              ) : cancelHint ? (
+                <p className='text-muted-foreground text-xs'>{cancelHint}</p>
               ) : null}
             </Card>
           </li>

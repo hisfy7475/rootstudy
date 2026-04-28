@@ -5,7 +5,7 @@ import {
   getNicepayMid,
   isCancelSuccess,
 } from '@/lib/nicepay';
-import { canCancelMealOrderByDeadline } from './meal-order-rules';
+import { canCancelOrder, cancelReasonMessage } from './meal-order-rules';
 
 type AdminClient = SupabaseClient;
 
@@ -13,9 +13,30 @@ export type MealCancelResult =
   | { success: true }
   | { success: false; error: string; status?: number };
 
+type VariantJoin = {
+  kind: 'one_time' | 'recurring';
+  product_start_date: string;
+  meal_products: { category: 'meal' | 'exam' } | { category: 'meal' | 'exam' }[] | null;
+};
+
+function pickVariant(
+  raw: VariantJoin | VariantJoin[] | null,
+): { kind: 'one_time' | 'recurring'; productStart: string; category: 'meal' | 'exam' } | null {
+  const v = raw == null ? null : Array.isArray(raw) ? (raw[0] ?? null) : raw;
+  if (!v) return null;
+  const productJoin = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
+  const category = productJoin?.category ?? 'meal';
+  return { kind: v.kind, productStart: v.product_start_date, category };
+}
+
 /**
- * 결제 완료 주문 취소 (meal/exam 공용) — 나이스페이 v3 pg-api + DB.
+ * 결제 완료 주문 취소 (meal/exam 공용) — NICEPay v3 pg-api + DB.
  * 호출 전 userId 권한 검증 완료 가정.
+ *
+ * 취소 데드라인은 variant.kind 와 product.category 를 조합해 판정.
+ *  - exam: 절대 불가
+ *  - recurring: 직전 주 금요일까지
+ *  - one_time: 식사일 2일 전까지
  */
 export async function executePaidMealOrderCancel(
   admin: AdminClient,
@@ -37,7 +58,11 @@ export async function executePaidMealOrderCancel(
       amount,
       status,
       tid,
-      meal_products (product_start_date, category)
+      meal_product_variants (
+        kind,
+        product_start_date,
+        meal_products (category)
+      )
     `,
     )
     .eq('id', params.mealOrderId)
@@ -47,7 +72,6 @@ export async function executePaidMealOrderCancel(
     return { success: false, error: '주문을 찾을 수 없습니다.', status: 404 };
   }
 
-  type ProductJoin = { product_start_date: string; category: 'meal' | 'exam' };
   const raw = order as {
     id: string;
     user_id: string;
@@ -55,15 +79,10 @@ export async function executePaidMealOrderCancel(
     amount: number;
     status: string;
     tid: string | null;
-    meal_products: ProductJoin | ProductJoin[] | null;
+    meal_product_variants: VariantJoin | VariantJoin[] | null;
   };
 
-  const product =
-    raw.meal_products == null
-      ? null
-      : Array.isArray(raw.meal_products)
-        ? raw.meal_products[0]
-        : raw.meal_products;
+  const variant = pickVariant(raw.meal_product_variants);
 
   if (raw.user_id !== params.userId) {
     return { success: false, error: '권한이 없습니다.', status: 403 };
@@ -77,14 +96,17 @@ export async function executePaidMealOrderCancel(
     return { success: false, error: '거래 정보가 없습니다.', status: 400 };
   }
 
-  const productStart = product?.product_start_date;
-  if (productStart && !canCancelMealOrderByDeadline(productStart)) {
-    const label = product?.category === 'exam' ? '시험일' : '식사일';
-    return {
-      success: false,
-      error: `${label} 2일 전까지만 취소할 수 있습니다.`,
-      status: 400,
-    };
+  if (!variant) {
+    return { success: false, error: '주문 옵션 정보를 찾을 수 없습니다.', status: 400 };
+  }
+
+  const decision = canCancelOrder({
+    category: variant.category,
+    variantKind: variant.kind,
+    productStart: variant.productStart,
+  });
+  if (!decision.ok) {
+    return { success: false, error: cancelReasonMessage(decision.reason), status: 400 };
   }
 
   const cancelAmt = String(Math.trunc(raw.amount));
@@ -138,8 +160,8 @@ export async function executePaidMealOrderCancel(
 }
 
 /**
- * 관리자 강제 취소/환불 (meal/exam 공용) — user_id·상품 시작일 데드라인
- * 검증 없음. 호출부에서 관리자 권한 및 지점 일치 검증 후 호출.
+ * 관리자 강제 취소/환불 (meal/exam 공용) — userId·데드라인 검증 없음.
+ * 호출부에서 관리자 권한 및 지점 일치 검증 후 호출.
  */
 export async function executeAdminMealOrderCancel(
   admin: AdminClient,
@@ -160,8 +182,7 @@ export async function executeAdminMealOrderCancel(
       order_id,
       amount,
       status,
-      tid,
-      meal_products (product_start_date)
+      tid
     `,
     )
     .eq('id', params.mealOrderId)
@@ -178,7 +199,6 @@ export async function executeAdminMealOrderCancel(
     amount: number;
     status: string;
     tid: string | null;
-    meal_products: { product_start_date: string } | { product_start_date: string }[] | null;
   };
 
   if (raw.status !== 'paid') {

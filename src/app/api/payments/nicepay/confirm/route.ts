@@ -59,11 +59,24 @@ type MealOrderRow = {
   id: string;
   user_id: string;
   student_id: string;
-  product_id: string;
+  variant_id: string;
   order_id: string;
   amount: number;
   status: string;
   tid: string | null;
+  product_id: string | null;
+};
+
+type OrderWithVariant = {
+  id: string;
+  user_id: string;
+  student_id: string;
+  variant_id: string;
+  order_id: string;
+  amount: number;
+  status: string;
+  tid: string | null;
+  meal_product_variants: { product_id: string } | { product_id: string }[] | null;
 };
 
 export async function POST(request: Request) {
@@ -129,7 +142,9 @@ export async function POST(request: Request) {
 
   const { data: order, error: orderErr } = await admin
     .from('meal_orders')
-    .select('id, user_id, student_id, product_id, order_id, amount, status, tid')
+    .select(
+      'id, user_id, student_id, variant_id, order_id, amount, status, tid, meal_product_variants(product_id)',
+    )
     .eq('order_id', orderId)
     .maybeSingle();
 
@@ -138,7 +153,21 @@ export async function POST(request: Request) {
     return redirectResult(request, role, category, { fail: '1', reason: 'order_not_found' });
   }
 
-  const row = order as MealOrderRow;
+  const ordRaw = order as OrderWithVariant;
+  const variantJoin = Array.isArray(ordRaw.meal_product_variants)
+    ? ordRaw.meal_product_variants[0]
+    : ordRaw.meal_product_variants;
+  const row: MealOrderRow = {
+    id: ordRaw.id,
+    user_id: ordRaw.user_id,
+    student_id: ordRaw.student_id,
+    variant_id: ordRaw.variant_id,
+    order_id: ordRaw.order_id,
+    amount: ordRaw.amount,
+    status: ordRaw.status,
+    tid: ordRaw.tid,
+    product_id: variantJoin?.product_id ?? null,
+  };
 
   if (row.status === 'paid' && row.tid) {
     if (row.tid === txTid) {
@@ -281,8 +310,11 @@ export async function POST(request: Request) {
   });
 
   const slug = categorySlug(category);
-  const ordersLink = role === 'parent' ? `/parent/${slug}/orders` : `/student/${slug}/orders`;
-  const studentOrdersLink = `/student/${slug}/orders`;
+  const ordersLink =
+    role === 'parent'
+      ? `/parent/order?tab=orders&category=${category}`
+      : `/student/order?tab=orders&category=${category}`;
+  const studentOrdersLink = `/student/order?tab=orders&category=${category}`;
   const title = category === 'exam' ? '모의고사 결제 완료' : '급식 결제 완료';
   const body =
     category === 'exam'
@@ -326,10 +358,12 @@ export async function POST(request: Request) {
 
   revalidatePath(`/student/${slug}`);
   revalidatePath(`/parent/${slug}`);
-  revalidatePath(`/student/${slug}/orders`);
-  revalidatePath(`/parent/${slug}/orders`);
-  revalidatePath(`/student/${slug}/${row.product_id}`);
-  revalidatePath(`/parent/${slug}/${row.product_id}`);
+  revalidatePath('/student/order');
+  revalidatePath('/parent/order');
+  if (row.product_id) {
+    revalidatePath(`/student/${slug}/${row.product_id}`);
+    revalidatePath(`/parent/${slug}/${row.product_id}`);
+  }
 
   return redirectResult(request, role, category, { ok: '1', order: row.id });
 }

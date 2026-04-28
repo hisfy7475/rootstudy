@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,87 +11,195 @@ import {
   updateMealProduct,
   uploadMealProductImage,
   deleteMealProductImage,
-  type MealProductAdminInput,
+  createMealProductVariant,
+  updateMealProductVariant,
+  deleteMealProductVariant,
+  type VariantInput,
+  type VariantKind,
+  type MealProductWithVariants,
 } from '@/lib/actions/meal';
-import type { MealProduct } from '@/types/database';
-import { CalendarDays, ListOrdered, Loader2 } from 'lucide-react';
+import type { MealProduct, MealProductVariant } from '@/types/database';
+import { CalendarDays, ListOrdered, Loader2, Plus, Trash2 } from 'lucide-react';
 
 interface AdminMealsDetailClientProps {
-  product: MealProduct;
+  product: MealProductWithVariants;
+}
+
+const STATUS_LABEL: Record<MealProduct['status'], string> = {
+  active: '판매중',
+  inactive: '비활성',
+  sold_out: '마감',
+};
+
+function isoDayOfWeek(ymd: string): number | null {
+  if (!ymd) return null;
+  const d = new Date(`${ymd}T12:00:00+09:00`);
+  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+  return dow;
+}
+
+function emptyVariantForm(): VariantInput & { _editingId?: string } {
+  return {
+    kind: 'one_time',
+    price: 0,
+    sale_start_date: '',
+    sale_end_date: '',
+    product_start_date: '',
+    product_end_date: '',
+    max_capacity: null,
+    status: 'active',
+  };
+}
+
+function variantToForm(v: MealProductVariant): VariantInput & { _editingId: string } {
+  return {
+    _editingId: v.id,
+    kind: v.kind,
+    price: v.price,
+    sale_start_date: v.sale_start_date,
+    sale_end_date: v.sale_end_date,
+    product_start_date: v.product_start_date,
+    product_end_date: v.product_end_date,
+    max_capacity: v.max_capacity,
+    status: v.status,
+  };
 }
 
 export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailClientProps) {
-  const [product, setProduct] = useState(initial);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const toFormState = (p: MealProduct) => ({
-    name: p.name,
-    meal_type: (p.meal_type ?? 'lunch') as 'lunch' | 'dinner',
-    price: String(p.price),
-    sale_start_date: p.sale_start_date,
-    sale_end_date: p.sale_end_date,
-    product_start_date: p.product_start_date,
-    product_end_date: p.product_end_date,
-    max_capacity: p.max_capacity == null ? '' : String(p.max_capacity),
-    description: p.description ?? '',
-    status: p.status,
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [product, setProduct] = useState<MealProduct>(initial);
+  const [variants, setVariants] = useState<MealProductVariant[]>(initial.variants);
+  const [productLoading, setProductLoading] = useState(false);
+  const [productMessage, setProductMessage] = useState<string | null>(null);
+  const [productError, setProductError] = useState<string | null>(null);
+  const [productForm, setProductForm] = useState({
+    name: initial.name,
+    meal_type: (initial.meal_type ?? 'lunch') as 'lunch' | 'dinner',
+    description: initial.description ?? '',
+    status: initial.status,
   });
 
-  const [form, setForm] = useState(() => toFormState(initial));
+  // 등록 직후 이미지 업로드 실패 안내 (?image_error=...). 한 번 보여주고 쿼리 정리.
+  useEffect(() => {
+    const imageErr = searchParams.get('image_error');
+    if (imageErr) {
+      setProductError(`이미지 업로드 실패: ${imageErr}`);
+      router.replace(`/admin/meals/${initial.id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const isDirty =
-    form.name !== product.name ||
-    form.meal_type !== product.meal_type ||
-    form.price !== String(product.price) ||
-    form.sale_start_date !== product.sale_start_date ||
-    form.sale_end_date !== product.sale_end_date ||
-    form.product_start_date !== product.product_start_date ||
-    form.product_end_date !== product.product_end_date ||
-    form.max_capacity !== (product.max_capacity == null ? '' : String(product.max_capacity)) ||
-    form.description !== (product.description ?? '') ||
-    form.status !== product.status;
+  const [variantFormOpen, setVariantFormOpen] = useState(false);
+  const [variantForm, setVariantForm] = useState(emptyVariantForm);
+  const [variantLoading, setVariantLoading] = useState(false);
+  const [variantError, setVariantError] = useState<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
+  const productDirty =
+    productForm.name !== product.name ||
+    productForm.meal_type !== (product.meal_type ?? 'lunch') ||
+    productForm.description !== (product.description ?? '') ||
+    productForm.status !== product.status;
+
+  const submitProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
-    const price = Number(form.price.replace(/,/g, ''));
-    if (Number.isNaN(price) || price < 0) {
-      setError('가격을 올바르게 입력하세요.');
-      return;
-    }
-    const maxRaw = form.max_capacity.trim();
-    const max_capacity = maxRaw === '' ? null : Number(maxRaw);
-    if (max_capacity != null && (Number.isNaN(max_capacity) || max_capacity <= 0)) {
-      setError('정원은 양의 정수이거나 비워 두세요.');
-      return;
-    }
-
-    setLoading(true);
+    setProductError(null);
+    setProductMessage(null);
+    setProductLoading(true);
     const res = await updateMealProduct(product.id, {
-      name: form.name,
-      meal_type: form.meal_type as MealProductAdminInput['meal_type'],
-      price,
-      sale_start_date: form.sale_start_date,
-      sale_end_date: form.sale_end_date,
-      product_start_date: form.product_start_date,
-      product_end_date: form.product_end_date,
-      max_capacity,
-      description: form.description.trim() || null,
-      status: form.status as MealProductAdminInput['status'],
+      name: productForm.name,
+      meal_type: productForm.meal_type,
+      description: productForm.description.trim() || null,
+      status: productForm.status,
     });
-    setLoading(false);
-
+    setProductLoading(false);
     if (res.error) {
-      setError(res.error);
+      setProductError(res.error);
       return;
     }
     if (res.data) {
       setProduct(res.data);
-      setMessage('저장되었습니다.');
+      setProductMessage('저장되었습니다.');
     }
+  };
+
+  const openAddVariant = () => {
+    setVariantForm(emptyVariantForm());
+    setVariantError(null);
+    setVariantFormOpen(true);
+  };
+
+  const openEditVariant = (v: MealProductVariant) => {
+    setVariantForm(variantToForm(v));
+    setVariantError(null);
+    setVariantFormOpen(true);
+  };
+
+  const cancelVariantForm = () => {
+    setVariantFormOpen(false);
+    setVariantError(null);
+  };
+
+  const submitVariant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVariantError(null);
+    if (variantForm.price < 0) return setVariantError('가격을 입력하세요.');
+    if (
+      !variantForm.sale_start_date ||
+      !variantForm.sale_end_date ||
+      !variantForm.product_start_date ||
+      !variantForm.product_end_date
+    ) {
+      return setVariantError('날짜를 모두 입력하세요.');
+    }
+    if (variantForm.kind === 'recurring') {
+      if (isoDayOfWeek(variantForm.product_start_date) !== 1) {
+        return setVariantError('정기 옵션은 월요일에 시작해야 합니다.');
+      }
+      if (isoDayOfWeek(variantForm.product_end_date) !== 5) {
+        return setVariantError('정기 옵션은 금요일에 종료해야 합니다.');
+      }
+    }
+
+    setVariantLoading(true);
+    const editingId = (variantForm as VariantInput & { _editingId?: string })._editingId;
+    const payload: VariantInput = {
+      kind: variantForm.kind,
+      price: variantForm.price,
+      sale_start_date: variantForm.sale_start_date,
+      sale_end_date: variantForm.sale_end_date,
+      product_start_date: variantForm.product_start_date,
+      product_end_date: variantForm.product_end_date,
+      max_capacity: variantForm.max_capacity,
+      status: variantForm.status,
+    };
+
+    const res = editingId
+      ? await updateMealProductVariant(editingId, payload)
+      : await createMealProductVariant(product.id, payload);
+
+    setVariantLoading(false);
+    if (res.error) {
+      setVariantError(res.error);
+      return;
+    }
+    if (res.data) {
+      setVariants((prev) => {
+        if (editingId) return prev.map((v) => (v.id === editingId ? res.data! : v));
+        return [...prev, res.data!];
+      });
+      setVariantFormOpen(false);
+    }
+  };
+
+  const removeVariant = async (v: MealProductVariant) => {
+    if (!window.confirm('이 옵션을 삭제하시겠습니까?')) return;
+    const res = await deleteMealProductVariant(v.id);
+    if (res.error) {
+      window.alert(res.error);
+      return;
+    }
+    setVariants((prev) => prev.filter((x) => x.id !== v.id));
   };
 
   return (
@@ -119,23 +228,25 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
       </div>
 
       <Card className='p-6'>
-        <form onSubmit={submit} className='space-y-4'>
-          {error && (
+        <form onSubmit={submitProduct} className='space-y-4'>
+          <h2 className='text-muted-foreground text-sm font-semibold'>상품 정보</h2>
+
+          {productError && (
             <div className='bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm'>
-              {error}
+              {productError}
             </div>
           )}
-          {message && (
+          {productMessage && (
             <div className='rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-900'>
-              {message}
+              {productMessage}
             </div>
           )}
 
           <div>
             <label className='mb-1 block text-sm font-medium'>상품명</label>
             <Input
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              value={productForm.name}
+              onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))}
               required
             />
           </div>
@@ -144,9 +255,9 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
             <label className='mb-1 block text-sm font-medium'>식사 유형</label>
             <select
               className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
-              value={form.meal_type}
+              value={productForm.meal_type}
               onChange={(e) =>
-                setForm((f) => ({ ...f, meal_type: e.target.value as 'lunch' | 'dinner' }))
+                setProductForm((f) => ({ ...f, meal_type: e.target.value as 'lunch' | 'dinner' }))
               }
             >
               <option value='lunch'>중식</option>
@@ -155,75 +266,12 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
           </div>
 
           <div>
-            <label className='mb-1 block text-sm font-medium'>가격(원)</label>
-            <Input
-              type='number'
-              min={0}
-              value={form.price}
-              onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-              required
-            />
-          </div>
-
-          <div className='grid gap-4 sm:grid-cols-2'>
-            <div>
-              <label className='mb-1 block text-sm font-medium'>판매 시작</label>
-              <Input
-                type='date'
-                value={form.sale_start_date}
-                onChange={(e) => setForm((f) => ({ ...f, sale_start_date: e.target.value }))}
-                required
-              />
-            </div>
-            <div>
-              <label className='mb-1 block text-sm font-medium'>판매 종료</label>
-              <Input
-                type='date'
-                value={form.sale_end_date}
-                onChange={(e) => setForm((f) => ({ ...f, sale_end_date: e.target.value }))}
-                required
-              />
-            </div>
-          </div>
-
-          <div className='grid gap-4 sm:grid-cols-2'>
-            <div>
-              <label className='mb-1 block text-sm font-medium'>식사 시작</label>
-              <Input
-                type='date'
-                value={form.product_start_date}
-                onChange={(e) => setForm((f) => ({ ...f, product_start_date: e.target.value }))}
-                required
-              />
-            </div>
-            <div>
-              <label className='mb-1 block text-sm font-medium'>식사 종료</label>
-              <Input
-                type='date'
-                value={form.product_end_date}
-                onChange={(e) => setForm((f) => ({ ...f, product_end_date: e.target.value }))}
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className='mb-1 block text-sm font-medium'>최대 인원 (비우면 무제한)</label>
-            <Input
-              type='number'
-              min={1}
-              value={form.max_capacity}
-              onChange={(e) => setForm((f) => ({ ...f, max_capacity: e.target.value }))}
-            />
-          </div>
-
-          <div>
             <label className='mb-1 block text-sm font-medium'>상태</label>
             <select
               className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
-              value={form.status}
+              value={productForm.status}
               onChange={(e) =>
-                setForm((f) => ({ ...f, status: e.target.value as MealProduct['status'] }))
+                setProductForm((f) => ({ ...f, status: e.target.value as MealProduct['status'] }))
               }
             >
               <option value='active'>판매중</option>
@@ -236,8 +284,8 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
             <label className='mb-1 block text-sm font-medium'>설명</label>
             <textarea
               className='border-input bg-background min-h-[80px] w-full rounded-md border px-3 py-2 text-sm'
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              value={productForm.description}
+              onChange={(e) => setProductForm((f) => ({ ...f, description: e.target.value }))}
             />
           </div>
 
@@ -248,10 +296,210 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
             placeholderSrc='/images/meal-product-placeholder.png'
           />
 
-          <Button type='submit' disabled={loading || !isDirty}>
-            {loading ? <Loader2 className='size-4 animate-spin' /> : '저장'}
+          <Button type='submit' disabled={productLoading || !productDirty}>
+            {productLoading ? <Loader2 className='size-4 animate-spin' /> : '상품 정보 저장'}
           </Button>
         </form>
+      </Card>
+
+      <Card className='space-y-4 p-6'>
+        <div className='flex items-center justify-between'>
+          <h2 className='text-muted-foreground text-sm font-semibold'>판매 옵션</h2>
+          {!variantFormOpen && (
+            <Button type='button' size='sm' onClick={openAddVariant}>
+              <Plus className='mr-1 size-4' /> 옵션 추가
+            </Button>
+          )}
+        </div>
+
+        {variants.length === 0 && !variantFormOpen ? (
+          <p className='text-muted-foreground text-sm'>등록된 옵션이 없습니다.</p>
+        ) : (
+          <div className='overflow-x-auto'>
+            <table className='w-full text-sm'>
+              <thead className='bg-muted/50 border-b text-left'>
+                <tr>
+                  <th className='p-2 font-medium'>종류</th>
+                  <th className='p-2 font-medium'>가격</th>
+                  <th className='p-2 font-medium'>판매기간</th>
+                  <th className='p-2 font-medium'>식사기간</th>
+                  <th className='p-2 font-medium'>정원</th>
+                  <th className='p-2 font-medium'>상태</th>
+                  <th className='p-2'></th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map((v) => (
+                  <tr key={v.id} className='border-b last:border-0'>
+                    <td className='p-2'>{v.kind === 'recurring' ? '정기' : '일일'}</td>
+                    <td className='p-2'>{v.price.toLocaleString()}원</td>
+                    <td className='p-2 whitespace-nowrap'>
+                      {v.sale_start_date} ~ {v.sale_end_date}
+                    </td>
+                    <td className='p-2 whitespace-nowrap'>
+                      {v.product_start_date} ~ {v.product_end_date}
+                    </td>
+                    <td className='p-2'>
+                      {v.max_capacity == null ? '무제한' : `${v.max_capacity}명`}
+                    </td>
+                    <td className='p-2'>{STATUS_LABEL[v.status]}</td>
+                    <td className='p-2 whitespace-nowrap'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='sm'
+                        onClick={() => openEditVariant(v)}
+                      >
+                        수정
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='text-destructive ml-1'
+                        onClick={() => void removeVariant(v)}
+                      >
+                        <Trash2 className='size-4' />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {variantFormOpen && (
+          <form onSubmit={submitVariant} className='space-y-3 rounded-md border p-4'>
+            {variantError && (
+              <div className='bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm'>
+                {variantError}
+              </div>
+            )}
+
+            <div>
+              <label className='mb-1 block text-sm font-medium'>옵션 종류</label>
+              <select
+                className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
+                value={variantForm.kind}
+                onChange={(e) =>
+                  setVariantForm((f) => ({ ...f, kind: e.target.value as VariantKind }))
+                }
+              >
+                <option value='one_time'>일일</option>
+                <option value='recurring'>정기 (월~금 묶음)</option>
+              </select>
+              {variantForm.kind === 'recurring' && (
+                <p className='mt-1 text-xs text-amber-600'>
+                  정기 옵션은 식사 시작=월요일, 종료=금요일이어야 합니다.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className='mb-1 block text-sm font-medium'>가격(원)</label>
+              <Input
+                type='number'
+                min={0}
+                value={variantForm.price === 0 ? '' : String(variantForm.price)}
+                onChange={(e) =>
+                  setVariantForm((f) => ({ ...f, price: Number(e.target.value) || 0 }))
+                }
+                required
+              />
+            </div>
+
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <div>
+                <label className='mb-1 block text-sm font-medium'>판매 시작</label>
+                <Input
+                  type='date'
+                  value={variantForm.sale_start_date}
+                  onChange={(e) =>
+                    setVariantForm((f) => ({ ...f, sale_start_date: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div>
+                <label className='mb-1 block text-sm font-medium'>판매 종료</label>
+                <Input
+                  type='date'
+                  value={variantForm.sale_end_date}
+                  onChange={(e) => setVariantForm((f) => ({ ...f, sale_end_date: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <div>
+                <label className='mb-1 block text-sm font-medium'>식사 시작</label>
+                <Input
+                  type='date'
+                  value={variantForm.product_start_date}
+                  onChange={(e) =>
+                    setVariantForm((f) => ({ ...f, product_start_date: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div>
+                <label className='mb-1 block text-sm font-medium'>식사 종료</label>
+                <Input
+                  type='date'
+                  value={variantForm.product_end_date}
+                  onChange={(e) =>
+                    setVariantForm((f) => ({ ...f, product_end_date: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className='mb-1 block text-sm font-medium'>최대 인원 (비우면 무제한)</label>
+              <Input
+                type='number'
+                min={1}
+                value={variantForm.max_capacity == null ? '' : String(variantForm.max_capacity)}
+                onChange={(e) =>
+                  setVariantForm((f) => ({
+                    ...f,
+                    max_capacity: e.target.value === '' ? null : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className='mb-1 block text-sm font-medium'>상태</label>
+              <select
+                className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
+                value={variantForm.status ?? 'active'}
+                onChange={(e) =>
+                  setVariantForm((f) => ({
+                    ...f,
+                    status: e.target.value as 'active' | 'inactive' | 'sold_out',
+                  }))
+                }
+              >
+                <option value='active'>판매중</option>
+                <option value='inactive'>비활성</option>
+                <option value='sold_out'>마감</option>
+              </select>
+            </div>
+
+            <div className='flex gap-2'>
+              <Button type='submit' size='sm' disabled={variantLoading}>
+                {variantLoading ? <Loader2 className='size-4 animate-spin' /> : '저장'}
+              </Button>
+              <Button type='button' size='sm' variant='outline' onClick={cancelVariantForm}>
+                취소
+              </Button>
+            </div>
+          </form>
+        )}
       </Card>
     </div>
   );

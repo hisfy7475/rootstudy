@@ -10,9 +10,9 @@ export default function ParentMockExamPayResultPage() {
         }
       >
         <PayResultClient
-          ordersHref='/parent/mock-exams/orders'
-          homeHref='/parent/mock-exams'
-          homeLabel='모의고사 목록'
+          ordersHref='/parent/order?tab=orders&category=exam'
+          homeHref='/parent/order?category=exam'
+          homeLabel='급식 · 모의고사'
         />
       </Suspense>
     </div>

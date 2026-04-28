@@ -25,7 +25,7 @@ async function getPool(): Promise<sql.ConnectionPool> {
   if (pool && pool.connected) {
     return pool;
   }
-  
+
   const config = getConfig();
   pool = await sql.connect(config);
   return pool;
@@ -42,20 +42,20 @@ export async function closeConnection(): Promise<void> {
 // 출입문 목록 조회
 export async function getGates(): Promise<CapsGate[]> {
   const pool = await getPool();
-  const result = await pool.request().query('SELECT id, name, ip FROM tgate');
+  const result = await pool.request().query<CapsGate>('SELECT id, name, ip FROM tgate');
   return result.recordset;
 }
 
 // 특정 시점 이후의 출입 기록 조회
 // >= 사용: 같은 초의 레코드 누락 방지 (중복은 route 측에서 처리)
 export async function getEnterRecordsAfter(
-  afterDatetime: string | null
+  afterDatetime: string | null,
 ): Promise<CapsEnterRecord[]> {
   const pool = await getPool();
-  
+
   let query: string;
   const request = pool.request();
-  
+
   if (afterDatetime) {
     query = `
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
@@ -68,7 +68,7 @@ export async function getEnterRecordsAfter(
   } else {
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
     const sdate = formatCapsDatetimeKST(twoMinutesAgo);
-    
+
     query = `
       SELECT e_date, e_time, g_id, e_id, e_idno, e_name 
       FROM tenter 
@@ -78,8 +78,8 @@ export async function getEnterRecordsAfter(
     `;
     request.input('sdate', sql.VarChar, sdate);
   }
-  
-  const result = await request.query(query);
+
+  const result = await request.query<CapsEnterRecord>(query);
   return result.recordset;
 }
 
@@ -105,7 +105,7 @@ export function parseCapsDatetime(eDate: string, eTime: string): string {
   const hours = eTime.substring(0, 2);
   const minutes = eTime.substring(2, 4);
   const seconds = eTime.substring(4, 6);
-  
+
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+09:00`;
 }
 

@@ -10,9 +10,9 @@ export default function ParentMealPayResultPage() {
         }
       >
         <PayResultClient
-          ordersHref='/parent/meals/orders'
-          homeHref='/parent/meals'
-          homeLabel='급식 목록'
+          ordersHref='/parent/order?tab=orders&category=meal'
+          homeHref='/parent/order?category=meal'
+          homeLabel='급식 · 모의고사'
         />
       </Suspense>
     </div>

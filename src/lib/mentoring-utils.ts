@@ -1,4 +1,9 @@
-import type { Mentor, MentoringApplication, MentoringSlot } from '@/types/database';
+import type {
+  Mentor,
+  MentoringApplication,
+  MentoringAttachment,
+  MentoringSlot,
+} from '@/types/database';
 
 /** KST 기준 슬롯 시작 시각 (ms) */
 export function mentoringSlotStartMs(dateYmd: string, startTime: string): number {
@@ -6,15 +11,22 @@ export function mentoringSlotStartMs(dateYmd: string, startTime: string): number
   return new Date(`${dateYmd}T${t}+09:00`).getTime();
 }
 
+export type MentorSummary = Pick<
+  Mentor,
+  'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url'
+>;
+
 export type MentoringSlotWithMentor = MentoringSlot & {
-  mentors: Pick<Mentor, 'id' | 'name' | 'subject'> | null;
+  mentors: MentorSummary | null;
 };
 
 export type MentoringApplicationWithDetails = MentoringApplication & {
   mentoring_slots:
     | (MentoringSlot & {
-        mentors: Pick<Mentor, 'name' | 'subject'> | null;
+        mentors: MentorSummary | null;
       })
     | null;
   student_profile: { name: string } | null;
 };
+
+export type { MentoringAttachment };

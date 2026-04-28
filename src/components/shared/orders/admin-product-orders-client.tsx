@@ -8,9 +8,9 @@ import {
   adminCancelMealOrder,
   type MealOrderForAdmin,
   type MealOrderAdminFilter,
+  type MealProductWithVariants,
   type ProductCategory,
 } from '@/lib/actions/meal';
-import type { MealProduct } from '@/types/database';
 import { Download, Loader2 } from 'lucide-react';
 import { cn, getTodayKST } from '@/lib/utils';
 
@@ -25,18 +25,21 @@ const statusLabel: Record<string, string> = {
 };
 
 interface Props {
-  product: MealProduct;
+  product: MealProductWithVariants;
   initialOrders: MealOrderForAdmin[];
   category: ProductCategory;
 }
 
-/**
- * 관리자 상품별 주문 현황 (meal/exam 공용).
- * category 로 상세 링크·Excel 컬럼·파일명·취소 placeholder 를 분기.
- */
+function variantLabel(kind: 'one_time' | 'recurring' | undefined): string {
+  if (kind === 'recurring') return '정기';
+  if (kind === 'one_time') return '일일';
+  return '-';
+}
+
 export function AdminProductOrdersClient({ product, initialOrders, category }: Props) {
   const [orders, setOrders] = useState(initialOrders);
   const [statusTab, setStatusTab] = useState<StatusTab>('all');
+  const [variantFilter, setVariantFilter] = useState<string>('all');
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -53,11 +56,15 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
     : '취소 사유 (예: 수량 조정)';
 
   const paidCount = useMemo(() => orders.filter((o) => o.status === 'paid').length, [orders]);
+  const showVariantFilter = product.variants.length > 1;
 
   const filtered = useMemo(() => {
-    if (statusTab === 'all') return orders;
-    return orders.filter((o) => o.status === statusTab);
-  }, [orders, statusTab]);
+    return orders.filter((o) => {
+      if (statusTab !== 'all' && o.status !== statusTab) return false;
+      if (variantFilter !== 'all' && o.variant?.id !== variantFilter) return false;
+      return true;
+    });
+  }, [orders, statusTab, variantFilter]);
 
   const openCancel = (id: string) => {
     setCancelId(id);
@@ -102,6 +109,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
       const rows = orders.map((o) => ({
         학생명: o.student_name ?? '',
         결제자명: o.payer_name ?? '',
+        옵션: variantLabel(o.variant?.kind),
         상태: statusLabel[o.status] ?? o.status,
         금액: o.amount,
         주문번호: o.order_id,
@@ -112,8 +120,8 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
           ? new Date(o.cancelled_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
           : '',
         취소사유: o.cancel_reason ?? '',
-        [startLabel]: product.product_start_date,
-        [endLabel]: product.product_end_date,
+        [startLabel]: o.variant?.product_start_date ?? '',
+        [endLabel]: o.variant?.product_end_date ?? '',
       }));
 
       const XLSX = await import('xlsx');
@@ -149,7 +157,6 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
           <h1 className='text-2xl font-bold'>신청 현황</h1>
           <p className='text-muted-foreground mt-1 text-sm'>
             {product.name} · 결제 완료 {paidCount}건
-            {product.max_capacity != null ? ` / 정원 ${product.max_capacity}명` : ''}
           </p>
         </div>
         <div className='flex flex-wrap gap-2'>
@@ -182,7 +189,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
         </div>
       )}
 
-      <div className='flex flex-wrap gap-2'>
+      <div className='flex flex-wrap items-center gap-2'>
         {tabs.map((t) => (
           <button
             key={t.key ?? 'all'}
@@ -198,6 +205,21 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
             {t.label}
           </button>
         ))}
+
+        {showVariantFilter && (
+          <select
+            className='border-input bg-background ml-2 rounded-md border px-3 py-1.5 text-sm'
+            value={variantFilter}
+            onChange={(e) => setVariantFilter(e.target.value)}
+          >
+            <option value='all'>모든 옵션</option>
+            {product.variants.map((v) => (
+              <option key={v.id} value={v.id}>
+                {variantLabel(v.kind)} · {v.product_start_date}~{v.product_end_date}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <Card className='overflow-hidden'>
@@ -207,6 +229,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
               <tr>
                 <th className='p-3 font-medium'>학생</th>
                 <th className='p-3 font-medium'>결제자</th>
+                <th className='p-3 font-medium'>옵션</th>
                 <th className='p-3 font-medium'>상태</th>
                 <th className='p-3 font-medium'>금액</th>
                 <th className='p-3 font-medium'>결제일</th>
@@ -216,7 +239,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={7} className='text-muted-foreground p-8 text-center'>
                     내역이 없습니다.
                   </td>
                 </tr>
@@ -225,6 +248,14 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
                   <tr key={o.id} className='border-b last:border-0'>
                     <td className='p-3'>{o.student_name ?? o.student_id.slice(0, 8)}</td>
                     <td className='p-3'>{o.payer_name ?? o.user_id.slice(0, 8)}</td>
+                    <td className='p-3 text-xs whitespace-nowrap'>
+                      {variantLabel(o.variant?.kind)}
+                      {o.variant ? (
+                        <span className='text-muted-foreground ml-1'>
+                          {o.variant.product_start_date}~{o.variant.product_end_date}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className='p-3'>
                       <span className='text-xs'>{statusLabel[o.status] ?? o.status}</span>
                     </td>

@@ -23,25 +23,18 @@ export default async function ParentMentoringPage({
   ]);
 
   return (
-    <div className="px-4 pt-4 pb-2">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <h1 className="text-xl font-bold text-foreground">멘토링·클리닉</h1>
+    <div className='px-4 pt-4 pb-2'>
+      <div className='mb-1 flex items-center justify-between gap-2'>
+        <h1 className='text-foreground text-xl font-bold'>멘토링/클리닉/상담</h1>
         <Link
-          href="/parent/mentoring/my"
-          className="text-sm font-medium text-primary whitespace-nowrap"
+          href='/parent/mentoring/my'
+          className='text-primary text-sm font-medium whitespace-nowrap'
         >
           신청 내역
         </Link>
       </div>
-      <p className="text-sm text-muted-foreground mb-4">
-        자녀를 선택한 뒤 날짜·슬롯을 고르세요.
-      </p>
-      <ParentMentoringClient
-        initialSlots={slots}
-        year={y}
-        month={m}
-        students={students}
-      />
+      <p className='text-muted-foreground mb-4 text-sm'>자녀를 선택한 뒤 날짜·슬롯을 고르세요.</p>
+      <ParentMentoringClient initialSlots={slots} year={y} month={m} students={students} />
     </div>
   );
 }

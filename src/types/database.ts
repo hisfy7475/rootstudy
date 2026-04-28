@@ -1,5 +1,14 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type MentoringType = 'mentoring' | 'clinic' | 'consult';
+
+export type MentoringAttachment = {
+  url: string;
+  name: string;
+  mime_type: string;
+  size: number;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -550,16 +559,19 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
+          branch_id: string;
           created_at: string;
         };
         Insert: {
           id?: string;
           student_id: string;
+          branch_id?: string;
           created_at?: string;
         };
         Update: {
           id?: string;
           student_id?: string;
+          branch_id?: string;
           created_at?: string;
         };
       };
@@ -568,6 +580,7 @@ export interface Database {
           id: string;
           room_id: string;
           sender_id: string;
+          branch_id: string;
           content: string;
           image_url: string | null;
           file_url: string | null;
@@ -582,6 +595,7 @@ export interface Database {
           id?: string;
           room_id: string;
           sender_id: string;
+          branch_id?: string;
           content: string;
           image_url?: string | null;
           file_url?: string | null;
@@ -596,6 +610,7 @@ export interface Database {
           id?: string;
           room_id?: string;
           sender_id?: string;
+          branch_id?: string;
           content?: string;
           image_url?: string | null;
           file_url?: string | null;
@@ -1062,12 +1077,6 @@ export interface Database {
           name: string;
           category: 'meal' | 'exam';
           meal_type: 'lunch' | 'dinner' | null;
-          price: number;
-          sale_start_date: string;
-          sale_end_date: string;
-          product_start_date: string;
-          product_end_date: string;
-          max_capacity: number | null;
           status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
           image_url: string | null;
@@ -1080,12 +1089,6 @@ export interface Database {
           name: string;
           category?: 'meal' | 'exam';
           meal_type?: 'lunch' | 'dinner' | null;
-          price: number;
-          sale_start_date: string;
-          sale_end_date: string;
-          product_start_date: string;
-          product_end_date: string;
-          max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
@@ -1098,6 +1101,46 @@ export interface Database {
           name?: string;
           category?: 'meal' | 'exam';
           meal_type?: 'lunch' | 'dinner' | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          description?: string | null;
+          image_url?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      meal_product_variants: {
+        Row: {
+          id: string;
+          product_id: string;
+          kind: 'one_time' | 'recurring';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
+          max_capacity: number | null;
+          status: 'active' | 'inactive' | 'sold_out';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          kind: 'one_time' | 'recurring';
+          price: number;
+          sale_start_date: string;
+          sale_end_date: string;
+          product_start_date: string;
+          product_end_date: string;
+          max_capacity?: number | null;
+          status?: 'active' | 'inactive' | 'sold_out';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          kind?: 'one_time' | 'recurring';
           price?: number;
           sale_start_date?: string;
           sale_end_date?: string;
@@ -1105,8 +1148,6 @@ export interface Database {
           product_end_date?: string;
           max_capacity?: number | null;
           status?: 'active' | 'inactive' | 'sold_out';
-          description?: string | null;
-          image_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1142,7 +1183,7 @@ export interface Database {
           id: string;
           user_id: string;
           student_id: string;
-          product_id: string;
+          variant_id: string;
           order_id: string;
           amount: number;
           status: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1157,7 +1198,7 @@ export interface Database {
           id?: string;
           user_id: string;
           student_id: string;
-          product_id: string;
+          variant_id: string;
           order_id: string;
           amount: number;
           status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1172,7 +1213,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           student_id?: string;
-          product_id?: string;
+          variant_id?: string;
           order_id?: string;
           amount?: number;
           status?: 'pending' | 'paid' | 'cancelled' | 'refunded' | 'failed';
@@ -1234,6 +1275,8 @@ export interface Database {
           branch_id: string;
           name: string;
           subject: string | null;
+          subjects: string[];
+          headline: string | null;
           bio: string | null;
           profile_image_url: string | null;
           is_active: boolean;
@@ -1245,6 +1288,8 @@ export interface Database {
           branch_id: string;
           name: string;
           subject?: string | null;
+          subjects?: string[];
+          headline?: string | null;
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
@@ -1256,6 +1301,8 @@ export interface Database {
           branch_id?: string;
           name?: string;
           subject?: string | null;
+          subjects?: string[];
+          headline?: string | null;
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
@@ -1271,7 +1318,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: 'mentoring' | 'clinic';
+          type: 'mentoring' | 'clinic' | 'consult';
           subject: string | null;
           capacity: number;
           booked_count: number;
@@ -1288,7 +1335,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: 'mentoring' | 'clinic';
+          type: 'mentoring' | 'clinic' | 'consult';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1305,7 +1352,7 @@ export interface Database {
           date?: string;
           start_time?: string;
           end_time?: string;
-          type?: 'mentoring' | 'clinic';
+          type?: 'mentoring' | 'clinic' | 'consult';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1324,6 +1371,9 @@ export interface Database {
           student_id: string;
           status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note: string | null;
+          content: string;
+          selected_subject: string | null;
+          attachments: MentoringAttachment[];
           reject_reason: string | null;
           applied_at: string;
           confirmed_at: string | null;
@@ -1340,6 +1390,9 @@ export interface Database {
           student_id: string;
           status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
+          content?: string;
+          selected_subject?: string | null;
+          attachments?: MentoringAttachment[];
           reject_reason?: string | null;
           applied_at?: string;
           confirmed_at?: string | null;
@@ -1356,6 +1409,9 @@ export interface Database {
           student_id?: string;
           status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
+          content?: string;
+          selected_subject?: string | null;
+          attachments?: MentoringAttachment[];
           reject_reason?: string | null;
           applied_at?: string;
           confirmed_at?: string | null;
@@ -1407,6 +1463,7 @@ export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_hist
 export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
 export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];
 export type MealProduct = Database['public']['Tables']['meal_products']['Row'];
+export type MealProductVariant = Database['public']['Tables']['meal_product_variants']['Row'];
 export type MealMenu = Database['public']['Tables']['meal_menus']['Row'];
 export type MealOrder = Database['public']['Tables']['meal_orders']['Row'];
 export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];
