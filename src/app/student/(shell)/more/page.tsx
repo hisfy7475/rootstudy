@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 const links = [
-  { href: '/student/mentoring', label: '멘토링', icon: GraduationCap },
+  { href: '/student/mentoring', label: '멘토링/클리닉/상담', icon: GraduationCap },
   { href: '/student/order', label: '급식 · 모의고사', icon: UtensilsCrossed },
   { href: '/student/report', label: '리포트', icon: FileBarChart2 },
   { href: '/student/points', label: '상벌점', icon: Award },

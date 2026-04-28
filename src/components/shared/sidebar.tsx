@@ -59,7 +59,7 @@ const adminNavItems: NavItem[] = [
   { href: '/announcements', label: '공지사항 관리', icon: Megaphone },
   { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
   { href: '/mock-exams', label: '모의고사 관리', icon: FileText },
-  { href: '/mentoring', label: '멘토링 관리', icon: BookOpen },
+  { href: '/mentoring', label: '멘토링/클리닉/상담 관리', icon: BookOpen },
   { href: '/download', label: '데이터 다운로드', icon: Download },
 ];
 

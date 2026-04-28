@@ -1,11 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cancelMentoringApplication } from '@/lib/actions/mentoring';
 import { mentoringSlotStartMs, type MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
+import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
 type Tab = 'all' | 'pending' | 'confirmed' | 'ended';
@@ -25,10 +27,6 @@ function statusLabel(s: MentoringApplicationWithDetails['status']): string {
   }
 }
 
-function typeLabel(t: 'mentoring' | 'clinic'): string {
-  return t === 'clinic' ? '클리닉' : '멘토링';
-}
-
 export function MentoringMyClient({
   initialApplications,
 }: {
@@ -41,6 +39,13 @@ export function MentoringMyClient({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 슬롯 시작 시각이 지나면 "신청 취소" 버튼이 자동으로 사라지도록 30초마다 시각 갱신.
+  // 렌더 중에 Date.now()를 직접 호출하면 react-hooks/purity 위반.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const filtered = useMemo(() => {
     if (tab === 'all') return items;
@@ -68,8 +73,8 @@ export function MentoringMyClient({
               cancelled_at: new Date().toISOString(),
               cancel_reason: reason,
             }
-          : a
-      )
+          : a,
+      ),
     );
     setCancelId(null);
     setReason('');
@@ -77,8 +82,8 @@ export function MentoringMyClient({
   }
 
   return (
-    <div className="space-y-4 pb-8">
-      <div className="flex flex-wrap gap-2">
+    <div className='space-y-4 pb-8'>
+      <div className='flex flex-wrap gap-2'>
         {(
           [
             ['all', '전체'],
@@ -89,11 +94,11 @@ export function MentoringMyClient({
         ).map(([k, label]) => (
           <button
             key={k}
-            type="button"
+            type='button'
             onClick={() => setTab(k)}
             className={cn(
-              'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-              tab === k ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              'rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
+              tab === k ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
             )}
           >
             {label}
@@ -102,9 +107,9 @@ export function MentoringMyClient({
       </div>
 
       {filtered.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-muted-foreground">내역이 없습니다.</Card>
+        <Card className='text-muted-foreground p-6 text-center text-sm'>내역이 없습니다.</Card>
       ) : (
-        <ul className="space-y-3">
+        <ul className='space-y-3'>
           {filtered.map((a) => {
             const slotJoin = a.mentoring_slots;
             const mentor = slotJoin?.mentors;
@@ -112,55 +117,78 @@ export function MentoringMyClient({
             const canCancel =
               (a.status === 'pending' || a.status === 'confirmed') &&
               slotJoin &&
-              Date.now() <
-                mentoringSlotStartMs(
-                  slotJoin.date,
-                  slotJoin.start_time
-                );
+              nowMs < mentoringSlotStartMs(slotJoin.date, slotJoin.start_time);
 
             return (
               <li key={a.id}>
-                <Card className="p-4">
-                  <div className="flex items-start justify-between gap-2">
+                <Card className='p-4'>
+                  <div className='flex items-start justify-between gap-2'>
                     <div>
                       <span
                         className={cn(
-                          'text-xs px-2 py-0.5 rounded-full',
+                          'rounded-full px-2 py-0.5 text-xs',
                           a.status === 'confirmed' && 'bg-green-100 text-green-800',
                           a.status === 'pending' && 'bg-amber-100 text-amber-800',
                           (a.status === 'rejected' || a.status === 'cancelled') &&
-                            'bg-muted text-muted-foreground'
+                            'bg-muted text-muted-foreground',
                         )}
                       >
                         {statusLabel(a.status)}
                       </span>
                       {slotJoin && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-muted ml-1">
-                          {typeLabel(slotJoin.type)}
+                        <span className='bg-muted ml-1 rounded-full px-2 py-0.5 text-xs'>
+                          {MENTORING_TYPE_LABEL[slotJoin.type]}
                         </span>
                       )}
-                      <p className="font-medium mt-2">
-                        {mentorName ?? '멘토'} · {slotJoin?.subject ?? mentor?.subject ?? ''}
+                      <p className='mt-2 font-medium'>
+                        {mentorName ?? '멘토'}
+                        {a.selected_subject ? ` · ${a.selected_subject}` : ''}
                       </p>
                       {slotJoin && (
-                        <p className="text-sm text-muted-foreground mt-1">
+                        <p className='text-muted-foreground mt-1 text-sm'>
                           {slotJoin.date} {slotJoin.start_time.slice(0, 5)} –{' '}
                           {slotJoin.end_time.slice(0, 5)}
                         </p>
                       )}
                       {a.student_profile?.name && (
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className='text-muted-foreground mt-1 text-xs'>
                           대상: {a.student_profile.name}
                         </p>
                       )}
-                      {a.note && (
-                        <p className="text-xs text-muted-foreground mt-1">메모: {a.note}</p>
+                      {a.content ? (
+                        <p className='text-foreground/90 mt-2 text-sm whitespace-pre-wrap'>
+                          {a.content}
+                        </p>
+                      ) : a.note ? (
+                        <p className='text-muted-foreground mt-1 text-xs'>메모: {a.note}</p>
+                      ) : null}
+                      {Array.isArray(a.attachments) && a.attachments.length > 0 && (
+                        <div className='mt-2 flex flex-wrap gap-2'>
+                          {a.attachments.map((att, i) => (
+                            <a
+                              key={`${a.id}-att-${i}`}
+                              href={att.url}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              className='bg-muted block size-16 overflow-hidden rounded-lg border'
+                            >
+                              <Image
+                                src={att.url}
+                                alt={att.name}
+                                width={64}
+                                height={64}
+                                unoptimized
+                                className='size-full object-cover'
+                              />
+                            </a>
+                          ))}
+                        </div>
                       )}
                       {a.reject_reason && (
-                        <p className="text-xs text-destructive mt-1">사유: {a.reject_reason}</p>
+                        <p className='text-destructive mt-1 text-xs'>사유: {a.reject_reason}</p>
                       )}
                       {a.cancel_reason && (
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className='text-muted-foreground mt-1 text-xs'>
                           취소 사유: {a.cancel_reason}
                         </p>
                       )}
@@ -168,10 +196,10 @@ export function MentoringMyClient({
                   </div>
                   {canCancel && (
                     <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='mt-3'
                       onClick={() => {
                         setCancelId(a.id);
                         setReason('');
@@ -189,21 +217,21 @@ export function MentoringMyClient({
       )}
 
       {cancelId && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
-          <Card className="w-full max-w-md p-4 space-y-3">
-            <h3 className="font-semibold">신청 취소</h3>
-            <p className="text-sm text-muted-foreground">취소 사유를 입력해 주세요.</p>
+        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center'>
+          <Card className='w-full max-w-md space-y-3 p-4'>
+            <h3 className='font-semibold'>신청 취소</h3>
+            <p className='text-muted-foreground text-sm'>취소 사유를 입력해 주세요.</p>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="사유"
+              className='border-input bg-background min-h-[80px] w-full rounded-md border px-3 py-2 text-sm'
+              placeholder='사유'
             />
-            {err && <p className="text-sm text-destructive">{err}</p>}
-            <div className="flex gap-2 justify-end">
+            {err && <p className='text-destructive text-sm'>{err}</p>}
+            <div className='flex justify-end gap-2'>
               <Button
-                type="button"
-                variant="ghost"
+                type='button'
+                variant='ghost'
                 onClick={() => {
                   setCancelId(null);
                   setErr(null);
@@ -212,7 +240,7 @@ export function MentoringMyClient({
               >
                 닫기
               </Button>
-              <Button type="button" onClick={confirmCancel} disabled={busy}>
+              <Button type='button' onClick={confirmCancel} disabled={busy}>
                 취소 확정
               </Button>
             </div>

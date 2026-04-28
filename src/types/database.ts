@@ -1,5 +1,14 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type MentoringType = 'mentoring' | 'clinic' | 'consult';
+
+export type MentoringAttachment = {
+  url: string;
+  name: string;
+  mime_type: string;
+  size: number;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -1266,6 +1275,8 @@ export interface Database {
           branch_id: string;
           name: string;
           subject: string | null;
+          subjects: string[];
+          headline: string | null;
           bio: string | null;
           profile_image_url: string | null;
           is_active: boolean;
@@ -1277,6 +1288,8 @@ export interface Database {
           branch_id: string;
           name: string;
           subject?: string | null;
+          subjects?: string[];
+          headline?: string | null;
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
@@ -1288,6 +1301,8 @@ export interface Database {
           branch_id?: string;
           name?: string;
           subject?: string | null;
+          subjects?: string[];
+          headline?: string | null;
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
@@ -1303,7 +1318,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: 'mentoring' | 'clinic';
+          type: 'mentoring' | 'clinic' | 'consult';
           subject: string | null;
           capacity: number;
           booked_count: number;
@@ -1320,7 +1335,7 @@ export interface Database {
           date: string;
           start_time: string;
           end_time: string;
-          type: 'mentoring' | 'clinic';
+          type: 'mentoring' | 'clinic' | 'consult';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1337,7 +1352,7 @@ export interface Database {
           date?: string;
           start_time?: string;
           end_time?: string;
-          type?: 'mentoring' | 'clinic';
+          type?: 'mentoring' | 'clinic' | 'consult';
           subject?: string | null;
           capacity?: number;
           booked_count?: number;
@@ -1356,6 +1371,9 @@ export interface Database {
           student_id: string;
           status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note: string | null;
+          content: string;
+          selected_subject: string | null;
+          attachments: MentoringAttachment[];
           reject_reason: string | null;
           applied_at: string;
           confirmed_at: string | null;
@@ -1372,6 +1390,9 @@ export interface Database {
           student_id: string;
           status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
+          content?: string;
+          selected_subject?: string | null;
+          attachments?: MentoringAttachment[];
           reject_reason?: string | null;
           applied_at?: string;
           confirmed_at?: string | null;
@@ -1388,6 +1409,9 @@ export interface Database {
           student_id?: string;
           status?: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
           note?: string | null;
+          content?: string;
+          selected_subject?: string | null;
+          attachments?: MentoringAttachment[];
           reject_reason?: string | null;
           applied_at?: string;
           confirmed_at?: string | null;

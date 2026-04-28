@@ -5,14 +5,32 @@ import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { sendPushToUser } from '@/lib/push';
 import { formatDateKST } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
-import type { Mentor, MentoringApplication, MentoringSlot } from '@/types/database';
+import { MENTORING_TYPE_LABEL } from '@/lib/constants';
+import type {
+  Mentor,
+  MentoringApplication,
+  MentoringAttachment,
+  MentoringSlot,
+  MentoringType,
+} from '@/types/database';
 import {
   createStudentNotification,
   createUserNotification,
   sendMentoringAlimtalkToParent,
 } from '@/lib/actions/notification';
-export type { MentoringSlotWithMentor, MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
-import { mentoringSlotStartMs, type MentoringSlotWithMentor, type MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
+export type {
+  MentoringSlotWithMentor,
+  MentoringApplicationWithDetails,
+} from '@/lib/mentoring-utils';
+import {
+  mentoringSlotStartMs,
+  type MentoringSlotWithMentor,
+  type MentoringApplicationWithDetails,
+} from '@/lib/mentoring-utils';
+
+const MENTORING_ATTACHMENTS_BUCKET = 'mentoring-attachments';
+const APPLICATION_ATTACHMENT_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const APPLICATION_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
 
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
@@ -26,11 +44,10 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
   }
 }
 
-
 type AdminBranchContext = { userId: string; branchId: string };
 
 async function requireAdminBranch(
-  supabase: Awaited<ReturnType<typeof createClient>>
+  supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<AdminBranchContext | null> {
   const {
     data: { user },
@@ -63,7 +80,7 @@ async function canActForStudent(
   supabase: Awaited<ReturnType<typeof createClient>>,
   actorId: string,
   studentId: string,
-  userType: string | undefined
+  userType: string | undefined,
 ): Promise<boolean> {
   if (studentId === actorId) return true;
   if (userType !== 'parent') return false;
@@ -79,7 +96,7 @@ async function canActForStudent(
 export async function getMentoringSlotsForRange(
   fromYmd: string,
   toYmd: string,
-  filters?: { type?: 'mentoring' | 'clinic'; dateYmd?: string }
+  filters?: { type?: MentoringType; dateYmd?: string },
 ): Promise<MentoringSlotWithMentor[]> {
   const supabase = await createClient();
   const {
@@ -95,8 +112,8 @@ export async function getMentoringSlotsForRange(
     .select(
       `
       *,
-      mentors!inner ( id, name, subject, is_active, branch_id )
-    `
+      mentors!inner ( id, name, subject, subjects, headline, profile_image_url, is_active, branch_id )
+    `,
     )
     .in('branch_id', branchIds)
     .eq('is_active', true)
@@ -120,19 +137,42 @@ export async function getMentoringSlotsForRange(
   }
 
   const rows = (data ?? []) as (MentoringSlot & {
-    mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'is_active' | 'branch_id'> | null;
+    mentors: Pick<
+      Mentor,
+      | 'id'
+      | 'name'
+      | 'subject'
+      | 'subjects'
+      | 'headline'
+      | 'profile_image_url'
+      | 'is_active'
+      | 'branch_id'
+    > | null;
   })[];
 
   const allowedSet = new Set(branchIds);
   return rows
-    .filter((r) => r.mentors?.is_active && r.mentors.branch_id && allowedSet.has(r.mentors.branch_id))
+    .filter(
+      (r) => r.mentors?.is_active && r.mentors.branch_id && allowedSet.has(r.mentors.branch_id),
+    )
     .map(({ mentors: m, ...slot }) => ({
       ...slot,
-      mentors: m ? { id: m.id, name: m.name, subject: m.subject } : null,
+      mentors: m
+        ? {
+            id: m.id,
+            name: m.name,
+            subject: m.subject,
+            subjects: m.subjects ?? [],
+            headline: m.headline,
+            profile_image_url: m.profile_image_url,
+          }
+        : null,
     })) as MentoringSlotWithMentor[];
 }
 
-export async function getMentoringSlotDetail(slotId: string): Promise<MentoringSlotWithMentor | null> {
+export async function getMentoringSlotDetail(
+  slotId: string,
+): Promise<MentoringSlotWithMentor | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -147,8 +187,8 @@ export async function getMentoringSlotDetail(slotId: string): Promise<MentoringS
     .select(
       `
       *,
-      mentors ( id, name, subject, bio, is_active, branch_id )
-    `
+      mentors ( id, name, subject, subjects, headline, profile_image_url, bio, is_active, branch_id )
+    `,
     )
     .eq('id', slotId)
     .in('branch_id', branchIds)
@@ -160,24 +200,96 @@ export async function getMentoringSlotDetail(slotId: string): Promise<MentoringS
   }
 
   const row = data as MentoringSlot & {
-    mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'bio' | 'is_active' | 'branch_id'> | null;
+    mentors: Pick<
+      Mentor,
+      | 'id'
+      | 'name'
+      | 'subject'
+      | 'subjects'
+      | 'headline'
+      | 'profile_image_url'
+      | 'bio'
+      | 'is_active'
+      | 'branch_id'
+    > | null;
   };
 
-  if (!row.is_active || !row.mentors?.is_active || !row.mentors.branch_id || !branchIds.includes(row.mentors.branch_id)) {
+  if (
+    !row.is_active ||
+    !row.mentors?.is_active ||
+    !row.mentors.branch_id ||
+    !branchIds.includes(row.mentors.branch_id)
+  ) {
     return null;
   }
 
   const { mentors: m, ...slot } = row;
   return {
     ...slot,
-    mentors: m ? { id: m.id, name: m.name, subject: m.subject } : null,
+    mentors: m
+      ? {
+          id: m.id,
+          name: m.name,
+          subject: m.subject,
+          subjects: m.subjects ?? [],
+          headline: m.headline,
+          profile_image_url: m.profile_image_url,
+        }
+      : null,
   } as MentoringSlotWithMentor;
+}
+
+const APPLICATION_CONTENT_MIN = 5;
+const APPLICATION_CONTENT_MAX = 2000;
+const APPLICATION_ATTACHMENTS_MAX = 3;
+
+export type MentoringApplyInput = {
+  content: string;
+  selectedSubject?: string | null;
+  attachments?: MentoringAttachment[];
+};
+
+function sanitizeAttachmentList(
+  raw: MentoringAttachment[] | undefined,
+  ownerUserId: string,
+): { ok: true; list: MentoringAttachment[] } | { ok: false; error: string } {
+  const list = Array.isArray(raw) ? raw : [];
+  if (list.length > APPLICATION_ATTACHMENTS_MAX) {
+    return {
+      ok: false,
+      error: `사진은 최대 ${APPLICATION_ATTACHMENTS_MAX}장까지 첨부할 수 있습니다.`,
+    };
+  }
+  const ownerPrefix = `/storage/v1/object/public/${MENTORING_ATTACHMENTS_BUCKET}/${ownerUserId}/`;
+  const cleaned: MentoringAttachment[] = [];
+  for (const a of list) {
+    if (!a || typeof a.url !== 'string' || typeof a.name !== 'string') {
+      return { ok: false, error: '첨부 정보가 올바르지 않습니다.' };
+    }
+    let pathname = '';
+    try {
+      const u = new URL(a.url);
+      pathname = u.pathname;
+    } catch {
+      return { ok: false, error: '첨부 URL이 올바르지 않습니다.' };
+    }
+    if (!pathname.startsWith(ownerPrefix)) {
+      return { ok: false, error: '본인이 업로드한 파일만 첨부할 수 있습니다.' };
+    }
+    cleaned.push({
+      url: a.url,
+      name: String(a.name).slice(0, 200),
+      mime_type: typeof a.mime_type === 'string' ? a.mime_type : 'image/jpeg',
+      size: Number.isFinite(a.size) ? Number(a.size) : 0,
+    });
+  }
+  return { ok: true, list: cleaned };
 }
 
 export async function applyMentoring(
   slotId: string,
   studentId: string,
-  note?: string | null
+  input: MentoringApplyInput,
 ): Promise<{ success?: true; applicationId?: string; error?: string }> {
   const supabase = await createClient();
   const {
@@ -194,6 +306,18 @@ export async function applyMentoring(
   const allowed = await canActForStudent(supabase, user.id, studentId, profile?.user_type);
   if (!allowed) return { error: '신청 권한이 없습니다.' };
 
+  const trimmedContent = (input.content ?? '').trim();
+  if (trimmedContent.length < APPLICATION_CONTENT_MIN) {
+    return { error: `문의 내용을 ${APPLICATION_CONTENT_MIN}자 이상 입력해 주세요.` };
+  }
+  if (trimmedContent.length > APPLICATION_CONTENT_MAX) {
+    return { error: `문의 내용은 ${APPLICATION_CONTENT_MAX}자 이하로 입력해 주세요.` };
+  }
+
+  const attCheck = sanitizeAttachmentList(input.attachments, user.id);
+  if (!attCheck.ok) return { error: attCheck.error };
+  const attachments = attCheck.list;
+
   // 슬롯 branch는 **대상 학생의 branch**와 일치해야 한다.
   // 학부모 다자녀 다지점 케이스에서 타지점 자녀로 엉뚱한 슬롯을 신청하는 것을 차단.
   const { data: studentProfile } = await supabase
@@ -209,7 +333,9 @@ export async function applyMentoring(
 
   const { data: slot, error: slotErr } = await supabase
     .from('mentoring_slots')
-    .select('id, branch_id, capacity, booked_count, date, start_time, is_active, mentor_id, mentors!inner(is_active)')
+    .select(
+      'id, branch_id, capacity, booked_count, date, start_time, is_active, mentor_id, type, mentors!inner(is_active, subjects)',
+    )
     .eq('id', slotId)
     .maybeSingle();
 
@@ -226,15 +352,29 @@ export async function applyMentoring(
     start_time: string;
     is_active: boolean;
     mentor_id: string;
-    mentors: { is_active: boolean } | { is_active: boolean }[];
+    type: MentoringType;
+    mentors:
+      | { is_active: boolean; subjects: string[] | null }
+      | { is_active: boolean; subjects: string[] | null }[];
   };
 
-  const mentorActive = Array.isArray(slotRow.mentors)
-    ? slotRow.mentors[0]?.is_active
-    : slotRow.mentors?.is_active;
+  const mentorJoin = Array.isArray(slotRow.mentors) ? slotRow.mentors[0] : slotRow.mentors;
+  const mentorActive = mentorJoin?.is_active;
 
   if (!slotRow.is_active || !mentorActive || slotRow.branch_id !== studentBranchId) {
     return { error: '신청할 수 없는 슬롯입니다.' };
+  }
+
+  // 클리닉이면 selectedSubject가 멘토 subjects에 포함되어야 함
+  let normalizedSubject: string | null = null;
+  if (slotRow.type === 'clinic') {
+    const sel = (input.selectedSubject ?? '').trim();
+    if (!sel) return { error: '클리닉 과목을 선택해 주세요.' };
+    const mentorSubjects = mentorJoin?.subjects ?? [];
+    if (!mentorSubjects.includes(sel)) {
+      return { error: '선택한 과목이 멘토의 과목 목록에 없습니다.' };
+    }
+    normalizedSubject = sel;
   }
 
   const startMs = mentoringSlotStartMs(slotRow.date, slotRow.start_time);
@@ -257,7 +397,6 @@ export async function applyMentoring(
     return { error: '이미 신청한 슬롯입니다.' };
   }
 
-  const trimmedNote = note?.trim() || null;
   const now = new Date().toISOString();
   let applicationId: string;
 
@@ -267,7 +406,10 @@ export async function applyMentoring(
       .update({
         status: 'pending',
         user_id: user.id,
-        note: trimmedNote,
+        content: trimmedContent,
+        selected_subject: normalizedSubject,
+        attachments,
+        note: null,
         applied_at: now,
         confirmed_at: null,
         rejected_at: null,
@@ -291,7 +433,9 @@ export async function applyMentoring(
         user_id: user.id,
         student_id: studentId,
         status: 'pending',
-        note: trimmedNote,
+        content: trimmedContent,
+        selected_subject: normalizedSubject,
+        attachments,
       })
       .select('id')
       .single();
@@ -303,7 +447,7 @@ export async function applyMentoring(
     applicationId = inserted.id as string;
   }
 
-  await notifyBranchAdminsMentoringApplied(studentBranchId, studentId);
+  await notifyBranchAdminsMentoringApplied(studentBranchId, studentId, slotRow.type);
 
   revalidatePath('/student/mentoring');
   revalidatePath('/student/mentoring/my');
@@ -315,7 +459,7 @@ export async function applyMentoring(
 
 export async function cancelMentoringApplication(
   applicationId: string,
-  reason: string
+  reason: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const {
@@ -336,7 +480,7 @@ export async function cancelMentoringApplication(
       status,
       slot_id,
       mentoring_slots!inner ( date, start_time, branch_id )
-    `
+    `,
     )
     .eq('id', applicationId)
     .maybeSingle();
@@ -441,9 +585,9 @@ export async function getMyMentoringApplications(): Promise<MentoringApplication
         subject,
         location,
         branch_id,
-        mentors ( name, subject )
+        mentors ( id, name, subject, subjects, headline, profile_image_url )
       )
-    `
+    `,
     )
     .order('applied_at', { ascending: false });
 
@@ -483,7 +627,11 @@ export async function getMyMentoringApplications(): Promise<MentoringApplication
   }));
 }
 
-async function notifyBranchAdminsMentoringApplied(branchId: string, studentId: string): Promise<void> {
+async function notifyBranchAdminsMentoringApplied(
+  branchId: string,
+  studentId: string,
+  slotType: MentoringType,
+): Promise<void> {
   const admin = createAdminClient();
 
   const { data: admins, error: aErr } = await admin
@@ -497,11 +645,16 @@ async function notifyBranchAdminsMentoringApplied(branchId: string, studentId: s
     return;
   }
 
-  const { data: studentProfile } = await admin.from('profiles').select('name').eq('id', studentId).maybeSingle();
+  const { data: studentProfile } = await admin
+    .from('profiles')
+    .select('name')
+    .eq('id', studentId)
+    .maybeSingle();
   const studentName = studentProfile?.name ?? '학생';
 
-  const title = '멘토링·클리닉 신청 접수';
-  const message = `${studentName}님의 멘토링/클리닉 신청이 접수되었습니다.`;
+  const typeLabel = MENTORING_TYPE_LABEL[slotType];
+  const title = `${typeLabel} 신청 접수`;
+  const message = `${studentName}님의 ${typeLabel} 신청이 접수되었습니다.`;
   const link = '/admin/mentoring';
 
   for (const ad of admins) {
@@ -517,7 +670,7 @@ async function notifyBranchAdminsMentoringApplied(branchId: string, studentId: s
       console.error('[notifyBranchAdminsMentoringApplied] insert notification', e);
     }
     void sendPushToUser(ad.id, title, message, { path: link }).catch((e) =>
-      console.error('[notifyBranchAdminsMentoringApplied] push', e)
+      console.error('[notifyBranchAdminsMentoringApplied] push', e),
     );
   }
 }
@@ -527,6 +680,8 @@ async function notifyBranchAdminsMentoringApplied(branchId: string, studentId: s
 export type MentorAdminInput = {
   name: string;
   subject?: string | null;
+  subjects?: string[];
+  headline?: string | null;
   bio?: string | null;
   profile_image_url?: string | null;
   is_active?: boolean;
@@ -537,7 +692,7 @@ export type MentoringSlotAdminInput = {
   date: string;
   start_time: string;
   end_time: string;
-  type: 'mentoring' | 'clinic';
+  type: MentoringType;
   subject?: string | null;
   capacity: number;
   location?: string | null;
@@ -559,7 +714,10 @@ function timeOrderOk(start: string, end: string): boolean {
 export type AdminMentoringApplicationRow = MentoringApplication & {
   mentoring_slots:
     | (MentoringSlot & {
-        mentors: Pick<Mentor, 'name' | 'subject'> | null;
+        mentors: Pick<
+          Mentor,
+          'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url'
+        > | null;
       })
     | null;
   student_name: string;
@@ -570,6 +728,7 @@ export type AdminMentoringApplicationFilters = {
   fromDate?: string;
   toDate?: string;
   status?: 'all' | MentoringApplication['status'];
+  type?: 'all' | MentoringType;
   studentSearch?: string;
   slotId?: string;
 };
@@ -577,7 +736,7 @@ export type AdminMentoringApplicationFilters = {
 async function assertMentorInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   mentorId: string,
-  branchId: string
+  branchId: string,
 ): Promise<Mentor | null> {
   const { data, error } = await supabase
     .from('mentors')
@@ -595,7 +754,7 @@ async function assertMentorInBranch(
 async function assertSlotInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   slotId: string,
-  branchId: string
+  branchId: string,
 ): Promise<MentoringSlot | null> {
   const { data, error } = await supabase
     .from('mentoring_slots')
@@ -629,8 +788,17 @@ export async function getMentorsForAdmin(): Promise<Mentor[]> {
   return (data ?? []) as Mentor[];
 }
 
+function normalizeSubjects(input: string[] | undefined | null): string[] {
+  if (!input) return [];
+  const cleaned = input
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter((s) => s.length > 0);
+  // 중복 제거 (입력 순서 유지)
+  return [...new Set(cleaned)];
+}
+
 export async function createMentor(
-  data: MentorAdminInput
+  data: MentorAdminInput,
 ): Promise<{ data?: Mentor; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -639,12 +807,17 @@ export async function createMentor(
   const name = data.name.trim();
   if (!name) return { error: '이름을 입력해 주세요.' };
 
+  const subjects = normalizeSubjects(data.subjects);
+  const subject = subjects[0] ?? data.subject?.trim() ?? null;
+
   const { data: inserted, error } = await supabase
     .from('mentors')
     .insert({
       branch_id: ctx.branchId,
       name,
-      subject: data.subject?.trim() || null,
+      subject,
+      subjects,
+      headline: data.headline?.trim() || null,
       bio: data.bio?.trim() || null,
       profile_image_url: data.profile_image_url?.trim() || null,
       is_active: data.is_active ?? true,
@@ -664,7 +837,7 @@ export async function createMentor(
 
 export async function updateMentor(
   mentorId: string,
-  data: Partial<MentorAdminInput>
+  data: Partial<MentorAdminInput>,
 ): Promise<{ data?: Mentor; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -675,7 +848,15 @@ export async function updateMentor(
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (data.name !== undefined) patch.name = data.name.trim();
-  if (data.subject !== undefined) patch.subject = data.subject?.trim() || null;
+  if (data.subjects !== undefined) {
+    const subjects = normalizeSubjects(data.subjects);
+    patch.subjects = subjects;
+    // 단수 subject는 다중 과목의 head 로 자동 동기화
+    patch.subject = subjects[0] ?? null;
+  } else if (data.subject !== undefined) {
+    patch.subject = data.subject?.trim() || null;
+  }
+  if (data.headline !== undefined) patch.headline = data.headline?.trim() || null;
   if (data.bio !== undefined) patch.bio = data.bio?.trim() || null;
   if (data.profile_image_url !== undefined) {
     patch.profile_image_url = data.profile_image_url?.trim() || null;
@@ -707,10 +888,13 @@ export async function updateMentor(
 /** 관리자: 기간 내 슬롯 (비활성 포함) */
 export async function getAdminMentoringSlotsForRange(
   fromYmd: string,
-  toYmd: string
+  toYmd: string,
 ): Promise<
   (MentoringSlot & {
-    mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'is_active'> | null;
+    mentors: Pick<
+      Mentor,
+      'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url' | 'is_active'
+    > | null;
   })[]
 > {
   const supabase = await createClient();
@@ -722,8 +906,8 @@ export async function getAdminMentoringSlotsForRange(
     .select(
       `
       *,
-      mentors ( id, name, subject, is_active )
-    `
+      mentors ( id, name, subject, subjects, headline, profile_image_url, is_active )
+    `,
     )
     .eq('branch_id', ctx.branchId)
     .gte('date', fromYmd)
@@ -737,13 +921,14 @@ export async function getAdminMentoringSlotsForRange(
   }
 
   return (data ?? []) as (MentoringSlot & {
-    mentors: Pick<Mentor, 'id' | 'name' | 'subject' | 'is_active'> | null;
+    mentors: Pick<
+      Mentor,
+      'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url' | 'is_active'
+    > | null;
   })[];
 }
 
-export async function getAdminMentoringSlotDetail(
-  slotId: string
-): Promise<
+export async function getAdminMentoringSlotDetail(slotId: string): Promise<
   | (MentoringSlot & {
       mentors: Mentor | null;
     })
@@ -759,7 +944,7 @@ export async function getAdminMentoringSlotDetail(
       `
       *,
       mentors ( * )
-    `
+    `,
     )
     .eq('id', slotId)
     .eq('branch_id', ctx.branchId)
@@ -776,13 +961,13 @@ export async function getAdminMentoringSlotDetail(
 }
 
 export async function getMentoringApplicationsForSlotAdmin(
-  slotId: string
+  slotId: string,
 ): Promise<AdminMentoringApplicationRow[]> {
   return getAdminMentoringApplications({ slotId });
 }
 
 export async function getAdminMentoringApplications(
-  filters: AdminMentoringApplicationFilters = {}
+  filters: AdminMentoringApplicationFilters = {},
 ): Promise<AdminMentoringApplicationRow[]> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -815,9 +1000,9 @@ export async function getAdminMentoringApplications(
         type,
         subject,
         location,
-        mentors ( name, subject )
+        mentors ( id, name, subject, subjects, headline, profile_image_url )
       )
-    `
+    `,
     )
     .eq('mentoring_slots.branch_id', ctx.branchId)
     .order('applied_at', { ascending: false });
@@ -830,6 +1015,9 @@ export async function getAdminMentoringApplications(
   }
   if (filters.status && filters.status !== 'all') {
     q = q.eq('status', filters.status);
+  }
+  if (filters.type && filters.type !== 'all') {
+    q = q.eq('mentoring_slots.type', filters.type);
   }
   if (filters.slotId) {
     q = q.eq('slot_id', filters.slotId);
@@ -847,8 +1035,18 @@ export async function getAdminMentoringApplications(
 
   const apps = (data ?? []) as (MentoringApplication & {
     mentoring_slots:
-      | (MentoringSlot & { mentors: Pick<Mentor, 'name' | 'subject'> | null })
-      | (MentoringSlot & { mentors: Pick<Mentor, 'name' | 'subject'> | null })[];
+      | (MentoringSlot & {
+          mentors: Pick<
+            Mentor,
+            'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url'
+          > | null;
+        })
+      | (MentoringSlot & {
+          mentors: Pick<
+            Mentor,
+            'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url'
+          > | null;
+        })[];
   })[];
 
   const userIds = [...new Set(apps.flatMap((a) => [a.user_id, a.student_id]))];
@@ -868,7 +1066,7 @@ export async function getAdminMentoringApplications(
 }
 
 export async function createMentoringSlot(
-  data: MentoringSlotAdminInput
+  data: MentoringSlotAdminInput,
 ): Promise<{ data?: MentoringSlot; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -920,7 +1118,7 @@ export type MentoringSlotsBulkInput = {
   weekdays: number[];
   start_time: string;
   end_time: string;
-  type: 'mentoring' | 'clinic';
+  type: MentoringType;
   subject?: string | null;
   capacity: number;
   location?: string | null;
@@ -928,7 +1126,7 @@ export type MentoringSlotsBulkInput = {
 };
 
 export async function createMentoringSlotsBulk(
-  input: MentoringSlotsBulkInput
+  input: MentoringSlotsBulkInput,
 ): Promise<{ created: number; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -952,7 +1150,7 @@ export async function createMentoringSlotsBulk(
   const rows: MentoringSlotAdminInput[] = [];
   for (let w = 0; w < weeks; w++) {
     for (const wd of weekdays) {
-      const offsetDays = (wd - 1) + w * 7;
+      const offsetDays = wd - 1 + w * 7;
       const d = new Date(monday.getTime() + offsetDays * 86400000);
       const dateStr = formatDateKST(d);
       rows.push({
@@ -983,7 +1181,10 @@ export async function createMentoringSlotsBulk(
     is_active: true,
   }));
 
-  const { data: inserted, error } = await supabase.from('mentoring_slots').insert(payload).select('id');
+  const { data: inserted, error } = await supabase
+    .from('mentoring_slots')
+    .insert(payload)
+    .select('id');
 
   if (error) {
     logPostgrestQueryError('[createMentoringSlotsBulk]', error);
@@ -996,7 +1197,7 @@ export async function createMentoringSlotsBulk(
 
 export async function updateMentoringSlot(
   slotId: string,
-  data: Partial<MentoringSlotAdminInput>
+  data: Partial<MentoringSlotAdminInput>,
 ): Promise<{ data?: MentoringSlot; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1053,7 +1254,9 @@ export async function updateMentoringSlot(
   return { data: updated as MentoringSlot };
 }
 
-export async function deleteMentoringSlot(slotId: string): Promise<{ success?: true; error?: string }> {
+export async function deleteMentoringSlot(
+  slotId: string,
+): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
@@ -1074,7 +1277,11 @@ export async function deleteMentoringSlot(slotId: string): Promise<{ success?: t
     return { error: '신청 내역이 있는 슬롯은 삭제할 수 없습니다.' };
   }
 
-  const { error } = await supabase.from('mentoring_slots').delete().eq('id', slotId).eq('branch_id', ctx.branchId);
+  const { error } = await supabase
+    .from('mentoring_slots')
+    .delete()
+    .eq('id', slotId)
+    .eq('branch_id', ctx.branchId);
 
   if (error) {
     logPostgrestQueryError('[deleteMentoringSlot]', error);
@@ -1103,7 +1310,21 @@ function validateImageFile(file: File): string | null {
 }
 
 function sanitizeFileName(name: string): string {
-  return name.replace(/[/\\]/g, '_').replace(/\s+/g, '_').slice(0, 200) || 'image';
+  // Supabase Storage key validator는 ASCII 안전 문자만 허용한다.
+  // 한글·이모지 등 비-ASCII가 들어오면 'Invalid key'로 업로드가 실패하므로 모두 _로 치환.
+  const dot = name.lastIndexOf('.');
+  const rawBase = dot > 0 ? name.slice(0, dot) : name;
+  const rawExt = dot > 0 ? name.slice(dot) : '';
+  const base =
+    rawBase
+      .replace(/[/\\]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Za-z0-9._-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 180) || 'file';
+  const ext = rawExt.replace(/[^A-Za-z0-9.]/g, '').slice(0, 20);
+  return `${base}${ext}`;
 }
 
 function mentorImagePathFromPublicUrl(publicUrl: string): string | null {
@@ -1120,7 +1341,7 @@ function mentorImagePathFromPublicUrl(publicUrl: string): string | null {
 
 export async function uploadMentorProfileImage(
   mentorId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<{ data?: { url: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1179,7 +1400,7 @@ export async function uploadMentorProfileImage(
 }
 
 export async function deleteMentorProfileImage(
-  mentorId: string
+  mentorId: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1211,6 +1432,94 @@ export async function deleteMentorProfileImage(
   return { success: true };
 }
 
+// ─── 신청 첨부 사진 업로드/삭제 (학생·학부모) ──────────────────────
+
+function applicationAttachmentPathFromPublicUrl(publicUrl: string): string | null {
+  const marker = `/object/public/${MENTORING_ATTACHMENTS_BUCKET}/`;
+  const i = publicUrl.indexOf(marker);
+  if (i === -1) return null;
+  const rest = publicUrl.slice(i + marker.length).split('?')[0];
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+export async function uploadMentoringApplicationAttachment(
+  formData: FormData,
+): Promise<{ data?: MentoringAttachment; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const file = formData.get('file') as File | null;
+  if (!file) return { error: '파일을 선택해 주세요.' };
+
+  if (!APPLICATION_ATTACHMENT_ALLOWED_TYPES.includes(file.type)) {
+    return { error: 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.' };
+  }
+  if (file.size > APPLICATION_ATTACHMENT_MAX_SIZE) {
+    return { error: '이미지 크기는 10MB 이하여야 합니다.' };
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `${user.id}/applications/${Date.now()}_${safeName}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from(MENTORING_ATTACHMENTS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+  if (upErr || !uploaded) {
+    console.error('[uploadMentoringApplicationAttachment] storage', upErr);
+    return { error: '이미지 업로드에 실패했습니다.' };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(MENTORING_ATTACHMENTS_BUCKET).getPublicUrl(uploaded.path);
+
+  return {
+    data: {
+      url: publicUrl,
+      name: file.name.slice(0, 200),
+      mime_type: file.type || 'image/jpeg',
+      size: file.size,
+    },
+  };
+}
+
+export async function removeMentoringApplicationAttachment(
+  url: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const path = applicationAttachmentPathFromPublicUrl(url);
+  if (!path) return { error: '첨부 URL을 인식할 수 없습니다.' };
+
+  // RLS 가 자기 폴더만 허용하므로 서버에서도 prefix 검증을 한 번 더
+  if (!path.startsWith(`${user.id}/`)) {
+    return { error: '본인이 업로드한 파일만 삭제할 수 있습니다.' };
+  }
+
+  const { error } = await supabase.storage.from(MENTORING_ATTACHMENTS_BUCKET).remove([path]);
+  if (error) {
+    console.error('[removeMentoringApplicationAttachment] storage', error);
+    return { error: '이미지 삭제에 실패했습니다.' };
+  }
+  return { success: true };
+}
+
 function revalidateMentoringAdmin(): void {
   revalidatePath('/admin/mentoring');
   revalidatePath('/admin/mentoring/slots/new');
@@ -1221,7 +1530,11 @@ function revalidateMentoringAdmin(): void {
   revalidatePath('/parent/mentoring/my');
 }
 
-function formatSlotDateTimeKST(dateYmd: string, startTime: string, endTime: string): {
+function formatSlotDateTimeKST(
+  dateYmd: string,
+  startTime: string,
+  endTime: string,
+): {
   dateLabel: string;
   timeLabel: string;
 } {
@@ -1241,6 +1554,7 @@ function formatSlotDateTimeKST(dateYmd: string, startTime: string, endTime: stri
 async function notifyStudentAndParentsMentoringDecision(params: {
   studentId: string;
   subjectLabel: string;
+  slotType: MentoringType;
   dateYmd: string;
   startTime: string;
   endTime: string;
@@ -1251,18 +1565,23 @@ async function notifyStudentAndParentsMentoringDecision(params: {
   const { dateLabel, timeLabel } = formatSlotDateTimeKST(
     params.dateYmd,
     params.startTime,
-    params.endTime
+    params.endTime,
   );
 
-  const { data: studentProfile } = await admin.from('profiles').select('name').eq('id', params.studentId).maybeSingle();
+  const { data: studentProfile } = await admin
+    .from('profiles')
+    .select('name')
+    .eq('id', params.studentId)
+    .maybeSingle();
   const studentName = studentProfile?.name ?? '학생';
 
+  const typeLabel = MENTORING_TYPE_LABEL[params.slotType];
   const title =
     params.kind === 'confirmed'
-      ? '멘토링 신청이 확정되었습니다'
+      ? `${typeLabel} 신청이 확정되었습니다`
       : params.kind === 'rejected'
-        ? '멘토링 신청이 거절되었습니다'
-        : '멘토링 일정이 취소되었습니다';
+        ? `${typeLabel} 신청이 거절되었습니다`
+        : `${typeLabel} 일정이 취소되었습니다`;
 
   const body =
     params.kind === 'confirmed'
@@ -1298,6 +1617,7 @@ async function notifyStudentAndParentsMentoringDecision(params: {
     void sendMentoringAlimtalkToParent({
       parentId,
       studentId: params.studentId,
+      slotType: params.slotType,
       kind: params.kind,
       studentName,
       subjectLabel: params.subjectLabel,
@@ -1309,7 +1629,7 @@ async function notifyStudentAndParentsMentoringDecision(params: {
 }
 
 export async function confirmMentoringApplication(
-  applicationId: string
+  applicationId: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1329,7 +1649,7 @@ export async function confirmMentoringApplication(
         type,
         mentors ( name, subject )
       )
-    `
+    `,
     )
     .eq('id', applicationId)
     .maybeSingle();
@@ -1360,11 +1680,12 @@ export async function confirmMentoringApplication(
   }
 
   const subjectLabel =
-    slotJoin.subject?.trim() || (slotJoin.type === 'clinic' ? '클리닉' : '멘토링');
+    slotJoin.subject?.trim() || MENTORING_TYPE_LABEL[slotJoin.type as MentoringType];
 
   await notifyStudentAndParentsMentoringDecision({
     studentId: app.student_id,
     subjectLabel,
+    slotType: slotJoin.type as MentoringType,
     dateYmd: slotJoin.date,
     startTime: slotJoin.start_time,
     endTime: slotJoin.end_time,
@@ -1378,7 +1699,7 @@ export async function confirmMentoringApplication(
 
 export async function rejectMentoringApplication(
   applicationId: string,
-  reason: string
+  reason: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1401,7 +1722,7 @@ export async function rejectMentoringApplication(
         type,
         mentors ( name, subject )
       )
-    `
+    `,
     )
     .eq('id', applicationId)
     .maybeSingle();
@@ -1433,12 +1754,12 @@ export async function rejectMentoringApplication(
   }
 
   const subjectLabel =
-    slotJoin.subject?.trim() ||
-    (slotJoin.type === 'clinic' ? '클리닉' : '멘토링');
+    slotJoin.subject?.trim() || MENTORING_TYPE_LABEL[slotJoin.type as MentoringType];
 
   await notifyStudentAndParentsMentoringDecision({
     studentId: app.student_id,
     subjectLabel,
+    slotType: slotJoin.type as MentoringType,
     dateYmd: slotJoin.date,
     startTime: slotJoin.start_time,
     endTime: slotJoin.end_time,
@@ -1453,7 +1774,7 @@ export async function rejectMentoringApplication(
 
 export async function adminCancelMentoringApplication(
   applicationId: string,
-  reason: string
+  reason: string,
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1475,7 +1796,7 @@ export async function adminCancelMentoringApplication(
         subject,
         type
       )
-    `
+    `,
     )
     .eq('id', applicationId)
     .maybeSingle();
@@ -1485,7 +1806,9 @@ export async function adminCancelMentoringApplication(
   const app = row as MentoringApplication & {
     mentoring_slots: MentoringSlot | MentoringSlot[];
   };
-  const slotJoin = Array.isArray(app.mentoring_slots) ? app.mentoring_slots[0] : app.mentoring_slots;
+  const slotJoin = Array.isArray(app.mentoring_slots)
+    ? app.mentoring_slots[0]
+    : app.mentoring_slots;
   if (!slotJoin || slotJoin.branch_id !== ctx.branchId) return { error: '권한이 없습니다.' };
 
   if (app.status !== 'pending' && app.status !== 'confirmed') {
@@ -1509,12 +1832,12 @@ export async function adminCancelMentoringApplication(
   }
 
   const subjectLabel =
-    slotJoin.subject?.trim() ||
-    (slotJoin.type === 'clinic' ? '클리닉' : '멘토링');
+    slotJoin.subject?.trim() || MENTORING_TYPE_LABEL[slotJoin.type as MentoringType];
 
   await notifyStudentAndParentsMentoringDecision({
     studentId: app.student_id,
     subjectLabel,
+    slotType: slotJoin.type as MentoringType,
     dateYmd: slotJoin.date,
     startTime: slotJoin.start_time,
     endTime: slotJoin.end_time,

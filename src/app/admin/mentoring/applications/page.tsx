@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { getAdminMentoringApplications, type AdminMentoringApplicationFilters } from '@/lib/actions/mentoring';
+import {
+  getAdminMentoringApplications,
+  type AdminMentoringApplicationFilters,
+} from '@/lib/actions/mentoring';
 import { getTodayKST } from '@/lib/utils';
 import { AdminMentoringApplicationsClient } from './applications-client';
 
@@ -8,6 +11,7 @@ type PageProps = {
     from?: string;
     to?: string;
     status?: string;
+    type?: string;
     q?: string;
   }>;
 };
@@ -26,19 +30,26 @@ export default async function AdminMentoringApplicationsPage({ searchParams }: P
       sp.status === 'cancelled'
         ? sp.status
         : 'all',
+    type:
+      sp.type === 'mentoring' || sp.type === 'clinic' || sp.type === 'consult' ? sp.type : 'all',
     studentSearch: sp.q?.trim() || undefined,
   };
 
   const rows = await getAdminMentoringApplications(filters);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
+    <div className='mx-auto max-w-6xl space-y-6 p-4 md:p-8'>
       <div>
-        <Link href="/admin/mentoring" className="text-muted-foreground hover:text-foreground mb-2 inline-block text-sm">
+        <Link
+          href='/admin/mentoring'
+          className='text-muted-foreground hover:text-foreground mb-2 inline-block text-sm'
+        >
           ← 주간 일정
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">멘토링 신청 내역</h1>
-        <p className="text-muted-foreground mt-1 text-sm">필터 후 목록 · 슬롯 링크에서 확정/거절도 가능합니다.</p>
+        <h1 className='text-2xl font-bold tracking-tight'>멘토링/클리닉/상담 신청 내역</h1>
+        <p className='text-muted-foreground mt-1 text-sm'>
+          필터 후 목록 · 슬롯 링크에서 확정/거절도 가능합니다.
+        </p>
       </div>
 
       <AdminMentoringApplicationsClient initialRows={rows} initialFilters={filters} today={today} />
