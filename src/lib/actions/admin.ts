@@ -10,6 +10,7 @@ import {
   getCalendarWeekBoundsKST,
   getWeekDateStringsFromMondayKST,
   getTodayKST,
+  formatDateKST,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
 
@@ -483,74 +484,80 @@ export async function getStudentFocusHistory(
 }
 
 // 전체 몰입도 리포트 (주간) - DAY_CONFIG.weekStartsOn 기준
-export async function getWeeklyFocusReport(branchId?: string | null) {
+// 주간 몰입도 리포트 — focus_weekly_summary RPC 로 단일 SQL 집계.
+// dailyScores(원시 점수 배열)는 더 이상 노출하지 않고 클라이언트가 필요로 하는
+// 일별 평균만 반환한다. branch 격리는 RPC 의 admin/branch 가드가 보장.
+export interface WeeklyFocusReport {
+  id: string;
+  seatNumber: number | null;
+  name: string;
+  dailyAvg: { [date: string]: { avg: number; count: number } };
+  weeklyAvg: number | null;
+}
+
+export async function getWeeklyFocusReport(branchId?: string | null): Promise<WeeklyFocusReport[]> {
   const supabase = await createClient();
+  if (!branchId) return [];
 
-  const startOfWeek = getWeekStart();
+  // KST 월요일을 RPC 의 p_week_start 인자(YYYY-MM-DD)로 사용.
+  const mondayStr = formatDateKST(getWeekStart());
+  const dateKeys = getWeekDateStringsFromMondayKST(mondayStr); // 0=월 ... 6=일
 
-  let query = supabase
+  // 학생 명단 (좌석순)
+  const { data: students } = await supabase
     .from('student_profiles')
-    .select(
-      `
-      id,
-      seat_number,
-      profiles!inner (name, branch_id)
-    `,
-    )
+    .select('id, seat_number, profiles!inner (name, branch_id)')
+    .eq('profiles.branch_id', branchId)
     .order('seat_number', { ascending: true });
-
-  if (branchId) {
-    query = query.eq('profiles.branch_id', branchId);
-  }
-
-  const { data: students } = await query;
 
   if (!students || students.length === 0) return [];
 
-  const studentIds = students.map((s) => s.id);
+  const { data: summary, error } = await supabase.rpc('focus_weekly_summary', {
+    p_branch_id: branchId,
+    p_week_start: mondayStr,
+  });
+  if (error) {
+    console.error('[getWeeklyFocusReport]', error);
+    return [];
+  }
 
-  // 배치 쿼리: 전체 학생 주간 몰입도 한 번에 조회 (1000행 한도 대비 페이징)
-  const allScores = await fetchAllPaged<{ student_id: string; score: number; recorded_at: string }>(
-    (from, to) =>
-      supabase
-        .from('focus_scores')
-        .select('student_id, score, recorded_at')
-        .in('student_id', studentIds)
-        .gte('recorded_at', startOfWeek.toISOString())
-        .order('recorded_at', { ascending: true })
-        .range(from, to),
-  );
-
-  const scoresByStudent = groupById(allScores);
-
-  const report = students.map((student) => {
-    const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
-
-    const scores = scoresByStudent[student.id] ?? [];
-
-    const dailyScores: { [key: string]: number[] } = {};
-    scores.forEach((s) => {
-      const date = new Date(s.recorded_at).toISOString().split('T')[0];
-      if (!dailyScores[date]) dailyScores[date] = [];
-      dailyScores[date].push(s.score);
+  type Cell = { avg: number; count: number; sum: number };
+  const byStudent = new Map<string, Map<number, Cell>>();
+  for (const row of summary ?? []) {
+    let map = byStudent.get(row.student_id);
+    if (!map) {
+      map = new Map();
+      byStudent.set(row.student_id, map);
+    }
+    map.set(row.day_index, {
+      avg: Number(row.avg_score),
+      count: row.count,
+      sum: Number(row.total_score),
     });
+  }
 
-    const weeklyAvg =
-      scores.length > 0
-        ? Math.round((scores.reduce((sum, s) => sum + s.score, 0) / scores.length) * 10) / 10
-        : null;
-
+  return students.map((student) => {
+    const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+    const cells = byStudent.get(student.id);
+    const dailyAvg: { [date: string]: { avg: number; count: number } } = {};
+    let weeklySum = 0;
+    let weeklyCount = 0;
+    if (cells) {
+      for (const [idx, c] of cells) {
+        if (idx < 0 || idx > 6) continue;
+        dailyAvg[dateKeys[idx]] = { avg: c.avg, count: c.count };
+        weeklySum += c.sum;
+        weeklyCount += c.count;
+      }
+    }
     return {
       id: student.id,
       seatNumber: student.seat_number,
       name: profile?.name || '이름 없음',
-      dailyScores,
-      weeklyAvg,
-      totalRecords: scores.length,
+      dailyAvg,
+      weeklyAvg: weeklyCount > 0 ? Math.round((weeklySum / weeklyCount) * 10) / 10 : null,
     };
   });
-
-  return report;
 }
 
 // ============================================
@@ -633,83 +640,88 @@ export async function givePoints(
   return { success: true };
 }
 
-// 상벌점 현황 조회
-export async function getPointsOverview(branchId?: string | null) {
+// 상벌점 현황 — points_summary RPC 로 단일 쿼리 집계.
+export async function getPointsOverview(params: { branchId: string }) {
   const supabase = await createClient();
+  const { branchId } = params;
 
-  let query = supabase
+  // 학생 명단 (좌석 순)
+  const { data: students } = await supabase
     .from('student_profiles')
-    .select(
-      `
-      id,
-      seat_number,
-      profiles!inner (name, branch_id)
-    `,
-    )
+    .select('id, seat_number, profiles!inner (name, branch_id)')
+    .eq('profiles.branch_id', branchId)
     .order('seat_number', { ascending: true });
-
-  if (branchId) {
-    query = query.eq('profiles.branch_id', branchId);
-  }
-
-  const { data: students } = await query;
 
   if (!students || students.length === 0) return [];
 
-  const studentIds = students.map((s) => s.id);
+  // 집계 RPC — 학생별 reward/penalty/net
+  const { data: summary } = await supabase.rpc('points_summary', {
+    p_branch_id: branchId,
+  });
 
-  // 배치 쿼리: 전체 학생 상벌점 한 번에 조회 (1000행 한도 대비 페이징)
-  const allPoints = await fetchAllPaged<{ student_id: string; type: string; amount: number }>(
-    (from, to) =>
-      supabase
-        .from('points')
-        .select('student_id, type, amount')
-        .in('student_id', studentIds)
-        .order('created_at', { ascending: true })
-        .range(from, to),
-  );
+  const summaryMap = new Map<string, { reward: number; penalty: number; total: number }>();
+  for (const row of summary ?? []) {
+    summaryMap.set(row.student_id, {
+      reward: row.reward_total,
+      penalty: row.penalty_total,
+      total: row.net_total,
+    });
+  }
 
-  const pointsByStudent = groupById(allPoints);
-
-  const overview = students.map((student) => {
+  return students.map((student) => {
     const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
-
-    const points = pointsByStudent[student.id] ?? [];
-    const reward = points.filter((p) => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
-    const penalty = points
-      .filter((p) => p.type === 'penalty')
-      .reduce((sum, p) => sum + p.amount, 0);
-
+    const s = summaryMap.get(student.id) ?? { reward: 0, penalty: 0, total: 0 };
     return {
       id: student.id,
       seatNumber: student.seat_number,
       name: profile?.name || '이름 없음',
-      reward,
-      penalty,
-      total: reward - penalty,
+      reward: s.reward,
+      penalty: s.penalty,
+      total: s.total,
     };
   });
-
-  return overview;
 }
 
-// 상벌점 내역 조회 (전체)
-export async function getAllPointsHistory(
-  filter?: 'reward' | 'penalty' | 'all',
-  studentId?: string,
-  branchId?: string | null,
-) {
-  const supabase = await createClient();
+// 상벌점 내역 — URL 페이지네이션 + 필터 + 정렬.
+// branch 격리는 RLS 가 자동 처리 (admin RLS qual: profiles.branch_id = get_admin_branch_id()).
+export interface PointsHistoryParams {
+  branchId: string;
+  page: number;
+  pageSize: number;
+  q?: string;
+  sort: 'created_at' | 'amount';
+  dir: 'asc' | 'desc';
+  type?: 'reward' | 'penalty';
+  studentId?: string;
+}
 
-  // 브랜치 필터가 있으면 해당 브랜치 학생 ID 목록 먼저 조회
-  let studentIds: string[] | null = null;
-  if (branchId) {
-    const { data: branchStudents } = await supabase
-      .from('student_profiles')
-      .select('id, profiles!inner(branch_id)')
-      .eq('profiles.branch_id', branchId);
-    studentIds = branchStudents?.map((s) => s.id) || [];
-  }
+export interface PointsHistoryRow {
+  id: string;
+  student_id: string;
+  type: 'reward' | 'penalty';
+  amount: number;
+  reason: string;
+  is_auto: boolean;
+  created_at: string;
+  studentName: string;
+  studentSeatNumber: number | null;
+  adminName: string;
+}
+
+export interface PointsHistoryResult {
+  rows: PointsHistoryRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function getAllPointsHistory(
+  params: PointsHistoryParams,
+): Promise<PointsHistoryResult> {
+  const supabase = await createClient();
+  const { page, pageSize, q, sort, dir, type, studentId } = params;
+  const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
+  const to = from + pageSize - 1;
 
   let query = supabase
     .from('points')
@@ -722,37 +734,91 @@ export async function getAllPointsHistory(
       ),
       admin:admin_id (name)
     `,
+      { count: 'exact' },
     )
-    .order('created_at', { ascending: false })
-    .limit(200);
+    .order(sort, { ascending: dir === 'asc' })
+    .range(from, to);
 
-  if (filter && filter !== 'all') {
-    query = query.eq('type', filter);
+  if (type) query = query.eq('type', type);
+  if (studentId) query = query.eq('student_id', studentId);
+  if (q && q.trim()) {
+    // q 는 사유 텍스트 부분 일치
+    const pattern = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+    query = query.ilike('reason', pattern);
   }
 
-  if (studentId) {
-    query = query.eq('student_id', studentId);
+  const { data, count, error } = await query;
+  if (error) {
+    console.error('[getAllPointsHistory]', error);
+    return { rows: [], total: 0, page: 1, pageSize };
   }
 
-  // 브랜치 필터 적용
-  if (studentIds !== null) {
-    query = query.in('student_id', studentIds);
-  }
-
-  const { data } = await query;
-
-  return (data || []).map((p) => {
+  const rows = (data || []).map((p): PointsHistoryRow => {
     const studentProfile = Array.isArray(p.student?.profiles)
       ? p.student?.profiles[0]
       : p.student?.profiles;
-
     return {
-      ...p,
+      id: p.id,
+      student_id: p.student_id,
+      type: p.type,
+      amount: p.amount,
+      reason: p.reason,
+      is_auto: p.is_auto,
+      created_at: p.created_at,
       studentName: studentProfile?.name || '이름 없음',
-      studentSeatNumber: p.student?.seat_number || null,
+      studentSeatNumber: p.student?.seat_number ?? null,
       adminName: p.admin?.name || '시스템',
     };
   });
+
+  const total = count ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = total === 0 ? 1 : Math.min(Math.max(1, page), lastPage);
+
+  return { rows, total, page: clampedPage, pageSize };
+}
+
+// 필터 조건에 매칭되는 모든 상벌점 일괄 삭제 (페이지네이션된 화면에서 "필터 결과 전체 삭제" 용도).
+// branch 격리는 RLS 자동 처리.
+export async function deletePointsByFilter(params: {
+  type?: 'reward' | 'penalty';
+  studentId?: string;
+  q?: string;
+}) {
+  const supabase = await createClient();
+
+  // 1) 매칭되는 ID 목록 조회 (count 와 deletedCount 정확성 위해)
+  let idsQuery = supabase.from('points').select('id', { count: 'exact', head: false });
+  if (params.type) idsQuery = idsQuery.eq('type', params.type);
+  if (params.studentId) idsQuery = idsQuery.eq('student_id', params.studentId);
+  if (params.q && params.q.trim()) {
+    const pattern = `%${params.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+    idsQuery = idsQuery.ilike('reason', pattern);
+  }
+
+  const { data: idsData, error: idsError } = await idsQuery.limit(10000);
+  if (idsError) {
+    return { success: false, error: '대상 조회 실패', deletedCount: 0 };
+  }
+  const ids = (idsData ?? []).map((r) => r.id as string);
+  if (ids.length === 0) {
+    return { success: true, deletedCount: 0 };
+  }
+
+  // 2) weekly_point_history 참조 해제 (deletePoints 와 동일 패턴)
+  await supabase.from('weekly_point_history').update({ point_id: null }).in('point_id', ids);
+
+  // 3) 일괄 DELETE
+  const { error: delError } = await supabase.from('points').delete().in('id', ids);
+  if (delError) {
+    console.error('[deletePointsByFilter]', delError);
+    return { success: false, error: '삭제 실패', deletedCount: 0 };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  revalidatePath('/admin/notifications');
+  return { success: true, deletedCount: ids.length };
 }
 
 // 상벌점 내역 삭제 (점수 원상복구)
@@ -975,16 +1041,42 @@ export async function getAllMembers(
   }));
 }
 
-// 학부모 목록 조회 (연결된 학생 정보 포함)
-export async function getAllParentsWithStudents() {
+// 학부모 목록 조회 (연결된 학생 정보 포함).
+// branchId 명시 — 해당 지점 학생의 학부모만 반환 (RLS 우회한 adminClient 사용해도 누수 차단).
+export async function getAllParentsWithStudents(branchId?: string | null) {
   const adminClient = createAdminClient();
 
+  // 1. branchId 있으면 해당 지점 학생 ID 집합 → 그 학생들과 연결된 학부모 ID 집합 추출
+  let allowedParentIds: string[] | null = null;
+  if (branchId) {
+    const { data: branchStudents } = await adminClient
+      .from('profiles')
+      .select('id')
+      .eq('user_type', 'student')
+      .eq('branch_id', branchId);
+
+    const branchStudentIds = (branchStudents ?? []).map((s) => s.id as string);
+    if (branchStudentIds.length === 0) return [];
+
+    const { data: branchLinks } = await adminClient
+      .from('parent_student_links')
+      .select('parent_id')
+      .in('student_id', branchStudentIds);
+
+    allowedParentIds = [...new Set((branchLinks ?? []).map((l) => l.parent_id as string))];
+    if (allowedParentIds.length === 0) return [];
+  }
+
   // 학부모 프로필 조회
-  const { data: parents, error } = await adminClient
+  let parentQuery = adminClient
     .from('profiles')
     .select('*')
     .eq('user_type', 'parent')
     .order('created_at', { ascending: false });
+  if (allowedParentIds !== null) {
+    parentQuery = parentQuery.in('id', allowedParentIds);
+  }
+  const { data: parents, error } = await parentQuery;
 
   if (error || !parents) {
     console.error('Error fetching parents:', error);
@@ -1004,7 +1096,7 @@ export async function getAllParentsWithStudents() {
       student:student_id (
         id,
         seat_number,
-        profiles!inner (name, branch:branch_id (name))
+        profiles!inner (name, branch_id, branch:branch_id (name))
       )
     `,
     )
@@ -1394,27 +1486,73 @@ export async function updateStudentApprovalStatus(
 // ============================================
 
 // 알림 목록 조회
-export async function getNotifications(limit: number = 50) {
-  const supabase = await createClient();
+export interface NotificationsListParams {
+  branchId: string;
+  page: number;
+  pageSize: number;
+  q?: string;
+  sort: 'sent_at';
+  dir: 'asc' | 'desc';
+  type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+}
 
-  const { data } = await supabase
+export interface NotificationRow {
+  id: string;
+  branch_id: string;
+  parent_id: string | null;
+  student_id: string | null;
+  type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+  message: string;
+  sent_via: string;
+  sent_at: string;
+  is_sent: boolean;
+  parentName: string;
+  studentName: string;
+  studentSeatNumber: number | null;
+}
+
+export interface NotificationsListResult {
+  rows: NotificationRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// 알림 목록 — URL 페이지네이션. branch 격리는 RLS (Admins can view branch notifications) 자동 처리.
+export async function getNotifications(
+  params: NotificationsListParams,
+): Promise<NotificationsListResult> {
+  const supabase = await createClient();
+  const { page, pageSize, q, sort, dir, type } = params;
+  const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
+  const to = from + pageSize - 1;
+
+  let query = supabase
     .from('notifications')
     .select(
       `
       *,
-      parent:parent_id (
-        profiles!inner (name)
-      ),
-      student:student_id (
-        seat_number,
-        profiles!inner (name)
-      )
+      parent:parent_id (profiles!inner (name)),
+      student:student_id (seat_number, profiles!inner (name))
     `,
+      { count: 'exact' },
     )
-    .order('sent_at', { ascending: false })
-    .limit(limit);
+    .order(sort, { ascending: dir === 'asc' })
+    .range(from, to);
 
-  return (data || []).map((n) => {
+  if (type) query = query.eq('type', type);
+  if (q && q.trim()) {
+    const pattern = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+    query = query.ilike('message', pattern);
+  }
+
+  const { data, count, error } = await query;
+  if (error) {
+    console.error('[getNotifications]', error);
+    return { rows: [], total: 0, page: 1, pageSize };
+  }
+
+  const rows = (data || []).map((n): NotificationRow => {
     const parentProfile = n.parent
       ? Array.isArray(n.parent.profiles)
         ? n.parent.profiles[0]
@@ -1427,12 +1565,53 @@ export async function getNotifications(limit: number = 50) {
       : null;
 
     return {
-      ...n,
+      id: n.id,
+      branch_id: n.branch_id,
+      parent_id: n.parent_id,
+      student_id: n.student_id,
+      type: n.type,
+      message: n.message,
+      sent_via: n.sent_via,
+      sent_at: n.sent_at,
+      is_sent: n.is_sent,
       parentName: parentProfile?.name || '알 수 없음',
       studentName: studentProfile?.name || '알 수 없음',
-      studentSeatNumber: n.student?.seat_number || null,
+      studentSeatNumber: n.student?.seat_number ?? null,
     };
   });
+
+  const total = count ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = total === 0 ? 1 : Math.min(Math.max(1, page), lastPage);
+
+  return { rows, total, page: clampedPage, pageSize };
+}
+
+// 알림 통계 — 전체/발송완료/대기/오늘. 페이지네이션과 별도 집계.
+// "오늘" 은 학습일 (KST 06:00 → 다음날 03:00) 기준. RLS 자동 branch 격리.
+export async function getNotificationStats() {
+  const supabase = await createClient();
+
+  const { start, end } = getStudyDayBounds(getStudyDate());
+
+  const [totalRes, sentRes, todayRes] = await Promise.all([
+    supabase.from('notifications').select('*', { count: 'exact', head: true }),
+    supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_sent', true),
+    supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .gte('sent_at', start.toISOString())
+      .lt('sent_at', end.toISOString()),
+  ]);
+
+  const total = totalRes.count ?? 0;
+  const sent = sentRes.count ?? 0;
+  return {
+    total,
+    sent,
+    pending: total - sent,
+    today: todayRes.count ?? 0,
+  };
 }
 
 // 수동 알림 발송 (기록만)
@@ -1444,7 +1623,19 @@ export async function sendNotification(
 ) {
   const supabase = await createClient();
 
+  // branch_id 도출 — 학생의 branch
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('branch_id')
+    .eq('id', studentId)
+    .maybeSingle();
+  const branchId = studentProfile?.branch_id;
+  if (!branchId) {
+    return { error: '학생의 지점 정보를 찾을 수 없습니다.' };
+  }
+
   const { error } = await supabase.from('notifications').insert({
+    branch_id: branchId,
     parent_id: parentId,
     student_id: studentId,
     type,
@@ -1740,11 +1931,12 @@ export async function getPendingSchedules() {
 // 관리자 관리 관련
 // ============================================
 
-// 전체 관리자 목록 조회 (지점 정보 포함)
-export async function getAllAdmins() {
+// 전체 관리자 목록 조회 (지점 정보 포함).
+// branchId 명시 — RLS 정책 (모든 사용자가 admin profile SELECT 가능) 으로 못 막는 다른 지점 admin 누수 차단.
+export async function getAllAdmins(branchId?: string | null) {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('profiles')
     .select(
       `
@@ -1757,6 +1949,12 @@ export async function getAllAdmins() {
     )
     .eq('user_type', 'admin')
     .order('created_at', { ascending: false });
+
+  if (branchId) {
+    query = query.eq('branch_id', branchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Error fetching admins:', error);
@@ -2348,12 +2546,31 @@ export async function getAttendanceBoard(
       }
     }
   }
-  const globalStats = {
+  let globalStats = {
     checkedIn: globalCheckedIn,
     checkedOut: globalCheckedOut,
     onBreak: globalOnBreak,
     notYetArrived: globalNotYetArrived,
   };
+
+  // 검색 필터가 없는 경우 카드 통계는 SQL 단일 쿼리(count_attendance_status)로 얻어와
+  // JS reduce 결과와 동일성을 보장하면서 가드(admin/branch) 가 적용되도록 한다.
+  // 검색어가 있을 때는 "검색된 학생들의 stats" 라는 현행 UX 를 유지하기 위해 reduce 결과를 그대로 사용.
+  if (!searchQuery && branchId) {
+    const { data: rpcStats } = await supabase.rpc('count_attendance_status', {
+      p_branch_id: branchId,
+      p_target_date: todayStr,
+    });
+    const r = rpcStats?.[0];
+    if (r) {
+      globalStats = {
+        checkedIn: r.checked_in,
+        checkedOut: r.checked_out,
+        onBreak: r.on_break,
+        notYetArrived: r.not_yet_arrived,
+      };
+    }
+  }
 
   // Step 4: 상태 필터 적용 후 seat_number 순 정렬
   const filteredIds = statusFilter ? (statusIdMap[statusFilter] ?? []) : allStudentIds;

@@ -138,29 +138,70 @@ export type MealProductCreateInput = {
   variant: VariantInput;
 };
 
+export interface MealProductsListParams {
+  category: ProductCategory;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  status?: 'active' | 'inactive' | 'sold_out';
+  sort?: 'created_at' | 'name';
+  dir?: 'asc' | 'desc';
+}
+
+export interface MealProductsListResult {
+  rows: Array<MealProduct & { variants: MealProductVariant[] }>;
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export async function getMealProductsForAdmin(
-  category: ProductCategory = 'meal',
-): Promise<Array<MealProduct & { variants: MealProductVariant[] }>> {
+  paramsOrCategory: ProductCategory | MealProductsListParams = 'meal',
+): Promise<MealProductsListResult> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
-  if (!ctx) return [];
+  if (!ctx) return { rows: [], total: 0, page: 1, pageSize: 20 };
 
-  const { data, error } = await supabase
+  // 하위 호환: 단순 string 호출도 지원 (기존 호출처 유지용)
+  const params: MealProductsListParams =
+    typeof paramsOrCategory === 'string' ? { category: paramsOrCategory } : paramsOrCategory;
+
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.max(1, Math.min(100, params.pageSize ?? 20));
+  const sort = params.sort ?? 'created_at';
+  const dir = params.dir ?? 'desc';
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
     .from('meal_products')
-    .select('*, meal_product_variants(*)')
+    .select('*, meal_product_variants(*)', { count: 'exact' })
     .eq('branch_id', ctx.branchId)
-    .eq('category', category)
-    .order('created_at', { ascending: false });
+    .eq('category', params.category)
+    .order(sort, { ascending: dir === 'asc' })
+    .range(from, to);
 
-  if (error) {
-    logPostgrestQueryError('[getMealProductsForAdmin]', error);
-    return [];
+  if (params.status) query = query.eq('status', params.status);
+  if (params.q && params.q.trim()) {
+    const pattern = `%${params.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+    query = query.ilike('name', pattern);
   }
 
-  return (data ?? []).map((row) => {
+  const { data, count, error } = await query;
+  if (error) {
+    logPostgrestQueryError('[getMealProductsForAdmin]', error);
+    return { rows: [], total: 0, page: 1, pageSize };
+  }
+
+  const rows = (data ?? []).map((row) => {
     const r = row as MealProduct & { meal_product_variants: MealProductVariant[] | null };
     return { ...r, variants: r.meal_product_variants ?? [] };
   });
+
+  const total = count ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = total === 0 ? 1 : Math.min(page, lastPage);
+  return { rows, total, page: clampedPage, pageSize };
 }
 
 /**

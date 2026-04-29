@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, Fragment } from 'react';
+import { useState, useTransition, Fragment } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  givePoints, 
-  getPointsOverview, 
+import { Tabs } from '@/components/ui/tabs';
+import { Pagination } from '@/components/ui/pagination';
+import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
+import {
+  givePoints,
   getAllPointsHistory,
   createRewardPreset,
   deleteRewardPreset,
@@ -16,10 +19,14 @@ import {
   getPenaltyPresets,
   deletePoint,
   deletePoints,
+  deletePointsByFilter,
   type RewardPreset,
   type PenaltyPreset,
+  type PointsHistoryRow,
+  type PointsHistoryResult,
 } from '@/lib/actions/admin';
-import { 
+import { buildListHref } from '@/lib/list-params';
+import {
   Award,
   Plus,
   Minus,
@@ -41,6 +48,7 @@ import {
   ChevronsUpDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { PointsTab } from './list-config';
 
 function SortIcon({
   sortKey,
@@ -67,19 +75,6 @@ interface PointsOverview {
   total: number;
 }
 
-interface PointsHistory {
-  id: string;
-  student_id: string;
-  type: 'reward' | 'penalty';
-  amount: number;
-  reason: string;
-  is_auto: boolean;
-  created_at: string;
-  studentName: string;
-  studentSeatNumber: number | null;
-  adminName: string;
-}
-
 interface Student {
   id: string;
   seatNumber: number | null;
@@ -87,51 +82,47 @@ interface Student {
 }
 
 interface PointsClientProps {
+  activeTab: PointsTab;
   initialOverview: PointsOverview[];
-  initialHistory: PointsHistory[];
+  initialHistoryResult: PointsHistoryResult;
   students: Student[];
-  branchId: string | null;
+  branchId: string;
   initialRewardPresets: RewardPreset[];
   initialPenaltyPresets: PenaltyPreset[];
 }
 
-type FilterType = 'all' | 'reward' | 'penalty';
-type TabType = 'overview' | 'history' | 'rules';
 type SortDir = 'asc' | 'desc';
 type OverviewSortKey = 'seatNumber' | 'name' | 'reward' | 'penalty' | 'total';
-type HistorySortKey = 'created_at' | 'type' | 'amount';
 
-export function PointsClient({ 
-  initialOverview, 
-  initialHistory, 
+export function PointsClient({
+  activeTab,
+  initialOverview,
+  initialHistoryResult,
   students,
   branchId,
   initialRewardPresets,
   initialPenaltyPresets,
 }: PointsClientProps) {
-  const [overview, setOverview] = useState<PointsOverview[]>(initialOverview);
-  const [history, setHistory] = useState<PointsHistory[]>(initialHistory);
-  const [filter, setFilter] = useState<FilterType>('all');
-  const [studentFilter, setStudentFilter] = useState<string>('');
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [, startTransition] = useTransition();
+
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [showPresetManager, setShowPresetManager] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // 정렬 상태 — overview
+  // Overview 정렬 — 클라이언트 측 (overview 는 학생 수만큼이라 작음)
   const [overviewSortKey, setOverviewSortKey] = useState<OverviewSortKey>('seatNumber');
   const [overviewSortDir, setOverviewSortDir] = useState<SortDir>('asc');
 
-  // 정렬 상태 — history
-  const [historySortKey, setHistorySortKey] = useState<HistorySortKey>('created_at');
-  const [historySortDir, setHistorySortDir] = useState<SortDir>('desc');
-  
-  // 다중 선택 관련 상태
+  // 다중 선택 (현재 페이지 한정)
   const [selectedPointIds, setSelectedPointIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showFilterDeleteConfirm, setShowFilterDeleteConfirm] = useState(false);
 
   // 프리셋 상태
   const [rewardPresets, setRewardPresets] = useState<RewardPreset[]>(initialRewardPresets);
@@ -143,9 +134,9 @@ export function PointsClient({
   const [newPenaltyAmount, setNewPenaltyAmount] = useState('');
   const [newPenaltyReason, setNewPenaltyReason] = useState('');
 
-  // 아코디언 상태
+  // 아코디언
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
-  const [expandedHistory, setExpandedHistory] = useState<PointsHistory[]>([]);
+  const [expandedHistory, setExpandedHistory] = useState<PointsHistoryRow[]>([]);
   const [expandedHistoryPage, setExpandedHistoryPage] = useState(0);
   const [expandedLoading, setExpandedLoading] = useState(false);
 
@@ -158,129 +149,80 @@ export function PointsClient({
   const [reason, setReason] = useState<string>('');
   const [additionalNote, setAdditionalNote] = useState<string>('');
 
-  const filteredHistory = history.filter(h => {
-    const typeMatch = filter === 'all' || h.type === filter;
-    const studentMatch = !studentFilter || h.student_id === studentFilter;
-    return typeMatch && studentMatch;
-  });
+  const overview = initialOverview;
+  const history = initialHistoryResult.rows;
+  const historyTotal = initialHistoryResult.total;
+  const historyPage = initialHistoryResult.page;
+  const historyPageSize = initialHistoryResult.pageSize;
 
-  // overview 정렬
+  // URL 에서 history 정렬·필터 읽기
+  const historySort = (sp.get('sort') ?? 'created_at') as 'created_at' | 'amount';
+  const historyDir = (sp.get('dir') ?? 'desc') as SortDir;
+  const historyTypeFilter = sp.get('type') ?? '';
+  const historyStudentFilter = sp.get('studentId') ?? '';
+  const historyQ = sp.get('q') ?? '';
+
+  // overview 탭 페이지네이션 — 학생 수가 지점당 50-200 으로 작아 클라이언트 슬라이스.
+  // history 와 같은 ?page= 파라미터 공유 (탭 전환 시 Tabs 컴포넌트가 page 자동 reset).
+  const OVERVIEW_PAGE_SIZE = 30;
+  const overviewPageNum = Math.max(1, Number.parseInt(sp.get('page') ?? '1', 10) || 1);
+
+  function patchUrl(patch: Record<string, string | number | null>) {
+    const cleaned = { ...patch, page: null }; // 필터/정렬 변경 시 1페이지로
+    const href = buildListHref(pathname, new URLSearchParams(sp.toString()), cleaned);
+    startTransition(() => router.replace(href, { scroll: false }));
+  }
+
+  function refreshData() {
+    startTransition(() => router.refresh());
+  }
+
+  // ── Overview 정렬 ───────────────────────────────────────
   const sortedOverview = [...overview].sort((a, b) => {
     let cmp = 0;
-    if (overviewSortKey === 'seatNumber') {
-      cmp = (a.seatNumber ?? 9999) - (b.seatNumber ?? 9999);
-    } else if (overviewSortKey === 'name') {
-      cmp = a.name.localeCompare(b.name, 'ko');
-    } else if (overviewSortKey === 'reward') {
-      cmp = a.reward - b.reward;
-    } else if (overviewSortKey === 'penalty') {
-      cmp = a.penalty - b.penalty;
-    } else if (overviewSortKey === 'total') {
-      cmp = a.total - b.total;
-    }
+    if (overviewSortKey === 'seatNumber') cmp = (a.seatNumber ?? 9999) - (b.seatNumber ?? 9999);
+    else if (overviewSortKey === 'name') cmp = a.name.localeCompare(b.name, 'ko');
+    else if (overviewSortKey === 'reward') cmp = a.reward - b.reward;
+    else if (overviewSortKey === 'penalty') cmp = a.penalty - b.penalty;
+    else if (overviewSortKey === 'total') cmp = a.total - b.total;
     return overviewSortDir === 'asc' ? cmp : -cmp;
   });
 
-  // history 정렬
-  const sortedHistory = [...filteredHistory].sort((a, b) => {
-    let cmp = 0;
-    if (historySortKey === 'created_at') {
-      cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    } else if (historySortKey === 'type') {
-      cmp = a.type.localeCompare(b.type);
-    } else if (historySortKey === 'amount') {
-      cmp = a.amount - b.amount;
-    }
-    return historySortDir === 'asc' ? cmp : -cmp;
-  });
-
-  const handleOverviewSort = (key: OverviewSortKey) => {
+  function handleOverviewSort(key: OverviewSortKey) {
     if (overviewSortKey === key) {
-      setOverviewSortDir(d => d === 'asc' ? 'desc' : 'asc');
+      setOverviewSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setOverviewSortKey(key);
       setOverviewSortDir('asc');
     }
-    // 정렬 변경 시 펼쳐진 아코디언 닫기
     setExpandedStudentId(null);
-  };
+  }
 
-  const handleHistorySort = (key: HistorySortKey) => {
-    if (historySortKey === key) {
-      setHistorySortDir(d => d === 'asc' ? 'desc' : 'asc');
+  function handleHistorySort(key: 'created_at' | 'amount') {
+    if (historySort === key) {
+      patchUrl({ dir: historyDir === 'asc' ? 'desc' : 'asc' });
     } else {
-      setHistorySortKey(key);
-      setHistorySortDir('desc');
+      patchUrl({ sort: key, dir: 'desc' });
     }
-  };
+  }
 
-  const handleSubmit = async () => {
-    if (!selectedStudent || !amount || !reason) {
-      alert('모든 필드를 입력해주세요.');
-      return;
-    }
-
-    const pointAmount = parseInt(amount);
-    if (isNaN(pointAmount) || pointAmount < 1) {
-      alert('올바른 점수를 입력해주세요.');
-      return;
-    }
-
-    const finalReason = additionalNote.trim()
-      ? `${reason} - ${additionalNote.trim()}`
-      : reason;
-
-    setLoading(true);
-    try {
-      const result = await givePoints(selectedStudent, pointType, pointAmount, finalReason);
-      if (result.success) {
-        showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
-        resetForm();
-        await refreshData();
-      }
-    } catch (error) {
-      console.error('Failed to give points:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 프리셋으로 빠른 부여
-  const handleQuickGive = async (studentId: string, type: 'reward' | 'penalty', presetAmount: number, presetReason: string) => {
-    if (presetAmount === 999) {
-      alert('이 항목은 제적 사유입니다. 별도로 처리해주세요.');
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const result = await givePoints(studentId, type, presetAmount, presetReason);
-      if (result.success) {
-        showSuccess(`${type === 'reward' ? '상점' : '벌점'} ${presetAmount}점 부여 완료`);
-        await refreshData();
-      }
-    } catch (error) {
-      console.error('Failed to give points:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // ── 부여 폼 ─────────────────────────────────────────────
   const filteredStudentsForSearch = studentSearchText
-    ? students.filter(s =>
-        s.name.toLowerCase().includes(studentSearchText.toLowerCase()) ||
-        String(s.seatNumber || '').includes(studentSearchText)
+    ? students.filter(
+        (s) =>
+          s.name.toLowerCase().includes(studentSearchText.toLowerCase()) ||
+          String(s.seatNumber || '').includes(studentSearchText),
       )
     : students;
 
-  const handleSelectStudent = (studentId: string) => {
+  function handleSelectStudent(studentId: string) {
     setSelectedStudent(studentId);
-    const student = students.find(s => s.id === studentId);
+    const student = students.find((s) => s.id === studentId);
     setStudentSearchText(student ? `${student.seatNumber || '-'}번 ${student.name}` : '');
     setShowStudentDropdown(false);
-  };
+  }
 
-  const resetForm = () => {
+  function resetForm() {
     setShowAddForm(false);
     setSelectedStudent('');
     setStudentSearchText('');
@@ -289,110 +231,162 @@ export function PointsClient({
     setAmount('1');
     setReason('');
     setAdditionalNote('');
-  };
+  }
 
-  const showSuccess = (message: string) => {
+  function showSuccess(message: string) {
     setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(null), 2000);
-  };
+  }
 
-  const refreshData = async () => {
+  async function handleSubmit() {
+    if (!selectedStudent || !amount || !reason) {
+      alert('모든 필드를 입력해주세요.');
+      return;
+    }
+    const pointAmount = parseInt(amount);
+    if (isNaN(pointAmount) || pointAmount < 1) {
+      alert('올바른 점수를 입력해주세요.');
+      return;
+    }
+    const finalReason = additionalNote.trim() ? `${reason} - ${additionalNote.trim()}` : reason;
     setLoading(true);
     try {
-      const [newOverview, newHistory] = await Promise.all([
-        getPointsOverview(branchId),
-        getAllPointsHistory(undefined, undefined, branchId), // 전체 내역 가져오기
-      ]);
-      setOverview(newOverview);
-      setHistory(newHistory);
-    } catch (error) {
-      console.error('Failed to refresh:', error);
+      const result = await givePoints(selectedStudent, pointType, pointAmount, finalReason);
+      if (result.success) {
+        showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
+        resetForm();
+        refreshData();
+      }
+    } catch (e) {
+      console.error('Failed to give points:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // 상벌점 내역 삭제
-  const handleDeletePoint = async (pointId: string) => {
+  async function handleQuickGive(
+    studentId: string,
+    type: 'reward' | 'penalty',
+    presetAmount: number,
+    presetReason: string,
+  ) {
+    if (presetAmount === 999) {
+      alert('이 항목은 제적 사유입니다. 별도로 처리해주세요.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await givePoints(studentId, type, presetAmount, presetReason);
+      if (result.success) {
+        showSuccess(`${type === 'reward' ? '상점' : '벌점'} ${presetAmount}점 부여 완료`);
+        refreshData();
+      }
+    } catch (e) {
+      console.error('Failed to give points:', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── 단건 삭제 ───────────────────────────────────────────
+  async function handleDeletePoint(pointId: string) {
     setLoading(true);
     try {
       const result = await deletePoint(pointId);
       if (result.success) {
         showSuccess('상벌점 내역이 삭제되었습니다. 점수가 원상복구됩니다.');
         setDeleteConfirmId(null);
-        await refreshData();
+        refreshData();
       } else {
         alert(result.error || '삭제에 실패했습니다.');
       }
-    } catch (error) {
-      console.error('Failed to delete point:', error);
+    } catch (e) {
+      console.error('Failed to delete point:', e);
       alert('삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // 다중 선택 토글
-  const toggleSelectPoint = (pointId: string) => {
-    setSelectedPointIds(prev => {
+  // ── 다중 선택 (현재 페이지) ─────────────────────────────
+  function toggleSelectPoint(pointId: string) {
+    setSelectedPointIds((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(pointId)) {
-        newSet.delete(pointId);
-      } else {
-        newSet.add(pointId);
-      }
+      if (newSet.has(pointId)) newSet.delete(pointId);
+      else newSet.add(pointId);
       return newSet;
     });
-  };
+  }
 
-  // 전체 선택/해제
-  const toggleSelectAll = () => {
-    if (selectedPointIds.size === filteredHistory.length) {
+  function toggleSelectAllOnPage() {
+    if (selectedPointIds.size === history.length) {
       setSelectedPointIds(new Set());
     } else {
-      setSelectedPointIds(new Set(filteredHistory.map(h => h.id)));
+      setSelectedPointIds(new Set(history.map((h) => h.id)));
     }
-  };
+  }
 
-  // 선택 모드 종료
-  const exitSelectMode = () => {
+  function exitSelectMode() {
     setIsSelectMode(false);
     setSelectedPointIds(new Set());
     setShowBulkDeleteConfirm(false);
-  };
+    setShowFilterDeleteConfirm(false);
+  }
 
-  // 일괄 삭제
-  const handleBulkDelete = async () => {
+  async function handleBulkDelete() {
     if (selectedPointIds.size === 0) {
       alert('삭제할 내역을 선택해주세요.');
       return;
     }
-
     setLoading(true);
     try {
       const result = await deletePoints(Array.from(selectedPointIds));
       if (result.success) {
         showSuccess(`${result.deletedCount}건의 상벌점 내역이 삭제되었습니다.`);
         exitSelectMode();
-        await refreshData();
+        refreshData();
       } else {
         alert(result.error || '삭제에 실패했습니다.');
       }
-    } catch (error) {
-      console.error('Failed to delete points:', error);
+    } catch (e) {
+      console.error('Failed to delete points:', e);
       alert('삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
       setShowBulkDeleteConfirm(false);
     }
-  };
+  }
 
-  // 상점 프리셋 추가
-  const handleAddRewardPreset = async () => {
-    if (!branchId) {
-      alert('지점 정보가 없습니다.');
-      return;
+  // ── 필터 결과 전체 삭제 ────────────────────────────────
+  async function handleFilterDelete() {
+    setLoading(true);
+    try {
+      const result = await deletePointsByFilter({
+        type:
+          historyTypeFilter === 'reward' || historyTypeFilter === 'penalty'
+            ? historyTypeFilter
+            : undefined,
+        studentId: historyStudentFilter || undefined,
+        q: historyQ || undefined,
+      });
+      if (result.success) {
+        showSuccess(`${result.deletedCount}건이 삭제되었습니다.`);
+        exitSelectMode();
+        refreshData();
+      } else {
+        alert(result.error || '삭제에 실패했습니다.');
+      }
+    } catch (e) {
+      console.error('Failed to delete by filter:', e);
+      alert('삭제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+      setShowFilterDeleteConfirm(false);
     }
+  }
+
+  // ── 프리셋 ──────────────────────────────────────────────
+  async function handleAddRewardPreset() {
     const presetAmount = parseInt(newRewardAmount);
     if (isNaN(presetAmount) || presetAmount < 1) {
       alert('올바른 점수를 입력하세요.');
@@ -402,7 +396,6 @@ export function PointsClient({
       alert('사유를 입력하세요.');
       return;
     }
-
     setLoading(true);
     const result = await createRewardPreset(branchId, presetAmount, newRewardReason.trim());
     if (result.success) {
@@ -415,26 +408,20 @@ export function PointsClient({
       alert(result.error);
     }
     setLoading(false);
-  };
+  }
 
-  // 상점 프리셋 삭제
-  const handleDeleteRewardPreset = async (id: string) => {
+  async function handleDeleteRewardPreset(id: string) {
     setLoading(true);
     const result = await deleteRewardPreset(id);
-    if (result.success && branchId) {
+    if (result.success) {
       const presets = await getRewardPresets(branchId);
       setRewardPresets(presets);
       showSuccess('상점 규정 삭제 완료');
     }
     setLoading(false);
-  };
+  }
 
-  // 벌점 프리셋 추가
-  const handleAddPenaltyPreset = async () => {
-    if (!branchId) {
-      alert('지점 정보가 없습니다.');
-      return;
-    }
+  async function handleAddPenaltyPreset() {
     const presetAmount = parseInt(newPenaltyAmount);
     if (isNaN(presetAmount) || presetAmount < 1) {
       alert('올바른 점수를 입력하세요.');
@@ -444,7 +431,6 @@ export function PointsClient({
       alert('사유를 입력하세요.');
       return;
     }
-
     setLoading(true);
     const result = await createPenaltyPreset(branchId, presetAmount, newPenaltyReason.trim());
     if (result.success) {
@@ -457,21 +443,20 @@ export function PointsClient({
       alert(result.error);
     }
     setLoading(false);
-  };
+  }
 
-  // 벌점 프리셋 삭제
-  const handleDeletePenaltyPreset = async (id: string) => {
+  async function handleDeletePenaltyPreset(id: string) {
     setLoading(true);
     const result = await deletePenaltyPreset(id);
-    if (result.success && branchId) {
+    if (result.success) {
       const presets = await getPenaltyPresets(branchId);
       setPenaltyPresets(presets);
       showSuccess('벌점 규정 삭제 완료');
     }
     setLoading(false);
-  };
+  }
 
-  const formatDate = (dateStr: string) => {
+  function formatDate(dateStr: string) {
     const date = new Date(dateStr);
     return date.toLocaleDateString('ko-KR', {
       timeZone: 'Asia/Seoul',
@@ -480,11 +465,10 @@ export function PointsClient({
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
+  }
 
-  // 학생 행에서 직접 상벌점 부여 폼 열기
-  const handleOpenFormForStudent = (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
+  function handleOpenFormForStudent(studentId: string) {
+    const student = students.find((s) => s.id === studentId);
     setSelectedStudent(studentId);
     setStudentSearchText(student ? `${student.seatNumber || '-'}번 ${student.name}` : '');
     setPointType('reward');
@@ -492,14 +476,10 @@ export function PointsClient({
     setReason('');
     setAdditionalNote('');
     setShowAddForm(true);
-    // 폼이 보이도록 스크롤
-    setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 50);
-  };
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+  }
 
-  // 학생 행 클릭 시 상벌점 내역 아코디언 토글
-  const handleToggleStudentHistory = async (studentId: string) => {
+  async function handleToggleStudentHistory(studentId: string) {
     if (expandedStudentId === studentId) {
       setExpandedStudentId(null);
       return;
@@ -508,35 +488,42 @@ export function PointsClient({
     setExpandedHistoryPage(0);
     setExpandedLoading(true);
     try {
-      const studentHistory = await getAllPointsHistory(undefined, studentId, branchId);
-      setExpandedHistory(studentHistory);
-    } catch (error) {
-      console.error('Failed to load student history:', error);
+      const result = await getAllPointsHistory({
+        branchId,
+        page: 1,
+        pageSize: 100,
+        sort: 'created_at',
+        dir: 'desc',
+        studentId,
+      });
+      setExpandedHistory(result.rows);
+    } catch (e) {
+      console.error('Failed to load student history:', e);
       setExpandedHistory([]);
     } finally {
       setExpandedLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
+      <div className='flex items-center justify-between'>
         <div>
-          <h1 className="text-2xl font-bold">상벌점 관리</h1>
-          <p className="text-text-muted mt-1">학생들의 상점과 벌점을 관리하세요</p>
+          <h1 className='text-2xl font-bold'>상벌점 관리</h1>
+          <p className='text-text-muted mt-1'>학생들의 상점과 벌점을 관리하세요</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowPresetManager(!showPresetManager)}>
-            <Settings className="w-4 h-4 mr-2" />
+        <div className='flex gap-2'>
+          <Button variant='outline' onClick={() => setShowPresetManager(!showPresetManager)}>
+            <Settings className='mr-2 h-4 w-4' />
             규정 관리
           </Button>
-          <Button variant="outline" onClick={refreshData} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant='outline' onClick={refreshData} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             새로고침
           </Button>
           <Button onClick={() => setShowAddForm(true)}>
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className='mr-2 h-4 w-4' />
             상벌점 부여
           </Button>
         </div>
@@ -544,162 +531,148 @@ export function PointsClient({
 
       {/* 성공 메시지 */}
       {successMessage && (
-        <div className="fixed top-4 right-4 bg-green-100 text-green-800 px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 animate-in slide-in-from-top z-50">
-          <Check className="w-4 h-4" />
+        <div className='animate-in slide-in-from-top fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-green-100 px-4 py-2 text-green-800 shadow-lg'>
+          <Check className='h-4 w-4' />
           {successMessage}
         </div>
       )}
 
       {/* 규정 관리 패널 */}
       {showPresetManager && (
-        <Card className="p-4 bg-gray-50 border-2 border-dashed">
-          <h3 className="font-semibold mb-4 flex items-center gap-2">
-            <Settings className="w-4 h-4" />
+        <Card className='border-2 border-dashed bg-gray-50 p-4'>
+          <h3 className='mb-4 flex items-center gap-2 font-semibold'>
+            <Settings className='h-4 w-4' />
             상벌점 규정 관리
           </h3>
-          
-          <div className="grid grid-cols-2 gap-6">
-            {/* 상점 규정 관리 */}
+          <div className='grid grid-cols-2 gap-6'>
             <div>
-              <p className="text-sm font-medium text-green-700 mb-2">상점 규정</p>
-              <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+              <p className='mb-2 text-sm font-medium text-green-700'>상점 규정</p>
+              <div className='mb-3 max-h-48 space-y-2 overflow-y-auto'>
                 {rewardPresets.map((preset) => (
                   <div
                     key={preset.id}
-                    className="flex items-center justify-between bg-white p-2 rounded-lg border"
+                    className='flex items-center justify-between rounded-lg border bg-white p-2'
                   >
-                    <span className="text-sm">{preset.reason}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-600 font-semibold">+{preset.amount}점</span>
+                    <span className='text-sm'>{preset.reason}</span>
+                    <div className='flex items-center gap-2'>
+                      <span className='font-semibold text-green-600'>+{preset.amount}점</span>
                       <button
                         onClick={() => handleDeleteRewardPreset(preset.id)}
-                        className="text-gray-400 hover:text-red-500"
+                        className='text-gray-400 hover:text-red-500'
                       >
-                        <X className="w-4 h-4" />
+                        <X className='h-4 w-4' />
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className='flex gap-2'>
                 <Input
-                  type="number"
-                  min="1"
-                  placeholder="점수"
+                  type='number'
+                  min='1'
+                  placeholder='점수'
                   value={newRewardAmount}
                   onChange={(e) => setNewRewardAmount(e.target.value)}
-                  className="w-20"
+                  className='w-20'
                 />
                 <Input
-                  placeholder="규정 사유"
+                  placeholder='규정 사유'
                   value={newRewardReason}
                   onChange={(e) => setNewRewardReason(e.target.value)}
-                  className="flex-1"
+                  className='flex-1'
                 />
-                <Button size="sm" onClick={handleAddRewardPreset} disabled={loading}>
-                  <Plus className="w-4 h-4" />
+                <Button size='sm' onClick={handleAddRewardPreset} disabled={loading}>
+                  <Plus className='h-4 w-4' />
                 </Button>
               </div>
             </div>
 
-            {/* 벌점 규정 관리 */}
             <div>
-              <p className="text-sm font-medium text-red-700 mb-2">벌점 규정</p>
-              <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+              <p className='mb-2 text-sm font-medium text-red-700'>벌점 규정</p>
+              <div className='mb-3 max-h-48 space-y-2 overflow-y-auto'>
                 {penaltyPresets.map((preset) => (
                   <div
                     key={preset.id}
-                    className="flex items-center justify-between bg-white p-2 rounded-lg border"
+                    className='flex items-center justify-between rounded-lg border bg-white p-2'
                   >
-                    <span className="text-sm">{preset.reason}</span>
-                    <div className="flex items-center gap-2">
+                    <span className='text-sm'>{preset.reason}</span>
+                    <div className='flex items-center gap-2'>
                       {preset.amount === 999 ? (
-                        <span className="text-gray-800 font-semibold text-xs">이유 불문 제적</span>
+                        <span className='text-xs font-semibold text-gray-800'>이유 불문 제적</span>
                       ) : (
-                        <span className="text-red-500 font-semibold">-{preset.amount}점</span>
+                        <span className='font-semibold text-red-500'>-{preset.amount}점</span>
                       )}
                       <button
                         onClick={() => handleDeletePenaltyPreset(preset.id)}
-                        className="text-gray-400 hover:text-red-500"
+                        className='text-gray-400 hover:text-red-500'
                       >
-                        <X className="w-4 h-4" />
+                        <X className='h-4 w-4' />
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className='flex gap-2'>
                 <Input
-                  type="number"
-                  min="1"
-                  placeholder="점수"
+                  type='number'
+                  min='1'
+                  placeholder='점수'
                   value={newPenaltyAmount}
                   onChange={(e) => setNewPenaltyAmount(e.target.value)}
-                  className="w-20"
+                  className='w-20'
                 />
                 <Input
-                  placeholder="규정 사유"
+                  placeholder='규정 사유'
                   value={newPenaltyReason}
                   onChange={(e) => setNewPenaltyReason(e.target.value)}
-                  className="flex-1"
+                  className='flex-1'
                 />
-                <Button size="sm" onClick={handleAddPenaltyPreset} disabled={loading}>
-                  <Plus className="w-4 h-4" />
+                <Button size='sm' onClick={handleAddPenaltyPreset} disabled={loading}>
+                  <Plus className='h-4 w-4' />
                 </Button>
               </div>
-              <p className="text-xs text-gray-500 mt-2">* 제적 항목은 점수를 999로 입력하세요</p>
+              <p className='mt-2 text-xs text-gray-500'>* 제적 항목은 점수를 999로 입력하세요</p>
             </div>
           </div>
         </Card>
       )}
 
-      {/* 탭 버튼 */}
-      <div className="flex gap-2 border-b pb-2">
-        <Button
-          variant={activeTab === 'overview' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('overview')}
-        >
-          <User className="w-4 h-4 mr-2" />
-          학생별 현황
-        </Button>
-        <Button
-          variant={activeTab === 'history' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('history')}
-        >
-          <Award className="w-4 h-4 mr-2" />
-          상벌점 내역
-        </Button>
-        <Button
-          variant={activeTab === 'rules' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('rules')}
-        >
-          <BookOpen className="w-4 h-4 mr-2" />
-          상벌점 규정
-        </Button>
-      </div>
+      {/* 탭 */}
+      <Tabs
+        items={[
+          { value: 'overview', label: '학생별 현황' },
+          { value: 'history', label: '상벌점 내역' },
+          { value: 'rules', label: '상벌점 규정' },
+        ]}
+        activeValue={activeTab}
+        pathname={pathname}
+        searchParams={new URLSearchParams(sp.toString())}
+      />
 
       {/* 상벌점 부여 폼 */}
       {showAddForm && (
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">상벌점 부여</h2>
-            <button onClick={resetForm} className="text-text-muted hover:text-text">
-              <X className="w-5 h-5" />
+        <Card className='p-6'>
+          <div className='mb-4 flex items-center justify-between'>
+            <h2 className='text-lg font-semibold'>상벌점 부여</h2>
+            <button onClick={resetForm} className='text-text-muted hover:text-text'>
+              <X className='h-5 w-5' />
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
             {/* 학생 검색 */}
             <div>
-              <label className="block text-sm font-medium mb-2">학생</label>
-              <div className="relative">
-                <div className={cn(
-                  'flex items-center border border-gray-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/50',
-                  selectedStudent && 'border-primary/50 bg-primary/5'
-                )}>
-                  <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+              <label className='mb-2 block text-sm font-medium'>학생</label>
+              <div className='relative'>
+                <div
+                  className={cn(
+                    'focus-within:ring-primary/50 flex items-center rounded-xl border border-gray-200 px-3 py-2 focus-within:ring-2',
+                    selectedStudent && 'border-primary/50 bg-primary/5',
+                  )}
+                >
+                  <Search className='mr-2 h-4 w-4 flex-shrink-0 text-gray-400' />
                   <input
-                    type="text"
+                    type='text'
                     value={studentSearchText}
                     onChange={(e) => {
                       setStudentSearchText(e.target.value);
@@ -708,36 +681,41 @@ export function PointsClient({
                     }}
                     onFocus={() => setShowStudentDropdown(true)}
                     onBlur={() => setTimeout(() => setShowStudentDropdown(false), 150)}
-                    placeholder="이름 또는 좌석번호..."
-                    className="flex-1 outline-none text-sm bg-transparent"
+                    placeholder='이름 또는 좌석번호...'
+                    className='flex-1 bg-transparent text-sm outline-none'
                   />
                   {studentSearchText && (
                     <button
-                      type="button"
-                      onClick={() => { setStudentSearchText(''); setSelectedStudent(''); }}
-                      className="text-gray-400 hover:text-gray-600"
+                      type='button'
+                      onClick={() => {
+                        setStudentSearchText('');
+                        setSelectedStudent('');
+                      }}
+                      className='text-gray-400 hover:text-gray-600'
                     >
-                      <X className="w-4 h-4" />
+                      <X className='h-4 w-4' />
                     </button>
                   )}
                 </div>
                 {showStudentDropdown && (
-                  <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-52 overflow-y-auto">
+                  <div className='absolute top-full z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg'>
                     {filteredStudentsForSearch.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-gray-500">검색 결과 없음</div>
+                      <div className='px-4 py-3 text-sm text-gray-500'>검색 결과 없음</div>
                     ) : (
                       filteredStudentsForSearch.map((student) => (
                         <button
                           key={student.id}
-                          type="button"
+                          type='button'
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => handleSelectStudent(student.id)}
                           className={cn(
-                            'w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition-colors',
-                            selectedStudent === student.id && 'bg-primary/10'
+                            'w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-50',
+                            selectedStudent === student.id && 'bg-primary/10',
                           )}
                         >
-                          <span className="font-semibold text-primary">{student.seatNumber || '-'}번</span>{' '}
+                          <span className='text-primary font-semibold'>
+                            {student.seatNumber || '-'}번
+                          </span>{' '}
                           {student.name}
                         </button>
                       ))
@@ -749,13 +727,13 @@ export function PointsClient({
 
             {/* 유형 선택 */}
             <div>
-              <label className="block text-sm font-medium mb-2">유형</label>
-              <div className="flex gap-2">
+              <label className='mb-2 block text-sm font-medium'>유형</label>
+              <div className='flex gap-2'>
                 <Button
                   variant={pointType === 'reward' ? 'default' : 'outline'}
                   className={cn(
                     'flex-1',
-                    pointType === 'reward' && 'bg-green-600 hover:bg-green-700'
+                    pointType === 'reward' && 'bg-green-600 hover:bg-green-700',
                   )}
                   onClick={() => {
                     setPointType('reward');
@@ -763,22 +741,19 @@ export function PointsClient({
                     setAmount('1');
                   }}
                 >
-                  <Plus className="w-4 h-4 mr-1" />
+                  <Plus className='mr-1 h-4 w-4' />
                   상점
                 </Button>
                 <Button
                   variant={pointType === 'penalty' ? 'default' : 'outline'}
-                  className={cn(
-                    'flex-1',
-                    pointType === 'penalty' && 'bg-red-600 hover:bg-red-700'
-                  )}
+                  className={cn('flex-1', pointType === 'penalty' && 'bg-red-600 hover:bg-red-700')}
                   onClick={() => {
                     setPointType('penalty');
                     setReason('');
                     setAmount('1');
                   }}
                 >
-                  <Minus className="w-4 h-4 mr-1" />
+                  <Minus className='mr-1 h-4 w-4' />
                   벌점
                 </Button>
               </div>
@@ -786,19 +761,19 @@ export function PointsClient({
 
             {/* 점수 */}
             <div>
-              <label className="block text-sm font-medium mb-2">점수</label>
+              <label className='mb-2 block text-sm font-medium'>점수</label>
               <Input
-                type="number"
-                min="1"
+                type='number'
+                min='1'
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="점수"
+                placeholder='점수'
               />
             </div>
 
             {/* 사유 선택 */}
             <div>
-              <label className="block text-sm font-medium mb-2">사유</label>
+              <label className='mb-2 block text-sm font-medium'>사유</label>
               <select
                 value={reason}
                 onChange={(e) => {
@@ -806,14 +781,14 @@ export function PointsClient({
                   setReason(selectedValue);
                   setAdditionalNote('');
                   const presets = pointType === 'reward' ? rewardPresets : penaltyPresets;
-                  const selectedPreset = presets.find(p => p.reason === selectedValue);
+                  const selectedPreset = presets.find((p) => p.reason === selectedValue);
                   if (selectedPreset && selectedPreset.amount !== 999) {
                     setAmount(selectedPreset.amount.toString());
                   }
                 }}
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className='focus:ring-primary/50 w-full rounded-xl border border-gray-200 px-4 py-2 focus:ring-2 focus:outline-none'
               >
-                <option value="">사유를 선택하세요</option>
+                <option value=''>사유를 선택하세요</option>
                 {(pointType === 'reward' ? rewardPresets : penaltyPresets).map((preset) => (
                   <option key={preset.id} value={preset.reason}>
                     {preset.reason} ({preset.amount === 999 ? '제적' : `${preset.amount}점`})
@@ -823,28 +798,22 @@ export function PointsClient({
             </div>
           </div>
 
-          {/* 세부 내용 추가 입력 */}
           {reason && (
-            <div className="mt-3">
-              <label className="block text-sm font-medium mb-2">
+            <div className='mt-3'>
+              <label className='mb-2 block text-sm font-medium'>
                 세부 내용
-                <span className="text-gray-400 font-normal ml-1">(선택 사항)</span>
+                <span className='ml-1 font-normal text-gray-400'>(선택 사항)</span>
               </label>
               <Input
                 value={additionalNote}
                 onChange={(e) => setAdditionalNote(e.target.value)}
                 placeholder={`예: ${reason}에 대한 구체적인 내용을 입력하세요`}
               />
-              {additionalNote && (
-                <p className="text-xs text-gray-500 mt-1">
-                  최종 사유: <span className="font-medium text-gray-700">{reason} - {additionalNote}</span>
-                </p>
-              )}
             </div>
           )}
 
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={resetForm}>
+          <div className='mt-4 flex justify-end gap-2'>
+            <Button variant='outline' onClick={resetForm}>
               취소
             </Button>
             <Button onClick={handleSubmit} disabled={loading}>
@@ -856,196 +825,217 @@ export function PointsClient({
 
       {/* 학생별 현황 탭 */}
       {activeTab === 'overview' && (
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Award className="w-5 h-5 text-primary" />
+        <Card className='p-6'>
+          <h2 className='mb-4 flex items-center gap-2 text-lg font-semibold'>
+            <Award className='text-primary h-5 w-5' />
             학생별 상벌점 현황
           </h2>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
+          <div className='overflow-x-auto'>
+            <table className='w-full'>
+              <thead className='border-b border-gray-100 bg-gray-50'>
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted w-8"></th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">
+                  <th className='text-text-muted w-8 px-4 py-3 text-left text-sm font-medium'></th>
+                  <th className='text-text-muted px-4 py-3 text-left text-sm font-medium'>
                     <button
                       onClick={() => handleOverviewSort('seatNumber')}
-                      className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+                      className='flex items-center gap-1 hover:text-gray-700'
                     >
                       좌석
-                      <SortIcon sortKey="seatNumber" current={overviewSortKey} dir={overviewSortDir} />
+                      <SortIcon
+                        sortKey='seatNumber'
+                        current={overviewSortKey}
+                        dir={overviewSortDir}
+                      />
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-text-muted">
+                  <th className='text-text-muted px-4 py-3 text-left text-sm font-medium'>
                     <button
                       onClick={() => handleOverviewSort('name')}
-                      className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+                      className='flex items-center gap-1 hover:text-gray-700'
                     >
                       이름
-                      <SortIcon sortKey="name" current={overviewSortKey} dir={overviewSortDir} />
+                      <SortIcon sortKey='name' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-green-600">
+                  <th className='px-4 py-3 text-center text-sm font-medium text-green-600'>
                     <button
                       onClick={() => handleOverviewSort('reward')}
-                      className="flex items-center justify-center gap-1 w-full hover:text-green-800 transition-colors"
+                      className='flex w-full items-center justify-center gap-1 hover:text-green-800'
                     >
                       상점
-                      <SortIcon sortKey="reward" current={overviewSortKey} dir={overviewSortDir} />
+                      <SortIcon sortKey='reward' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-red-500">
+                  <th className='px-4 py-3 text-center text-sm font-medium text-red-500'>
                     <button
                       onClick={() => handleOverviewSort('penalty')}
-                      className="flex items-center justify-center gap-1 w-full hover:text-red-700 transition-colors"
+                      className='flex w-full items-center justify-center gap-1 hover:text-red-700'
                     >
                       벌점
-                      <SortIcon sortKey="penalty" current={overviewSortKey} dir={overviewSortDir} />
+                      <SortIcon sortKey='penalty' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">
+                  <th className='text-text-muted px-4 py-3 text-center text-sm font-medium'>
                     <button
                       onClick={() => handleOverviewSort('total')}
-                      className="flex items-center justify-center gap-1 w-full hover:text-gray-700 transition-colors"
+                      className='flex w-full items-center justify-center gap-1 hover:text-gray-700'
                     >
                       합계
-                      <SortIcon sortKey="total" current={overviewSortKey} dir={overviewSortDir} />
+                      <SortIcon sortKey='total' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-text-muted">액션</th>
+                  <th className='text-text-muted px-4 py-3 text-center text-sm font-medium'>
+                    액션
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className='divide-y divide-gray-100'>
                 {overview.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-text-muted">
+                    <td colSpan={7} className='text-text-muted px-4 py-8 text-center'>
                       등록된 학생이 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  sortedOverview.map((student) => {
+                  sortedOverview
+                    .slice(
+                      (overviewPageNum - 1) * OVERVIEW_PAGE_SIZE,
+                      overviewPageNum * OVERVIEW_PAGE_SIZE,
+                    )
+                    .map((student) => {
                     const isExpanded = expandedStudentId === student.id;
                     const PAGE_SIZE = 5;
                     const totalPages = Math.ceil(expandedHistory.length / PAGE_SIZE);
                     const pagedHistory = expandedHistory.slice(
                       expandedHistoryPage * PAGE_SIZE,
-                      (expandedHistoryPage + 1) * PAGE_SIZE
+                      (expandedHistoryPage + 1) * PAGE_SIZE,
                     );
 
                     return (
                       <Fragment key={student.id}>
                         <tr
-                          className="hover:bg-gray-50 cursor-pointer select-none"
+                          className='cursor-pointer select-none hover:bg-gray-50'
                           onClick={() => handleToggleStudentHistory(student.id)}
                         >
-                          <td className="px-4 py-3 text-text-muted">
+                          <td className='text-text-muted px-4 py-3'>
                             {isExpanded ? (
-                              <ChevronUp className="w-4 h-4" />
+                              <ChevronUp className='h-4 w-4' />
                             ) : (
-                              <ChevronDown className="w-4 h-4" />
+                              <ChevronDown className='h-4 w-4' />
                             )}
                           </td>
-                          <td className="px-4 py-3">
-                            <span className="font-medium text-primary">{student.seatNumber || '-'}</span>
+                          <td className='px-4 py-3'>
+                            <span className='text-primary font-medium'>
+                              {student.seatNumber || '-'}
+                            </span>
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                <User className="w-4 h-4 text-primary" />
+                          <td className='px-4 py-3'>
+                            <div className='flex items-center gap-2'>
+                              <div className='bg-primary/10 flex h-8 w-8 items-center justify-center rounded-full'>
+                                <User className='text-primary h-4 w-4' />
                               </div>
                               <span>{student.name}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="text-green-600 font-medium">+{student.reward}</span>
+                          <td className='px-4 py-3 text-center'>
+                            <span className='font-medium text-green-600'>+{student.reward}</span>
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="text-red-500 font-medium">-{student.penalty}</span>
+                          <td className='px-4 py-3 text-center'>
+                            <span className='font-medium text-red-500'>-{student.penalty}</span>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className='px-4 py-3 text-center'>
                             <span
                               className={cn(
                                 'font-semibold',
-                                student.total >= 0 ? 'text-green-600' : 'text-red-500'
+                                student.total >= 0 ? 'text-green-600' : 'text-red-500',
                               )}
                             >
-                              {student.total >= 0 ? '+' : ''}{student.total}
+                              {student.total >= 0 ? '+' : ''}
+                              {student.total}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className='px-4 py-3 text-center'>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleOpenFormForStudent(student.id);
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors"
+                              className='text-primary border-primary/30 hover:bg-primary/10 inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors'
                             >
-                              <Plus className="w-3 h-3" />
+                              <Plus className='h-3 w-3' />
                               부여
                             </button>
                           </td>
                         </tr>
 
-                        {/* 아코디언 펼침 영역 */}
                         {isExpanded && (
                           <tr key={`${student.id}-expanded`}>
-                            <td colSpan={7} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
-                              <div className="px-6 py-4">
+                            <td
+                              colSpan={7}
+                              className='border-b border-gray-200 bg-gray-50 px-0 py-0'
+                            >
+                              <div className='px-6 py-4'>
                                 {expandedLoading ? (
-                                  <div className="flex items-center justify-center py-6 text-text-muted text-sm gap-2">
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                  <div className='text-text-muted flex items-center justify-center gap-2 py-6 text-sm'>
+                                    <RefreshCw className='h-4 w-4 animate-spin' />
                                     불러오는 중...
                                   </div>
                                 ) : expandedHistory.length === 0 ? (
-                                  <p className="text-center text-text-muted text-sm py-4">
+                                  <p className='text-text-muted py-4 text-center text-sm'>
                                     상벌점 내역이 없습니다.
                                   </p>
                                 ) : (
                                   <>
-                                    <div className="space-y-2 mb-3">
+                                    <div className='mb-3 space-y-2'>
                                       {pagedHistory.map((item) => (
                                         <div
                                           key={item.id}
                                           className={cn(
-                                            'flex items-center justify-between px-4 py-2.5 rounded-lg border-l-4 text-sm',
+                                            'flex items-center justify-between rounded-lg border-l-4 px-4 py-2.5 text-sm',
                                             item.type === 'reward'
-                                              ? 'bg-green-50 border-green-400'
-                                              : 'bg-red-50 border-red-400'
+                                              ? 'border-green-400 bg-green-50'
+                                              : 'border-red-400 bg-red-50',
                                           )}
                                         >
-                                          <div className="flex items-center gap-3">
+                                          <div className='flex items-center gap-3'>
                                             <div
                                               className={cn(
-                                                'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0',
-                                                item.type === 'reward' ? 'bg-green-100' : 'bg-red-100'
+                                                'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full',
+                                                item.type === 'reward'
+                                                  ? 'bg-green-100'
+                                                  : 'bg-red-100',
                                               )}
                                             >
                                               {item.type === 'reward' ? (
-                                                <Plus className="w-3 h-3 text-green-600" />
+                                                <Plus className='h-3 w-3 text-green-600' />
                                               ) : (
-                                                <Minus className="w-3 h-3 text-red-500" />
+                                                <Minus className='h-3 w-3 text-red-500' />
                                               )}
                                             </div>
                                             <div>
-                                              <div className="flex items-center gap-2">
+                                              <div className='flex items-center gap-2'>
                                                 <span
                                                   className={cn(
                                                     'font-semibold',
-                                                    item.type === 'reward' ? 'text-green-700' : 'text-red-600'
+                                                    item.type === 'reward'
+                                                      ? 'text-green-700'
+                                                      : 'text-red-600',
                                                   )}
                                                 >
-                                                  {item.type === 'reward' ? '+' : '-'}{item.amount}점
+                                                  {item.type === 'reward' ? '+' : '-'}
+                                                  {item.amount}점
                                                 </span>
-                                                <span className="text-gray-700">{item.reason}</span>
+                                                <span className='text-gray-700'>{item.reason}</span>
                                                 {item.is_auto && (
-                                                  <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">
+                                                  <span className='rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500'>
                                                     자동
                                                   </span>
                                                 )}
                                               </div>
                                             </div>
                                           </div>
-                                          <div className="text-right text-xs text-text-muted flex-shrink-0 ml-4">
+                                          <div className='text-text-muted ml-4 flex-shrink-0 text-right text-xs'>
                                             <p>{formatDate(item.created_at)}</p>
                                             <p>by {item.adminName}</p>
                                           </div>
@@ -1053,31 +1043,32 @@ export function PointsClient({
                                       ))}
                                     </div>
 
-                                    {/* 페이지네이션 */}
                                     {totalPages > 1 && (
-                                      <div className="flex items-center justify-center gap-3 mt-2">
+                                      <div className='mt-2 flex items-center justify-center gap-3'>
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setExpandedHistoryPage(p => Math.max(0, p - 1));
+                                            setExpandedHistoryPage((p) => Math.max(0, p - 1));
                                           }}
                                           disabled={expandedHistoryPage === 0}
-                                          className="p-1 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                          className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
                                         >
-                                          <ChevronLeft className="w-4 h-4" />
+                                          <ChevronLeft className='h-4 w-4' />
                                         </button>
-                                        <span className="text-xs text-text-muted">
+                                        <span className='text-text-muted text-xs'>
                                           {expandedHistoryPage + 1} / {totalPages}
                                         </span>
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setExpandedHistoryPage(p => Math.min(totalPages - 1, p + 1));
+                                            setExpandedHistoryPage((p) =>
+                                              Math.min(totalPages - 1, p + 1),
+                                            );
                                           }}
                                           disabled={expandedHistoryPage >= totalPages - 1}
-                                          className="p-1 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                          className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
                                         >
-                                          <ChevronRight className="w-4 h-4" />
+                                          <ChevronRight className='h-4 w-4' />
                                         </button>
                                       </div>
                                     )}
@@ -1094,168 +1085,187 @@ export function PointsClient({
               </tbody>
             </table>
           </div>
+
+          <div className='mt-4 flex justify-center'>
+            <Pagination
+              total={sortedOverview.length}
+              page={Math.min(
+                overviewPageNum,
+                Math.max(1, Math.ceil(sortedOverview.length / OVERVIEW_PAGE_SIZE)),
+              )}
+              pageSize={OVERVIEW_PAGE_SIZE}
+              pathname={pathname}
+              searchParams={new URLSearchParams(sp.toString())}
+            />
+          </div>
         </Card>
       )}
 
       {/* 상벌점 내역 탭 */}
       {activeTab === 'history' && (
-        <Card className="p-6">
-          <div className="flex flex-col gap-4 mb-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">상벌점 내역</h2>
-              <div className="flex gap-2">
+        <Card className='p-6'>
+          <div className='mb-4 flex flex-col gap-4'>
+            <div className='flex items-center justify-between'>
+              <h2 className='text-lg font-semibold'>상벌점 내역 ({historyTotal}건)</h2>
+              <div className='flex gap-2'>
                 {!isSelectMode ? (
-                  <>
-                    {(['all', 'reward', 'penalty'] as FilterType[]).map((f) => (
-                      <Button
-                        key={f}
-                        variant={filter === f ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFilter(f)}
-                      >
-                        {f === 'all' ? '전체' : f === 'reward' ? '상점' : '벌점'}
-                      </Button>
-                    ))}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsSelectMode(true)}
-                      className="ml-2"
-                    >
-                      <CheckSquare className="w-4 h-4 mr-1" />
-                      선택
-                    </Button>
-                  </>
+                  <Button variant='outline' size='sm' onClick={() => setIsSelectMode(true)}>
+                    <CheckSquare className='mr-1 h-4 w-4' />
+                    선택
+                  </Button>
                 ) : (
                   <>
                     <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleSelectAll}
+                      variant='outline'
+                      size='sm'
+                      onClick={toggleSelectAllOnPage}
                       className={cn(
-                        selectedPointIds.size > 0 && "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                        selectedPointIds.size > 0 &&
+                          'border-blue-600 bg-blue-600 text-white hover:bg-blue-700',
                       )}
                     >
-                      {selectedPointIds.size === filteredHistory.length && filteredHistory.length > 0 ? (
+                      {selectedPointIds.size === history.length && history.length > 0 ? (
                         <>
-                          <CheckSquare className="w-4 h-4 mr-1" />
-                          전체 해제
-                        </>
-                      ) : selectedPointIds.size > 0 ? (
-                        <>
-                          <CheckSquare className="w-4 h-4 mr-1" />
-                          전체 선택
+                          <CheckSquare className='mr-1 h-4 w-4' />
+                          페이지 해제
                         </>
                       ) : (
                         <>
-                          <Square className="w-4 h-4 mr-1" />
-                          전체 선택
+                          <Square className='mr-1 h-4 w-4' />이 페이지 전체
                         </>
                       )}
                     </Button>
                     <Button
-                      variant="danger"
-                      size="sm"
+                      variant='danger'
+                      size='sm'
                       onClick={() => setShowBulkDeleteConfirm(true)}
                       disabled={selectedPointIds.size === 0}
-                      className="bg-red-500 hover:bg-red-600 border-red-500"
+                      className='border-red-500 bg-red-500 hover:bg-red-600'
                     >
-                      <Trash2 className="w-4 h-4 mr-1" />
+                      <Trash2 className='mr-1 h-4 w-4' />
                       선택 삭제 ({selectedPointIds.size})
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={exitSelectMode}
+                      variant='outline'
+                      size='sm'
+                      onClick={() => setShowFilterDeleteConfirm(true)}
+                      disabled={historyTotal === 0}
+                      className='border-red-300 text-red-600 hover:bg-red-50'
                     >
+                      <Trash2 className='mr-1 h-4 w-4' />
+                      필터 결과 전체 삭제 ({historyTotal})
+                    </Button>
+                    <Button variant='ghost' size='sm' onClick={exitSelectMode}>
                       취소
                     </Button>
                   </>
                 )}
               </div>
             </div>
-            
-            {/* 학생별 필터 */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-text-muted" />
-                <span className="text-sm text-text-muted">학생 필터:</span>
-              </div>
-              <select
-                value={studentFilter}
-                onChange={(e) => setStudentFilter(e.target.value)}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="">전체 학생</option>
-                {students.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.seatNumber || '-'}번 {student.name}
-                  </option>
-                ))}
-              </select>
-              {studentFilter && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStudentFilter('')}
-                  className="text-text-muted hover:text-text"
-                >
-                  <X className="w-4 h-4" />
-                  초기화
-                </Button>
-              )}
-              <div className="flex items-center gap-1 ml-auto">
-                <span className="text-xs text-text-muted mr-1">정렬:</span>
-                {([
-                  { key: 'created_at', label: '날짜' },
-                  { key: 'type', label: '유형' },
-                  { key: 'amount', label: '점수' },
-                ] as { key: HistorySortKey; label: string }[]).map(({ key, label }) => (
+
+            <DataTableToolbar
+              searchPlaceholder='사유로 검색...'
+              filters={[
+                {
+                  key: 'type',
+                  label: '유형',
+                  options: [
+                    { value: 'reward', label: '상점' },
+                    { value: 'penalty', label: '벌점' },
+                  ],
+                },
+                {
+                  key: 'studentId',
+                  label: '학생',
+                  options: students.map((s) => ({
+                    value: s.id,
+                    label: `${s.seatNumber || '-'}번 ${s.name}`,
+                  })),
+                },
+              ]}
+            >
+              <div className='ml-2 flex items-center gap-1'>
+                <span className='text-text-muted mr-1 text-xs'>정렬:</span>
+                {(
+                  [
+                    { key: 'created_at', label: '날짜' },
+                    { key: 'amount', label: '점수' },
+                  ] as const
+                ).map(({ key, label }) => (
                   <button
                     key={key}
                     onClick={() => handleHistorySort(key)}
                     className={cn(
-                      'inline-flex items-center gap-0.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
-                      historySortKey === key
+                      'inline-flex items-center gap-0.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
+                      historySort === key
                         ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
                     )}
                   >
                     {label}
-                    <SortIcon sortKey={key} current={historySortKey} dir={historySortDir} small />
+                    <SortIcon sortKey={key} current={historySort} dir={historyDir} small />
                   </button>
                 ))}
-                <span className="text-xs text-text-muted ml-2">{filteredHistory.length}건</span>
               </div>
-            </div>
+            </DataTableToolbar>
           </div>
-          
-          {/* 일괄 삭제 확인 모달 */}
+
+          {/* 일괄 삭제 확인 — 선택된 ID */}
           {showBulkDeleteConfirm && (
-            <div className="mb-4 p-4 bg-red-100 border border-red-300 rounded-xl">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="font-medium text-red-800">
-                    {selectedPointIds.size}건의 상벌점 내역을 삭제하시겠습니까?
+            <div className='mb-4 rounded-xl border border-red-300 bg-red-100 p-4'>
+              <div className='flex items-center gap-3'>
+                <AlertTriangle className='h-5 w-5 flex-shrink-0 text-red-500' />
+                <div className='flex-1'>
+                  <p className='font-medium text-red-800'>
+                    선택한 {selectedPointIds.size}건의 상벌점 내역을 삭제하시겠습니까?
                   </p>
-                  <p className="text-sm text-red-600 mt-1">
+                  <p className='mt-1 text-sm text-red-600'>
                     삭제된 내역의 점수는 모두 원상복구됩니다.
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className='flex gap-2'>
                   <Button
-                    size="sm"
+                    size='sm'
                     onClick={handleBulkDelete}
                     disabled={loading}
-                    className="bg-red-500 hover:bg-red-600 text-white"
+                    className='bg-red-500 text-white hover:bg-red-600'
                   >
                     {loading ? '삭제 중...' : '삭제'}
                   </Button>
+                  <Button variant='ghost' size='sm' onClick={() => setShowBulkDeleteConfirm(false)}>
+                    취소
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 필터 결과 전체 삭제 확인 */}
+          {showFilterDeleteConfirm && (
+            <div className='mb-4 rounded-xl border border-red-300 bg-red-100 p-4'>
+              <div className='flex items-center gap-3'>
+                <AlertTriangle className='h-5 w-5 flex-shrink-0 text-red-500' />
+                <div className='flex-1'>
+                  <p className='font-medium text-red-800'>
+                    현재 필터 조건의 {historyTotal}건을 모두 삭제하시겠습니까?
+                  </p>
+                  <p className='mt-1 text-sm text-red-600'>
+                    페이지에 보이지 않는 항목까지 모두 삭제됩니다. 점수는 원상복구됩니다.
+                  </p>
+                </div>
+                <div className='flex gap-2'>
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowBulkDeleteConfirm(false)}
+                    size='sm'
+                    onClick={handleFilterDelete}
+                    disabled={loading}
+                    className='bg-red-500 text-white hover:bg-red-600'
+                  >
+                    {loading ? '삭제 중...' : '전체 삭제'}
+                  </Button>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => setShowFilterDeleteConfirm(false)}
                   >
                     취소
                   </Button>
@@ -1264,98 +1274,98 @@ export function PointsClient({
             </div>
           )}
 
-          <div className="space-y-3">
-            {sortedHistory.length === 0 ? (
-              <p className="text-text-muted text-center py-8">내역이 없습니다.</p>
+          <div className='space-y-3'>
+            {history.length === 0 ? (
+              <p className='text-text-muted py-8 text-center'>내역이 없습니다.</p>
             ) : (
-              sortedHistory.map((item) => (
+              history.map((item) => (
                 <div
                   key={item.id}
                   className={cn(
-                    'p-4 rounded-xl border-l-4',
+                    'rounded-xl border-l-4 p-4',
                     item.type === 'reward'
-                      ? 'bg-green-50 border-green-500'
-                      : 'bg-red-50 border-red-500',
-                    isSelectMode && selectedPointIds.has(item.id) && 'ring-2 ring-primary ring-offset-1'
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-red-500 bg-red-50',
+                    isSelectMode &&
+                      selectedPointIds.has(item.id) &&
+                      'ring-primary ring-2 ring-offset-1',
                   )}
                   onClick={isSelectMode ? () => toggleSelectPoint(item.id) : undefined}
                   style={isSelectMode ? { cursor: 'pointer' } : undefined}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* 선택 모드 체크박스 */}
+                  <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-3'>
                       {isSelectMode && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleSelectPoint(item.id);
                           }}
-                          className="flex-shrink-0"
+                          className='flex-shrink-0'
                         >
                           {selectedPointIds.has(item.id) ? (
-                            <CheckSquare className="w-5 h-5 text-primary" />
+                            <CheckSquare className='text-primary h-5 w-5' />
                           ) : (
-                            <Square className="w-5 h-5 text-gray-400" />
+                            <Square className='h-5 w-5 text-gray-400' />
                           )}
                         </button>
                       )}
                       <div
                         className={cn(
-                          'w-8 h-8 rounded-full flex items-center justify-center',
-                          item.type === 'reward' ? 'bg-green-100' : 'bg-red-100'
+                          'flex h-8 w-8 items-center justify-center rounded-full',
+                          item.type === 'reward' ? 'bg-green-100' : 'bg-red-100',
                         )}
                       >
                         {item.type === 'reward' ? (
-                          <Plus className="w-4 h-4 text-green-600" />
+                          <Plus className='h-4 w-4 text-green-600' />
                         ) : (
-                          <Minus className="w-4 h-4 text-red-500" />
+                          <Minus className='h-4 w-4 text-red-500' />
                         )}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">
+                        <div className='flex items-center gap-2'>
+                          <span className='font-medium'>
                             {item.studentSeatNumber || '-'}번 {item.studentName}
                           </span>
                           <span
                             className={cn(
                               'text-sm font-semibold',
-                              item.type === 'reward' ? 'text-green-600' : 'text-red-500'
+                              item.type === 'reward' ? 'text-green-600' : 'text-red-500',
                             )}
                           >
-                            {item.type === 'reward' ? '+' : '-'}{item.amount}점
+                            {item.type === 'reward' ? '+' : '-'}
+                            {item.amount}점
                           </span>
                           {item.is_auto && (
-                            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                            <span className='rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-600'>
                               자동
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-text-muted">{item.reason}</p>
+                        <p className='text-text-muted text-sm'>{item.reason}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="text-sm text-text-muted">{formatDate(item.created_at)}</p>
-                        <p className="text-xs text-text-muted">by {item.adminName}</p>
+                    <div className='flex items-center gap-3'>
+                      <div className='text-right'>
+                        <p className='text-text-muted text-sm'>{formatDate(item.created_at)}</p>
+                        <p className='text-text-muted text-xs'>by {item.adminName}</p>
                       </div>
-                      
-                      {/* 삭제 버튼 (선택 모드가 아닐 때만) */}
-                      {!isSelectMode && (
-                        deleteConfirmId === item.id ? (
-                          <div className="flex items-center gap-1">
+                      {!isSelectMode &&
+                        (deleteConfirmId === item.id ? (
+                          <div className='flex items-center gap-1'>
                             <Button
-                              size="sm"
+                              size='sm'
                               onClick={() => handleDeletePoint(item.id)}
                               disabled={loading}
-                              className="text-xs bg-red-500 hover:bg-red-600 text-white border-0"
+                              className='border-0 bg-red-500 text-xs text-white hover:bg-red-600'
                             >
                               삭제
                             </Button>
                             <Button
-                              variant="outline"
-                              size="sm"
+                              variant='outline'
+                              size='sm'
                               onClick={() => setDeleteConfirmId(null)}
-                              className="text-xs bg-white"
+                              className='bg-white text-xs'
                             >
                               취소
                             </Button>
@@ -1363,49 +1373,62 @@ export function PointsClient({
                         ) : (
                           <button
                             onClick={() => setDeleteConfirmId(item.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="삭제 (점수 원상복구)"
+                            className='rounded-lg p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500'
+                            title='삭제 (점수 원상복구)'
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className='h-4 w-4' />
                           </button>
-                        )
-                      )}
+                        ))}
                     </div>
                   </div>
                 </div>
               ))
             )}
           </div>
+
+          {/* 페이지네이션 */}
+          <div className='mt-4 flex justify-center'>
+            <Pagination
+              total={historyTotal}
+              page={historyPage}
+              pageSize={historyPageSize}
+              pathname={pathname}
+              searchParams={new URLSearchParams(sp.toString())}
+            />
+          </div>
         </Card>
       )}
 
       {/* 상벌점 규정 탭 */}
       {activeTab === 'rules' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* 상점 규정 */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 text-green-700">상점 규정</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-green-50 border-b border-green-100">
+        <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+          <Card className='p-6'>
+            <h2 className='mb-4 text-lg font-semibold text-green-700'>상점 규정</h2>
+            <div className='overflow-x-auto'>
+              <table className='w-full'>
+                <thead className='border-b border-green-100 bg-green-50'>
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-green-700">상점 규정</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-green-700 w-24">상점</th>
+                    <th className='px-4 py-3 text-left text-sm font-medium text-green-700'>
+                      상점 규정
+                    </th>
+                    <th className='w-24 px-4 py-3 text-center text-sm font-medium text-green-700'>
+                      상점
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-green-50">
+                <tbody className='divide-y divide-green-50'>
                   {rewardPresets.length === 0 ? (
                     <tr>
-                      <td colSpan={2} className="px-4 py-8 text-center text-text-muted">
+                      <td colSpan={2} className='text-text-muted px-4 py-8 text-center'>
                         등록된 상점 규정이 없습니다.
                       </td>
                     </tr>
                   ) : (
                     rewardPresets.map((preset) => (
-                      <tr key={preset.id} className="hover:bg-green-50/50">
-                        <td className="px-4 py-3">{preset.reason}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="text-green-600 font-semibold">{preset.amount}점</span>
+                      <tr key={preset.id} className='hover:bg-green-50/50'>
+                        <td className='px-4 py-3'>{preset.reason}</td>
+                        <td className='px-4 py-3 text-center'>
+                          <span className='font-semibold text-green-600'>{preset.amount}점</span>
                         </td>
                       </tr>
                     ))
@@ -1415,40 +1438,45 @@ export function PointsClient({
             </div>
           </Card>
 
-          {/* 벌점 규정 */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 text-red-700">벌점 규정</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-red-50 border-b border-red-100">
+          <Card className='p-6'>
+            <h2 className='mb-4 text-lg font-semibold text-red-700'>벌점 규정</h2>
+            <div className='overflow-x-auto'>
+              <table className='w-full'>
+                <thead className='border-b border-red-100 bg-red-50'>
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-red-700">벌점 규정</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-red-700 w-32">벌점</th>
+                    <th className='px-4 py-3 text-left text-sm font-medium text-red-700'>
+                      벌점 규정
+                    </th>
+                    <th className='w-32 px-4 py-3 text-center text-sm font-medium text-red-700'>
+                      벌점
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-red-50">
+                <tbody className='divide-y divide-red-50'>
                   {penaltyPresets.length === 0 ? (
                     <tr>
-                      <td colSpan={2} className="px-4 py-8 text-center text-text-muted">
+                      <td colSpan={2} className='text-text-muted px-4 py-8 text-center'>
                         등록된 벌점 규정이 없습니다.
                       </td>
                     </tr>
                   ) : (
                     penaltyPresets.map((preset) => (
-                      <tr key={preset.id} className="hover:bg-red-50/50">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                      <tr key={preset.id} className='hover:bg-red-50/50'>
+                        <td className='px-4 py-3'>
+                          <div className='flex items-center gap-2'>
                             {preset.amount === 999 && (
-                              <AlertTriangle className="w-4 h-4 text-gray-700" />
+                              <AlertTriangle className='h-4 w-4 text-gray-700' />
                             )}
                             {preset.reason}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-center">
+                        <td className='px-4 py-3 text-center'>
                           {preset.amount === 999 ? (
-                            <span className="text-gray-800 font-semibold text-sm">이유 불문 제적</span>
+                            <span className='text-sm font-semibold text-gray-800'>
+                              이유 불문 제적
+                            </span>
                           ) : (
-                            <span className="text-red-500 font-semibold">{preset.amount}점</span>
+                            <span className='font-semibold text-red-500'>{preset.amount}점</span>
                           )}
                         </td>
                       </tr>
@@ -1457,8 +1485,8 @@ export function PointsClient({
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-gray-500 mt-4 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
+            <p className='mt-4 flex items-center gap-1 text-xs text-gray-500'>
+              <AlertTriangle className='h-3 w-3' />
               해당 항목은 사유에 따라 벌점의 부과 여부가 결정됩니다.
             </p>
           </Card>

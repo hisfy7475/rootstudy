@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
 import { getAttendanceBoard, getWeeklyAttendance } from '@/lib/actions/admin';
+import { buildListHref } from '@/lib/list-params';
 import {
   RefreshCw,
   Printer,
@@ -168,11 +171,33 @@ export function AttendanceClient({
   todayDate,
   branchId,
 }: AttendanceClientProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('daily');
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  // URL 동기화 헬퍼
+  const patchUrl = useCallback(
+    (patch: Record<string, string | null>) => {
+      const href = buildListHref(pathname, new URLSearchParams(sp.toString()), patch);
+      startTransition(() => router.replace(href, { scroll: false }));
+    },
+    [pathname, sp, router],
+  );
+
+  // URL 에서 초기값
+  const initialViewMode: ViewMode = sp.get('tab') === 'weekly' ? 'weekly' : 'daily';
+  const initialStatus = (sp.get('status') as StatusFilter) || null;
+  const initialQ = sp.get('q') ?? '';
+  const initialDate = sp.get('date') || todayDate;
+
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [data, setData] = useState<AttendanceStudent[]>(initialData.data);
   const [dynamicToday, setDynamicToday] = useState(todayDate);
-  const [selectedDate, setSelectedDate] = useState(todayDate);
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [loading, setLoading] = useState(false);
+  const PAGE_SIZE = 50;
+  const pageNum = Math.max(1, Number.parseInt(sp.get('page') ?? '1', 10) || 1);
   // 서버/클라이언트 렌더 시각이 달라 hydration mismatch 가 발생하므로 마운트 후에만 값 세팅.
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
@@ -198,11 +223,11 @@ export function AttendanceClient({
   const [weeklySortAsc, setWeeklySortAsc] = useState(true);
 
   // 검색 상태
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialQ);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialQ);
 
   // 상태 필터
-  const [activeFilter, setActiveFilter] = useState<StatusFilter>(null);
+  const [activeFilter, setActiveFilter] = useState<StatusFilter>(initialStatus);
 
   const skipInitialDailyListRef = useRef(true);
   const prevViewModeRef = useRef<ViewMode>(viewMode);
@@ -285,12 +310,15 @@ export function AttendanceClient({
     return () => clearInterval(timer);
   }, []);
 
-  // 검색어 디바운스 (300ms)
+  // 검색어 디바운스 (300ms) + URL 동기화
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
+      patchUrl({ q: searchQuery.trim() ? searchQuery.trim() : null, page: null });
     }, 300);
     return () => clearTimeout(timer);
+    // patchUrl 은 의존성 안정 — sp 가 변경되어 재생성되지만 setTimeout 재시작 비용 낮음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
   // 일별: 날짜·검색 변경 및 주간→일별 전환 시 전체 재조회 (최초 마운트는 SSR 데이터 사용)
@@ -353,6 +381,7 @@ export function AttendanceClient({
     const newFilter = activeFilter === filter ? null : filter;
     setActiveFilter(newFilter);
     setData([]);
+    patchUrl({ status: newFilter ?? null, page: null });
     handleRefresh(selectedDate, debouncedSearch, newFilter);
   };
 
@@ -487,7 +516,10 @@ export function AttendanceClient({
         {/* 뷰 전환 탭 */}
         <div className='flex rounded-lg bg-gray-100 p-1'>
           <button
-            onClick={() => setViewMode('daily')}
+            onClick={() => {
+              setViewMode('daily');
+              patchUrl({ tab: null, page: null });
+            }}
             className={cn(
               'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
               viewMode === 'daily'
@@ -499,7 +531,10 @@ export function AttendanceClient({
             일별 뷰
           </button>
           <button
-            onClick={() => setViewMode('weekly')}
+            onClick={() => {
+              setViewMode('weekly');
+              patchUrl({ tab: 'weekly', page: null });
+            }}
             className={cn(
               'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
               viewMode === 'weekly'
@@ -530,7 +565,11 @@ export function AttendanceClient({
             <Input
               type='date'
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedDate(v);
+                patchUrl({ date: v === todayDate ? null : v, page: null });
+              }}
               className='w-44'
             />
             {!isToday && (
@@ -726,7 +765,7 @@ export function AttendanceClient({
                       </td>
                     </tr>
                   ) : (
-                    data.map((student) => {
+                    data.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE).map((student) => {
                       const statusDisplay = getStatusDisplay(student.status);
                       const StatusIcon = statusDisplay.icon;
                       const isNotArrived =
@@ -844,6 +883,16 @@ export function AttendanceClient({
               </table>
             </div>
           </Card>
+
+          <div className='flex justify-center print:hidden'>
+            <Pagination
+              total={data.length}
+              page={Math.min(pageNum, Math.max(1, Math.ceil(data.length / PAGE_SIZE)))}
+              pageSize={PAGE_SIZE}
+              pathname={pathname}
+              searchParams={new URLSearchParams(sp.toString())}
+            />
+          </div>
         </>
       ) : (
         /* 주간 뷰 */

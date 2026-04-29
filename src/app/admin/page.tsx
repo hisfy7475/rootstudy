@@ -1,34 +1,37 @@
 import { getAllStudents } from '@/lib/actions/admin';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { DashboardClient } from './dashboard-client';
-import { createClient } from '@/lib/supabase/server';
 
-export default async function AdminDashboard() {
-  const supabase = await createClient();
+interface PageProps {
+  searchParams: Promise<{ status?: string; q?: string }>;
+}
 
-  const { data: { user } } = await supabase.auth.getUser();
-  let branchId: string | null = null;
+export default async function AdminDashboard({ searchParams }: PageProps) {
+  const raw = await searchParams;
+  const ctx = await requireAdminBranch();
 
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('branch_id')
-      .eq('id', user.id)
-      .single();
-    branchId = profile?.branch_id || null;
+  if (!ctx) {
+    return (
+      <div className='p-6'>
+        <h1 className='text-xl font-bold'>접근 권한이 없습니다.</h1>
+      </div>
+    );
   }
 
-  if (!branchId) {
-    const { data: firstBranch } = await supabase
-      .from('branches')
-      .select('id')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-    branchId = firstBranch?.id || null;
-  }
+  const { branchId } = ctx;
+  const statusFilter =
+    raw.status === 'checked_in' || raw.status === 'checked_out' || raw.status === 'on_break'
+      ? raw.status
+      : undefined;
 
   const students = await getAllStudents(undefined, branchId);
 
-  return <DashboardClient initialStudents={students} branchId={branchId} />;
+  return (
+    <DashboardClient
+      initialStudents={students}
+      branchId={branchId}
+      initialStatusFilter={statusFilter ?? 'all'}
+      initialQ={raw.q ?? ''}
+    />
+  );
 }

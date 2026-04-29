@@ -1,47 +1,61 @@
-import { getPointsOverview, getAllPointsHistory, getAllStudents, getRewardPresets, getPenaltyPresets } from '@/lib/actions/admin';
-import { createClient } from '@/lib/supabase/server';
+import {
+  getPointsOverview,
+  getAllPointsHistory,
+  getAllStudents,
+  getRewardPresets,
+  getPenaltyPresets,
+} from '@/lib/actions/admin';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
+import { parseListParams } from '@/lib/list-params';
+import { POINTS_HISTORY_LIST_CONFIG, parseTab } from './list-config';
 import { PointsClient } from './points-client';
 
-export default async function PointsManagementPage() {
-  const supabase = await createClient();
-  
-  // 현재 로그인한 관리자의 branch_id 조회
-  const { data: { user } } = await supabase.auth.getUser();
-  let branchId: string | null = null;
-  
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('branch_id')
-      .eq('id', user.id)
-      .single();
-    branchId = profile?.branch_id || null;
+interface PageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function PointsManagementPage({ searchParams }: PageProps) {
+  const raw = await searchParams;
+  const ctx = await requireAdminBranch();
+
+  if (!ctx) {
+    return (
+      <div className='p-6'>
+        <h1 className='text-xl font-bold'>접근 권한이 없습니다.</h1>
+      </div>
+    );
   }
 
-  // branch_id가 없으면 첫 번째 활성 지점 사용
-  if (!branchId) {
-    const { data: firstBranch } = await supabase
-      .from('branches')
-      .select('id')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-    branchId = firstBranch?.id || null;
-  }
+  const { branchId } = ctx;
+
+  const tab = parseTab(typeof raw.tab === 'string' ? raw.tab : undefined);
+  const params = parseListParams(raw, POINTS_HISTORY_LIST_CONFIG);
 
   const [overview, history, students, rewardPresets, penaltyPresets] = await Promise.all([
-    getPointsOverview(branchId),
-    getAllPointsHistory(undefined, undefined, branchId),
-    getAllStudents(undefined),
-    branchId ? getRewardPresets(branchId) : Promise.resolve([]),
-    branchId ? getPenaltyPresets(branchId) : Promise.resolve([]),
+    getPointsOverview({ branchId }),
+    getAllPointsHistory({
+      branchId,
+      page: params.page,
+      pageSize: params.pageSize,
+      q: params.q,
+      sort: params.sort,
+      dir: params.dir,
+      type:
+        params.filters.type === 'reward' || params.filters.type === 'penalty'
+          ? params.filters.type
+          : undefined,
+      studentId: params.filters.studentId,
+    }),
+    getAllStudents('all', branchId),
+    getRewardPresets(branchId),
+    getPenaltyPresets(branchId),
   ]);
 
   return (
-    <PointsClient 
-      initialOverview={overview} 
-      initialHistory={history} 
+    <PointsClient
+      activeTab={tab}
+      initialOverview={overview}
+      initialHistoryResult={history}
       students={students}
       branchId={branchId}
       initialRewardPresets={rewardPresets}
