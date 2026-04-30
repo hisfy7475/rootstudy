@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
+import { escapeLike } from '@/lib/list-params';
 import {
   getStudyDate,
   getStudyDayBounds,
@@ -371,6 +372,283 @@ export async function getAllStudents(
   }
 
   return studentsWithStatus;
+}
+
+// dashboard 페이지 전용. URL-first 검색·페이지네이션·정렬 + count_attendance_status RPC 기반 stats.
+// stats 는 검색·status 와 무관하게 branch 전체 기준 (기존 클라 동작과 동일 의미론).
+// status 필터는 attendance 기반 계산이 필요해 SQL 단계에서 자르지 못하므로,
+// status 가 있을 때만 검색 결과를 모두 받아 메모리에서 필터링 후 페이지 슬라이싱.
+export async function getDashboardStudents(params: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: 'seat_number' | 'name';
+  dir?: 'asc' | 'desc';
+  status?: 'checked_in' | 'checked_out' | 'on_break';
+  branchId?: string | null;
+}): Promise<{
+  rows: Array<{
+    id: string;
+    seatNumber: number | null;
+    name: string;
+    email: string;
+    phone: string;
+    status: 'checked_in' | 'checked_out' | 'on_break';
+    checkInTime: string | null;
+    totalStudySeconds: number;
+    currentSubject: string | null;
+    avgFocus: number | null;
+    todayReward: number;
+    todayPenalty: number;
+  }>;
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    total: number;
+    checkedIn: number;
+    checkedOut: number;
+    onBreak: number;
+    notYetArrived: number;
+  };
+}> {
+  const supabase = await createClient();
+  const q = params.q?.trim() || '';
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 50;
+  const sort = params.sort ?? 'seat_number';
+  const dir = params.dir ?? 'asc';
+  const status = params.status;
+  const branchId = params.branchId ?? null;
+
+  const studyDate = getStudyDate();
+  const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
+
+  // 1) stats — RPC 호출. branchId 가 없으면 0으로.
+  let stats = { total: 0, checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 };
+  if (branchId) {
+    const { data: rpc, error: statsErr } = await supabase.rpc('count_attendance_status', {
+      p_branch_id: branchId,
+      p_target_date: formatDateKST(studyDate),
+    });
+    if (statsErr) console.error('count_attendance_status error:', statsErr);
+    if (rpc && rpc.length > 0) {
+      const r = rpc[0] as {
+        checked_in: number;
+        checked_out: number;
+        on_break: number;
+        not_yet_arrived: number;
+        total: number;
+      };
+      stats = {
+        total: r.total ?? 0,
+        checkedIn: r.checked_in ?? 0,
+        checkedOut: r.checked_out ?? 0,
+        onBreak: r.on_break ?? 0,
+        notYetArrived: r.not_yet_arrived ?? 0,
+      };
+    }
+  }
+
+  // 2) 학생 검색·정렬 쿼리
+  let listQuery = supabase.from('student_profiles').select(
+    `
+      id,
+      seat_number,
+      profiles!inner (
+        id,
+        name,
+        email,
+        phone,
+        branch_id
+      )
+    `,
+    { count: 'exact' },
+  );
+
+  if (branchId) listQuery = listQuery.eq('profiles.branch_id', branchId);
+  if (q) {
+    if (/^\d+$/.test(q)) {
+      // 숫자만 입력된 경우 좌석번호 정확 매칭
+      listQuery = listQuery.eq('seat_number', Number.parseInt(q, 10));
+    } else {
+      listQuery = listQuery.ilike('profiles.name', `%${escapeLike(q)}%`);
+    }
+  }
+
+  const ascending = dir === 'asc';
+  if (sort === 'name') {
+    listQuery = listQuery.order('name', { foreignTable: 'profiles', ascending });
+  } else {
+    listQuery = listQuery.order('seat_number', { ascending });
+  }
+
+  // status 없으면 SQL range 페이지네이션. 있으면 전체 받아 후처리.
+  if (!status) {
+    const offset = (page - 1) * pageSize;
+    listQuery = listQuery.range(offset, offset + pageSize - 1);
+  }
+
+  const { data: students, count, error } = await listQuery;
+  if (error || !students) {
+    console.error('Error fetching dashboard students:', error);
+    return { rows: [], total: 0, page, pageSize, stats };
+  }
+
+  if (students.length === 0) {
+    return { rows: [], total: count ?? 0, page, pageSize, stats };
+  }
+
+  const studentIds = students.map((s) => s.id);
+
+  // 3) 보조 데이터 — 검색된 학생 ID로만
+  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  let allAttendance: AttendanceRecord[] = [];
+  {
+    const baseQuery = () =>
+      supabase
+        .from('attendance')
+        .select('student_id, type, timestamp')
+        .in('student_id', studentIds)
+        .gte('timestamp', todayStart.toISOString())
+        .lte('timestamp', todayEnd.toISOString())
+        .order('timestamp', { ascending: true });
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await baseQuery().range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allAttendance = allAttendance.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+
+  const [{ data: allSubjects }, { data: allFocusScores }, { data: allPoints }] = await Promise.all([
+    supabase
+      .from('subjects')
+      .select('student_id, subject_name')
+      .in('student_id', studentIds)
+      .eq('is_current', true),
+    supabase
+      .from('focus_scores')
+      .select('student_id, score')
+      .in('student_id', studentIds)
+      .gte('recorded_at', todayStart.toISOString())
+      .lte('recorded_at', todayEnd.toISOString()),
+    supabase
+      .from('points')
+      .select('student_id, type, amount')
+      .in('student_id', studentIds)
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString()),
+  ]);
+
+  const attendanceByStudent = groupById(allAttendance ?? []);
+  const subjectByStudent: Record<string, string | null> = {};
+  for (const s of allSubjects ?? []) subjectByStudent[s.student_id] = s.subject_name;
+  const focusByStudent = groupById(allFocusScores ?? []);
+  const pointsByStudent = groupById(allPoints ?? []);
+
+  const computed = students.map((student) => {
+    const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+    const attendance = attendanceByStudent[student.id] ?? [];
+
+    let s: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
+    let checkInTime: string | null = null;
+    let totalStudySeconds = 0;
+
+    if (attendance.length > 0) {
+      let tempCheckInTime: Date | null = null;
+      for (const record of attendance) {
+        const timestamp = new Date(record.timestamp);
+        switch (record.type) {
+          case 'check_in':
+            tempCheckInTime = timestamp;
+            s = 'checked_in';
+            break;
+          case 'check_out':
+            if (tempCheckInTime) {
+              totalStudySeconds += Math.floor(
+                (timestamp.getTime() - tempCheckInTime.getTime()) / 1000,
+              );
+              tempCheckInTime = null;
+            }
+            s = 'checked_out';
+            break;
+          case 'break_start':
+            if (tempCheckInTime) {
+              totalStudySeconds += Math.floor(
+                (timestamp.getTime() - tempCheckInTime.getTime()) / 1000,
+              );
+              tempCheckInTime = null;
+            }
+            s = 'on_break';
+            break;
+          case 'break_end':
+            tempCheckInTime = timestamp;
+            s = 'checked_in';
+            break;
+        }
+      }
+      if (tempCheckInTime) {
+        totalStudySeconds += Math.floor((new Date().getTime() - tempCheckInTime.getTime()) / 1000);
+        checkInTime = tempCheckInTime.toISOString();
+      }
+      const firstCheckIn = attendance.find((a) => a.type === 'check_in');
+      if (firstCheckIn) checkInTime = firstCheckIn.timestamp;
+    }
+
+    const focusScores = focusByStudent[student.id] ?? [];
+    const avgFocus =
+      focusScores.length > 0
+        ? Math.round((focusScores.reduce((sum, f) => sum + f.score, 0) / focusScores.length) * 10) /
+          10
+        : null;
+    const todayPoints = pointsByStudent[student.id] ?? [];
+    const todayReward = todayPoints
+      .filter((p) => p.type === 'reward')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const todayPenalty = todayPoints
+      .filter((p) => p.type === 'penalty')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    return {
+      id: student.id,
+      seatNumber: student.seat_number,
+      name: profile?.name || '이름 없음',
+      email: profile?.email || '',
+      phone: profile?.phone || '',
+      status: s,
+      checkInTime,
+      totalStudySeconds,
+      currentSubject: s === 'checked_in' ? (subjectByStudent[student.id] ?? null) : null,
+      avgFocus,
+      todayReward,
+      todayPenalty,
+    };
+  });
+
+  if (status) {
+    const filtered = computed.filter((c) => c.status === status);
+    const total = filtered.length;
+    const offset = (page - 1) * pageSize;
+    return {
+      rows: filtered.slice(offset, offset + pageSize),
+      total,
+      page,
+      pageSize,
+      stats,
+    };
+  }
+
+  return {
+    rows: computed,
+    total: count ?? computed.length,
+    page,
+    pageSize,
+    stats,
+  };
 }
 
 // 학생 과목 설정 (관리자가 직접). subjectName이 null이면 현재 과목만 종료(선택 해제)
@@ -1970,6 +2248,528 @@ export async function getAllAdmins(branchId?: string | null) {
     branch_name: admin.branch?.name || null,
     created_at: admin.created_at,
   }));
+}
+
+// =====================================================
+// 회원 관리 — URL-first 검색·페이지네이션·정렬 변형 함수
+// 활성 탭의 데이터만 받아오고, 탭 카운트와 학생 탭 보조 카운트는
+// 별도 aggregate 호출로 분리. 검색·필터 변경은 URL 갱신 → 서버 컴포넌트
+// 재실행으로 처리한다 (router.refresh 패턴).
+// =====================================================
+
+export interface MembersAggregates {
+  // 탭 카운트 — 글로벌 (검색·필터 무시)
+  studentTotal: number;
+  parentTotal: number;
+  adminTotal: number;
+  // 승인 상태 그룹 — q + studentType (자기 그룹은 자기 무시)
+  approval: { all: number; pending: number; approved: number; rejected: number };
+  // 학생 타입 그룹 — q + approval (자기 그룹은 자기 무시)
+  studentTypeAll: number;
+  unassignedStudentCount: number;
+  studentTypeCounts: Record<string, number>;
+}
+
+export async function getMembersAggregates({
+  branchId,
+  q,
+  approval,
+  studentType,
+}: {
+  branchId?: string | null;
+  q?: string;
+  approval?: 'pending' | 'approved' | 'rejected';
+  studentType?: 'unassigned' | string;
+}): Promise<MembersAggregates> {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+  const qs = (q ?? '').trim();
+  const pat = qs ? escapeLike(qs) : null;
+
+  // 1) 탭 총합 — q 적용 (검색이 어느 탭에 매칭되는지 한눈에). approval/studentType 는
+  //    탭 전환 시 초기화되므로 적용하지 않음.
+  const tabAdminBase = () => {
+    let qb = supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_type', 'admin');
+    if (branchId) qb = qb.eq('branch_id', branchId);
+    if (pat) qb = qb.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+    return qb;
+  };
+
+  const [adminTotalR] = await Promise.all([tabAdminBase()]);
+
+  // 2) 학부모 탭 총합 — branch 학생 → 연결된 distinct 학부모 + q (학부모 본인 name/email)
+  let parentTotal = 0;
+  if (branchId) {
+    const { data: branchStudents } = await adminClient
+      .from('profiles')
+      .select('id')
+      .eq('user_type', 'student')
+      .eq('branch_id', branchId);
+    const sids = (branchStudents ?? []).map((s) => s.id as string);
+    if (sids.length > 0) {
+      const { data: links } = await adminClient
+        .from('parent_student_links')
+        .select('parent_id')
+        .in('student_id', sids);
+      const allowedParentIds = [...new Set((links ?? []).map((l) => l.parent_id as string))];
+      if (allowedParentIds.length > 0) {
+        let pq = adminClient
+          .from('profiles')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_type', 'parent')
+          .in('id', allowedParentIds);
+        if (pat) pq = pq.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+        const { count } = await pq;
+        parentTotal = count ?? 0;
+      }
+    }
+  } else {
+    let pq = adminClient
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_type', 'parent');
+    if (pat) pq = pq.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+    const { count } = await pq;
+    parentTotal = count ?? 0;
+  }
+
+  // 3) 학생 그룹 baseline — 검색 적용된 행을 한 번에 받아 메모리 파티셔닝.
+  //    studentTotal (탭 카운트) 도 이 baseline 의 count 로 노출.
+  //    각 sub 그룹의 카운트는 "다른 그룹 필터 적용 + 자기 그룹 자기 무시" 정책.
+  let baseQuery = supabase
+    .from('profiles')
+    .select('id, is_approved, is_rejected, student_profiles!inner (student_type_id)', {
+      count: 'exact',
+    })
+    .eq('user_type', 'student');
+  if (branchId) baseQuery = baseQuery.eq('branch_id', branchId);
+  if (pat) baseQuery = baseQuery.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+  // 안전상 상한 — 지점당 학생 수가 수천 단위가 되면 paginate 로 전환 검토
+  baseQuery = baseQuery.range(0, 9999);
+
+  const { data: baseData, count: studentTotalCount, error: baseErr } = await baseQuery;
+  if (baseErr) console.error('Error fetching members aggregates baseline:', baseErr);
+
+  type BaseRow = {
+    is_approved: boolean;
+    is_rejected: boolean | null;
+    student_profiles:
+      | { student_type_id: string | null }
+      | { student_type_id: string | null }[]
+      | null;
+  };
+  const rows = ((baseData ?? []) as unknown as BaseRow[]).map((r) => {
+    const sp = Array.isArray(r.student_profiles) ? r.student_profiles[0] : r.student_profiles;
+    return {
+      is_approved: r.is_approved,
+      is_rejected: !!r.is_rejected,
+      student_type_id: sp?.student_type_id ?? null,
+    };
+  });
+
+  const matchesStudentType = (row: (typeof rows)[number]): boolean => {
+    if (!studentType) return true;
+    if (studentType === 'unassigned') return row.student_type_id === null;
+    return row.student_type_id === studentType;
+  };
+  const matchesApproval = (row: (typeof rows)[number]): boolean => {
+    if (!approval) return true;
+    if (approval === 'pending') return !row.is_approved && !row.is_rejected;
+    if (approval === 'approved') return row.is_approved;
+    if (approval === 'rejected') return row.is_rejected;
+    return true;
+  };
+
+  // 승인 상태 그룹 — studentType 만 적용 (approval 자기 무시)
+  let approvalAll = 0;
+  let pending = 0;
+  let approved = 0;
+  let rejected = 0;
+  for (const r of rows) {
+    if (!matchesStudentType(r)) continue;
+    approvalAll += 1;
+    if (!r.is_approved && !r.is_rejected) pending += 1;
+    else if (r.is_approved) approved += 1;
+    else if (r.is_rejected) rejected += 1;
+  }
+
+  // 학생 타입 그룹 — approval 만 적용 (studentType 자기 무시)
+  let studentTypeAll = 0;
+  let unassignedStudentCount = 0;
+  const studentTypeCounts: Record<string, number> = {};
+  for (const r of rows) {
+    if (!matchesApproval(r)) continue;
+    studentTypeAll += 1;
+    if (r.student_type_id === null) unassignedStudentCount += 1;
+    else studentTypeCounts[r.student_type_id] = (studentTypeCounts[r.student_type_id] ?? 0) + 1;
+  }
+
+  return {
+    studentTotal: studentTotalCount ?? 0,
+    parentTotal,
+    adminTotal: adminTotalR.count ?? 0,
+    approval: { all: approvalAll, pending, approved, rejected },
+    studentTypeAll,
+    unassignedStudentCount,
+    studentTypeCounts,
+  };
+}
+
+export interface MemberListRow {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  user_type: string;
+  is_approved: boolean;
+  is_rejected: boolean;
+  created_at: string;
+  branch_id: string | null;
+  branch_name: string | null;
+  seat_number: number | null;
+  school: string | null;
+  grade: number | null;
+  student_type_id: string | null;
+}
+
+// 학생 탭 — 검색·필터·정렬·페이지네이션 적용
+export async function getMembersList(params: {
+  branchId?: string | null;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  approval?: 'pending' | 'approved' | 'rejected';
+  studentType?: 'unassigned' | string;
+  sort?: 'seat_number' | 'name' | 'branch_name' | 'created_at';
+  dir?: 'asc' | 'desc';
+}): Promise<{ rows: MemberListRow[]; total: number; page: number; pageSize: number }> {
+  const supabase = await createClient();
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+  const offset = (page - 1) * pageSize;
+  const ascending = params.dir !== 'desc';
+
+  let query = supabase
+    .from('profiles')
+    .select(
+      `
+      *,
+      branch:branch_id (id, name),
+      student_profiles!inner (seat_number, student_type_id)
+    `,
+      { count: 'exact' },
+    )
+    .eq('user_type', 'student');
+
+  if (params.branchId) query = query.eq('branch_id', params.branchId);
+
+  const qs = (params.q ?? '').trim();
+  if (qs) {
+    const pat = escapeLike(qs);
+    query = query.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+  }
+
+  switch (params.approval) {
+    case 'pending':
+      query = query.eq('is_approved', false).eq('is_rejected', false);
+      break;
+    case 'approved':
+      query = query.eq('is_approved', true);
+      break;
+    case 'rejected':
+      query = query.eq('is_rejected', true);
+      break;
+  }
+
+  if (params.studentType === 'unassigned') {
+    query = query.is('student_profiles.student_type_id', null);
+  } else if (params.studentType) {
+    query = query.eq('student_profiles.student_type_id', params.studentType);
+  }
+
+  switch (params.sort) {
+    case 'seat_number':
+      query = query.order('seat_number', { foreignTable: 'student_profiles', ascending });
+      break;
+    case 'name':
+      query = query.order('name', { ascending });
+      break;
+    case 'branch_name':
+      query = query.order('name', { foreignTable: 'branch', ascending, nullsFirst: false });
+      break;
+    case 'created_at':
+    default:
+      query = query.order('created_at', { ascending: false });
+      break;
+  }
+
+  query = query.range(offset, offset + pageSize - 1);
+
+  const { data, count, error } = await query;
+  if (error || !data) {
+    console.error('Error fetching members list:', error);
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  type Row = {
+    id: string;
+    email: string;
+    name: string;
+    phone: string | null;
+    user_type: string;
+    is_approved: boolean;
+    is_rejected: boolean | null;
+    created_at: string;
+    branch_id: string | null;
+    school: string | null;
+    grade: number | null;
+    branch: { name: string | null } | null;
+    student_profiles:
+      | { seat_number: number | null; student_type_id: string | null }
+      | { seat_number: number | null; student_type_id: string | null }[]
+      | null;
+  };
+
+  const rows = (data as unknown as Row[]).map((p) => {
+    const sp = Array.isArray(p.student_profiles) ? p.student_profiles[0] : p.student_profiles;
+    return {
+      id: p.id,
+      email: p.email,
+      name: p.name,
+      phone: p.phone,
+      user_type: p.user_type,
+      is_approved: p.is_approved,
+      is_rejected: !!p.is_rejected,
+      created_at: p.created_at,
+      branch_id: p.branch_id,
+      branch_name: p.branch?.name ?? null,
+      seat_number: sp?.seat_number ?? null,
+      student_type_id: sp?.student_type_id ?? null,
+      school: p.school ?? null,
+      grade: p.grade ?? null,
+    };
+  });
+
+  return { rows, total: count ?? 0, page, pageSize };
+}
+
+export interface ParentListRow {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  user_type: string;
+  created_at: string;
+  students: {
+    id: string;
+    name: string;
+    seatNumber: number | null;
+    branchName: string | null;
+  }[];
+}
+
+// 학부모 탭 — name/email 검색 + 페이지네이션. 학생명 검색은 placeholder 가
+// 'name/email' 만 약속하므로 의도적으로 제외 (단순화 트레이드오프).
+export async function getParentsList(params: {
+  branchId?: string | null;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ rows: ParentListRow[]; total: number; page: number; pageSize: number }> {
+  const adminClient = createAdminClient();
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+  const offset = (page - 1) * pageSize;
+
+  let allowedParentIds: string[] | null = null;
+  if (params.branchId) {
+    const { data: branchStudents } = await adminClient
+      .from('profiles')
+      .select('id')
+      .eq('user_type', 'student')
+      .eq('branch_id', params.branchId);
+    const sids = (branchStudents ?? []).map((s) => s.id as string);
+    if (sids.length === 0) return { rows: [], total: 0, page, pageSize };
+    const { data: links } = await adminClient
+      .from('parent_student_links')
+      .select('parent_id')
+      .in('student_id', sids);
+    allowedParentIds = [...new Set((links ?? []).map((l) => l.parent_id as string))];
+    if (allowedParentIds.length === 0) return { rows: [], total: 0, page, pageSize };
+  }
+
+  let parentQuery = adminClient
+    .from('profiles')
+    .select('*', { count: 'exact' })
+    .eq('user_type', 'parent')
+    .order('created_at', { ascending: false });
+
+  if (allowedParentIds !== null) {
+    parentQuery = parentQuery.in('id', allowedParentIds);
+  }
+
+  const qs = (params.q ?? '').trim();
+  if (qs) {
+    const pat = escapeLike(qs);
+    parentQuery = parentQuery.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+  }
+
+  parentQuery = parentQuery.range(offset, offset + pageSize - 1);
+
+  const { data: parents, count, error } = await parentQuery;
+  if (error || !parents) {
+    console.error('Error fetching parents list:', error);
+    return { rows: [], total: 0, page, pageSize };
+  }
+  if (parents.length === 0) {
+    return { rows: [], total: count ?? 0, page, pageSize };
+  }
+
+  const parentIds = parents.map((p) => p.id as string);
+
+  const { data: allLinks } = await adminClient
+    .from('parent_student_links')
+    .select(
+      `
+      parent_id,
+      student:student_id (
+        id,
+        seat_number,
+        profiles!inner (name, branch_id, branch:branch_id (name))
+      )
+    `,
+    )
+    .in('parent_id', parentIds);
+
+  type ParentLinkStudentProfile = {
+    name: string | null;
+    branch: { name: string | null } | { name: string | null }[] | null;
+  };
+  type ParentLinkStudent = {
+    id: string;
+    seat_number: number | null;
+    profiles: ParentLinkStudentProfile | ParentLinkStudentProfile[] | null;
+  };
+  type ParentLinkRow = {
+    parent_id: string;
+    student: ParentLinkStudent | ParentLinkStudent[] | null;
+  };
+
+  const linksByParent: Record<string, ParentLinkRow[]> = {};
+  for (const link of (allLinks ?? []) as ParentLinkRow[]) {
+    const arr = linksByParent[link.parent_id] ?? [];
+    arr.push(link);
+    linksByParent[link.parent_id] = arr;
+  }
+
+  const rows: ParentListRow[] = parents.map((parent) => {
+    const links = linksByParent[parent.id as string] ?? [];
+    const students = links.map((link) => {
+      const student = Array.isArray(link.student) ? link.student[0] : link.student;
+      const studentProfile = student?.profiles
+        ? Array.isArray(student.profiles)
+          ? student.profiles[0]
+          : student.profiles
+        : null;
+      const branch = studentProfile?.branch
+        ? Array.isArray(studentProfile.branch)
+          ? studentProfile.branch[0]
+          : studentProfile.branch
+        : null;
+      return {
+        id: student?.id || '',
+        name: studentProfile?.name || '이름 없음',
+        seatNumber: student?.seat_number ?? null,
+        branchName: branch?.name ?? null,
+      };
+    });
+    return {
+      id: parent.id as string,
+      email: parent.email as string,
+      name: parent.name as string,
+      phone: (parent.phone as string | null) ?? null,
+      user_type: parent.user_type as string,
+      created_at: parent.created_at as string,
+      students,
+    };
+  });
+
+  return { rows, total: count ?? 0, page, pageSize };
+}
+
+export interface AdminListRow {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  branch_id: string | null;
+  branch_name: string | null;
+  created_at: string;
+}
+
+// 관리자 탭 — name/email 검색 + 페이지네이션
+export async function getAdminsList(params: {
+  branchId?: string | null;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ rows: AdminListRow[]; total: number; page: number; pageSize: number }> {
+  const supabase = await createClient();
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+  const offset = (page - 1) * pageSize;
+
+  let query = supabase
+    .from('profiles')
+    .select(
+      `
+      *,
+      branch:branch_id (id, name)
+    `,
+      { count: 'exact' },
+    )
+    .eq('user_type', 'admin');
+
+  if (params.branchId) query = query.eq('branch_id', params.branchId);
+
+  const qs = (params.q ?? '').trim();
+  if (qs) {
+    const pat = escapeLike(qs);
+    query = query.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+  }
+
+  query = query.order('created_at', { ascending: false }).range(offset, offset + pageSize - 1);
+
+  const { data, count, error } = await query;
+  if (error || !data) {
+    console.error('Error fetching admins list:', error);
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  type Row = {
+    id: string;
+    email: string;
+    name: string;
+    phone: string | null;
+    branch_id: string | null;
+    branch: { name: string | null } | null;
+    created_at: string;
+  };
+
+  const rows = (data as unknown as Row[]).map((a) => ({
+    id: a.id,
+    email: a.email,
+    name: a.name,
+    phone: a.phone,
+    branch_id: a.branch_id,
+    branch_name: a.branch?.name ?? null,
+    created_at: a.created_at,
+  }));
+
+  return { rows, total: count ?? 0, page, pageSize };
 }
 
 // 관리자 지점 변경

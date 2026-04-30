@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
+import { SearchInput } from '@/components/ui/search-input';
 import { getAttendanceBoard, getWeeklyAttendance } from '@/lib/actions/admin';
 import { buildListHref } from '@/lib/list-params';
 import {
@@ -21,7 +22,6 @@ import {
   ChevronRight,
   CalendarDays,
   List,
-  Search,
   ChevronsUpDown,
   ChevronUp,
   ChevronDown,
@@ -188,7 +188,7 @@ export function AttendanceClient({
   // URL 에서 초기값
   const initialViewMode: ViewMode = sp.get('tab') === 'weekly' ? 'weekly' : 'daily';
   const initialStatus = (sp.get('status') as StatusFilter) || null;
-  const initialQ = sp.get('q') ?? '';
+  const q = sp.get('q') ?? '';
   const initialDate = sp.get('date') || todayDate;
 
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -221,10 +221,6 @@ export function AttendanceClient({
     | 'totalReward';
   const [weeklySortKey, setWeeklySortKey] = useState<WeeklySortKey>('seatNumber');
   const [weeklySortAsc, setWeeklySortAsc] = useState(true);
-
-  // 검색 상태
-  const [searchQuery, setSearchQuery] = useState(initialQ);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialQ);
 
   // 상태 필터
   const [activeFilter, setActiveFilter] = useState<StatusFilter>(initialStatus);
@@ -310,17 +306,6 @@ export function AttendanceClient({
     return () => clearInterval(timer);
   }, []);
 
-  // 검색어 디바운스 (300ms) + URL 동기화
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      patchUrl({ q: searchQuery.trim() ? searchQuery.trim() : null, page: null });
-    }, 300);
-    return () => clearTimeout(timer);
-    // patchUrl 은 의존성 안정 — sp 가 변경되어 재생성되지만 setTimeout 재시작 비용 낮음
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
-
   // 일별: 날짜·검색 변경 및 주간→일별 전환 시 전체 재조회 (최초 마운트는 SSR 데이터 사용)
   useEffect(() => {
     if (viewMode !== 'daily') {
@@ -333,7 +318,7 @@ export function AttendanceClient({
 
     if (fromWeekly) {
       setData([]);
-      handleRefresh(selectedDate, debouncedSearch, activeFilter);
+      handleRefresh(selectedDate, q, activeFilter);
       return;
     }
 
@@ -343,9 +328,9 @@ export function AttendanceClient({
     }
 
     setData([]);
-    handleRefresh(selectedDate, debouncedSearch, activeFilter);
+    handleRefresh(selectedDate, q, activeFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, selectedDate, debouncedSearch]);
+  }, [viewMode, selectedDate, q]);
 
   // 일별 출석부는 자동 갱신하지 않음 (Realtime/주기/탭 포커스 시 목록이 줄어들며 스크롤이 튀는 문제 방지).
   // 최신 데이터는 상단 「새로고침」, 날짜·필터·검색 변경 시에만 반영된다.
@@ -372,9 +357,9 @@ export function AttendanceClient({
   // 주간 뷰 데이터
   useEffect(() => {
     if (viewMode !== 'weekly') return;
-    loadWeeklyData(currentWeekMonday, debouncedSearch);
+    loadWeeklyData(currentWeekMonday, q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, currentWeekMonday, debouncedSearch]);
+  }, [viewMode, currentWeekMonday, q]);
 
   // 상태 필터 클릭 핸들러
   const handleFilterClick = (filter: StatusFilter) => {
@@ -382,14 +367,10 @@ export function AttendanceClient({
     setActiveFilter(newFilter);
     setData([]);
     patchUrl({ status: newFilter ?? null, page: null });
-    handleRefresh(selectedDate, debouncedSearch, newFilter);
+    handleRefresh(selectedDate, q, newFilter);
   };
 
-  const handleRefresh = async (
-    date: string,
-    search = debouncedSearch,
-    filter: StatusFilter = activeFilter,
-  ) => {
+  const handleRefresh = async (date: string, search = q, filter: StatusFilter = activeFilter) => {
     setLoading(true);
     try {
       const result = await getAttendanceBoard(
@@ -409,7 +390,7 @@ export function AttendanceClient({
     }
   };
 
-  const loadWeeklyData = async (mondayDate: string, search = debouncedSearch) => {
+  const loadWeeklyData = async (mondayDate: string, search = q) => {
     setWeeklyLoading(true);
     try {
       const result = await getWeeklyAttendance(mondayDate, branchId, search || undefined);
@@ -548,16 +529,7 @@ export function AttendanceClient({
         </div>
 
         {/* 학생 이름 검색 */}
-        <div className='relative max-w-xs flex-1'>
-          <Search className='pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-gray-400' />
-          <Input
-            type='text'
-            placeholder='학생 이름 검색...'
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className='h-9 pl-8'
-          />
-        </div>
+        <SearchInput placeholder='학생 이름 검색...' className='max-w-xs flex-1' />
 
         {/* 날짜/주 선택 */}
         {viewMode === 'daily' ? (
@@ -759,9 +731,7 @@ export function AttendanceClient({
                   ) : data.length === 0 ? (
                     <tr>
                       <td colSpan={7} className='px-2 py-6 text-center text-xs text-gray-500'>
-                        {debouncedSearch
-                          ? `"${debouncedSearch}" 검색 결과가 없습니다.`
-                          : '등록된 학생이 없습니다.'}
+                        {q ? `"${q}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
@@ -1031,9 +1001,7 @@ export function AttendanceClient({
                 ) : weeklyData.length === 0 ? (
                   <tr>
                     <td colSpan={11} className='px-2 py-6 text-center text-xs text-gray-500'>
-                      {debouncedSearch
-                        ? `"${debouncedSearch}" 검색 결과가 없습니다.`
-                        : '등록된 학생이 없습니다.'}
+                      {q ? `"${q}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                     </td>
                   </tr>
                 ) : (

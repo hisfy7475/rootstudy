@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useTransition, useMemo } from 'react';
+import { useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import { DashboardStats } from '@/components/admin/dashboard-stats';
 import { StudentTable } from '@/components/admin/student-table';
-import { getAllStudents } from '@/lib/actions/admin';
 import { createClient } from '@/lib/supabase/client';
 import { buildListHref } from '@/lib/list-params';
 import { RefreshCw } from 'lucide-react';
@@ -28,7 +27,17 @@ interface Student {
 }
 
 interface DashboardClientProps {
-  initialStudents: Student[];
+  initialRows: Student[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    total: number;
+    checkedIn: number;
+    checkedOut: number;
+    onBreak: number;
+    notYetArrived: number;
+  };
   branchId: string | null;
   initialStatusFilter: StatusFilter;
   initialQ: string;
@@ -41,71 +50,35 @@ const filterButtons: { value: StatusFilter; label: string }[] = [
   { value: 'on_break', label: '외출' },
 ];
 
-const PAGE_SIZE = 50;
-
 export function DashboardClient({
-  initialStudents,
+  initialRows,
+  total,
+  page,
+  pageSize,
+  stats,
   branchId,
   initialStatusFilter,
-  initialQ,
 }: DashboardClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
   const [, startTransition] = useTransition();
 
-  const [students, setStudents] = useState<Student[]>(initialStudents);
-  const [loading, setLoading] = useState(false);
-
   const filter: StatusFilter = (sp.get('status') as StatusFilter) || initialStatusFilter;
-  const q = sp.get('q') ?? initialQ;
-  const pageNum = Math.max(1, Number.parseInt(sp.get('page') ?? '1', 10) || 1);
 
-  // 통계 — 전체 기준 (필터와 무관)
-  const stats = useMemo(
-    () => ({
-      total: students.length,
-      checkedIn: students.filter((s) => s.status === 'checked_in').length,
-      checkedOut: students.filter((s) => s.status === 'checked_out').length,
-      onBreak: students.filter((s) => s.status === 'on_break').length,
-    }),
-    [students],
-  );
-
-  // 클라이언트 측 필터 + 검색 + 페이지네이션 (학생 수가 지점당 50–200 으로 작아 OK)
-  const filteredStudents = useMemo(() => {
-    let result = filter === 'all' ? students : students.filter((s) => s.status === filter);
-    if (q.trim()) {
-      const ql = q.toLowerCase();
-      result = result.filter(
-        (s) => s.name.toLowerCase().includes(ql) || String(s.seatNumber ?? '').includes(ql),
-      );
-    }
-    return result;
-  }, [students, filter, q]);
-
-  const total = filteredStudents.length;
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const page = Math.min(pageNum, lastPage);
-  const pagedStudents = filteredStudents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // 서버 측 검색·페이지네이션·정렬로 통일됨. 검색·필터 변경 시 URL 갱신 → 서버 컴포넌트 재실행.
+  // stats 는 검색·status 와 무관한 branch 전체 기준으로 서버에서 분리 계산.
 
   function patchUrl(patch: Record<string, string | null>) {
     const href = buildListHref(pathname, new URLSearchParams(sp.toString()), patch);
     startTransition(() => router.replace(href, { scroll: false }));
   }
 
+  // 새로고침 — 현재 URL 파라미터를 그대로 두고 서버 컴포넌트만 재실행
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleRefresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getAllStudents(undefined, branchId);
-      setStudents(data);
-    } catch (e) {
-      console.error('Failed to refresh:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [branchId]);
+  function handleRefresh() {
+    startTransition(() => router.refresh());
+  }
 
   // Realtime — RLS 가 자동으로 자기 branch 변경만 통과시킨다고 가정.
   // attendance 테이블이 supabase_realtime publication 에 포함됐는지 사전 검증 필요.
@@ -115,7 +88,9 @@ export function DashboardClient({
       .channel(`admin-dashboard-attendance-${branchId ?? 'none'}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = setTimeout(() => handleRefresh(), 500);
+        refreshTimerRef.current = setTimeout(() => {
+          startTransition(() => router.refresh());
+        }, 500);
       })
       .subscribe();
 
@@ -123,7 +98,7 @@ export function DashboardClient({
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [handleRefresh, branchId]);
+  }, [branchId, router]);
 
   return (
     <div className='space-y-6 p-6'>
@@ -132,8 +107,8 @@ export function DashboardClient({
           <h1 className='text-2xl font-bold'>학생 현황</h1>
           <p className='text-text-muted mt-1'>실시간 학생 상태를 확인하세요</p>
         </div>
-        <Button variant='outline' onClick={handleRefresh} disabled={loading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        <Button variant='outline' onClick={handleRefresh}>
+          <RefreshCw className='mr-2 h-4 w-4' />
           새로고침
         </Button>
       </div>
@@ -142,7 +117,6 @@ export function DashboardClient({
 
       <DataTableToolbar
         searchPlaceholder='이름·좌석번호 검색...'
-        hidePageSize
         className='bg-transparent p-0 shadow-none'
       />
 
@@ -171,13 +145,13 @@ export function DashboardClient({
         ))}
       </div>
 
-      <StudentTable students={pagedStudents} />
+      <StudentTable students={initialRows} />
 
       <div className='flex justify-center'>
         <Pagination
           total={total}
           page={page}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           pathname={pathname}
           searchParams={new URLSearchParams(sp.toString())}
         />

@@ -1,16 +1,15 @@
 'use client';
 
-import { useState, useMemo, useTransition, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
-import { buildListHref } from '@/lib/list-params';
+import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import {
   User,
   Search,
-  Filter,
   RefreshCw,
   Repeat,
   CalendarDays,
@@ -34,7 +33,6 @@ import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import {
   createAbsenceScheduleForStudent,
-  getAllAbsenceSchedules,
   approveAbsenceSchedule,
   rejectAbsenceSchedule,
   updateAbsenceSchedule,
@@ -60,6 +58,9 @@ interface StudentInfo {
 
 interface SchedulesClientProps {
   initialSchedules: ScheduleWithStudent[];
+  total: number;
+  page: number;
+  pageSize: number;
   pendingSchedules: PendingScheduleWithStudent[];
   students: StudentInfo[];
   branchId: string | null;
@@ -67,44 +68,24 @@ interface SchedulesClientProps {
 
 export default function SchedulesClient({
   initialSchedules,
-  pendingSchedules: initialPending,
+  total,
+  page,
+  pageSize,
+  pendingSchedules,
   students,
-  branchId,
+  branchId: _branchId,
 }: SchedulesClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const [, startUrlTransition] = useTransition();
 
-  const patchUrl = useCallback(
-    (patch: Record<string, string | null>) => {
-      const href = buildListHref(pathname, new URLSearchParams(sp.toString()), patch);
-      startUrlTransition(() => router.replace(href, { scroll: false }));
-    },
-    [pathname, sp, router],
-  );
+  // 서버 페이지네이션이 적용된 행이 들어옴. 클라 필터링 없음.
+  const schedules = initialSchedules;
 
-  const PAGE_SIZE = 20;
-  const pageNum = Math.max(1, Number.parseInt(sp.get('page') ?? '1', 10) || 1);
+  const q = sp.get('q') ?? '';
+  const filterType = (sp.get('type') as 'recurring' | 'one_time' | null) ?? null;
+  const filterActive = (sp.get('active') as 'active' | 'inactive' | null) ?? null;
 
-  const [schedules, setSchedules] = useState(initialSchedules);
-  const [pendingList, setPendingList] = useState(initialPending);
-  const [searchTerm, setSearchTerm] = useState(sp.get('q') ?? '');
-  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>(
-    (sp.get('type') as 'recurring' | 'one_time') ?? 'all',
-  );
-  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>(
-    (sp.get('active') as 'active' | 'inactive') ?? 'all',
-  );
-
-  // 검색어 디바운스 → URL 동기화
-  useEffect(() => {
-    const t = setTimeout(() => {
-      patchUrl({ q: searchTerm.trim() ? searchTerm.trim() : null, page: null });
-    }, 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -278,8 +259,7 @@ export default function SchedulesClient({
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
         setShowAddModal(false);
         resetForm();
       } else {
@@ -302,8 +282,7 @@ export default function SchedulesClient({
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
         setShowAddModal(false);
         resetForm();
       } else {
@@ -321,7 +300,7 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await deleteAbsenceSchedule(schedule.id);
       if (result.success) {
-        setSchedules((prev) => prev.filter((s) => s.id !== schedule.id));
+        router.refresh();
       } else {
         alert(result.error || '삭제에 실패했습니다.');
       }
@@ -332,10 +311,7 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await approveAbsenceSchedule(scheduleId);
       if (result.success) {
-        // 승인 대기 목록에서 제거하고 전체 목록 새로고침
-        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
       } else {
         alert(result.error || '승인에 실패했습니다.');
       }
@@ -348,41 +324,14 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await rejectAbsenceSchedule(scheduleId);
       if (result.success) {
-        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
+        router.refresh();
       } else {
         alert(result.error || '거부에 실패했습니다.');
       }
     });
   };
 
-  // 필터링된 스케줄 (승인된 것만)
-  const filteredSchedules = useMemo(() => {
-    return schedules.filter((schedule) => {
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        if (
-          !schedule.student_name?.toLowerCase().includes(searchLower) &&
-          !schedule.title.toLowerCase().includes(searchLower)
-        ) {
-          return false;
-        }
-      }
-
-      if (filterType === 'recurring' && !schedule.is_recurring) return false;
-      if (filterType === 'one_time' && schedule.is_recurring) return false;
-
-      if (filterActive === 'active' && !schedule.is_active) return false;
-      if (filterActive === 'inactive' && schedule.is_active) return false;
-
-      return true;
-    });
-  }, [schedules, searchTerm, filterType, filterActive]);
-
-  const noSchedulesMatchNarrowFilters =
-    Boolean(searchTerm.trim()) ||
-    filterActive !== 'all' ||
-    filterType === 'one_time' ||
-    filterType === 'all';
+  const hasNarrowFilters = Boolean(q.trim()) || filterType !== null || filterActive !== null;
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '매일';
@@ -476,13 +425,13 @@ export default function SchedulesClient({
       </Card>
 
       {/* 승인 대기 섹션 — 출석부와 유사한 컴팩트 테이블 */}
-      {pendingList.length > 0 && (
+      {pendingSchedules.length > 0 && (
         <Card className='border-amber-200 bg-amber-50/50 p-3'>
           <div className='mb-2 flex items-center gap-2'>
             <AlertCircle className='h-4 w-4 shrink-0 text-amber-500' />
             <h2 className='text-sm font-semibold text-gray-800'>승인 대기</h2>
             <span className='rounded bg-amber-100 px-1.5 py-0 text-[11px] text-amber-700'>
-              {pendingList.length}건
+              {pendingSchedules.length}건
             </span>
           </div>
           <div className='overflow-x-auto rounded-lg border border-amber-100 bg-white'>
@@ -507,7 +456,7 @@ export default function SchedulesClient({
                 </tr>
               </thead>
               <tbody className='divide-y divide-amber-50'>
-                {pendingList.map((schedule) => (
+                {pendingSchedules.map((schedule) => (
                   <tr key={schedule.id} className='hover:bg-amber-50/40'>
                     <td className='px-2 py-1 align-middle'>
                       <div
@@ -580,58 +529,35 @@ export default function SchedulesClient({
         </Card>
       )}
 
-      {/* 필터 */}
-      <Card className='p-4'>
-        <div className='flex flex-wrap items-center gap-4'>
-          <div className='min-w-[200px] flex-1'>
-            <div className='relative'>
-              <Search className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400' />
-              <Input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder='학생 이름 또는 일정 제목 검색'
-                className='pl-10'
-              />
-            </div>
-          </div>
-          <div className='flex items-center gap-2'>
-            <Filter className='h-4 w-4 text-gray-400' />
-            <select
-              value={filterType}
-              onChange={(e) => {
-                const v = e.target.value as 'all' | 'recurring' | 'one_time';
-                setFilterType(v);
-                patchUrl({ type: v === 'all' ? null : v, page: null });
-              }}
-              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
-            >
-              <option value='all'>모든 유형</option>
-              <option value='recurring'>반복 일정</option>
-              <option value='one_time'>일회성 일정</option>
-            </select>
-            <select
-              value={filterActive}
-              onChange={(e) => {
-                const v = e.target.value as 'all' | 'active' | 'inactive';
-                setFilterActive(v);
-                patchUrl({ active: v === 'all' ? null : v, page: null });
-              }}
-              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
-            >
-              <option value='all'>모든 상태</option>
-              <option value='active'>활성</option>
-              <option value='inactive'>비활성</option>
-            </select>
-          </div>
-        </div>
-      </Card>
+      {/* 검색·필터·페이지사이즈 */}
+      <DataTableToolbar
+        searchPlaceholder='학생 이름 또는 일정 제목 검색'
+        filters={[
+          {
+            key: 'type',
+            label: '유형',
+            allLabel: '모든 유형',
+            options: [
+              { value: 'recurring', label: '반복 일정' },
+              { value: 'one_time', label: '일회성 일정' },
+            ],
+          },
+          {
+            key: 'active',
+            label: '상태',
+            allLabel: '모든 상태',
+            options: [
+              { value: 'active', label: '활성' },
+              { value: 'inactive', label: '비활성' },
+            ],
+          },
+        ]}
+      />
 
       {/* 스케줄 목록 — 출석부와 유사한 컴팩트 테이블 */}
-      {filteredSchedules.length === 0 ? (
+      {schedules.length === 0 ? (
         <Card className='p-6 text-center text-sm text-gray-500'>
-          {noSchedulesMatchNarrowFilters
-            ? '검색 결과가 없습니다.'
-            : '등록된 부재 스케줄이 없습니다.'}
+          {hasNarrowFilters ? '검색 결과가 없습니다.' : '등록된 부재 스케줄이 없습니다.'}
         </Card>
       ) : (
         <Card className='relative overflow-hidden p-0'>
@@ -661,174 +587,163 @@ export default function SchedulesClient({
                 </tr>
               </thead>
               <tbody className='divide-y divide-gray-100'>
-                {filteredSchedules
-                  .slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE)
-                  .map((schedule) => (
-                    <tr
-                      key={schedule.id}
-                      className={cn(
-                        'hover:bg-gray-50',
-                        !schedule.is_active && 'bg-gray-50/80 opacity-60',
-                      )}
-                    >
-                      <td className='px-2 py-1.5 align-middle'>
-                        <div
-                          className={cn(
-                            'flex h-7 w-7 shrink-0 items-center justify-center rounded',
-                            schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
-                          )}
-                        >
-                          {schedule.is_recurring ? (
-                            <Repeat className='text-primary h-3.5 w-3.5' />
-                          ) : (
-                            <CalendarDays className='h-3.5 w-3.5 text-amber-600' />
-                          )}
-                        </div>
-                      </td>
-                      <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
-                        <div className='flex items-center gap-1'>
-                          <User className='h-3 w-3 shrink-0 text-gray-400' />
-                          <span className='font-medium text-gray-800'>
-                            {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
-                            {schedule.student_name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className='px-2 py-1.5 align-middle'>
-                        <div className='flex flex-wrap items-center gap-1'>
-                          <span
-                            className='max-w-[120px] truncate font-medium text-gray-800 sm:max-w-[200px]'
-                            title={schedule.title}
-                          >
-                            {schedule.title}
-                          </span>
-                          {!schedule.is_active && (
-                            <span className='shrink-0 rounded bg-gray-200 px-1 py-0 text-[10px] text-gray-600'>
-                              비활성
-                            </span>
-                          )}
-                          {schedule.status === 'approved' && (
-                            <span
-                              className='max-w-[160px] truncate text-[10px] text-gray-500'
-                              title={
-                                approvedByCaption(schedule.status, schedule.approver_display) ??
-                                undefined
-                              }
-                            >
-                              {approvedByCaption(schedule.status, schedule.approver_display)}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className='px-2 py-1.5 align-middle whitespace-nowrap text-gray-700 tabular-nums'>
-                        {formatTimeRange(schedule.start_time, schedule.end_time)}
-                      </td>
-                      <td className='px-2 py-1.5 align-middle text-[11px] whitespace-nowrap text-gray-500 tabular-nums'>
-                        {formatExemptionRange(
-                          schedule.start_time,
-                          schedule.end_time,
-                          schedule.buffer_minutes,
+                {schedules.map((schedule) => (
+                  <tr
+                    key={schedule.id}
+                    className={cn(
+                      'hover:bg-gray-50',
+                      !schedule.is_active && 'bg-gray-50/80 opacity-60',
+                    )}
+                  >
+                    <td className='px-2 py-1.5 align-middle'>
+                      <div
+                        className={cn(
+                          'flex h-7 w-7 shrink-0 items-center justify-center rounded',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
                         )}
-                      </td>
-                      <td className='px-2 py-1.5 align-middle text-gray-600'>
+                      >
                         {schedule.is_recurring ? (
-                          <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
+                          <Repeat className='text-primary h-3.5 w-3.5' />
                         ) : (
-                          <span>
-                            {schedule.specific_date
-                              ? format(
-                                  new Date(schedule.specific_date + 'T12:00:00+09:00'),
-                                  'M/d (eee)',
-                                  { locale: ko },
-                                )
-                              : '—'}
+                          <CalendarDays className='h-3.5 w-3.5 text-amber-600' />
+                        )}
+                      </div>
+                    </td>
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
+                      <div className='flex items-center gap-1'>
+                        <User className='h-3 w-3 shrink-0 text-gray-400' />
+                        <span className='font-medium text-gray-800'>
+                          {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
+                          {schedule.student_name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className='px-2 py-1.5 align-middle'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        <span
+                          className='max-w-[120px] truncate font-medium text-gray-800 sm:max-w-[200px]'
+                          title={schedule.title}
+                        >
+                          {schedule.title}
+                        </span>
+                        {!schedule.is_active && (
+                          <span className='shrink-0 rounded bg-gray-200 px-1 py-0 text-[10px] text-gray-600'>
+                            비활성
                           </span>
                         )}
-                      </td>
-                      <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
-                        <div className='flex flex-wrap items-center gap-1'>
+                        {schedule.status === 'approved' && (
                           <span
-                            className={cn(
-                              'inline-block rounded px-1.5 py-0 text-[10px]',
-                              !schedule.is_recurring
-                                ? 'bg-amber-100 text-amber-700'
-                                : schedule.date_type === 'semester'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : schedule.date_type === 'vacation'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-gray-100 text-gray-600',
-                            )}
+                            className='max-w-[160px] truncate text-[10px] text-gray-500'
+                            title={
+                              approvedByCaption(schedule.status, schedule.approver_display) ??
+                              undefined
+                            }
                           >
-                            {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
+                            {approvedByCaption(schedule.status, schedule.approver_display)}
                           </span>
-                          {schedule.is_recurring &&
-                            (schedule.valid_from || schedule.valid_until) && (
-                              <span className='text-[10px] text-gray-500 tabular-nums'>
-                                {schedule.valid_from
-                                  ? format(
-                                      new Date(schedule.valid_from + 'T12:00:00+09:00'),
-                                      'M/d',
-                                      {
-                                        locale: ko,
-                                      },
-                                    )
-                                  : ''}
-                                ~
-                                {schedule.valid_until
-                                  ? format(
-                                      new Date(schedule.valid_until + 'T12:00:00+09:00'),
-                                      'M/d',
-                                      {
-                                        locale: ko,
-                                      },
-                                    )
-                                  : '∞'}
-                              </span>
-                            )}
-                        </div>
-                      </td>
-                      <td className='max-w-[100px] px-2 py-1.5 align-middle text-gray-500 sm:max-w-[180px]'>
-                        {schedule.description ? (
-                          <span className='block truncate' title={schedule.description}>
-                            {schedule.description}
-                          </span>
-                        ) : (
-                          <span className='text-gray-300'>—</span>
                         )}
-                      </td>
-                      <td className='px-2 py-1.5 text-right align-middle whitespace-nowrap'>
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          onClick={() => openEditModal(schedule)}
-                          className='hover:text-primary h-7 w-7 p-0 text-gray-400'
+                      </div>
+                    </td>
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap text-gray-700 tabular-nums'>
+                      {formatTimeRange(schedule.start_time, schedule.end_time)}
+                    </td>
+                    <td className='px-2 py-1.5 align-middle text-[11px] whitespace-nowrap text-gray-500 tabular-nums'>
+                      {formatExemptionRange(
+                        schedule.start_time,
+                        schedule.end_time,
+                        schedule.buffer_minutes,
+                      )}
+                    </td>
+                    <td className='px-2 py-1.5 align-middle text-gray-600'>
+                      {schedule.is_recurring ? (
+                        <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
+                      ) : (
+                        <span>
+                          {schedule.specific_date
+                            ? format(
+                                new Date(schedule.specific_date + 'T12:00:00+09:00'),
+                                'M/d (eee)',
+                                { locale: ko },
+                              )
+                            : '—'}
+                        </span>
+                      )}
+                    </td>
+                    <td className='px-2 py-1.5 align-middle whitespace-nowrap'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        <span
+                          className={cn(
+                            'inline-block rounded px-1.5 py-0 text-[10px]',
+                            !schedule.is_recurring
+                              ? 'bg-amber-100 text-amber-700'
+                              : schedule.date_type === 'semester'
+                                ? 'bg-blue-100 text-blue-700'
+                                : schedule.date_type === 'vacation'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-gray-100 text-gray-600',
+                          )}
                         >
-                          <Pencil className='h-3.5 w-3.5' />
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          onClick={() => handleDelete(schedule)}
-                          disabled={isPending}
-                          className='h-7 w-7 p-0 text-gray-400 hover:text-red-500'
-                        >
-                          <Trash2 className='h-3.5 w-3.5' />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                          {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
+                        </span>
+                        {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
+                          <span className='text-[10px] text-gray-500 tabular-nums'>
+                            {schedule.valid_from
+                              ? format(new Date(schedule.valid_from + 'T12:00:00+09:00'), 'M/d', {
+                                  locale: ko,
+                                })
+                              : ''}
+                            ~
+                            {schedule.valid_until
+                              ? format(new Date(schedule.valid_until + 'T12:00:00+09:00'), 'M/d', {
+                                  locale: ko,
+                                })
+                              : '∞'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className='max-w-[100px] px-2 py-1.5 align-middle text-gray-500 sm:max-w-[180px]'>
+                      {schedule.description ? (
+                        <span className='block truncate' title={schedule.description}>
+                          {schedule.description}
+                        </span>
+                      ) : (
+                        <span className='text-gray-300'>—</span>
+                      )}
+                    </td>
+                    <td className='px-2 py-1.5 text-right align-middle whitespace-nowrap'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => openEditModal(schedule)}
+                        className='hover:text-primary h-7 w-7 p-0 text-gray-400'
+                      >
+                        <Pencil className='h-3.5 w-3.5' />
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => handleDelete(schedule)}
+                        disabled={isPending}
+                        className='h-7 w-7 p-0 text-gray-400 hover:text-red-500'
+                      >
+                        <Trash2 className='h-3.5 w-3.5' />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </Card>
       )}
 
-      {filteredSchedules.length > 0 && (
+      {schedules.length > 0 && (
         <div className='flex justify-center'>
           <Pagination
-            total={filteredSchedules.length}
-            page={Math.min(pageNum, Math.max(1, Math.ceil(filteredSchedules.length / PAGE_SIZE)))}
-            pageSize={PAGE_SIZE}
+            total={total}
+            page={page}
+            pageSize={pageSize}
             pathname={pathname}
             searchParams={new URLSearchParams(sp.toString())}
           />

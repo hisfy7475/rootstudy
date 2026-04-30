@@ -3,9 +3,9 @@
 import * as React from 'react';
 import { useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildListHref } from '@/lib/list-params';
+import { SearchInput } from '@/components/ui/search-input';
 
 export interface ToolbarFilterOption {
   value: string;
@@ -56,14 +56,6 @@ export function DataTableToolbar({
   const sp = useSearchParams();
   const [, startTransition] = useTransition();
 
-  const initialQ = sp.get('q') ?? '';
-  const [q, setQ] = React.useState(initialQ);
-  React.useEffect(() => {
-    setQ(initialQ);
-  }, [initialQ]);
-
-  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const patchUrl = React.useCallback(
     (patch: Record<string, string | number | null>) => {
       const cleaned: Record<string, string | number | null> = { ...patch };
@@ -76,20 +68,6 @@ export function DataTableToolbar({
     [pathname, sp, router, resetKeysOnChange],
   );
 
-  function onSearchChange(next: string) {
-    setQ(next);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      patchUrl({ q: next.trim() ? next.trim() : null });
-    }, 300);
-  }
-
-  function clearSearch() {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setQ('');
-    patchUrl({ q: null });
-  }
-
   return (
     <div
       className={cn(
@@ -98,29 +76,7 @@ export function DataTableToolbar({
       )}
     >
       {!hideSearch && (
-        <div className='relative max-w-md min-w-[200px] flex-1'>
-          <Search
-            className='text-text-muted pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2'
-            aria-hidden
-          />
-          <input
-            type='search'
-            value={q}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder}
-            className='text-text placeholder:text-text-muted focus:ring-primary flex w-full rounded-xl border border-gray-200 bg-white py-2.5 pr-9 pl-10 text-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
-          />
-          {q && (
-            <button
-              type='button'
-              onClick={clearSearch}
-              aria-label='검색어 지우기'
-              className='text-text-muted absolute top-1/2 right-2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md hover:bg-gray-100'
-            >
-              <X className='h-4 w-4' />
-            </button>
-          )}
-        </div>
+        <SearchInput placeholder={searchPlaceholder} resetKeysOnSubmit={resetKeysOnChange} />
       )}
 
       {filters.map((f) => {
