@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
@@ -14,6 +14,8 @@ export interface LinkedStudent {
   seatNumber: number | null;
   /** 학생의 소속 지점 id — 학부모 화면에서 상품 지점과 매칭 검증에 사용 */
   branchId: string | null;
+  /** 퇴원 처리된 시각. null 이면 활성 학생. */
+  withdrawnAt: string | null;
 }
 
 // 주간 학습 진행 데이터 타입
@@ -37,7 +39,7 @@ export interface StudentDashboardData {
   studyTime: number;
   currentSubject: string | null;
   todayFocus: number | null;
-  latestActivity: string | null;  // 최근 학습 상태 (인강 수강 중, 수면 중 등)
+  latestActivity: string | null; // 최근 학습 상태 (인강 수강 중, 수면 중 등)
   pendingSchedules: number;
   weeklyProgress: WeeklyProgressData;
   weeklyGoals: WeeklyGoalDay[];
@@ -46,8 +48,10 @@ export interface StudentDashboardData {
 // 연결된 모든 학생 정보 조회 (1:N)
 export async function getLinkedStudents(): Promise<LinkedStudent[]> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // parent_student_links에서 연결된 학생 ID 목록 조회
@@ -58,31 +62,35 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
 
   if (!links || links.length === 0) return [];
 
-  const studentIds = links.map(link => link.student_id);
+  const studentIds = links.map((link) => link.student_id);
 
-  // 학생 정보 조회
+  // 학생 정보 조회 — 퇴원 자녀도 포함하되 withdrawn_at 노출하여 UI 에서 배지 표시
   const { data: studentProfiles } = await supabase
     .from('student_profiles')
-    .select(`
+    .select(
+      `
       id,
       seat_number,
       profiles!inner (
         name,
         email,
         phone,
-        branch_id
+        branch_id,
+        withdrawn_at
       )
-    `)
+    `,
+    )
     .in('id', studentIds);
 
   if (!studentProfiles) return [];
 
-  return studentProfiles.map(sp => {
+  return studentProfiles.map((sp) => {
     const profile = sp.profiles as unknown as {
       name: string;
       email: string;
       phone: string | null;
       branch_id: string | null;
+      withdrawn_at: string | null;
     };
 
     return {
@@ -92,6 +100,7 @@ export async function getLinkedStudents(): Promise<LinkedStudent[]> {
       phone: profile.phone,
       seatNumber: sp.seat_number,
       branchId: profile.branch_id,
+      withdrawnAt: profile.withdrawn_at,
     };
   });
 }
@@ -114,12 +123,16 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
     .order('timestamp', { ascending: true });
 
   if (!attendance || attendance.length === 0) {
-    return { status: 'checked_out' as const, lastUpdate: null, actualStatus: 'checked_out' as const };
+    return {
+      status: 'checked_out' as const,
+      lastUpdate: null,
+      actualStatus: 'checked_out' as const,
+    };
   }
 
   const lastRecord = attendance[attendance.length - 1];
   let actualStatus: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
-  
+
   if (lastRecord.type === 'check_in') actualStatus = 'checked_in';
   else if (lastRecord.type === 'check_out') actualStatus = 'checked_out';
   else if (lastRecord.type === 'break_start') actualStatus = 'on_break';
@@ -128,14 +141,14 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
   // 학부모 뷰일 경우 외출 상태를 퇴실로 표시
   let displayStatus = actualStatus;
   const displayLastUpdate = lastRecord.timestamp;
-  
+
   if (options?.forParentView && actualStatus === 'on_break') {
     displayStatus = 'checked_out';
     // 외출 시작 시간을 퇴실 시간으로 표시
   }
 
-  return { 
-    status: displayStatus, 
+  return {
+    status: displayStatus,
     lastUpdate: displayLastUpdate,
     actualStatus, // 실제 상태 (관리자용 등에서 필요할 경우)
   };
@@ -166,7 +179,7 @@ export async function getStudentStudyTime(studentId: string) {
 
   for (const record of attendance) {
     const timestamp = new Date(record.timestamp);
-    
+
     switch (record.type) {
       case 'check_in':
         checkInTime = timestamp;
@@ -232,9 +245,7 @@ export async function getStudentTodayFocus(studentId: string) {
     return { scores: [], average: null, latestActivity: null };
   }
 
-  const average = Math.round(
-    data.reduce((sum, s) => sum + s.score, 0) / data.length
-  );
+  const average = Math.round(data.reduce((sum, s) => sum + s.score, 0) / data.length);
 
   // 가장 최근 기록의 활동 상태 (note 필드)
   const latestActivity = data[0]?.note || null;
@@ -246,8 +257,10 @@ export async function getStudentTodayFocus(studentId: string) {
 export async function getParentDashboardData(): Promise<{
   students: StudentDashboardData[];
 }> {
-  const linkedStudents = await getLinkedStudents();
-  
+  // 대시보드는 활성 자녀만 노출 — 퇴원 자녀는 자녀 목록·결제 이력에서만 표시.
+  const allLinked = await getLinkedStudents();
+  const linkedStudents = allLinked.filter((s) => s.withdrawnAt === null);
+
   if (linkedStudents.length === 0) {
     return {
       students: [],
@@ -258,14 +271,15 @@ export async function getParentDashboardData(): Promise<{
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
   const studentsData = await Promise.all(
     linkedStudents.map(async (student) => {
-      const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] = await Promise.all([
-        getStudentStatus(student.id, { forParentView: true }),
-        getStudentStudyTime(student.id),
-        getStudentCurrentSubject(student.id),
-        getStudentTodayFocus(student.id),
-        getWeeklyProgress(student.id),
-        getWeeklyGoals(student.id),
-      ]);
+      const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] =
+        await Promise.all([
+          getStudentStatus(student.id, { forParentView: true }),
+          getStudentStudyTime(student.id),
+          getStudentCurrentSubject(student.id),
+          getStudentTodayFocus(student.id),
+          getWeeklyProgress(student.id),
+          getWeeklyGoals(student.id),
+        ]);
 
       return {
         student,
@@ -279,7 +293,7 @@ export async function getParentDashboardData(): Promise<{
         weeklyProgress: weeklyProgressData,
         weeklyGoals: weeklyGoalsData,
       };
-    })
+    }),
   );
 
   return {
@@ -292,23 +306,25 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
   student: StudentDashboardData | null;
 }> {
   const linkedStudents = await getLinkedStudents();
-  const student = linkedStudents.find(s => s.id === studentId);
-  
-  if (!student) {
+  const student = linkedStudents.find((s) => s.id === studentId);
+
+  // 퇴원 자녀의 studentId 로 직접 접근하는 경우 활성 데이터를 노출하지 않는다.
+  if (!student || student.withdrawnAt) {
     return {
       student: null,
     };
   }
 
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
-  const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] = await Promise.all([
-    getStudentStatus(student.id, { forParentView: true }),
-    getStudentStudyTime(student.id),
-    getStudentCurrentSubject(student.id),
-    getStudentTodayFocus(student.id),
-    getWeeklyProgress(student.id),
-    getWeeklyGoals(student.id),
-  ]);
+  const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] =
+    await Promise.all([
+      getStudentStatus(student.id, { forParentView: true }),
+      getStudentStudyTime(student.id),
+      getStudentCurrentSubject(student.id),
+      getStudentTodayFocus(student.id),
+      getWeeklyProgress(student.id),
+      getWeeklyGoals(student.id),
+    ]);
 
   const studentData: StudentDashboardData = {
     student,
@@ -331,18 +347,26 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
 // 자녀 추가 (연결 코드로)
 export async function addChildToParent(code: string) {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  // 연결 코드로 학생 찾기
-  const { data: studentProfile, error: studentError } = await supabase
+  // 연결 코드로 학생 찾기 — 미연결 학생은 학부모 RLS 로 SELECT 불가하므로 admin 클라이언트 사용
+  // (verifyParentCode/signUpParent 와 권한 통일). 동시에 퇴원 자녀 차단.
+  const adminClient = createAdminClient();
+  const { data: studentProfile, error: studentError } = await adminClient
     .from('student_profiles')
-    .select('id')
+    .select('id, profiles!inner(withdrawn_at)')
     .eq('parent_code', code)
-    .single();
+    .maybeSingle();
 
-  if (studentError || !studentProfile) {
+  const studentWithdrawnAt = (
+    studentProfile?.profiles as unknown as { withdrawn_at: string | null } | undefined
+  )?.withdrawn_at;
+
+  if (studentError || !studentProfile || studentWithdrawnAt) {
     return { error: '유효하지 않은 연결 코드입니다.' };
   }
 
@@ -359,12 +383,10 @@ export async function addChildToParent(code: string) {
   }
 
   // 연결 추가
-  const { error: linkError } = await supabase
-    .from('parent_student_links')
-    .insert({
-      parent_id: user.id,
-      student_id: studentProfile.id,
-    });
+  const { error: linkError } = await supabase.from('parent_student_links').insert({
+    parent_id: user.id,
+    student_id: studentProfile.id,
+  });
 
   if (linkError) {
     console.error('Error adding child link:', linkError);
@@ -378,25 +400,25 @@ export async function addChildToParent(code: string) {
 
 // 주간 리포트 타입
 export interface DailyStudyData {
-  date: string;            // YYYY-MM-DD (학습일 기준)
-  studySeconds: number;    // 해당 날 순공시간(초)
-  hasAttendance: boolean;  // 출석 여부
+  date: string; // YYYY-MM-DD (학습일 기준)
+  studySeconds: number; // 해당 날 순공시간(초)
+  hasAttendance: boolean; // 출석 여부
   focusAvg: number | null; // 해당 날 몰입도 평균
 }
 
 export interface WeeklyAttendanceStat {
-  totalWeekdays: number;   // 지난 주중일 수(월~금, 미래 제외)
+  totalWeekdays: number; // 지난 주중일 수(월~금, 미래 제외)
   attendedDays: number;
   absentDays: number;
-  attendanceRate: number;  // 정상 출석 %
-  absentRate: number;      // 결석 %
+  attendanceRate: number; // 정상 출석 %
+  absentRate: number; // 결석 %
 }
 
 export interface WeeklyReportData {
-  weekStart: string;        // ISO string (월요일)
-  weekEnd: string;          // ISO string (일요일)
+  weekStart: string; // ISO string (월요일)
+  weekEnd: string; // ISO string (일요일)
   studentName: string;
-  dailyData: DailyStudyData[];   // 7일치 (월~일)
+  dailyData: DailyStudyData[]; // 7일치 (월~일)
   attendanceStat: WeeklyAttendanceStat;
   weeklyFocusAvg: number | null;
 }
@@ -404,11 +426,13 @@ export interface WeeklyReportData {
 // 주간 리포트 데이터 조회 (학부모용)
 export async function getWeeklyReportData(
   studentId: string,
-  weekStartDate: Date
+  weekStartDate: Date,
 ): Promise<WeeklyReportData | null> {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
   // 부모-자녀 연결 확인
@@ -421,15 +445,19 @@ export async function getWeeklyReportData(
 
   if (!link) return null;
 
-  // 학생 이름 조회
+  // 학생 이름 조회 — 퇴원 자녀이면 학부모 리포트에서는 활성 데이터를 노출하지 않는다.
   const { data: profileData } = await supabase
     .from('student_profiles')
-    .select('profiles!inner(name)')
+    .select('profiles!inner(name, withdrawn_at)')
     .eq('id', studentId)
     .single();
 
-  const studentName =
-    (profileData?.profiles as unknown as { name: string })?.name || '';
+  const profileMeta = profileData?.profiles as unknown as
+    | { name: string; withdrawn_at: string | null }
+    | undefined;
+  if (profileMeta?.withdrawn_at) return null;
+
+  const studentName = profileMeta?.name || '';
 
   // 주의 7일(월~일) 날짜 배열
   const days: Date[] = [];
@@ -488,17 +516,13 @@ export async function getWeeklyReportData(
           break;
         case 'check_out':
           if (checkInTime) {
-            studySeconds += Math.floor(
-              (timestamp.getTime() - checkInTime.getTime()) / 1000
-            );
+            studySeconds += Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000);
             checkInTime = null;
           }
           break;
         case 'break_start':
           if (checkInTime) {
-            studySeconds += Math.floor(
-              (timestamp.getTime() - checkInTime.getTime()) / 1000
-            );
+            studySeconds += Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000);
             checkInTime = null;
           }
           break;
@@ -511,9 +535,7 @@ export async function getWeeklyReportData(
     // 오늘 날짜 중 아직 퇴실 안 한 경우 현재 시각까지 계산
     if (checkInTime) {
       const endTime = end < today ? end : new Date();
-      studySeconds += Math.floor(
-        (endTime.getTime() - checkInTime.getTime()) / 1000
-      );
+      studySeconds += Math.floor((endTime.getTime() - checkInTime.getTime()) / 1000);
     }
 
     // 몰입도 평균
@@ -523,9 +545,7 @@ export async function getWeeklyReportData(
     });
     const focusAvg =
       dayFocus.length > 0
-        ? Math.round(
-            (dayFocus.reduce((sum, f) => sum + f.score, 0) / dayFocus.length) * 10
-          ) / 10
+        ? Math.round((dayFocus.reduce((sum, f) => sum + f.score, 0) / dayFocus.length) * 10) / 10
         : null;
 
     return { date: dateStr, studySeconds, hasAttendance, focusAvg };
@@ -539,19 +559,15 @@ export async function getWeeklyReportData(
   const attendedDays = pastWeekdays.filter((d) => d.hasAttendance).length;
   const absentDays = pastWeekdays.length - attendedDays;
   const totalWeekdays = pastWeekdays.length;
-  const attendanceRate =
-    totalWeekdays > 0 ? Math.round((attendedDays / totalWeekdays) * 100) : 0;
-  const absentRate =
-    totalWeekdays > 0 ? Math.round((absentDays / totalWeekdays) * 100) : 0;
+  const attendanceRate = totalWeekdays > 0 ? Math.round((attendedDays / totalWeekdays) * 100) : 0;
+  const absentRate = totalWeekdays > 0 ? Math.round((absentDays / totalWeekdays) * 100) : 0;
 
   // 주간 몰입도 평균
   const focusDays = dailyData.filter((d) => d.focusAvg !== null);
   const weeklyFocusAvg =
     focusDays.length > 0
       ? Math.round(
-          (focusDays.reduce((sum, d) => sum + (d.focusAvg || 0), 0) /
-            focusDays.length) *
-            10
+          (focusDays.reduce((sum, d) => sum + (d.focusAvg || 0), 0) / focusDays.length) * 10,
         ) / 10
       : null;
 
@@ -577,8 +593,10 @@ export async function getWeeklyReportData(
 // 자녀 연결 해제
 export async function removeChildFromParent(studentId: string) {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const { error } = await supabase

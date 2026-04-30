@@ -71,7 +71,8 @@ export async function getMyChatRoom(studentId?: string) {
     // 학생: 본인의 채팅방
     return getOrCreateChatRoom(user.id);
   } else if (profile.user_type === 'parent') {
-    // 학부모: 연결된 학생의 채팅방 (studentId가 지정되면 해당 학생, 아니면 첫 번째 학생)
+    // 학부모: 연결된 학생의 채팅방 (studentId가 지정되면 해당 학생, 아니면 첫 번째 활성 학생).
+    // 퇴원 자녀와의 새 채팅 시작·진입은 차단한다 (과거 메시지 자체는 RLS 로 그대로 조회 가능).
     const { data: links } = await supabase
       .from('parent_student_links')
       .select('student_id')
@@ -81,17 +82,31 @@ export async function getMyChatRoom(studentId?: string) {
       return { error: '연결된 학생이 없습니다.' };
     }
 
-    // 특정 학생이 지정된 경우 연결 확인
+    const linkedIds = links.map((l) => l.student_id as string);
+    const { data: activeProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('id', linkedIds)
+      .is('withdrawn_at', null);
+    const activeIds = new Set((activeProfiles ?? []).map((p) => p.id as string));
+
+    // 특정 학생이 지정된 경우 연결 + 활성 여부 확인
     if (studentId) {
-      const isLinked = links.some((link) => link.student_id === studentId);
-      if (!isLinked) {
+      if (!linkedIds.includes(studentId)) {
         return { error: '연결되지 않은 학생입니다.' };
+      }
+      if (!activeIds.has(studentId)) {
+        return { error: '퇴원 처리된 자녀의 채팅방은 사용할 수 없습니다.' };
       }
       return getOrCreateChatRoom(studentId);
     }
 
-    // 기본값: 첫 번째 연결된 학생
-    return getOrCreateChatRoom(links[0].student_id);
+    // 기본값: 첫 번째 활성 자녀의 채팅방
+    const firstActiveId = linkedIds.find((id) => activeIds.has(id));
+    if (!firstActiveId) {
+      return { error: '활성 상태인 자녀가 없습니다.' };
+    }
+    return getOrCreateChatRoom(firstActiveId);
   }
 
   return { error: '권한이 없습니다.' };
@@ -519,6 +534,21 @@ export async function sendMessage(
 
   if (!profile) {
     return { error: '프로필을 찾을 수 없습니다.' };
+  }
+
+  // 채팅방의 학생이 퇴원 상태이면 신규 메시지 발송을 차단한다 (기존 메시지 조회는 허용).
+  // 학부모/어드민이 퇴원 자녀 채팅방에 새 메시지를 남기지 못하도록.
+  const { data: roomRow } = await supabase
+    .from('chat_rooms')
+    .select('student_id, profiles:student_id (withdrawn_at)')
+    .eq('id', roomId)
+    .maybeSingle();
+  const roomStudent = roomRow as unknown as {
+    student_id: string;
+    profiles: { withdrawn_at: string | null } | null;
+  } | null;
+  if (roomStudent?.profiles?.withdrawn_at) {
+    return { error: '퇴원 처리된 학생의 채팅방에는 메시지를 보낼 수 없습니다.' };
   }
 
   // 메시지 삽입 (발신자 타입에 따라 읽음 표시 설정)

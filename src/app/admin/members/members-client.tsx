@@ -50,6 +50,7 @@ import {
   ArrowDown,
   Plus,
   Lock,
+  UserX,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -676,9 +677,18 @@ export function MembersClient({
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div>
-        <h1 className='text-2xl font-bold'>회원 관리</h1>
-        <p className='text-text-muted mt-1'>학생, 학부모, 관리자 회원을 관리하세요</p>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div>
+          <h1 className='text-2xl font-bold'>회원 관리</h1>
+          <p className='text-text-muted mt-1'>학생, 학부모, 관리자 회원을 관리하세요</p>
+        </div>
+        <a
+          href='/admin/members/withdrawn'
+          className='text-text-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50'
+        >
+          <UserX className='h-4 w-4' />
+          퇴원 회원 보기
+        </a>
       </div>
 
       <div className='space-y-4'>
@@ -1633,7 +1643,7 @@ export function MembersClient({
                 </div>
               </div>
 
-              {/* 회원 탈퇴 버튼 */}
+              {/* 회원 퇴원 버튼 */}
               <div className='border-t pt-4'>
                 <Button
                   variant='outline'
@@ -1660,7 +1670,7 @@ export function MembersClient({
                   className='w-full border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600'
                 >
                   <UserMinus className='mr-2 h-4 w-4' />
-                  회원 탈퇴
+                  퇴원 처리
                 </Button>
               </div>
             </div>
@@ -1766,14 +1776,14 @@ export function MembersClient({
         </div>
       )}
 
-      {/* 탈퇴 확인 모달 */}
+      {/* 퇴원 확인 모달 */}
       {deleteModal && (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
           <Card className='w-full max-w-md space-y-5 p-6'>
             <div className='flex items-center justify-between'>
               <h2 className='flex items-center gap-2 text-lg font-semibold text-red-600'>
                 <AlertTriangle className='h-5 w-5' />
-                회원 탈퇴
+                회원 퇴원 처리
               </h2>
               <button
                 onClick={() => setDeleteModal(null)}
@@ -1783,16 +1793,26 @@ export function MembersClient({
               </button>
             </div>
 
-            {/* 경고 메시지 */}
+            {/* 안내 메시지 */}
             <div className='space-y-2 rounded-xl border border-red-200 bg-red-50 p-4'>
-              <p className='font-medium text-red-700'>이 작업은 되돌릴 수 없습니다.</p>
-              <p className='text-sm text-red-600'>
-                <strong>[{deleteModal.member.name}]</strong> 회원을 탈퇴시키시겠습니까?
+              <p className='font-medium text-red-700'>
+                <strong>[{deleteModal.member.name}]</strong> 회원을 퇴원 처리합니다.
               </p>
-              <p className='text-sm text-red-600'>
-                {deleteModal.userType === 'student'
-                  ? '모든 학습 기록, 출석 기록, 상벌점 등이 영구적으로 삭제됩니다.'
-                  : '학부모 계정이 삭제됩니다. 연결된 학생 계정은 유지됩니다.'}
+              {deleteModal.userType === 'student' ? (
+                <p className='text-sm text-red-600'>
+                  학생 계정이 즉시 비활성화되어 로그인이 차단되며, 학생 목록·출결·좌석 등 활성
+                  화면에서 사라집니다. 모의고사 응시·결제·상담 등 과거 이력은 보존되어 통계에 그대로
+                  반영됩니다.
+                </p>
+              ) : (
+                <p className='text-sm text-red-600'>
+                  활성 자녀가 있으면 학부모 계정은 유지하고 <strong>자녀 연결만 모두 해제</strong>
+                  합니다(자녀 계정은 영향 없음). 활성 자녀가 0명일 때만 학부모 계정 자체가
+                  비활성화됩니다.
+                </p>
+              )}
+              <p className='text-xs text-red-600'>
+                필요 시 「퇴원 회원 보기」에서 복구할 수 있습니다.
               </p>
             </div>
 
@@ -1848,7 +1868,7 @@ export function MembersClient({
                 disabled={loading || deleteConfirmName.trim() !== deleteModal.member.name.trim()}
               >
                 <Trash2 className='mr-1 h-4 w-4' />
-                {loading ? '처리중...' : '탈퇴 처리'}
+                {loading ? '처리중...' : '퇴원 처리'}
               </Button>
             </div>
           </Card>

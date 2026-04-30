@@ -119,6 +119,7 @@ export async function getStudentsPresentDuringPeriod(
     `,
     )
     .eq('profiles.branch_id', branchId)
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   const { data: students, error: studentsError } = await studentsQuery;
@@ -188,7 +189,7 @@ export async function getAllStudents(
 ) {
   const supabase = await createClient();
 
-  // 학생 프로필 조회
+  // 학생 프로필 조회 — 퇴원생 제외
   let studentsQuery = supabase
     .from('student_profiles')
     .select(
@@ -204,6 +205,7 @@ export async function getAllStudents(
       )
     `,
     )
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   if (branchId) {
@@ -450,9 +452,11 @@ export async function getDashboardStudents(params: {
     }
   }
 
-  // 2) 학생 검색·정렬 쿼리
-  let listQuery = supabase.from('student_profiles').select(
-    `
+  // 2) 학생 검색·정렬 쿼리 — 퇴원생 제외
+  let listQuery = supabase
+    .from('student_profiles')
+    .select(
+      `
       id,
       seat_number,
       profiles!inner (
@@ -463,8 +467,9 @@ export async function getDashboardStudents(params: {
         branch_id
       )
     `,
-    { count: 'exact' },
-  );
+      { count: 'exact' },
+    )
+    .is('profiles.withdrawn_at', null);
 
   if (branchId) listQuery = listQuery.eq('profiles.branch_id', branchId);
   if (q) {
@@ -781,11 +786,12 @@ export async function getWeeklyFocusReport(branchId?: string | null): Promise<We
   const mondayStr = formatDateKST(getWeekStart());
   const dateKeys = getWeekDateStringsFromMondayKST(mondayStr); // 0=월 ... 6=일
 
-  // 학생 명단 (좌석순)
+  // 학생 명단 (좌석순) — 퇴원생 제외
   const { data: students } = await supabase
     .from('student_profiles')
     .select('id, seat_number, profiles!inner (name, branch_id)')
     .eq('profiles.branch_id', branchId)
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   if (!students || students.length === 0) return [];
@@ -923,11 +929,12 @@ export async function getPointsOverview(params: { branchId: string }) {
   const supabase = await createClient();
   const { branchId } = params;
 
-  // 학생 명단 (좌석 순)
+  // 학생 명단 (좌석 순) — 활성 학생만 (RPC 와 일관)
   const { data: students } = await supabase
     .from('student_profiles')
-    .select('id, seat_number, profiles!inner (name, branch_id)')
+    .select('id, seat_number, profiles!inner (name, branch_id, withdrawn_at)')
     .eq('profiles.branch_id', branchId)
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   if (!students || students.length === 0) return [];
@@ -1946,9 +1953,10 @@ export async function getStudentDataForExport() {
       seat_number,
       parent_code,
       created_at,
-      profiles!inner (name, email, phone)
+      profiles!inner (name, email, phone, withdrawn_at)
     `,
     )
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   return (students || []).map((s) => {
@@ -1976,9 +1984,10 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
       `
       id,
       seat_number,
-      profiles!inner (name)
+      profiles!inner (name, withdrawn_at)
     `,
     )
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
 
   if (!students || students.length === 0) return [];
@@ -2096,11 +2105,12 @@ export async function getFocusDataForExport(startDate: string, endDate: string) 
       *,
       student:student_id (
         seat_number,
-        profiles!inner (name)
+        profiles!inner (name, withdrawn_at)
       ),
       admin:admin_id (name)
     `,
     )
+    .is('student.profiles.withdrawn_at', null)
     .gte('recorded_at', startDate)
     .lte('recorded_at', endDate)
     .order('recorded_at', { ascending: false });
@@ -2139,11 +2149,12 @@ export async function getPointsDataForExport(startDate: string, endDate: string)
       *,
       student:student_id (
         seat_number,
-        profiles!inner (name)
+        profiles!inner (name, withdrawn_at)
       ),
       admin:admin_id (name)
     `,
     )
+    .is('student.profiles.withdrawn_at', null)
     .gte('created_at', startDate)
     .lte('created_at', endDate)
     .order('created_at', { ascending: false });
@@ -2287,12 +2298,13 @@ export async function getMembersAggregates({
   const pat = qs ? escapeLike(qs) : null;
 
   // 1) 탭 총합 — q 적용 (검색이 어느 탭에 매칭되는지 한눈에). approval/studentType 는
-  //    탭 전환 시 초기화되므로 적용하지 않음.
+  //    탭 전환 시 초기화되므로 적용하지 않음. 퇴원생은 모든 탭에서 제외.
   const tabAdminBase = () => {
     let qb = supabase
       .from('profiles')
       .select('*', { count: 'exact', head: true })
-      .eq('user_type', 'admin');
+      .eq('user_type', 'admin')
+      .is('withdrawn_at', null);
     if (branchId) qb = qb.eq('branch_id', branchId);
     if (pat) qb = qb.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
     return qb;
@@ -2307,7 +2319,8 @@ export async function getMembersAggregates({
       .from('profiles')
       .select('id')
       .eq('user_type', 'student')
-      .eq('branch_id', branchId);
+      .eq('branch_id', branchId)
+      .is('withdrawn_at', null);
     const sids = (branchStudents ?? []).map((s) => s.id as string);
     if (sids.length > 0) {
       const { data: links } = await adminClient
@@ -2320,6 +2333,7 @@ export async function getMembersAggregates({
           .from('profiles')
           .select('*', { count: 'exact', head: true })
           .eq('user_type', 'parent')
+          .is('withdrawn_at', null)
           .in('id', allowedParentIds);
         if (pat) pq = pq.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
         const { count } = await pq;
@@ -2330,7 +2344,8 @@ export async function getMembersAggregates({
     let pq = adminClient
       .from('profiles')
       .select('*', { count: 'exact', head: true })
-      .eq('user_type', 'parent');
+      .eq('user_type', 'parent')
+      .is('withdrawn_at', null);
     if (pat) pq = pq.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
     const { count } = await pq;
     parentTotal = count ?? 0;
@@ -2344,7 +2359,8 @@ export async function getMembersAggregates({
     .select('id, is_approved, is_rejected, student_profiles!inner (student_type_id)', {
       count: 'exact',
     })
-    .eq('user_type', 'student');
+    .eq('user_type', 'student')
+    .is('withdrawn_at', null);
   if (branchId) baseQuery = baseQuery.eq('branch_id', branchId);
   if (pat) baseQuery = baseQuery.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
   // 안전상 상한 — 지점당 학생 수가 수천 단위가 되면 paginate 로 전환 검토
@@ -2462,7 +2478,8 @@ export async function getMembersList(params: {
     `,
       { count: 'exact' },
     )
-    .eq('user_type', 'student');
+    .eq('user_type', 'student')
+    .is('withdrawn_at', null);
 
   if (params.branchId) query = query.eq('branch_id', params.branchId);
 
@@ -2590,7 +2607,8 @@ export async function getParentsList(params: {
       .from('profiles')
       .select('id')
       .eq('user_type', 'student')
-      .eq('branch_id', params.branchId);
+      .eq('branch_id', params.branchId)
+      .is('withdrawn_at', null);
     const sids = (branchStudents ?? []).map((s) => s.id as string);
     if (sids.length === 0) return { rows: [], total: 0, page, pageSize };
     const { data: links } = await adminClient
@@ -2605,6 +2623,7 @@ export async function getParentsList(params: {
     .from('profiles')
     .select('*', { count: 'exact' })
     .eq('user_type', 'parent')
+    .is('withdrawn_at', null)
     .order('created_at', { ascending: false });
 
   if (allowedParentIds !== null) {
@@ -2731,7 +2750,8 @@ export async function getAdminsList(params: {
     `,
       { count: 'exact' },
     )
-    .eq('user_type', 'admin');
+    .eq('user_type', 'admin')
+    .is('withdrawn_at', null);
 
   if (params.branchId) query = query.eq('branch_id', params.branchId);
 
@@ -2767,6 +2787,81 @@ export async function getAdminsList(params: {
     branch_id: a.branch_id,
     branch_name: a.branch?.name ?? null,
     created_at: a.created_at,
+  }));
+
+  return { rows, total: count ?? 0, page, pageSize };
+}
+
+// ============================================
+// 퇴원 회원 조회 (복구용)
+// ============================================
+
+export interface WithdrawnMemberRow {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  user_type: 'student' | 'parent' | 'admin';
+  branch_id: string | null;
+  branch_name: string | null;
+  withdrawn_at: string;
+  withdrawn_reason: string | null;
+}
+
+export async function getWithdrawnMembers(params: {
+  branchId?: string | null;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ rows: WithdrawnMemberRow[]; total: number; page: number; pageSize: number }> {
+  const supabase = await createClient();
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+  const offset = (page - 1) * pageSize;
+
+  let query = supabase
+    .from('profiles')
+    .select(`*, branch:branch_id (id, name)`, { count: 'exact' })
+    .not('withdrawn_at', 'is', null);
+
+  if (params.branchId) query = query.eq('branch_id', params.branchId);
+
+  const qs = (params.q ?? '').trim();
+  if (qs) {
+    const pat = escapeLike(qs);
+    query = query.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
+  }
+
+  query = query.order('withdrawn_at', { ascending: false }).range(offset, offset + pageSize - 1);
+
+  const { data, count, error } = await query;
+  if (error || !data) {
+    console.error('Error fetching withdrawn members:', error);
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  type Row = {
+    id: string;
+    email: string;
+    name: string;
+    phone: string | null;
+    user_type: 'student' | 'parent' | 'admin';
+    branch_id: string | null;
+    branch: { name: string | null } | null;
+    withdrawn_at: string;
+    withdrawn_reason: string | null;
+  };
+
+  const rows = (data as unknown as Row[]).map((r) => ({
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    phone: r.phone,
+    user_type: r.user_type,
+    branch_id: r.branch_id,
+    branch_name: r.branch?.name ?? null,
+    withdrawn_at: r.withdrawn_at,
+    withdrawn_reason: r.withdrawn_reason,
   }));
 
   return { rows, total: count ?? 0, page, pageSize };
@@ -3259,10 +3354,11 @@ export async function getAttendanceBoard(
   const todayStr = studyDate.toISOString().split('T')[0];
   const todayDayOfWeek = studyDate.getDay();
 
-  // Step 1: 전체 학생 ID + seat_number 조회 (브랜치/검색 필터 포함, seat_number 순)
+  // Step 1: 전체 학생 ID + seat_number 조회 — 퇴원생 제외 (브랜치/검색 필터 포함, seat_number 순)
   let allStudentsQuery = supabase
     .from('student_profiles')
     .select('id, seat_number, profiles!inner(branch_id, name)')
+    .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
   if (branchId) allStudentsQuery = allStudentsQuery.eq('profiles.branch_id', branchId);
   if (searchQuery) allStudentsQuery = allStudentsQuery.ilike('profiles.name', `%${searchQuery}%`);
@@ -3946,12 +4042,23 @@ export async function givePointsBatch(
 // 회원 탈퇴 관련
 // ============================================
 
-// 회원 탈퇴 (학생/학부모)
-export async function deleteMember(userId: string, userType: 'student' | 'parent') {
+// 회원 퇴원 처리 — soft delete (모의고사·결제·CAPS 이력 보존).
+//
+// 학생: profiles.withdrawn_at + Auth ban + push token 정리.
+// 학부모:
+//   - 활성 자녀가 1명 이상 있으면 학부모 본인은 ban 하지 않고 withdrawn_at 도 세팅하지 않는다.
+//     (그렇게 하면 미들웨어가 학부모를 /account/withdrawn 으로 가두어 활성 자녀 출결을 못 보게 됨.)
+//     대신 parent_student_links 만 모두 정리해 "한 학생을 퇴원" 시킨 효과를 얻는다.
+//     실제 학부모 계정 종료가 필요하면 활성 자녀를 모두 퇴원·연결 해제한 뒤 다시 호출하면 된다.
+//   - 활성 자녀가 0명이면 학생과 동일하게 withdrawn_at + ban + push token 정리.
+export async function deleteMember(
+  userId: string,
+  userType: 'student' | 'parent',
+  reason?: string,
+) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  // 현재 로그인한 사용자가 관리자인지 확인
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -3968,77 +4075,71 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
   }
 
   try {
-    // 1. NO ACTION FK 테이블 처리
-    if (userType === 'student') {
-      const { data: studentProfile } = await adminClient
-        .from('student_profiles')
-        .select('id')
-        .eq('id', userId)
-        .single();
+    if (userType === 'parent') {
+      // 활성 자녀 수 계산
+      const { data: links } = await adminClient
+        .from('parent_student_links')
+        .select('student_id')
+        .eq('parent_id', userId);
+      const studentIds = (links ?? []).map((l) => l.student_id as string);
 
-      if (studentProfile) {
-        await adminClient
-          .from('notifications')
-          .update({ student_id: null })
-          .eq('student_id', studentProfile.id);
-
-        await adminClient.from('chat_messages').delete().eq('sender_id', userId);
-
-        await adminClient.from('chat_rooms').delete().eq('student_id', userId);
-
-        await adminClient
-          .from('student_absence_schedules')
-          .update({ created_by: null })
-          .eq('created_by', userId);
-
-        await adminClient
-          .from('student_absence_schedules')
-          .update({ approved_by: null })
-          .eq('approved_by', userId);
-
-        await adminClient
-          .from('student_absence_schedules')
-          .update({ rejected_by: null })
-          .eq('rejected_by', userId);
+      let activeChildCount = 0;
+      if (studentIds.length > 0) {
+        const { data: activeChildren } = await adminClient
+          .from('profiles')
+          .select('id')
+          .in('id', studentIds)
+          .is('withdrawn_at', null);
+        activeChildCount = activeChildren?.length ?? 0;
       }
-    } else if (userType === 'parent') {
-      await adminClient.from('notifications').update({ parent_id: null }).eq('parent_id', userId);
 
-      await adminClient.from('chat_messages').delete().eq('sender_id', userId);
-
-      await adminClient
-        .from('student_absence_schedules')
-        .update({ created_by: null })
-        .eq('created_by', userId);
-
-      await adminClient
-        .from('student_absence_schedules')
-        .update({ approved_by: null })
-        .eq('approved_by', userId);
-
-      await adminClient
-        .from('student_absence_schedules')
-        .update({ rejected_by: null })
-        .eq('rejected_by', userId);
+      if (activeChildCount > 0) {
+        // 학부모는 그대로 두고 자녀 연결만 해제 — 활성 자녀가 같은 학부모를 잃지 않도록.
+        const { error: linkErr } = await adminClient
+          .from('parent_student_links')
+          .delete()
+          .eq('parent_id', userId);
+        if (linkErr) {
+          console.error('Error removing parent links:', linkErr);
+          return { error: '학부모-자녀 연결 해제에 실패했습니다.' };
+        }
+        revalidatePath('/admin');
+        revalidatePath('/admin/members');
+        return {
+          success: true,
+          warning:
+            '활성 자녀가 있어 학부모 계정은 유지하고 자녀 연결만 모두 해제했습니다. 계정 자체를 비활성화하려면 자녀가 0명일 때 다시 시도해 주세요.',
+        };
+      }
     }
 
-    // 2. profiles 삭제 (CASCADE로 student_profiles/parent_profiles 및 관련 데이터 자동 삭제)
-    const { error: deleteError } = await adminClient.from('profiles').delete().eq('id', userId);
+    const { error: updateError } = await adminClient
+      .from('profiles')
+      .update({
+        withdrawn_at: new Date().toISOString(),
+        withdrawn_by: user.id,
+        withdrawn_reason: reason ?? null,
+      })
+      .eq('id', userId);
 
-    if (deleteError) {
-      console.error('Error deleting profile:', deleteError);
-      return { error: '회원 정보 삭제에 실패했습니다.' };
+    if (updateError) {
+      console.error('Error marking profile withdrawn:', updateError);
+      return { error: '회원 퇴원 처리에 실패했습니다.' };
     }
 
-    // 3. Supabase Auth에서 사용자 삭제
-    const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
+    // 비활성 토큰 누적 방지 — 기기 재로그인 시 다시 등록됨
+    await adminClient.from('push_tokens').delete().eq('user_id', userId);
+
+    // Supabase Auth ban (사실상 영구 차단). 복구 시 'none' 으로 해제.
+    const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
+      ban_duration: '876000h',
+    });
 
     if (authError) {
-      console.error('Error deleting auth user:', authError);
-      // DB에서는 삭제되었으므로 경고만 반환
+      console.error('Error banning auth user:', authError);
       return {
         success: true,
-        warning: 'Auth 사용자 삭제에 실패했습니다. DB 정보는 삭제되었습니다.',
+        warning: '계정 차단(Auth ban) 적용에 실패했습니다. 수동 확인이 필요합니다.',
       };
     }
 
@@ -4048,6 +4149,62 @@ export async function deleteMember(userId: string, userType: 'student' | 'parent
   } catch (error) {
     console.error('Error in deleteMember:', error);
     return { error: '회원 탈퇴 처리 중 오류가 발생했습니다.' };
+  }
+}
+
+// 퇴원 처리된 회원을 복구한다. withdrawn_at 을 NULL 로 되돌리고 Auth ban 을 해제한다.
+export async function restoreMember(userId: string) {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+
+  if (adminProfile?.user_type !== 'admin') {
+    return { error: '관리자만 회원을 복구할 수 있습니다.' };
+  }
+
+  try {
+    const { error: updateError } = await adminClient
+      .from('profiles')
+      .update({
+        withdrawn_at: null,
+        withdrawn_by: null,
+        withdrawn_reason: null,
+      })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('Error restoring profile:', updateError);
+      return { error: '회원 복구에 실패했습니다.' };
+    }
+
+    const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
+      ban_duration: 'none',
+    });
+
+    if (authError) {
+      console.error('Error unbanning auth user:', authError);
+      return {
+        success: true,
+        warning: '계정 차단 해제(Auth unban)에 실패했습니다. 수동 확인이 필요합니다.',
+      };
+    }
+
+    revalidatePath('/admin');
+    revalidatePath('/admin/members');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in restoreMember:', error);
+    return { error: '회원 복구 처리 중 오류가 발생했습니다.' };
   }
 }
 

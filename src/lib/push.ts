@@ -42,7 +42,7 @@ async function postExpoBatch(
     sound?: 'default';
     data?: PushDataPayload;
     badge?: number;
-  }>
+  }>,
 ): Promise<ExpoPushTicket[]> {
   const res = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
@@ -93,7 +93,7 @@ export async function sendPush(
   title: string,
   body: string,
   data?: PushDataPayload,
-  options?: { sound?: 'default'; badge?: number }
+  options?: { sound?: 'default'; badge?: number },
 ): Promise<void> {
   const unique = [...new Set(tokens.filter(Boolean))];
   if (unique.length === 0) return;
@@ -145,7 +145,7 @@ export async function sendPushToUser(
   userId: string,
   title: string,
   body: string,
-  data?: PushDataPayload
+  data?: PushDataPayload,
 ): Promise<void> {
   const tokens = await getActiveTokensForUsers([userId]);
   await sendPush(tokens, title, body, data);
@@ -158,7 +158,7 @@ export async function sendPushToUsers(
   userIds: string[],
   title: string,
   body: string,
-  data?: PushDataPayload
+  data?: PushDataPayload,
 ): Promise<void> {
   const tokens = await getActiveTokensForUsers(userIds);
   await sendPush(tokens, title, body, data);
@@ -171,13 +171,14 @@ export async function sendPushToBranch(
   branchId: string,
   title: string,
   body: string,
-  data?: PushDataPayload
+  data?: PushDataPayload,
 ): Promise<void> {
   const admin = createAdminClient();
   const { data: profiles, error } = await admin
     .from('profiles')
     .select('id')
     .eq('branch_id', branchId)
+    .is('withdrawn_at', null)
     .in('user_type', ['student', 'parent']);
 
   if (error) {

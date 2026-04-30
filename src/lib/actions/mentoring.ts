@@ -93,6 +93,20 @@ async function canActForStudent(
   return data != null;
 }
 
+// 신규 mutation 진입점에서 학생이 활성인지 검증한다.
+// canActForStudent 와 짝이 되며, 학부모 본인이 미들웨어로 차단되더라도 학생 측 활성 여부는 별도 검사.
+async function isStudentActive(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studentId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('profiles')
+    .select('withdrawn_at')
+    .eq('id', studentId)
+    .maybeSingle();
+  return !!data && data.withdrawn_at == null;
+}
+
 export async function getMentoringSlotsForRange(
   fromYmd: string,
   toYmd: string,
@@ -305,6 +319,11 @@ export async function applyMentoring(
 
   const allowed = await canActForStudent(supabase, user.id, studentId, profile?.user_type);
   if (!allowed) return { error: '신청 권한이 없습니다.' };
+
+  // 퇴원 학생을 대상으로 한 신규 멘토링/클리닉/상담 신청은 차단.
+  if (!(await isStudentActive(supabase, studentId))) {
+    return { error: '퇴원 처리된 학생은 신규 신청을 진행할 수 없습니다.' };
+  }
 
   const trimmedContent = (input.content ?? '').trim();
   if (trimmedContent.length < APPLICATION_CONTENT_MIN) {
@@ -722,6 +741,10 @@ export type AdminMentoringApplicationRow = MentoringApplication & {
     | null;
   student_name: string;
   applicant_name: string;
+  /** 학생(응시자)이 퇴원 처리된 시각. 어드민 화면에서 [퇴원] 배지 노출용. */
+  student_withdrawn_at: string | null;
+  /** 신청자(학부모/학생)가 퇴원 처리된 시각. */
+  applicant_withdrawn_at: string | null;
 };
 
 export type AdminMentoringApplicationFilters = {
@@ -976,10 +999,13 @@ export async function getAdminMentoringApplications(
   let studentIdsFilter: string[] | null = null;
   const qsearch = filters.studentSearch?.trim();
   if (qsearch) {
+    // 검색 시 활성 학생만 매칭. 멘토링 신청 이력 자체는 보존되지만,
+    // 학생 검색 UI 결과에서는 퇴원생을 노출하지 않는다.
     const { data: profs } = await supabase
       .from('profiles')
       .select('id')
       .eq('user_type', 'student')
+      .is('withdrawn_at', null)
       .ilike('name', `%${qsearch}%`);
 
     studentIdsFilter = (profs ?? []).map((p) => p.id);
@@ -1050,9 +1076,15 @@ export async function getAdminMentoringApplications(
   })[];
 
   const userIds = [...new Set(apps.flatMap((a) => [a.user_id, a.student_id]))];
-  const { data: names } = await supabase.from('profiles').select('id, name').in('id', userIds);
+  const { data: names } = await supabase
+    .from('profiles')
+    .select('id, name, withdrawn_at')
+    .in('id', userIds);
 
   const nameById = new Map((names ?? []).map((p) => [p.id, p.name ?? '']));
+  const withdrawnById = new Map(
+    (names ?? []).map((p) => [p.id, (p as { withdrawn_at: string | null }).withdrawn_at]),
+  );
 
   return apps.map((a) => {
     const slotJoin = Array.isArray(a.mentoring_slots) ? a.mentoring_slots[0] : a.mentoring_slots;
@@ -1061,6 +1093,8 @@ export async function getAdminMentoringApplications(
       mentoring_slots: slotJoin ?? null,
       student_name: nameById.get(a.student_id) ?? '',
       applicant_name: nameById.get(a.user_id) ?? '',
+      student_withdrawn_at: withdrawnById.get(a.student_id) ?? null,
+      applicant_withdrawn_at: withdrawnById.get(a.user_id) ?? null,
     };
   });
 }

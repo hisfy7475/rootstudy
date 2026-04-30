@@ -20,10 +20,11 @@ async function resolveNotificationBranchId(
   if (ids.studentId) {
     const { data } = await supabase
       .from('profiles')
-      .select('branch_id')
+      .select('branch_id, withdrawn_at')
       .eq('id', ids.studentId)
       .maybeSingle();
-    if (data?.branch_id) return data.branch_id;
+    // 퇴원 학생 대상 신규 알림은 발송하지 않음 → branch_id 도 반환하지 않음.
+    if (data?.branch_id && !data.withdrawn_at) return data.branch_id;
   }
   if (ids.parentId) {
     const { data: links } = await supabase
@@ -36,6 +37,7 @@ async function resolveNotificationBranchId(
         .from('profiles')
         .select('branch_id')
         .in('id', studentIds)
+        .is('withdrawn_at', null)
         .not('branch_id', 'is', null);
       const first = profs?.[0];
       if (first?.branch_id) return first.branch_id;
@@ -470,28 +472,34 @@ export async function sendKakaoAlimtalkToParents(
     };
   }
 
-  // 대상 학부모 조회
-  let parentQuery = supabase.from('profiles').select('id, name, phone').eq('user_type', 'parent');
+  // 대상 학부모 조회 — 퇴원한 학부모는 발송 대상에서 제외
+  let parentQuery = supabase
+    .from('profiles')
+    .select('id, name, phone')
+    .eq('user_type', 'parent')
+    .is('withdrawn_at', null);
 
   // 특정 학부모 지정 시
   if (params.parentIds && params.parentIds.length > 0) {
     parentQuery = parentQuery.in('id', params.parentIds);
   }
 
-  // 지점 필터링은 학부모와 연결된 학생의 지점으로 필터링
+  // 지점 필터링은 학부모와 연결된 학생의 지점으로 필터링.
+  // 퇴원 학생만 연결된 학부모는 자동으로 발송 대상에서 빠진다.
   if (params.branchId) {
-    // 해당 지점 학생과 연결된 학부모만 조회
+    // 해당 지점 활성 학생과 연결된 학부모만 조회
     const { data: studentLinks } = await supabase
       .from('parent_student_links')
       .select(
         `
         parent_id,
         student_profiles!inner(
-          profiles!inner(branch_id)
+          profiles!inner(branch_id, withdrawn_at)
         )
       `,
       )
-      .eq('student_profiles.profiles.branch_id', params.branchId);
+      .eq('student_profiles.profiles.branch_id', params.branchId)
+      .is('student_profiles.profiles.withdrawn_at', null);
 
     if (studentLinks && studentLinks.length > 0) {
       const parentIdsInBranch = [...new Set(studentLinks.map((link) => link.parent_id))];

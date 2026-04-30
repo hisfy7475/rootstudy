@@ -246,8 +246,22 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
               ) : (
                 filtered.map((o) => (
                   <tr key={o.id} className='border-b last:border-0'>
-                    <td className='p-3'>{o.student_name ?? o.student_id.slice(0, 8)}</td>
-                    <td className='p-3'>{o.payer_name ?? o.user_id.slice(0, 8)}</td>
+                    <td className='p-3'>
+                      <span>{o.student_name ?? o.student_id.slice(0, 8)}</span>
+                      {o.student_withdrawn_at && (
+                        <span className='ml-1.5 inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600'>
+                          퇴원
+                        </span>
+                      )}
+                    </td>
+                    <td className='p-3'>
+                      <span>{o.payer_name ?? o.user_id.slice(0, 8)}</span>
+                      {o.payer_withdrawn_at && (
+                        <span className='ml-1.5 inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600'>
+                          퇴원
+                        </span>
+                      )}
+                    </td>
                     <td className='p-3 text-xs whitespace-nowrap'>
                       {variantLabel(o.variant?.kind)}
                       {o.variant ? (

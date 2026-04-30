@@ -49,7 +49,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // 인증이 필요없는 경로
-  const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron'];
+  const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron', '/account/withdrawn'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   // 사용자 타입별 경로 매핑
@@ -71,13 +71,32 @@ export async function middleware(request: NextRequest) {
     // 프로필 정보 가져오기
     const { data: profile } = await supabase
       .from('profiles')
-      .select('user_type, is_approved')
+      .select('user_type, is_approved, withdrawn_at')
       .eq('id', user.id)
       .single();
 
     const userType = profile?.user_type as string | undefined;
     const isApproved = profile?.is_approved as boolean | undefined;
+    const withdrawnAt = profile?.withdrawn_at as string | null | undefined;
     const correctPath = userType ? userTypeRoutes[userType] : null;
+
+    // 퇴원 처리된 회원은 안내 페이지로만 접근 가능.
+    // /api/* 호출은 fetch 응답이 HTML 로 바뀌면 클라이언트가 깨지므로 401 JSON 으로 차단.
+    // (/api/payments, /api/push, /api/cron 은 위 분기에서 이미 별도 처리되어 여기 도달하지 않음.)
+    if (withdrawnAt) {
+      if (pathname.startsWith('/api/')) {
+        return new NextResponse(JSON.stringify({ error: 'account_withdrawn' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (pathname !== '/account/withdrawn') {
+        const url = request.nextUrl.clone();
+        url.pathname = '/account/withdrawn';
+        return NextResponse.redirect(url);
+      }
+      return supabaseResponse;
+    }
 
     // 미승인 학생 처리
     if (userType === 'student' && isApproved === false) {

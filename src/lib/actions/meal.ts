@@ -723,6 +723,10 @@ export type MealOrderAdminFilter = {
 export type MealOrderForAdmin = MealOrder & {
   student_name: string | null;
   payer_name: string | null;
+  /** 응시자(학생)가 퇴원 처리된 경우의 시각. UI 에서 [퇴원] 배지 표시용. */
+  student_withdrawn_at: string | null;
+  /** 결제자(학부모/학생)가 퇴원 처리된 경우의 시각. */
+  payer_withdrawn_at: string | null;
   variant: Pick<
     MealProductVariant,
     'id' | 'kind' | 'product_start_date' | 'product_end_date'
@@ -781,19 +785,25 @@ export async function getMealOrdersForAdmin(
 
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('id, name')
+    .select('id, name, withdrawn_at')
     .in('id', [...ids]);
 
-  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.name]));
+  const profileById = new Map(
+    (profiles ?? []).map((p) => [p.id, { name: p.name, withdrawn_at: p.withdrawn_at }]),
+  );
 
   return rows.map((o) => {
     const v = Array.isArray(o.meal_product_variants)
       ? o.meal_product_variants[0]
       : o.meal_product_variants;
+    const studentProfile = profileById.get(o.student_id);
+    const payerProfile = profileById.get(o.user_id);
     return {
       ...o,
-      student_name: nameById.get(o.student_id) ?? null,
-      payer_name: nameById.get(o.user_id) ?? null,
+      student_name: studentProfile?.name ?? null,
+      payer_name: payerProfile?.name ?? null,
+      student_withdrawn_at: studentProfile?.withdrawn_at ?? null,
+      payer_withdrawn_at: payerProfile?.withdrawn_at ?? null,
       variant: v
         ? {
             id: v.id,
@@ -1424,12 +1434,16 @@ export async function createMealOrder(
 
   const { data: studentProfile } = await supabase
     .from('profiles')
-    .select('branch_id')
+    .select('branch_id, withdrawn_at')
     .eq('id', studentId)
     .maybeSingle();
 
   if (!studentProfile?.branch_id) {
     return { error: '학생의 지점 정보가 없습니다.' };
+  }
+
+  if (studentProfile.withdrawn_at) {
+    return { error: '퇴원 처리된 학생은 신규 결제를 진행할 수 없습니다.' };
   }
 
   const { data: variantRow, error: variantErr } = await supabase

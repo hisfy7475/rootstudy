@@ -184,6 +184,27 @@ export async function POST(request: Request) {
     return redirectResult(request, role, category, { fail: '1', reason: 'amount_mismatch' });
   }
 
+  // 시간차 가드: createMealOrder 단계에서는 활성이었지만, 결제 진입 직전~승인 호출 직전에
+  // 학생이 퇴원 처리된 경우. 이 시점에는 아직 NICEPay 카드 승인(approve) 호출 전이라
+  // 별도 망취소 없이 주문만 failed 처리하면 충분하다.
+  const { data: studentProfile } = await admin
+    .from('profiles')
+    .select('withdrawn_at')
+    .eq('id', row.student_id)
+    .maybeSingle();
+  if (studentProfile?.withdrawn_at) {
+    const cancelledAt = new Date().toISOString();
+    await admin
+      .from('meal_orders')
+      .update({
+        status: 'failed',
+        cancel_reason: 'student_withdrawn',
+        updated_at: cancelledAt,
+      })
+      .eq('id', row.id);
+    return redirectResult(request, role, category, { fail: '1', reason: 'student_withdrawn' });
+  }
+
   const rawAuth = Object.fromEntries(formData.entries());
 
   await admin.from('payment_logs').insert({

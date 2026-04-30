@@ -761,10 +761,18 @@ async function sendAnnouncementNotifications(
 ) {
   const supabase = await createClient();
 
-  // 대상 사용자 조회
-  let studentQuery = supabase.from('profiles').select('id').eq('user_type', 'student');
+  // 대상 사용자 조회 — 퇴원 회원은 발송 대상에서 제외
+  let studentQuery = supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_type', 'student')
+    .is('withdrawn_at', null);
 
-  let parentQuery = supabase.from('profiles').select('id').eq('user_type', 'parent');
+  let parentQuery = supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_type', 'parent')
+    .is('withdrawn_at', null);
 
   // 지점 필터링
   if (branchId) {

@@ -9,16 +9,16 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-export default async function ParentLayout({
-  children,
-}: LayoutProps) {
+export default async function ParentLayout({ children }: LayoutProps) {
   const supabase = await createClient();
-  
+
   // 현재 사용자 정보 조회
-  const { data: { user } } = await supabase.auth.getUser();
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   let userName: string | undefined;
-  let linkedChildren: { id: string; name: string }[] = [];
+  let linkedChildren: { id: string; name: string; withdrawnAt: string | null }[] = [];
 
   if (user) {
     // 학부모 프로필 조회
@@ -30,22 +30,27 @@ export default async function ParentLayout({
 
     userName = profile?.name;
 
-    // 연결된 자녀 목록 조회
+    // 연결된 자녀 목록 조회 — 퇴원 자녀도 포함하되 헤더에서 배지로 식별 가능하게 한다.
     const students = await getLinkedStudents();
-    linkedChildren = students.map(s => ({ id: s.id, name: s.name }));
+    linkedChildren = students.map((s) => ({
+      id: s.id,
+      name: s.name,
+      withdrawnAt: s.withdrawnAt,
+    }));
   }
 
   const { count: initialUnreadChatCount } = await getParentUnreadChatCount();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className='bg-background min-h-screen'>
       <PushTokenListener />
-      <ParentHeader 
-        userName={userName} 
-        children={linkedChildren}
+      <ParentHeader userName={userName} linkedChildren={linkedChildren} />
+      <main className='mx-auto max-w-lg pb-24'>{children}</main>
+      <BottomNav
+        userType='parent'
+        basePath='/parent'
+        initialUnreadChatCount={initialUnreadChatCount}
       />
-      <main className="pb-24 max-w-lg mx-auto">{children}</main>
-      <BottomNav userType="parent" basePath="/parent" initialUnreadChatCount={initialUnreadChatCount} />
     </div>
   );
 }

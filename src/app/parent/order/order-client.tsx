@@ -16,7 +16,12 @@ import { UserOrdersClient } from '@/components/shared/orders/user-orders-client'
 import { cn } from '@/lib/utils';
 import type { MealOrderWithProduct, MealProductWithVariants } from '@/lib/actions/meal';
 
-type Student = { id: string; name: string; branchId: string | null };
+type Student = {
+  id: string;
+  name: string;
+  branchId: string | null;
+  withdrawnAt: string | null;
+};
 
 function flatten(products: MealProductWithVariants[]): OrderVariantCardItem[] {
   return products.flatMap((p) => p.variants.map((v) => ({ product: p, variant: v })));
@@ -53,8 +58,9 @@ export function ParentOrderClient({
   const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null;
   const selectedBranchId = selectedStudent?.branchId ?? null;
   const showAllOption = students.length >= 2;
-  const studentNameById = useMemo(
-    () => Object.fromEntries(students.map((s) => [s.id, s.name])),
+  const studentInfoById = useMemo(
+    () =>
+      Object.fromEntries(students.map((s) => [s.id, { name: s.name, withdrawnAt: s.withdrawnAt }])),
     [students],
   );
 
@@ -100,6 +106,9 @@ export function ParentOrderClient({
   };
 
   const disabledFor = (item: OrderVariantCardItem) => {
+    if (selectedStudent?.withdrawnAt) {
+      return { disabled: true, label: '퇴원 자녀는 신규 신청 불가' };
+    }
     if (selectedBranchId == null) return { disabled: false };
     if (item.product.branch_id !== selectedBranchId) {
       return { disabled: true, label: '다른 지점 상품' };
@@ -133,6 +142,11 @@ export function ParentOrderClient({
               )}
             >
               {s.name}
+              {s.withdrawnAt ? (
+                <span className='ml-1 rounded bg-gray-200 px-1 text-[10px] text-gray-700'>
+                  퇴원
+                </span>
+              ) : null}
             </button>
           ))}
           {showAllOption && (
@@ -166,7 +180,7 @@ export function ParentOrderClient({
       ) : (
         <UserOrdersClient
           initialOrders={orders}
-          studentNameById={selectedStudentId === null ? studentNameById : undefined}
+          studentInfoById={selectedStudentId === null ? studentInfoById : undefined}
         />
       )}
     </div>

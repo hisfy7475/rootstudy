@@ -327,6 +327,16 @@ export async function createAbsenceScheduleForChild(
     return { success: false, error: '연결된 자녀가 아닙니다.' };
   }
 
+  // 퇴원 자녀 대상 신규 부재 일정 등록은 차단.
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('withdrawn_at')
+    .eq('id', studentId)
+    .maybeSingle();
+  if (studentProfile?.withdrawn_at) {
+    return { success: false, error: '퇴원 처리된 자녀의 부재 일정은 등록할 수 없습니다.' };
+  }
+
   const { data: newSchedule, error } = await supabase
     .from('student_absence_schedules')
     .insert({
