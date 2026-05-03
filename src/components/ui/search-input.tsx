@@ -149,12 +149,15 @@ function SearchInputView({
     <form
       role='search'
       onSubmit={onSubmit}
-      className={cn('relative max-w-md min-w-[200px] flex-1', className)}
+      className={cn(
+        'focus-within:ring-primary flex max-w-md min-w-[200px] flex-1 items-center gap-1 rounded-xl border border-gray-200 bg-white pr-2 pl-2 transition-all focus-within:border-transparent focus-within:ring-2',
+        className,
+      )}
     >
       <button
         type='submit'
         aria-label='검색'
-        className='text-text-muted hover:text-text absolute top-1/2 left-2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md hover:bg-gray-100'
+        className='text-text-muted hover:text-text inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-gray-100'
       >
         <Search className='h-4 w-4' aria-hidden />
       </button>
@@ -163,14 +166,15 @@ function SearchInputView({
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
         placeholder={placeholder}
-        className='text-text placeholder:text-text-muted focus:ring-primary flex w-full rounded-xl border border-gray-200 bg-white py-2.5 pr-9 pl-10 text-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
+        className='text-text placeholder:text-text-muted w-full appearance-none border-0 bg-transparent py-2.5 text-sm outline-none focus:ring-0 focus:outline-none focus-visible:outline-none [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none'
+        style={{ outline: 'none', boxShadow: 'none' }}
       />
       {draft && (
         <button
           type='button'
           onClick={onClear}
           aria-label='검색어 지우기'
-          className='text-text-muted absolute top-1/2 right-2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md hover:bg-gray-100'
+          className='text-text-muted inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md hover:bg-gray-100'
         >
           <X className='h-4 w-4' aria-hidden />
         </button>
