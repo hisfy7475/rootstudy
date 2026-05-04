@@ -403,7 +403,8 @@ export async function getImmersionReportData(
       seat_number,
       profiles!inner (
         name,
-        branch_id
+        branch_id,
+        withdrawn_at
       )
     `,
     )
@@ -415,7 +416,12 @@ export async function getImmersionReportData(
   const profile = studentRow.profiles as unknown as {
     name: string;
     branch_id: string | null;
+    withdrawn_at: string | null;
   };
+
+  // 학부모가 퇴원 자녀 ID 로 직접 접근하는 경우 활성 데이터를 노출하지 않는다.
+  // 어드민은 이력 검토 목적상 퇴원 학생 리포트도 그대로 볼 수 있어야 한다.
+  if (userType === 'parent' && profile.withdrawn_at) return null;
   const studentName = profile.name;
   const branchId = profile.branch_id;
   const studentTypeId = studentRow.student_type_id as string | null;
@@ -444,7 +450,11 @@ export async function getImmersionReportData(
     { data: counselingRow },
   ] = await Promise.all([
     studentTypeId
-      ? supabase.from('student_profiles').select('id').eq('student_type_id', studentTypeId)
+      ? supabase
+          .from('student_profiles')
+          .select('id, profiles!inner(withdrawn_at)')
+          .eq('student_type_id', studentTypeId)
+          .is('profiles.withdrawn_at', null)
       : Promise.resolve({ data: [] as { id: string }[] }),
     supabase
       .from('attendance')
@@ -697,7 +707,11 @@ export async function getWeeklyStudyTrend(
   const studentTypeId = sp?.student_type_id ?? null;
 
   const { data: peerRows } = studentTypeId
-    ? await supabase.from('student_profiles').select('id').eq('student_type_id', studentTypeId)
+    ? await supabase
+        .from('student_profiles')
+        .select('id, profiles!inner(withdrawn_at)')
+        .eq('student_type_id', studentTypeId)
+        .is('profiles.withdrawn_at', null)
     : { data: [] as { id: string }[] };
 
   const peerIds = (peerRows ?? []).map((p) => p.id);

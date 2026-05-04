@@ -33,8 +33,10 @@ import {
   X,
   ChevronsLeft,
   ChevronsRight,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react';
+import { ChangePasswordModal } from '@/app/admin/_components/change-password-modal';
 
 interface NavItem {
   href: string;
@@ -66,14 +68,21 @@ const adminNavItems: NavItem[] = [
 interface SidebarProps {
   basePath?: string;
   branchName?: string | null;
+  isSuperAdmin?: boolean;
   initialUnreadChatCount?: number;
 }
 
-export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 }: SidebarProps) {
+export function Sidebar({
+  basePath = '',
+  branchName,
+  isSuperAdmin = false,
+  initialUnreadChatCount = 0,
+}: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
   const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   useEffect(() => {
     setUnreadChatCount(initialUnreadChatCount);
@@ -165,13 +174,19 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
           />
         </Link>
         <p className='text-text-muted mt-2 text-xs'>관리자</p>
-        {branchName && (
-          <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
-            <div className='flex items-center gap-1.5'>
-              <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
-              <span className='text-primary text-sm font-semibold'>{branchName}</span>
-            </div>
+        {isSuperAdmin ? (
+          <div className='mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5'>
+            <span className='text-sm font-semibold text-purple-700'>최고 관리자</span>
           </div>
+        ) : (
+          branchName && (
+            <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
+              <div className='flex items-center gap-1.5'>
+                <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
+                <span className='text-primary text-sm font-semibold'>{branchName}</span>
+              </div>
+            </div>
+          )
         )}
       </div>
 
@@ -209,7 +224,15 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
         </ul>
       </nav>
 
-      <div className='border-t border-gray-100 p-4'>
+      <div className='space-y-1 border-t border-gray-100 p-4'>
+        <button
+          type='button'
+          onClick={() => setPasswordModalOpen(true)}
+          className='text-text-muted hover:text-primary flex w-full items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-200 hover:bg-gray-50'
+        >
+          <KeyRound className='h-5 w-5 flex-shrink-0' />
+          <span className='text-sm'>비밀번호 변경</span>
+        </button>
         <SignOutForm>
           <button
             type='submit'
@@ -284,15 +307,23 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
                 />
               </Link>
               <p className='text-text-muted mt-2 text-xs'>관리자</p>
-              {branchName && (
-                <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
-                  <div className='flex items-center gap-1.5'>
-                    <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
-                    <span className='text-primary text-sm font-semibold whitespace-nowrap'>
-                      {branchName}
-                    </span>
-                  </div>
+              {isSuperAdmin ? (
+                <div className='mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5'>
+                  <span className='text-sm font-semibold whitespace-nowrap text-purple-700'>
+                    최고 관리자
+                  </span>
                 </div>
+              ) : (
+                branchName && (
+                  <div className='bg-primary/10 border-primary/20 mt-2 rounded-lg border px-3 py-1.5'>
+                    <div className='flex items-center gap-1.5'>
+                      <Building2 className='text-primary h-3.5 w-3.5 flex-shrink-0' />
+                      <span className='text-primary text-sm font-semibold whitespace-nowrap'>
+                        {branchName}
+                      </span>
+                    </div>
+                  </div>
+                )
               )}
             </>
           )}
@@ -360,8 +391,21 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
           </ul>
         </nav>
 
-        {/* 하단 로그아웃 */}
-        <div className={cn('border-t border-gray-100', collapsed ? 'p-1.5' : 'p-4')}>
+        {/* 하단: 비밀번호 변경 + 로그아웃 */}
+        <div className={cn('space-y-1 border-t border-gray-100', collapsed ? 'p-1.5' : 'p-4')}>
+          <button
+            type='button'
+            onClick={() => setPasswordModalOpen(true)}
+            title={collapsed ? '비밀번호 변경' : undefined}
+            className={cn(
+              'flex w-full items-center rounded-2xl',
+              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-4 py-3',
+              'text-text-muted hover:text-primary transition-all duration-200 hover:bg-gray-50',
+            )}
+          >
+            <KeyRound className='h-5 w-5 flex-shrink-0' />
+            {!collapsed && <span className='text-sm whitespace-nowrap'>비밀번호 변경</span>}
+          </button>
           <SignOutForm>
             <button
               type='submit'
@@ -389,6 +433,8 @@ export function Sidebar({ basePath = '', branchName, initialUnreadChatCount = 0 
       >
         {mobileSidebarContent}
       </aside>
+
+      {passwordModalOpen && <ChangePasswordModal onClose={() => setPasswordModalOpen(false)} />}
     </>
   );
 }

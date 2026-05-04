@@ -37,11 +37,12 @@ function variantKindLabel(kind: 'one_time' | 'recurring' | undefined): string | 
 export function UserOrdersClient({
   initialOrders,
   category,
-  studentNameById,
+  studentInfoById,
 }: {
   initialOrders: MealOrderWithProduct[];
   category?: ProductCategory;
-  studentNameById?: Record<string, string>;
+  /** 자녀 표시용 정보 — 학부모 화면에서만 사용. 퇴원 자녀 배지 노출에 필요. */
+  studentInfoById?: Record<string, { name: string; withdrawnAt: string | null }>;
 }) {
   const [orders, setOrders] = useState(initialOrders);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -99,9 +100,14 @@ export function UserOrdersClient({
                   ) : null}
                 </h2>
                 <div className='flex h-fit shrink-0 items-center gap-1.5'>
-                  {studentNameById?.[o.student_id] ? (
-                    <span className='bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs font-medium'>
-                      {studentNameById[o.student_id]}
+                  {studentInfoById?.[o.student_id] ? (
+                    <span className='bg-primary/10 text-primary inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium'>
+                      {studentInfoById[o.student_id].name}
+                      {studentInfoById[o.student_id].withdrawnAt ? (
+                        <span className='rounded bg-gray-200 px-1 text-[10px] text-gray-700'>
+                          퇴원
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                   <span className='bg-muted rounded-full px-2 py-0.5 text-xs'>

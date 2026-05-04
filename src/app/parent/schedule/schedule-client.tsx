@@ -4,12 +4,12 @@ import { useState, useTransition, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn, isPastOneTimeAbsenceSchedule } from '@/lib/utils';
-import { 
-  Clock, 
-  Calendar, 
-  Repeat, 
-  CalendarDays, 
-  Info, 
+import {
+  Clock,
+  Calendar,
+  Repeat,
+  CalendarDays,
+  Info,
   Plus,
   Check,
   X,
@@ -25,9 +25,9 @@ import { ko } from 'date-fns/locale';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import type { LinkedStudent } from '@/lib/actions/parent';
 import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
-import { 
-  createAbsenceScheduleForChild, 
-  approveAbsenceSchedule, 
+import {
+  createAbsenceScheduleForChild,
+  approveAbsenceSchedule,
   rejectAbsenceSchedule,
   updateAbsenceSchedule,
   deleteAbsenceSchedule,
@@ -64,9 +64,9 @@ export function ScheduleClient({
   const [activeTab, setActiveTab] = useState<TabType>('absence');
   const [isPending, startTransition] = useTransition();
 
-  // 새 일정 폼 상태
+  // 새 일정 폼 상태 — 활성 자녀를 우선 선택
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
-    linkedStudents[0]?.id || ''
+    linkedStudents.find((s) => !s.withdrawnAt)?.id || linkedStudents[0]?.id || '',
   );
   const [reasonType, setReasonType] = useState('');
   const [customReason, setCustomReason] = useState('');
@@ -97,20 +97,20 @@ export function ScheduleClient({
   const visibleAbsence = useMemo(
     () =>
       absenceSchedules.filter(
-        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+        (s) => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date),
       ),
-    [absenceSchedules]
+    [absenceSchedules],
   );
   const visiblePending = useMemo(
     () =>
       pendingSchedules.filter(
-        s => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date)
+        (s) => !isPastOneTimeAbsenceSchedule(s.is_recurring, s.specific_date),
       ),
-    [pendingSchedules]
+    [pendingSchedules],
   );
 
   const getCounts = () => ({
-    absence: visibleAbsence.filter(s => s.status === 'approved' && s.is_active).length,
+    absence: visibleAbsence.filter((s) => s.status === 'approved' && s.is_active).length,
     pending: visiblePending.length,
     create: 0,
   });
@@ -123,19 +123,19 @@ export function ScheduleClient({
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '매일';
-    return days.map(d => DAY_NAMES[d]).join(', ');
+    return days.map((d) => DAY_NAMES[d]).join(', ');
   };
 
   // 승인된 활성 부재 일정만 필터링 (지난 일회성 제외된 목록 기준)
   const approvedActiveSchedules = visibleAbsence.filter(
-    s => s.status === 'approved' && s.is_active
+    (s) => s.status === 'approved' && s.is_active,
   );
   const approvedInactiveSchedules = visibleAbsence.filter(
-    s => s.status === 'approved' && !s.is_active
+    (s) => s.status === 'approved' && !s.is_active,
   );
 
   const openEditModal = (schedule: AbsenceScheduleWithStudent) => {
-    const foundReason = ABSENCE_REASONS.find(r => r.label === schedule.title);
+    const foundReason = ABSENCE_REASONS.find((r) => r.label === schedule.title);
     const resolvedReasonType = foundReason?.value || 'other';
     const resolvedCustomReason = resolvedReasonType === 'other' ? schedule.title : '';
 
@@ -165,9 +165,10 @@ export function ScheduleClient({
       setEditError('기타 사유를 입력해주세요.');
       return;
     }
-    const editTitle = editReasonType === 'other'
-      ? editCustomReason.trim()
-      : (ABSENCE_REASONS.find(r => r.value === editReasonType)?.label || '');
+    const editTitle =
+      editReasonType === 'other'
+        ? editCustomReason.trim()
+        : ABSENCE_REASONS.find((r) => r.value === editReasonType)?.label || '';
     if (!editTitle) {
       setEditError('부재 사유를 입력해주세요.');
       return;
@@ -215,7 +216,8 @@ export function ScheduleClient({
   };
 
   const handleDelete = async (schedule: AbsenceScheduleWithStudent) => {
-    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`)) return;
+    if (!confirm(`"${schedule.title}" 일정을 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`))
+      return;
 
     startTransition(async () => {
       const result = await deleteAbsenceSchedule(schedule.id);
@@ -226,10 +228,8 @@ export function ScheduleClient({
   };
 
   const toggleEditDay = (day: number) => {
-    setEditSelectedDays(prev =>
-      prev.includes(day)
-        ? prev.filter(d => d !== day)
-        : [...prev, day].sort()
+    setEditSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort(),
     );
   };
 
@@ -244,7 +244,7 @@ export function ScheduleClient({
 
   const handleReject = async (scheduleId: string) => {
     if (!confirm('이 부재 일정 요청을 거부하시겠습니까?')) return;
-    
+
     startTransition(async () => {
       const result = await rejectAbsenceSchedule(scheduleId);
       if (!result.success) {
@@ -270,9 +270,10 @@ export function ScheduleClient({
       setFormError('기타 사유를 입력해주세요.');
       return;
     }
-    const title = reasonType === 'other'
-      ? customReason.trim()
-      : (ABSENCE_REASONS.find(r => r.value === reasonType)?.label || '');
+    const title =
+      reasonType === 'other'
+        ? customReason.trim()
+        : ABSENCE_REASONS.find((r) => r.value === reasonType)?.label || '';
     if (!title) {
       setFormError('부재 사유를 입력해주세요.');
       return;
@@ -332,130 +333,134 @@ export function ScheduleClient({
   };
 
   const toggleDay = (day: number) => {
-    setSelectedDays(prev => 
-      prev.includes(day) 
-        ? prev.filter(d => d !== day)
-        : [...prev, day].sort()
+    setSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort(),
     );
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className='space-y-4 p-4'>
       {/* 탭 네비게이션 */}
-      <div className="flex bg-gray-100 rounded-2xl p-1">
+      <div className='flex rounded-2xl bg-gray-100 p-1'>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              'flex-1 py-2.5 px-2 rounded-xl text-sm font-medium transition-all',
+              'flex-1 rounded-xl px-2 py-2.5 text-sm font-medium transition-all',
               'flex items-center justify-center gap-1',
               activeTab === tab.id
-                ? 'bg-white text-text shadow-sm'
-                : 'text-text-muted hover:text-text'
+                ? 'text-text bg-white shadow-sm'
+                : 'text-text-muted hover:text-text',
             )}
           >
-            <span className="truncate">{tab.label}</span>
+            <span className='truncate'>{tab.label}</span>
             {tab.id !== 'create' && counts[tab.id] > 0 && (
-              <span className={cn(
-                'min-w-[18px] h-[18px] px-1 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-                activeTab === tab.id
-                  ? tab.id === 'pending' 
-                    ? 'bg-secondary text-white' 
-                    : 'bg-primary text-white'
-                  : 'bg-gray-200 text-text-muted'
-              )}>
+              <span
+                className={cn(
+                  'flex h-[18px] min-w-[18px] flex-shrink-0 items-center justify-center rounded-full px-1 text-xs font-bold',
+                  activeTab === tab.id
+                    ? tab.id === 'pending'
+                      ? 'bg-secondary text-white'
+                      : 'bg-primary text-white'
+                    : 'text-text-muted bg-gray-200',
+                )}
+              >
                 {counts[tab.id]}
               </span>
             )}
-            {tab.id === 'create' && (
-              <Plus className="w-4 h-4" />
-            )}
+            {tab.id === 'create' && <Plus className='h-4 w-4' />}
           </button>
         ))}
       </div>
 
       {/* 부재 일정 탭 */}
       {activeTab === 'absence' && (
-        <div className="space-y-4">
+        <div className='space-y-4'>
           {/* 안내 */}
-          <Card className="p-3 bg-blue-50 border-blue-200">
-            <div className="flex items-start gap-2">
-              <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-              <p className="text-blue-700 text-sm">
-                승인된 부재 일정입니다. 앞뒤 {ABSENCE_BUFFER_MINUTES}분 버퍼가 적용되어 알림/벌점이 면제됩니다.
+          <Card className='border-blue-200 bg-blue-50 p-3'>
+            <div className='flex items-start gap-2'>
+              <Info className='mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500' />
+              <p className='text-sm text-blue-700'>
+                승인된 부재 일정입니다. 앞뒤 {ABSENCE_BUFFER_MINUTES}분 버퍼가 적용되어 알림/벌점이
+                면제됩니다.
               </p>
             </div>
           </Card>
 
           {/* 활성 부재 일정 */}
           <div>
-            <h3 className="font-semibold text-gray-800 mb-3 text-sm">
+            <h3 className='mb-3 text-sm font-semibold text-gray-800'>
               활성 일정 ({approvedActiveSchedules.length})
             </h3>
             {approvedActiveSchedules.length === 0 ? (
-              <Card className="p-6 text-center text-gray-500 text-sm">
+              <Card className='p-6 text-center text-sm text-gray-500'>
                 승인된 부재 일정이 없습니다
               </Card>
             ) : (
-              <div className="space-y-3">
-                {approvedActiveSchedules.map(schedule => (
-                  <Card key={schedule.id} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
-                        }`}>
+              <div className='space-y-3'>
+                {approvedActiveSchedules.map((schedule) => (
+                  <Card key={schedule.id} className='p-4'>
+                    <div className='flex items-start justify-between'>
+                      <div className='flex items-start gap-3'>
+                        <div
+                          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+                            schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100'
+                          }`}
+                        >
                           {schedule.is_recurring ? (
-                            <Repeat className="w-5 h-5 text-primary" />
+                            <Repeat className='text-primary h-5 w-5' />
                           ) : (
-                            <CalendarDays className="w-5 h-5 text-amber-600" />
+                            <CalendarDays className='h-5 w-5 text-amber-600' />
                           )}
                         </div>
                         <div>
-                          <h4 className="font-medium text-gray-800">{schedule.title}</h4>
-                          <p className="text-xs text-gray-500 mt-0.5">{schedule.studentName}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
+                          <h4 className='font-medium text-gray-800'>{schedule.title}</h4>
+                          <p className='mt-0.5 text-xs text-gray-500'>{schedule.studentName}</p>
+                          <p className='mt-0.5 text-xs text-gray-500'>
                             승인: {approvedByCaption('approved', schedule.approver_display)}
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <div className="flex items-center gap-0.5">
+                      <div className='flex flex-col items-end gap-1'>
+                        <div className='flex items-center gap-0.5'>
                           <button
                             onClick={() => openEditModal(schedule)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                            className='hover:text-primary hover:bg-primary/10 rounded-lg p-1.5 text-gray-400 transition-colors'
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Pencil className='h-3.5 w-3.5' />
                           </button>
                           <button
                             onClick={() => handleDelete(schedule)}
                             disabled={isPending}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            className='rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500'
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className='h-3.5 w-3.5' />
                           </button>
                         </div>
-                        <div className="text-right text-sm">
-                          <div className="flex items-center gap-1.5 text-gray-600">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span className="text-sm">
+                        <div className='text-right text-sm'>
+                          <div className='flex items-center gap-1.5 text-gray-600'>
+                            <Clock className='h-3.5 w-3.5' />
+                            <span className='text-sm'>
                               {formatTimeRange(schedule.start_time, schedule.end_time)}
                             </span>
                           </div>
                           {schedule.is_recurring ? (
-                            <div className="flex items-center gap-1.5 text-gray-500 mt-1">
-                              <Calendar className="w-3.5 h-3.5" />
-                              <span className="text-xs">{formatDaysOfWeek(schedule.day_of_week)}</span>
+                            <div className='mt-1 flex items-center gap-1.5 text-gray-500'>
+                              <Calendar className='h-3.5 w-3.5' />
+                              <span className='text-xs'>
+                                {formatDaysOfWeek(schedule.day_of_week)}
+                              </span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1.5 text-gray-500 mt-1">
-                              <Calendar className="w-3.5 h-3.5" />
-                              <span className="text-xs">
-                                {schedule.specific_date 
-                                  ? format(new Date(schedule.specific_date), 'M월 d일', { locale: ko })
-                                  : '-'
-                                }
+                            <div className='mt-1 flex items-center gap-1.5 text-gray-500'>
+                              <Calendar className='h-3.5 w-3.5' />
+                              <span className='text-xs'>
+                                {schedule.specific_date
+                                  ? format(new Date(schedule.specific_date), 'M월 d일', {
+                                      locale: ko,
+                                    })
+                                  : '-'}
                               </span>
                             </div>
                           )}
@@ -471,35 +476,35 @@ export function ScheduleClient({
           {/* 비활성 부재 일정 */}
           {approvedInactiveSchedules.length > 0 && (
             <div>
-              <h3 className="font-semibold text-gray-400 mb-3 text-sm">
+              <h3 className='mb-3 text-sm font-semibold text-gray-400'>
                 비활성 일정 ({approvedInactiveSchedules.length})
               </h3>
-              <div className="space-y-2">
-                {approvedInactiveSchedules.map(schedule => (
-                  <Card key={schedule.id} className="p-3 bg-gray-50 opacity-60">
-                    <div className="flex items-center justify-between">
+              <div className='space-y-2'>
+                {approvedInactiveSchedules.map((schedule) => (
+                  <Card key={schedule.id} className='bg-gray-50 p-3 opacity-60'>
+                    <div className='flex items-center justify-between'>
                       <div>
-                        <h4 className="font-medium text-gray-500 text-sm">{schedule.title}</h4>
-                        <p className="text-xs text-gray-400">{schedule.studentName}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <h4 className='text-sm font-medium text-gray-500'>{schedule.title}</h4>
+                        <p className='text-xs text-gray-400'>{schedule.studentName}</p>
+                        <p className='mt-0.5 text-xs text-gray-400'>
                           승인: {approvedByCaption('approved', schedule.approver_display)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className='flex items-center gap-1'>
                         <button
                           onClick={() => openEditModal(schedule)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                          className='hover:text-primary hover:bg-primary/10 rounded-lg p-1.5 text-gray-400 transition-colors'
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Pencil className='h-3.5 w-3.5' />
                         </button>
                         <button
                           onClick={() => handleDelete(schedule)}
                           disabled={isPending}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          className='rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500'
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className='h-3.5 w-3.5' />
                         </button>
-                        <span className="text-xs text-gray-400 ml-1">
+                        <span className='ml-1 text-xs text-gray-400'>
                           {formatTimeRange(schedule.start_time, schedule.end_time)}
                         </span>
                       </div>
@@ -514,88 +519,89 @@ export function ScheduleClient({
 
       {/* 승인 대기 탭 */}
       {activeTab === 'pending' && (
-        <div className="space-y-4">
-          <Card className="p-3 bg-amber-50 border-amber-200">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-              <p className="text-amber-700 text-sm">
+        <div className='space-y-4'>
+          <Card className='border-amber-200 bg-amber-50 p-3'>
+            <div className='flex items-start gap-2'>
+              <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500' />
+              <p className='text-sm text-amber-700'>
                 자녀가 등록한 부재 일정입니다. 승인하면 해당 시간에 알림/벌점이 면제됩니다.
               </p>
             </div>
           </Card>
 
           {visiblePending.length === 0 ? (
-            <Card className="p-8 text-center text-gray-500">
-              <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-              <p className="text-sm">승인 대기 중인 일정이 없습니다</p>
+            <Card className='p-8 text-center text-gray-500'>
+              <Clock className='mx-auto mb-3 h-12 w-12 text-gray-300' />
+              <p className='text-sm'>승인 대기 중인 일정이 없습니다</p>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {visiblePending.map(schedule => (
-                <Card key={schedule.id} className="p-4 border-amber-200 bg-amber-50/30">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                          schedule.is_recurring ? 'bg-amber-100' : 'bg-amber-100'
-                        }`}>
+            <div className='space-y-3'>
+              {visiblePending.map((schedule) => (
+                <Card key={schedule.id} className='border-amber-200 bg-amber-50/30 p-4'>
+                  <div className='space-y-3'>
+                    <div className='flex items-start justify-between'>
+                      <div className='flex items-start gap-3'>
+                        <div
+                          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+                            schedule.is_recurring ? 'bg-amber-100' : 'bg-amber-100'
+                          }`}
+                        >
                           {schedule.is_recurring ? (
-                            <Repeat className="w-5 h-5 text-amber-600" />
+                            <Repeat className='h-5 w-5 text-amber-600' />
                           ) : (
-                            <CalendarDays className="w-5 h-5 text-amber-600" />
+                            <CalendarDays className='h-5 w-5 text-amber-600' />
                           )}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium text-gray-800">{schedule.title}</h4>
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+                          <div className='flex items-center gap-2'>
+                            <h4 className='font-medium text-gray-800'>{schedule.title}</h4>
+                            <span className='rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700'>
                               승인 대기
                             </span>
                           </div>
-                          <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                            <User className="w-3 h-3" />
+                          <div className='mt-0.5 flex items-center gap-1 text-xs text-gray-500'>
+                            <User className='h-3 w-3' />
                             <span>{schedule.student_name}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm text-gray-600 pl-13">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
+                    <div className='flex items-center gap-4 pl-13 text-sm text-gray-600'>
+                      <div className='flex items-center gap-1.5'>
+                        <Clock className='h-3.5 w-3.5' />
                         <span>{formatTimeRange(schedule.start_time, schedule.end_time)}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
+                      <div className='flex items-center gap-1.5'>
+                        <Calendar className='h-3.5 w-3.5' />
                         <span>
-                          {schedule.is_recurring 
+                          {schedule.is_recurring
                             ? formatDaysOfWeek(schedule.day_of_week)
-                            : schedule.specific_date 
+                            : schedule.specific_date
                               ? format(new Date(schedule.specific_date), 'M월 d일', { locale: ko })
-                              : '-'
-                          }
+                              : '-'}
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex gap-2 pt-2">
+                    <div className='flex gap-2 pt-2'>
                       <Button
                         onClick={() => handleReject(schedule.id)}
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
+                        variant='outline'
+                        size='sm'
+                        className='flex-1 border-red-200 text-red-600 hover:bg-red-50'
                         disabled={isPending}
                       >
-                        <X className="w-4 h-4 mr-1" />
+                        <X className='mr-1 h-4 w-4' />
                         거부
                       </Button>
                       <Button
                         onClick={() => handleApprove(schedule.id)}
-                        size="sm"
-                        className="flex-1 bg-primary hover:bg-primary/90"
+                        size='sm'
+                        className='bg-primary hover:bg-primary/90 flex-1'
                         disabled={isPending}
                       >
-                        <Check className="w-4 h-4 mr-1" />
+                        <Check className='mr-1 h-4 w-4' />
                         승인
                       </Button>
                     </div>
@@ -609,43 +615,44 @@ export function ScheduleClient({
 
       {/* 수정 모달 */}
       {editingSchedule && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 pb-24 sm:pb-0 sm:items-center">
-          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">부재 일정 수정</h3>
+        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/50 pb-24 sm:items-center sm:pb-0'>
+          <div className='max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5'>
+            <div className='mb-4 flex items-center justify-between'>
+              <h3 className='text-lg font-bold'>부재 일정 수정</h3>
               <button
                 onClick={() => setEditingSchedule(null)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                className='rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
               >
-                <X className="w-5 h-5" />
+                <X className='h-5 w-5' />
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="space-y-4 pb-8">
+            <form onSubmit={handleEditSubmit} className='space-y-4 pb-8'>
               {/* 부재 사유 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  부재 사유
-                </label>
-                <div className="space-y-2">
+                <label className='mb-1.5 block text-sm font-medium text-gray-700'>부재 사유</label>
+                <div className='space-y-2'>
                   {ABSENCE_REASONS.map((reason) => (
                     <label
                       key={reason.value}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
                         editReasonType === reason.value
                           ? 'border-primary bg-primary/5'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <input
-                        type="radio"
-                        name="absenceReasonParentEdit"
+                        type='radio'
+                        name='absenceReasonParentEdit'
                         value={reason.value}
                         checked={editReasonType === reason.value}
-                        onChange={(e) => { setEditReasonType(e.target.value); setEditCustomReason(''); }}
-                        className="w-4 h-4 text-primary"
+                        onChange={(e) => {
+                          setEditReasonType(e.target.value);
+                          setEditCustomReason('');
+                        }}
+                        className='text-primary h-4 w-4'
                       />
-                      <span className="text-sm text-gray-700">{reason.label}</span>
+                      <span className='text-sm text-gray-700'>{reason.label}</span>
                     </label>
                   ))}
                 </div>
@@ -654,49 +661,47 @@ export function ScheduleClient({
               {/* 기타 사유 직접 입력 */}
               {editReasonType === 'other' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label className='mb-1.5 block text-sm font-medium text-gray-700'>
                     기타 사유 입력
                   </label>
                   <input
-                    type="text"
+                    type='text'
                     value={editCustomReason}
                     onChange={(e) => setEditCustomReason(e.target.value)}
-                    placeholder="부재 사유를 입력해주세요"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    placeholder='부재 사유를 입력해주세요'
+                    className='focus:ring-primary/20 focus:border-primary w-full rounded-xl border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </div>
               )}
 
               {/* 반복 유형 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  일정 유형
-                </label>
-                <div className="flex gap-2">
+                <label className='mb-1.5 block text-sm font-medium text-gray-700'>일정 유형</label>
+                <div className='flex gap-2'>
                   <button
-                    type="button"
+                    type='button'
                     onClick={() => setEditIsRecurring(true)}
                     className={cn(
-                      'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      'flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all',
                       editIsRecurring
                         ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                     )}
                   >
-                    <Repeat className="w-4 h-4" />
+                    <Repeat className='h-4 w-4' />
                     반복 일정
                   </button>
                   <button
-                    type="button"
+                    type='button'
                     onClick={() => setEditIsRecurring(false)}
                     className={cn(
-                      'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      'flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all',
                       !editIsRecurring
                         ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                     )}
                   >
-                    <CalendarDays className="w-4 h-4" />
+                    <CalendarDays className='h-4 w-4' />
                     일회성
                   </button>
                 </div>
@@ -705,20 +710,20 @@ export function ScheduleClient({
               {/* 반복 요일 */}
               {editIsRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label className='mb-1.5 block text-sm font-medium text-gray-700'>
                     반복 요일
                   </label>
-                  <div className="flex gap-2">
+                  <div className='flex gap-2'>
                     {DAY_NAMES.map((dayName, index) => (
                       <button
                         key={index}
-                        type="button"
+                        type='button'
                         onClick={() => toggleEditDay(index)}
                         className={cn(
-                          'w-10 h-10 rounded-full text-sm font-medium transition-all',
+                          'h-10 w-10 rounded-full text-sm font-medium transition-all',
                           editSelectedDays.includes(index)
                             ? 'bg-primary text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                         )}
                       >
                         {dayName}
@@ -731,27 +736,27 @@ export function ScheduleClient({
               {/* 반복 기간 설정 */}
               {editIsRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label className='mb-1.5 block text-sm font-medium text-gray-700'>
                     적용 기간
                   </label>
-                  <div className="space-y-3">
+                  <div className='space-y-3'>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">시작일 *</label>
+                      <label className='mb-1 block text-xs text-gray-500'>시작일 *</label>
                       <Input
-                        type="date"
+                        type='date'
                         value={editRecurringStartDate}
                         onChange={(e) => setEditRecurringStartDate(e.target.value)}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">종료일 (선택)</label>
+                      <label className='mb-1 block text-xs text-gray-500'>종료일 (선택)</label>
                       <Input
-                        type="date"
+                        type='date'
                         value={editRecurringEndDate}
                         onChange={(e) => setEditRecurringEndDate(e.target.value)}
                         min={editRecurringStartDate}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className='mt-1 text-xs text-gray-400'>
                         종료일을 비워두면 무기한 적용됩니다
                       </p>
                     </div>
@@ -762,58 +767,54 @@ export function ScheduleClient({
               {/* 일회성 날짜 */}
               {!editIsRecurring && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    날짜
-                  </label>
+                  <label className='mb-1.5 block text-sm font-medium text-gray-700'>날짜</label>
                   <input
-                    type="date"
+                    type='date'
                     value={editSpecificDate}
                     onChange={(e) => setEditSpecificDate(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary w-full rounded-xl border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </div>
               )}
 
               {/* 시간 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  부재 시간
-                </label>
-                <div className="flex items-center gap-2">
+                <label className='mb-1.5 block text-sm font-medium text-gray-700'>부재 시간</label>
+                <div className='flex items-center gap-2'>
                   <input
-                    type="time"
+                    type='time'
                     value={editStartTime}
                     onChange={(e) => setEditStartTime(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary flex-1 rounded-xl border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
-                  <span className="text-gray-500">~</span>
+                  <span className='text-gray-500'>~</span>
                   <input
-                    type="time"
+                    type='time'
                     value={editEndTime}
                     onChange={(e) => setEditEndTime(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary flex-1 rounded-xl border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </div>
               </div>
 
               {editError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                <div className='rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700'>
                   {editError}
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
+              <div className='flex gap-2 pt-1'>
                 <button
-                  type="button"
+                  type='button'
                   onClick={() => setEditingSchedule(null)}
-                  className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                  className='flex-1 rounded-xl border border-gray-200 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-50'
                 >
                   취소
                 </button>
                 <button
-                  type="submit"
+                  type='submit'
                   disabled={isEditLoading}
-                  className="flex-1 py-3 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  className='bg-primary hover:bg-primary/90 flex-1 rounded-xl py-3 font-medium text-white transition-colors disabled:opacity-50'
                 >
                   {isEditLoading ? '저장 중...' : '저장'}
                 </button>
@@ -825,71 +826,82 @@ export function ScheduleClient({
 
       {/* 새 일정 등록 탭 */}
       {activeTab === 'create' && (
-        <div className="space-y-4">
-          <Card className="p-3 bg-green-50 border-green-200">
-            <div className="flex items-start gap-2">
-              <Info className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-              <p className="text-green-700 text-sm">
+        <div className='space-y-4'>
+          <Card className='border-green-200 bg-green-50 p-3'>
+            <div className='flex items-start gap-2'>
+              <Info className='mt-0.5 h-4 w-4 flex-shrink-0 text-green-500' />
+              <p className='text-sm text-green-700'>
                 학부모가 직접 등록한 부재 일정은 바로 승인됩니다.
               </p>
             </div>
           </Card>
 
           {linkedStudents.length === 0 ? (
-            <Card className="p-8 text-center text-gray-500">
-              <User className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-              <p className="text-sm">연결된 자녀가 없습니다</p>
+            <Card className='p-8 text-center text-gray-500'>
+              <User className='mx-auto mb-3 h-12 w-12 text-gray-300' />
+              <p className='text-sm'>연결된 자녀가 없습니다</p>
             </Card>
           ) : (
-            <form onSubmit={handleCreateSchedule} className="space-y-4 pb-8">
+            <form onSubmit={handleCreateSchedule} className='space-y-4 pb-8'>
               {/* 자녀 선택 */}
-              <Card className="p-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  자녀 선택
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  {linkedStudents.map(student => (
-                    <button
-                      key={student.id}
-                      type="button"
-                      onClick={() => setSelectedStudentId(student.id)}
-                      className={cn(
-                        'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                        selectedStudentId === student.id
-                          ? 'bg-primary text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      )}
-                    >
-                      {student.name}
-                    </button>
-                  ))}
+              <Card className='p-4'>
+                <label className='mb-2 block text-sm font-medium text-gray-700'>자녀 선택</label>
+                <div className='flex flex-wrap gap-2'>
+                  {linkedStudents.map((student) => {
+                    const isWithdrawn = !!student.withdrawnAt;
+                    return (
+                      <button
+                        key={student.id}
+                        type='button'
+                        onClick={() => !isWithdrawn && setSelectedStudentId(student.id)}
+                        disabled={isWithdrawn}
+                        title={isWithdrawn ? '퇴원 자녀는 신규 부재 일정 등록 불가' : undefined}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+                          isWithdrawn
+                            ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                            : selectedStudentId === student.id
+                              ? 'bg-primary text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+                        )}
+                      >
+                        {student.name}
+                        {isWithdrawn && (
+                          <span className='rounded bg-gray-200 px-1 text-[10px] font-medium text-gray-700'>
+                            퇴원
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </Card>
 
               {/* 부재 사유 */}
-              <Card className="p-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  부재 사유
-                </label>
-                <div className="space-y-2">
+              <Card className='p-4'>
+                <label className='mb-2 block text-sm font-medium text-gray-700'>부재 사유</label>
+                <div className='space-y-2'>
                   {ABSENCE_REASONS.map((reason) => (
                     <label
                       key={reason.value}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
                         reasonType === reason.value
                           ? 'border-primary bg-primary/5'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <input
-                        type="radio"
-                        name="absenceReasonParent"
+                        type='radio'
+                        name='absenceReasonParent'
                         value={reason.value}
                         checked={reasonType === reason.value}
-                        onChange={(e) => { setReasonType(e.target.value); setCustomReason(''); }}
-                        className="w-4 h-4 text-primary"
+                        onChange={(e) => {
+                          setReasonType(e.target.value);
+                          setCustomReason('');
+                        }}
+                        className='text-primary h-4 w-4'
                       />
-                      <span className="text-sm text-gray-700">{reason.label}</span>
+                      <span className='text-sm text-gray-700'>{reason.label}</span>
                     </label>
                   ))}
                 </div>
@@ -897,50 +909,48 @@ export function ScheduleClient({
 
               {/* 기타 사유 직접 입력 */}
               {reasonType === 'other' && (
-                <Card className="p-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Card className='p-4'>
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>
                     기타 사유 입력
                   </label>
                   <input
-                    type="text"
+                    type='text'
                     value={customReason}
                     onChange={(e) => setCustomReason(e.target.value)}
-                    placeholder="부재 사유를 입력해주세요"
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    placeholder='부재 사유를 입력해주세요'
+                    className='focus:ring-primary/20 focus:border-primary w-full rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </Card>
               )}
 
               {/* 반복 유형 */}
-              <Card className="p-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  일정 유형
-                </label>
-                <div className="flex gap-2">
+              <Card className='p-4'>
+                <label className='mb-2 block text-sm font-medium text-gray-700'>일정 유형</label>
+                <div className='flex gap-2'>
                   <button
-                    type="button"
+                    type='button'
                     onClick={() => setIsRecurring(true)}
                     className={cn(
-                      'flex-1 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      'flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all',
                       isRecurring
                         ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                     )}
                   >
-                    <Repeat className="w-4 h-4" />
+                    <Repeat className='h-4 w-4' />
                     반복 일정
                   </button>
                   <button
-                    type="button"
+                    type='button'
                     onClick={() => setIsRecurring(false)}
                     className={cn(
-                      'flex-1 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2',
+                      'flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all',
                       !isRecurring
                         ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                     )}
                   >
-                    <CalendarDays className="w-4 h-4" />
+                    <CalendarDays className='h-4 w-4' />
                     일회성
                   </button>
                 </div>
@@ -948,21 +958,19 @@ export function ScheduleClient({
 
               {/* 반복 요일 선택 */}
               {isRecurring && (
-                <Card className="p-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    반복 요일
-                  </label>
-                  <div className="flex gap-2">
+                <Card className='p-4'>
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>반복 요일</label>
+                  <div className='flex gap-2'>
                     {DAY_NAMES.map((dayName, index) => (
                       <button
                         key={index}
-                        type="button"
+                        type='button'
                         onClick={() => toggleDay(index)}
                         className={cn(
-                          'w-10 h-10 rounded-full text-sm font-medium transition-all',
+                          'h-10 w-10 rounded-full text-sm font-medium transition-all',
                           selectedDays.includes(index)
                             ? 'bg-primary text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                         )}
                       >
                         {dayName}
@@ -974,30 +982,28 @@ export function ScheduleClient({
 
               {/* 반복 기간 설정 */}
               {isRecurring && (
-                <Card className="p-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    적용 기간
-                  </label>
-                  <div className="space-y-3">
+                <Card className='p-4'>
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>적용 기간</label>
+                  <div className='space-y-3'>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">시작일 *</label>
+                      <label className='mb-1 block text-xs text-gray-500'>시작일 *</label>
                       <input
-                        type="date"
+                        type='date'
                         value={recurringStartDate}
                         onChange={(e) => setRecurringStartDate(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        className='focus:ring-primary/20 focus:border-primary w-full rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">종료일 (선택)</label>
+                      <label className='mb-1 block text-xs text-gray-500'>종료일 (선택)</label>
                       <input
-                        type="date"
+                        type='date'
                         value={recurringEndDate}
                         onChange={(e) => setRecurringEndDate(e.target.value)}
                         min={recurringStartDate}
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        className='focus:ring-primary/20 focus:border-primary w-full rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                       />
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className='mt-1 text-xs text-gray-400'>
                         종료일을 비워두면 무기한 적용됩니다
                       </p>
                     </div>
@@ -1007,58 +1013,54 @@ export function ScheduleClient({
 
               {/* 일회성 날짜 선택 */}
               {!isRecurring && (
-                <Card className="p-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    날짜
-                  </label>
+                <Card className='p-4'>
+                  <label className='mb-2 block text-sm font-medium text-gray-700'>날짜</label>
                   <input
-                    type="date"
+                    type='date'
                     value={specificDate}
                     onChange={(e) => setSpecificDate(e.target.value)}
                     min={format(new Date(), 'yyyy-MM-dd')}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary w-full rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </Card>
               )}
 
               {/* 시간 */}
-              <Card className="p-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  부재 시간
-                </label>
-                <div className="flex items-center gap-2">
+              <Card className='p-4'>
+                <label className='mb-2 block text-sm font-medium text-gray-700'>부재 시간</label>
+                <div className='flex items-center gap-2'>
                   <input
-                    type="time"
+                    type='time'
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary flex-1 rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
-                  <span className="text-gray-500">~</span>
+                  <span className='text-gray-500'>~</span>
                   <input
-                    type="time"
+                    type='time'
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className='focus:ring-primary/20 focus:border-primary flex-1 rounded-lg border border-gray-200 px-4 py-2.5 focus:ring-2 focus:outline-none'
                   />
                 </div>
               </Card>
 
               {/* 에러/성공 메시지 */}
               {formError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                <div className='rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700'>
                   {formError}
                 </div>
               )}
               {formSuccess && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                <div className='rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700'>
                   {formSuccess}
                 </div>
               )}
 
               {/* 제출 버튼 */}
               <Button
-                type="submit"
-                className="w-full py-3 bg-primary hover:bg-primary/90"
+                type='submit'
+                className='bg-primary hover:bg-primary/90 w-full py-3'
                 disabled={isPending}
               >
                 {isPending ? '등록 중...' : '부재 일정 등록'}

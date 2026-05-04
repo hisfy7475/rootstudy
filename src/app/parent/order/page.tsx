@@ -39,7 +39,12 @@ export default async function ParentOrderPage({
         examProducts={examProducts}
         mealOrders={mealOrders}
         examOrders={examOrders}
-        students={students.map((s) => ({ id: s.id, name: s.name, branchId: s.branchId }))}
+        students={students.map((s) => ({
+          id: s.id,
+          name: s.name,
+          branchId: s.branchId,
+          withdrawnAt: s.withdrawnAt,
+        }))}
       />
     </div>
   );

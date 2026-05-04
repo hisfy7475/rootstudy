@@ -1,14 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
+import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import { MealImage } from '@/components/shared/meal-image';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MealProduct, MealProductVariant } from '@/types/database';
-
-type StatusFilter = 'all' | 'active' | 'inactive' | 'sold_out';
+import type { MealProduct } from '@/types/database';
+import type { MealProductsListResult } from '@/lib/actions/meal';
 
 const statusLabel: Record<MealProduct['status'], string> = {
   active: '판매중',
@@ -16,32 +17,24 @@ const statusLabel: Record<MealProduct['status'], string> = {
   sold_out: '마감',
 };
 
-const tabs: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: '전체' },
-  { key: 'active', label: '판매중' },
-  { key: 'inactive', label: '비활성' },
-  { key: 'sold_out', label: '마감' },
-];
-
-type ProductWithVariants = MealProduct & { variants: MealProductVariant[] };
-
 interface AdminMockExamsClientProps {
-  initialProducts: ProductWithVariants[];
+  initialResult: MealProductsListResult;
 }
 
-export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientProps) {
-  const [filter, setFilter] = useState<StatusFilter>('all');
+export function AdminMockExamsClient({ initialResult }: AdminMockExamsClientProps) {
+  const pathname = usePathname();
+  const sp = useSearchParams();
 
-  const filtered = useMemo(() => {
-    if (filter === 'all') return initialProducts;
-    return initialProducts.filter((p) => p.status === filter);
-  }, [initialProducts, filter]);
+  const products = initialResult.rows;
+  const total = initialResult.total;
+  const page = initialResult.page;
+  const pageSize = initialResult.pageSize;
 
   return (
     <div className='mx-auto max-w-6xl space-y-6 p-4 md:p-8'>
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <div>
-          <h1 className='text-2xl font-bold tracking-tight'>모의고사 관리</h1>
+          <h1 className='text-2xl font-bold tracking-tight'>모의고사 관리 ({total}건)</h1>
           <p className='text-muted-foreground mt-1 text-sm'>상품 등록·신청 현황</p>
         </div>
         <Link
@@ -57,23 +50,20 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
         </Link>
       </div>
 
-      <div className='flex flex-wrap gap-2'>
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type='button'
-            onClick={() => setFilter(t.key)}
-            className={cn(
-              'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
-              filter === t.key
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <DataTableToolbar
+        searchPlaceholder='상품명 검색...'
+        filters={[
+          {
+            key: 'status',
+            label: '상태',
+            options: [
+              { value: 'active', label: '판매중' },
+              { value: 'inactive', label: '비활성' },
+              { value: 'sold_out', label: '마감' },
+            ],
+          },
+        ]}
+      />
 
       <Card className='overflow-hidden'>
         <div className='overflow-x-auto'>
@@ -90,14 +80,14 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {products.length === 0 ? (
                 <tr>
                   <td colSpan={7} className='text-muted-foreground p-8 text-center'>
                     등록된 모의고사가 없습니다.
                   </td>
                 </tr>
               ) : (
-                filtered.map((p) => {
+                products.map((p) => {
                   const v = p.variants[0];
                   return (
                     <tr key={p.id} className='hover:bg-muted/30 border-b last:border-0'>
@@ -155,6 +145,16 @@ export function AdminMockExamsClient({ initialProducts }: AdminMockExamsClientPr
           </table>
         </div>
       </Card>
+
+      <div className='flex justify-center'>
+        <Pagination
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          pathname={pathname}
+          searchParams={new URLSearchParams(sp.toString())}
+        />
+      </div>
     </div>
   );
 }

@@ -80,53 +80,98 @@ export async function getStudentAbsenceSchedules(
   );
 }
 
-// 모든 학생의 부재 스케줄 조회 (관리자용)
-export async function getAllAbsenceSchedules(
-  branchId?: string | null,
-): Promise<(AbsenceScheduleListItem & { student_name?: string; seat_number?: number | null })[]> {
+// 모든 학생의 부재 스케줄 조회 (관리자용 — URL-first 검색·페이지네이션).
+// admin_search_absence_schedules RPC 위임 — title + 학생 이름 OR 검색,
+// type/active 필터, 페이지네이션을 한 번에 처리. 권한은 RPC 내부에서 검증.
+export async function getAllAbsenceSchedules(params: {
+  /** branchId === null 은 슈퍼관리자의 "전 지점" — RPC 내부에서 슈퍼 분기로 통과. */
+  branchId: string | null;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  type?: 'recurring' | 'one_time';
+  active?: 'active' | 'inactive';
+}): Promise<{
+  rows: (AbsenceScheduleListItem & { student_name: string; seat_number: number | null })[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
   const supabase = await createClient();
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 20;
 
-  let query = supabase
-    .from('student_absence_schedules')
-    .select(
-      `
-      *,
-      student_profiles!inner(
-        seat_number,
-        profiles!inner(name, branch_id)
-      ),
-      approver_profile:profiles!student_absence_schedules_approved_by_fkey(name, user_type)
-    `,
-    )
-    .order('created_at', { ascending: false });
-
-  if (branchId) {
-    query = query.eq('student_profiles.profiles.branch_id', branchId);
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await supabase.rpc('admin_search_absence_schedules', {
+    p_branch_id: params.branchId,
+    p_q: params.q?.trim() || null,
+    p_type: params.type ?? null,
+    p_active: params.active ?? null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize,
+  });
 
   if (error) {
     console.error('Error fetching all absence schedules:', error);
-    return [];
+    return { rows: [], total: 0, page, pageSize };
   }
 
-  return (data || []).map((schedule) => {
-    const row = schedule as StudentAbsenceSchedule & {
-      student_profiles?: { seat_number?: number | null; profiles?: { name?: string } };
-      approver_profile?: ApproverProfileRow;
-    };
-    const { student_profiles, approver_profile, ...rest } = row;
+  const rpcRows = (data ?? []) as Array<{
+    id: string;
+    student_id: string;
+    title: string;
+    description: string | null;
+    is_recurring: boolean;
+    recurrence_type: 'weekly' | 'one_time' | null;
+    day_of_week: number[] | null;
+    start_time: string;
+    end_time: string;
+    date_type: 'semester' | 'vacation' | 'all' | null;
+    valid_from: string | null;
+    valid_until: string | null;
+    specific_date: string | null;
+    buffer_minutes: number;
+    is_active: boolean;
+    status: 'pending' | 'approved' | 'rejected';
+    created_by: string | null;
+    approved_by: string | null;
+    approved_at: string | null;
+    rejected_by: string | null;
+    rejected_at: string | null;
+    created_at: string;
+    updated_at: string;
+    student_name: string;
+    seat_number: number | null;
+    approver_name: string | null;
+    approver_user_type: 'student' | 'parent' | 'admin' | null;
+    total_count: number;
+  }>;
+
+  const total = rpcRows[0]?.total_count ?? 0;
+  const rows = rpcRows.map((r) => {
+    const {
+      student_name,
+      seat_number,
+      approver_name,
+      approver_user_type,
+      total_count: _total,
+      ...rest
+    } = r;
+    void _total;
     const base = mapRowWithApprover({
-      ...rest,
-      approver_profile,
-    } as StudentAbsenceSchedule & { approver_profile?: ApproverProfileRow });
+      ...(rest as StudentAbsenceSchedule),
+      approver_profile:
+        approver_name && approver_user_type
+          ? { name: approver_name, user_type: approver_user_type }
+          : null,
+    });
     return {
       ...base,
-      student_name: student_profiles?.profiles?.name || '알 수 없음',
-      seat_number: student_profiles?.seat_number ?? null,
+      student_name: student_name || '알 수 없음',
+      seat_number,
     };
   });
+
+  return { rows, total, page, pageSize };
 }
 
 // 부재 스케줄 생성 (학생용 - 승인 대기 상태로 생성)
@@ -281,6 +326,16 @@ export async function createAbsenceScheduleForChild(
 
   if (!link) {
     return { success: false, error: '연결된 자녀가 아닙니다.' };
+  }
+
+  // 퇴원 자녀 대상 신규 부재 일정 등록은 차단.
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('withdrawn_at')
+    .eq('id', studentId)
+    .maybeSingle();
+  if (studentProfile?.withdrawn_at) {
+    return { success: false, error: '퇴원 처리된 자녀의 부재 일정은 등록할 수 없습니다.' };
   }
 
   const { data: newSchedule, error } = await supabase

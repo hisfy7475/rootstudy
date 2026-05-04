@@ -1,22 +1,18 @@
 import { getStudentTypes, getStudentTypeStudentCounts } from '@/lib/actions/student-type';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
 import StudentTypesClient from './student-types-client';
 
 export default async function StudentTypesPage() {
-  const supabase = await createClient();
-
-  // 현재 로그인한 관리자의 branch_id 조회
-  const { data: { user } } = await supabase.auth.getUser();
-  let adminBranchId: string | null = null;
-
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('branch_id')
-      .eq('id', user.id)
-      .single();
-    adminBranchId = profile?.branch_id || null;
+  const ctx = await requireAdminBranch();
+  if (!ctx) {
+    return (
+      <div className='p-6'>
+        <h1 className='text-xl font-bold'>접근 권한이 없습니다.</h1>
+      </div>
+    );
   }
+  // 슈퍼관리자(branchId === null)는 전 지점 카운트.
+  const adminBranchId = ctx.branchId;
 
   const [studentTypes, studentCounts] = await Promise.all([
     getStudentTypes(),
@@ -24,7 +20,7 @@ export default async function StudentTypesPage() {
   ]);
 
   // 학생 수 매핑
-  const typesWithCount = studentTypes.map(type => ({
+  const typesWithCount = studentTypes.map((type) => ({
     ...type,
     studentCount: studentCounts[type.id] || 0,
   }));

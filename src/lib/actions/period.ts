@@ -27,20 +27,22 @@ export interface PeriodDefinition {
 // 지점 및 날짜 타입별 교시 목록 조회
 export async function getPeriodDefinitions(
   branchId: string,
-  dateTypeId?: string
+  dateTypeId?: string,
 ): Promise<PeriodDefinition[]> {
   const supabase = await createClient();
 
   let query = supabase
     .from('period_definitions')
-    .select(`
+    .select(
+      `
       *,
       date_type:date_type_id (
         id,
         name,
         color
       )
-    `)
+    `,
+    )
     .eq('branch_id', branchId)
     .order('period_number', { ascending: true });
 
@@ -65,7 +67,7 @@ export async function createPeriodDefinition(
   periodNumber: number,
   startTime: string,
   endTime: string,
-  name?: string
+  name?: string,
 ) {
   const supabase = await createClient();
 
@@ -102,14 +104,11 @@ export async function updatePeriodDefinition(
     name?: string | null;
     start_time?: string;
     end_time?: string;
-  }
+  },
 ) {
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('period_definitions')
-    .update(data)
-    .eq('id', id);
+  const { error } = await supabase.from('period_definitions').update(data).eq('id', id);
 
   if (error) {
     console.error('Error updating period definition:', error);
@@ -127,10 +126,7 @@ export async function updatePeriodDefinition(
 export async function deletePeriodDefinition(id: string) {
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('period_definitions')
-    .delete()
-    .eq('id', id);
+  const { error } = await supabase.from('period_definitions').delete().eq('id', id);
 
   if (error) {
     console.error('Error deleting period definition:', error);
@@ -145,14 +141,12 @@ export async function deletePeriodDefinition(id: string) {
 export async function getCurrentPeriod(
   branchId: string,
   dateTypeId: string,
-  time?: string // HH:mm 형식, 없으면 현재 시간
+  time?: string, // HH:mm 형식, 없으면 현재 시간
 ): Promise<PeriodDefinition | null> {
   const supabase = await createClient();
 
   // 현재 시간 (HH:mm:ss 형식)
-  const now = time 
-    ? `${time}:00` 
-    : new Date().toTimeString().split(' ')[0];
+  const now = time ? `${time}:00` : new Date().toTimeString().split(' ')[0];
 
   const { data, error } = await supabase
     .from('period_definitions')
@@ -179,11 +173,11 @@ export async function bulkCreatePeriodDefinitions(
     name?: string;
     startTime: string;
     endTime: string;
-  }>
+  }>,
 ) {
   const supabase = await createClient();
 
-  const insertData = periods.map(p => ({
+  const insertData = periods.map((p) => ({
     branch_id: branchId,
     date_type_id: dateTypeId,
     period_number: p.periodNumber,
@@ -192,9 +186,7 @@ export async function bulkCreatePeriodDefinitions(
     end_time: p.endTime,
   }));
 
-  const { error } = await supabase
-    .from('period_definitions')
-    .insert(insertData);
+  const { error } = await supabase.from('period_definitions').insert(insertData);
 
   if (error) {
     console.error('Error bulk creating period definitions:', error);
@@ -205,12 +197,18 @@ export async function bulkCreatePeriodDefinitions(
   return { success: true };
 }
 
-// 특정 날짜의 교시 목록 조회 (관리자용 - 날짜 타입 자동 감지)
-export async function getTodayPeriods(branchId: string, targetDate?: string): Promise<{
+// 특정 날짜의 교시 목록 조회 (관리자용 - 날짜 타입 자동 감지).
+// branchId === null 은 슈퍼관리자의 "전 지점" 신호 — 교시 정의는 지점별 고유라
+// 단일 응답이 의미가 없어 빈 결과를 반환한다 (UI 측에서 지점 선택 후 재호출).
+export async function getTodayPeriods(
+  branchId: string | null,
+  targetDate?: string,
+): Promise<{
   periods: PeriodDefinition[];
   dateTypeName: string | null;
   dateTypeId: string | null;
 }> {
+  if (!branchId) return { periods: [], dateTypeName: null, dateTypeId: null };
   const supabase = await createClient();
 
   // 날짜 결정: 지정된 날짜 또는 오늘 (KST 기준)
@@ -219,13 +217,15 @@ export async function getTodayPeriods(branchId: string, targetDate?: string): Pr
   // 오늘의 날짜 타입 조회
   const { data: assignment, error: assignmentError } = await supabase
     .from('date_assignments')
-    .select(`
+    .select(
+      `
       date_type_id,
       date_type:date_type_id (
         id,
         name
       )
-    `)
+    `,
+    )
     .eq('branch_id', branchId)
     .eq('date', today)
     .single();
@@ -251,7 +251,11 @@ export async function getTodayPeriods(branchId: string, targetDate?: string): Pr
 
   if (periodsError) {
     console.error('Error fetching periods:', periodsError);
-    return { periods: [], dateTypeName: dateType?.name || null, dateTypeId: assignment.date_type_id };
+    return {
+      periods: [],
+      dateTypeName: dateType?.name || null,
+      dateTypeId: assignment.date_type_id,
+    };
   }
 
   return {
@@ -266,7 +270,7 @@ export async function copyPeriodsToDateType(
   sourceBranchId: string,
   sourceDateTypeId: string,
   targetBranchId: string,
-  targetDateTypeId: string
+  targetDateTypeId: string,
 ) {
   const supabase = await createClient();
 
@@ -282,7 +286,7 @@ export async function copyPeriodsToDateType(
   }
 
   // 대상 지점/날짜 타입에 복사
-  const insertData = sourcePeriods.map(p => ({
+  const insertData = sourcePeriods.map((p) => ({
     branch_id: targetBranchId,
     date_type_id: targetDateTypeId,
     period_number: p.period_number,
@@ -291,9 +295,7 @@ export async function copyPeriodsToDateType(
     end_time: p.end_time,
   }));
 
-  const { error: insertError } = await supabase
-    .from('period_definitions')
-    .insert(insertData);
+  const { error: insertError } = await supabase.from('period_definitions').insert(insertData);
 
   if (insertError) {
     console.error('Error copying periods:', insertError);

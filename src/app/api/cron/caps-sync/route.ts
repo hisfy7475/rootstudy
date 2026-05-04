@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   // 1. Cron secret 검증
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  
+
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -85,10 +85,13 @@ export async function GET(request: Request) {
     // CAPS의 e_id(사용자ID)를 사용하여 매칭 (e_idno는 사원번호)
     const capsIds = [...new Set(enterRecords.map((r) => String(r.e_id)))];
 
+    // 퇴원 학생(profiles.withdrawn_at IS NOT NULL)의 출입은 attendance 에 적재하지 않는다.
+    // 복구 시 caps_id 는 그대로 유지되므로 즉시 정상 적재 재개.
     const { data: students } = await supabase
       .from('student_profiles')
-      .select('id, caps_id, caps_id_set_at')
-      .in('caps_id', capsIds);
+      .select('id, caps_id, caps_id_set_at, profiles!inner(withdrawn_at)')
+      .in('caps_id', capsIds)
+      .is('profiles.withdrawn_at', null);
 
     // caps_id -> { studentId, capsIdSetAt } 매핑
     const studentMap = new Map<string, { studentId: string; capsIdSetAt: string | null }>();
@@ -190,13 +193,11 @@ export async function GET(request: Request) {
       }
 
       const newRecords = dedupedRecords.filter(
-        (r) => !existingSet.has(`${r.student_id}_${normalizeTimestamp(r.timestamp)}`)
+        (r) => !existingSet.has(`${r.student_id}_${normalizeTimestamp(r.timestamp)}`),
       );
 
       if (newRecords.length > 0) {
-        const { error: insertError } = await supabase
-          .from('attendance')
-          .insert(newRecords);
+        const { error: insertError } = await supabase.from('attendance').insert(newRecords);
 
         if (insertError) {
           throw new Error(`Failed to insert attendance: ${insertError.message}`);
@@ -255,9 +256,6 @@ export async function GET(request: Request) {
 
     await closeConnection();
 
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
   }
 }

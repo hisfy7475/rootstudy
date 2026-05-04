@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
@@ -12,30 +12,36 @@ import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 interface Child {
   id: string;
   name: string;
+  /** 퇴원 처리 시각. null 이면 활성 자녀. */
+  withdrawnAt?: string | null;
 }
 
 interface ParentHeaderProps {
   userName?: string;
-  children?: Child[];
+  linkedChildren?: Child[];
   initialUnreadAnnouncementCount?: number;
 }
 
-export function ParentHeader({ 
-  userName, 
-  children = [],
+export function ParentHeader({
+  userName,
+  linkedChildren: children = [],
   initialUnreadAnnouncementCount = 0,
 }: ParentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
-  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(initialUnreadAnnouncementCount);
+  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(
+    initialUnreadAnnouncementCount,
+  );
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [isNative, setIsNative] = useState(false);
-
-  useEffect(() => {
-    setIsNative(isNativeApp());
-  }, []);
+  // SSR 에서는 false, hydration 후 클라이언트의 navigator.userAgent 기준 값으로 자동 동기화.
+  // useEffect + setState 패턴이 React 19 의 set-state-in-effect 룰에 걸리므로 외부 store 로 처리.
+  const isNative = useSyncExternalStore(
+    () => () => {},
+    () => isNativeApp(),
+    () => false,
+  );
 
   // 주기적으로 읽지 않은 공지 수 갱신 (30초마다)
   useEffect(() => {
@@ -58,14 +64,22 @@ export function ParentHeader({
     return () => clearInterval(interval);
   }, [initialUnreadAnnouncementCount]);
 
-  // URL에서 childId를 읽어서 선택된 자녀 결정 (없으면 첫 번째 자녀)
+  // URL에서 childId를 읽어서 선택된 자녀 결정 — 활성 자녀를 우선 선택.
+  const activeChildren = children.filter((c) => !c.withdrawnAt);
+  const withdrawnChildren = children.filter((c) => c.withdrawnAt);
   const childIdFromUrl = searchParams.get('childId');
-  const selectedChildId = (childIdFromUrl && children.some(c => c.id === childIdFromUrl))
-    ? childIdFromUrl
-    : children[0]?.id;
-  
-  const selectedChild = children.find(c => c.id === selectedChildId);
-  const childrenLabel = children.length > 0 ? `자녀 ${children.length}명` : '연결된 자녀 없음';
+  const selectedChildId =
+    childIdFromUrl && children.some((c) => c.id === childIdFromUrl)
+      ? childIdFromUrl
+      : (activeChildren[0]?.id ?? children[0]?.id);
+
+  const selectedChild = children.find((c) => c.id === selectedChildId);
+  const childrenLabel = (() => {
+    if (children.length === 0) return '연결된 자녀 없음';
+    if (withdrawnChildren.length === 0) return `자녀 ${activeChildren.length}명`;
+    if (activeChildren.length === 0) return `퇴원 자녀 ${withdrawnChildren.length}명`;
+    return `활성 ${activeChildren.length}명 · 퇴원 ${withdrawnChildren.length}명`;
+  })();
 
   const handleChildSelect = (childId: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -77,31 +91,31 @@ export function ParentHeader({
   return (
     <header
       className={cn(
-        'sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100',
-        isNative && 'pt-safe'
+        'bg-background/80 sticky top-0 z-40 border-b border-gray-100 backdrop-blur-lg',
+        isNative && 'pt-safe',
       )}
     >
-      <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+      <div className='mx-auto flex max-w-lg items-center justify-between px-4 py-3'>
         {/* 로고/타이틀 */}
-        <Link href="/parent" className="flex items-center">
+        <Link href='/parent' className='flex items-center'>
           <Image
-            src="/logo.png"
-            alt="WHEVER STUDY route"
+            src='/logo.png'
+            alt='WHEVER STUDY route'
             width={120}
             height={48}
-            className="object-contain"
+            className='object-contain'
           />
         </Link>
 
-        <div className="flex items-center gap-2">
+        <div className='flex items-center gap-2'>
           {/* 공지사항 아이콘 */}
           <Link
-            href="/parent/announcements"
-            className="relative p-2 rounded-xl hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all"
+            href='/parent/announcements'
+            className='relative rounded-xl p-2 transition-all hover:bg-gray-100 active:scale-90 active:bg-gray-200'
           >
-            <Megaphone className="w-5 h-5 text-text-muted" />
+            <Megaphone className='text-text-muted h-5 w-5' />
             {unreadAnnouncementCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-primary text-white text-xs font-bold rounded-full px-1">
+              <span className='bg-primary absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs font-bold text-white'>
                 {unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount}
               </span>
             )}
@@ -109,58 +123,74 @@ export function ParentHeader({
 
           {/* 자녀 선택 드롭다운 */}
           {children.length > 0 && (
-            <div className="relative">
+            <div className='relative'>
               <button
                 onClick={() => setIsChildSelectorOpen(!isChildSelectorOpen)}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-xl transition-all',
-                  'hover:bg-gray-100 active:scale-95 active:bg-gray-200 border border-gray-200',
-                  isChildSelectorOpen && 'bg-gray-100'
+                  'flex items-center gap-2 rounded-xl px-3 py-2 transition-all',
+                  'border border-gray-200 hover:bg-gray-100 active:scale-95 active:bg-gray-200',
+                  isChildSelectorOpen && 'bg-gray-100',
                 )}
               >
-                <Users className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-text max-w-[80px] truncate">
+                <Users className='text-primary h-4 w-4' />
+                <span className='text-text max-w-[80px] truncate text-sm font-medium'>
                   {selectedChild?.name || '자녀 선택'}
                 </span>
-                <ChevronDown className={cn(
-                  'w-4 h-4 text-text-muted transition-transform',
-                  isChildSelectorOpen && 'rotate-180'
-                )} />
+                {selectedChild?.withdrawnAt && (
+                  <span className='rounded bg-gray-200 px-1 text-[10px] font-medium text-gray-700'>
+                    퇴원
+                  </span>
+                )}
+                <ChevronDown
+                  className={cn(
+                    'text-text-muted h-4 w-4 transition-transform',
+                    isChildSelectorOpen && 'rotate-180',
+                  )}
+                />
               </button>
 
               {/* 자녀 선택 드롭다운 메뉴 */}
               {isChildSelectorOpen && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-40"
+                  <div
+                    className='fixed inset-0 z-40'
                     onClick={() => setIsChildSelectorOpen(false)}
                   />
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-card rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
-                    <div className="px-4 py-2 border-b border-gray-100">
-                      <p className="text-xs text-text-muted">자녀 선택</p>
+                  <div className='bg-card absolute top-full right-0 z-50 mt-2 w-48 rounded-2xl border border-gray-100 py-2 shadow-lg'>
+                    <div className='border-b border-gray-100 px-4 py-2'>
+                      <p className='text-text-muted text-xs'>자녀 선택</p>
                     </div>
                     {children.map((child) => (
                       <button
                         key={child.id}
                         onClick={() => handleChildSelect(child.id)}
                         className={cn(
-                          'flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors w-full text-left',
-                          selectedChildId === child.id && 'bg-primary/5'
+                          'flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100',
+                          selectedChildId === child.id && 'bg-primary/5',
                         )}
                       >
-                        <div className={cn(
-                          'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-                          selectedChildId === child.id 
-                            ? 'bg-primary text-white' 
-                            : 'bg-gray-100 text-text-muted'
-                        )}>
+                        <div
+                          className={cn(
+                            'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold',
+                            selectedChildId === child.id
+                              ? 'bg-primary text-white'
+                              : 'text-text-muted bg-gray-100',
+                          )}
+                        >
                           {child.name.charAt(0)}
                         </div>
-                        <span className={cn(
-                          'text-sm',
-                          selectedChildId === child.id ? 'text-primary font-medium' : 'text-text'
-                        )}>
+                        <span
+                          className={cn(
+                            'flex items-center gap-1.5 text-sm',
+                            selectedChildId === child.id ? 'text-primary font-medium' : 'text-text',
+                          )}
+                        >
                           {child.name}
+                          {child.withdrawnAt && (
+                            <span className='rounded bg-gray-200 px-1 text-[10px] font-medium text-gray-700'>
+                              퇴원
+                            </span>
+                          )}
                         </span>
                       </button>
                     ))}
@@ -171,62 +201,61 @@ export function ParentHeader({
           )}
 
           {/* 프로필 드롭다운 */}
-          <div className="relative">
+          <div className='relative'>
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-xl transition-all',
+                'flex items-center gap-2 rounded-xl px-3 py-2 transition-all',
                 'hover:bg-gray-100 active:scale-95 active:bg-gray-200',
-                isMenuOpen && 'bg-gray-100'
+                isMenuOpen && 'bg-gray-100',
               )}
             >
-              <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center">
-                <User className="w-4 h-4 text-secondary" />
+              <div className='bg-secondary/10 flex h-8 w-8 items-center justify-center rounded-full'>
+                <User className='text-secondary h-4 w-4' />
               </div>
               {userName && (
-                <div className="text-left hidden sm:block">
-                  <p className="text-sm font-medium text-text">{userName}</p>
-                  <p className="text-xs text-text-muted">{childrenLabel}</p>
+                <div className='hidden text-left sm:block'>
+                  <p className='text-text text-sm font-medium'>{userName}</p>
+                  <p className='text-text-muted text-xs'>{childrenLabel}</p>
                 </div>
               )}
-              <ChevronDown className={cn(
-                'w-4 h-4 text-text-muted transition-transform',
-                isMenuOpen && 'rotate-180'
-              )} />
+              <ChevronDown
+                className={cn(
+                  'text-text-muted h-4 w-4 transition-transform',
+                  isMenuOpen && 'rotate-180',
+                )}
+              />
             </button>
 
             {/* 드롭다운 메뉴 */}
             {isMenuOpen && (
               <>
                 {/* 오버레이 */}
-                <div 
-                  className="fixed inset-0 z-40"
-                  onClick={() => setIsMenuOpen(false)}
-                />
-                
+                <div className='fixed inset-0 z-40' onClick={() => setIsMenuOpen(false)} />
+
                 {/* 메뉴 */}
-                <div className="absolute right-0 top-full mt-2 w-48 bg-card rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
-                  <div className="px-4 py-2 border-b border-gray-100 sm:hidden">
-                    <p className="font-medium text-text">{userName || '사용자'}</p>
-                    <p className="text-xs text-text-muted">{childrenLabel}</p>
+                <div className='bg-card absolute top-full right-0 z-50 mt-2 w-48 rounded-2xl border border-gray-100 py-2 shadow-lg'>
+                  <div className='border-b border-gray-100 px-4 py-2 sm:hidden'>
+                    <p className='text-text font-medium'>{userName || '사용자'}</p>
+                    <p className='text-text-muted text-xs'>{childrenLabel}</p>
                   </div>
-                  
+
                   <Link
-                    href="/parent/settings"
+                    href='/parent/settings'
                     onClick={() => setIsMenuOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                    className='flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-gray-50 active:bg-gray-100'
                   >
-                    <Settings className="w-4 h-4 text-text-muted" />
-                    <span className="text-sm text-text">설정</span>
+                    <Settings className='text-text-muted h-4 w-4' />
+                    <span className='text-text text-sm'>설정</span>
                   </Link>
-                  
+
                   <SignOutForm>
                     <button
-                      type="submit"
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors w-full text-left"
+                      type='submit'
+                      className='flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100'
                     >
-                      <LogOut className="w-4 h-4 text-red-500" />
-                      <span className="text-sm text-red-500">로그아웃</span>
+                      <LogOut className='h-4 w-4 text-red-500' />
+                      <span className='text-sm text-red-500'>로그아웃</span>
                     </button>
                   </SignOutForm>
                 </div>

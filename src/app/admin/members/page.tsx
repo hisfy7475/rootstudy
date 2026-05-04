@@ -1,61 +1,138 @@
-import { getAllMembers, getAllAdmins, getAllParentsWithStudents } from '@/lib/actions/admin';
+import {
+  getMembersAggregates,
+  getMembersList,
+  getParentsList,
+  getAdminsList,
+} from '@/lib/actions/admin';
 import { getAllBranches } from '@/lib/actions/branch';
 import { getStudentTypes } from '@/lib/actions/student-type';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
+import { parseListParams } from '@/lib/list-params';
 import type { StudentTypeFilterValue } from './members-client';
 import { MembersClient } from './members-client';
 
+const VALID_TABS = ['students', 'parents', 'admins'] as const;
+type Tab = (typeof VALID_TABS)[number];
+
 interface PageProps {
-  searchParams: Promise<{ studentType?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    studentType?: string;
+    approval?: string;
+    q?: string;
+    page?: string;
+    size?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }
 
 export default async function MembersManagementPage({ searchParams }: PageProps) {
-  const { studentType: studentTypeParam } = await searchParams;
-  const supabase = await createClient();
-  
-  // 현재 로그인한 관리자의 branch_id 조회
-  const { data: { user } } = await supabase.auth.getUser();
-  let branchId: string | null = null;
-  
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('branch_id')
-      .eq('id', user.id)
-      .single();
-    branchId = profile?.branch_id || null;
+  const raw = await searchParams;
+  const ctx = await requireAdminBranch();
+
+  if (!ctx) {
+    return (
+      <div className='p-6'>
+        <h1 className='text-xl font-bold'>접근 권한이 없습니다.</h1>
+      </div>
+    );
   }
 
-  const [members, admins, branches, parentsWithStudents, studentTypes] = await Promise.all([
-    getAllMembers(undefined, branchId),
-    getAllAdmins(),
-    getAllBranches(),
-    getAllParentsWithStudents(),
-    getStudentTypes(),
-  ]);
+  const { branchId, isSuperAdmin } = ctx;
 
-  // 학생 분리
-  const students = members.filter(m => m.user_type === 'student');
+  const tab: Tab = (VALID_TABS as readonly string[]).includes(raw.tab ?? '')
+    ? (raw.tab as Tab)
+    : 'students';
+
+  const approval =
+    raw.approval === 'pending' || raw.approval === 'approved' || raw.approval === 'rejected'
+      ? raw.approval
+      : 'all';
+
+  // 학생 탭: sort/dir 화이트리스트 적용
+  const parsed = parseListParams(raw, {
+    defaultSort: 'created_at',
+    defaultDir: 'desc',
+    defaultPageSize: 30,
+    sortAllowlist: ['seat_number', 'name', 'branch_name', 'created_at'] as const,
+    filterAllowlist: ['approval', 'studentType'] as const,
+    pageSizeChoices: [20, 30, 50, 100],
+  });
+
+  const [branches, studentTypes] = await Promise.all([getAllBranches(), getStudentTypes()]);
 
   let initialStudentTypeFilter: StudentTypeFilterValue = 'all';
-  if (studentTypeParam === 'unassigned') {
+  if (raw.studentType === 'unassigned') {
     initialStudentTypeFilter = 'unassigned';
-  } else if (
-    studentTypeParam &&
-    studentTypes.some((t) => t.id === studentTypeParam)
-  ) {
-    initialStudentTypeFilter = studentTypeParam;
+  } else if (raw.studentType && studentTypes.some((t) => t.id === raw.studentType)) {
+    initialStudentTypeFilter = raw.studentType;
   }
 
+  // aggregates: 그룹별 자기 무시 정책으로 q/approval/studentType 반영
+  const aggregates = await getMembersAggregates({
+    branchId,
+    q: parsed.q,
+    approval: approval === 'all' ? undefined : approval,
+    studentType: initialStudentTypeFilter === 'all' ? undefined : initialStudentTypeFilter,
+  });
+
+  // 활성 탭만 페이지 데이터 로드 (다른 탭은 빈 배열 — 탭 전환 시 URL 갱신으로 재실행)
+  const studentsResult =
+    tab === 'students'
+      ? await getMembersList({
+          branchId,
+          q: parsed.q,
+          page: parsed.page,
+          pageSize: parsed.pageSize,
+          approval: approval === 'all' ? undefined : approval,
+          studentType: initialStudentTypeFilter === 'all' ? undefined : initialStudentTypeFilter,
+          sort: parsed.sort,
+          dir: parsed.dir,
+        })
+      : { rows: [], total: 0, page: parsed.page, pageSize: parsed.pageSize };
+
+  const parentsResult =
+    tab === 'parents'
+      ? await getParentsList({
+          branchId,
+          q: parsed.q,
+          page: parsed.page,
+          pageSize: parsed.pageSize,
+        })
+      : { rows: [], total: 0, page: parsed.page, pageSize: parsed.pageSize };
+
+  const adminsResult =
+    tab === 'admins'
+      ? await getAdminsList({
+          branchId,
+          q: parsed.q,
+          page: parsed.page,
+          pageSize: parsed.pageSize,
+        })
+      : { rows: [], total: 0, page: parsed.page, pageSize: parsed.pageSize };
+
   return (
-    <MembersClient 
-      initialStudents={students} 
-      initialParents={parentsWithStudents}
-      initialAdmins={admins}
+    <MembersClient
+      students={studentsResult.rows}
+      studentsTotal={studentsResult.total}
+      parents={parentsResult.rows}
+      parentsTotal={parentsResult.total}
+      admins={adminsResult.rows}
+      adminsTotal={adminsResult.total}
+      page={parsed.page}
+      pageSize={parsed.pageSize}
+      sort={parsed.sort}
+      dir={parsed.dir}
       branches={branches}
-      initialStudentTypes={studentTypes.map(t => ({ id: t.id, name: t.name }))}
+      studentTypes={studentTypes.map((t) => ({ id: t.id, name: t.name }))}
       branchId={branchId}
-      initialStudentTypeFilter={initialStudentTypeFilter}
+      tab={tab}
+      approval={approval}
+      studentTypeFilter={initialStudentTypeFilter}
+      q={parsed.q}
+      aggregates={aggregates}
+      currentIsSuperAdmin={isSuperAdmin}
     />
   );
 }

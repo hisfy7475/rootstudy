@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
+import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import {
   User,
   Search,
-  Filter,
   RefreshCw,
   Repeat,
   CalendarDays,
@@ -31,7 +33,6 @@ import { format, addDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import {
   createAbsenceScheduleForStudent,
-  getAllAbsenceSchedules,
   approveAbsenceSchedule,
   rejectAbsenceSchedule,
   updateAbsenceSchedule,
@@ -57,6 +58,9 @@ interface StudentInfo {
 
 interface SchedulesClientProps {
   initialSchedules: ScheduleWithStudent[];
+  total: number;
+  page: number;
+  pageSize: number;
   pendingSchedules: PendingScheduleWithStudent[];
   students: StudentInfo[];
   branchId: string | null;
@@ -64,16 +68,24 @@ interface SchedulesClientProps {
 
 export default function SchedulesClient({
   initialSchedules,
-  pendingSchedules: initialPending,
+  total,
+  page,
+  pageSize,
+  pendingSchedules,
   students,
-  branchId,
+  branchId: _branchId,
 }: SchedulesClientProps) {
-  const [schedules, setSchedules] = useState(initialSchedules);
-  const [pendingList, setPendingList] = useState(initialPending);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'recurring' | 'one_time'>('all');
-  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'approved' | 'pending'>('all');
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+
+  // 서버 페이지네이션이 적용된 행이 들어옴. 클라 필터링 없음.
+  const schedules = initialSchedules;
+
+  const q = sp.get('q') ?? '';
+  const filterType = (sp.get('type') as 'recurring' | 'one_time' | null) ?? null;
+  const filterActive = (sp.get('active') as 'active' | 'inactive' | null) ?? null;
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -247,8 +259,7 @@ export default function SchedulesClient({
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
         setShowAddModal(false);
         resetForm();
       } else {
@@ -271,8 +282,7 @@ export default function SchedulesClient({
       });
 
       if (result.success) {
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
         setShowAddModal(false);
         resetForm();
       } else {
@@ -290,7 +300,7 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await deleteAbsenceSchedule(schedule.id);
       if (result.success) {
-        setSchedules((prev) => prev.filter((s) => s.id !== schedule.id));
+        router.refresh();
       } else {
         alert(result.error || '삭제에 실패했습니다.');
       }
@@ -301,10 +311,7 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await approveAbsenceSchedule(scheduleId);
       if (result.success) {
-        // 승인 대기 목록에서 제거하고 전체 목록 새로고침
-        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
-        const newSchedules = await getAllAbsenceSchedules(branchId);
-        setSchedules(newSchedules);
+        router.refresh();
       } else {
         alert(result.error || '승인에 실패했습니다.');
       }
@@ -317,45 +324,14 @@ export default function SchedulesClient({
     startTransition(async () => {
       const result = await rejectAbsenceSchedule(scheduleId);
       if (result.success) {
-        setPendingList((prev) => prev.filter((s) => s.id !== scheduleId));
+        router.refresh();
       } else {
         alert(result.error || '거부에 실패했습니다.');
       }
     });
   };
 
-  // 필터링된 스케줄 (승인된 것만)
-  const filteredSchedules = useMemo(() => {
-    return schedules.filter((schedule) => {
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        if (
-          !schedule.student_name?.toLowerCase().includes(searchLower) &&
-          !schedule.title.toLowerCase().includes(searchLower)
-        ) {
-          return false;
-        }
-      }
-
-      if (filterType === 'recurring' && !schedule.is_recurring) return false;
-      if (filterType === 'one_time' && schedule.is_recurring) return false;
-
-      if (filterActive === 'active' && !schedule.is_active) return false;
-      if (filterActive === 'inactive' && schedule.is_active) return false;
-
-      // 승인 상태 필터
-      if (filterStatus === 'approved' && schedule.status !== 'approved') return false;
-      if (filterStatus === 'pending' && schedule.status !== 'pending') return false;
-
-      return true;
-    });
-  }, [schedules, searchTerm, filterType, filterActive, filterStatus]);
-
-  const noSchedulesMatchNarrowFilters =
-    Boolean(searchTerm.trim()) ||
-    filterActive !== 'all' ||
-    filterType === 'one_time' ||
-    filterType === 'all';
+  const hasNarrowFilters = Boolean(q.trim()) || filterType !== null || filterActive !== null;
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '매일';
@@ -449,13 +425,13 @@ export default function SchedulesClient({
       </Card>
 
       {/* 승인 대기 섹션 — 출석부와 유사한 컴팩트 테이블 */}
-      {pendingList.length > 0 && (
+      {pendingSchedules.length > 0 && (
         <Card className='border-amber-200 bg-amber-50/50 p-3'>
           <div className='mb-2 flex items-center gap-2'>
             <AlertCircle className='h-4 w-4 shrink-0 text-amber-500' />
             <h2 className='text-sm font-semibold text-gray-800'>승인 대기</h2>
             <span className='rounded bg-amber-100 px-1.5 py-0 text-[11px] text-amber-700'>
-              {pendingList.length}건
+              {pendingSchedules.length}건
             </span>
           </div>
           <div className='overflow-x-auto rounded-lg border border-amber-100 bg-white'>
@@ -480,7 +456,7 @@ export default function SchedulesClient({
                 </tr>
               </thead>
               <tbody className='divide-y divide-amber-50'>
-                {pendingList.map((schedule) => (
+                {pendingSchedules.map((schedule) => (
                   <tr key={schedule.id} className='hover:bg-amber-50/40'>
                     <td className='px-2 py-1 align-middle'>
                       <div
@@ -553,50 +529,35 @@ export default function SchedulesClient({
         </Card>
       )}
 
-      {/* 필터 */}
-      <Card className='p-4'>
-        <div className='flex flex-wrap items-center gap-4'>
-          <div className='min-w-[200px] flex-1'>
-            <div className='relative'>
-              <Search className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400' />
-              <Input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder='학생 이름 또는 일정 제목 검색'
-                className='pl-10'
-              />
-            </div>
-          </div>
-          <div className='flex items-center gap-2'>
-            <Filter className='h-4 w-4 text-gray-400' />
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value as 'all' | 'recurring' | 'one_time')}
-              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
-            >
-              <option value='all'>모든 유형</option>
-              <option value='recurring'>반복 일정</option>
-              <option value='one_time'>일회성 일정</option>
-            </select>
-            <select
-              value={filterActive}
-              onChange={(e) => setFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
-              className='focus:ring-primary/20 h-10 rounded-xl border border-gray-200 px-3 focus:ring-2 focus:outline-none'
-            >
-              <option value='all'>모든 상태</option>
-              <option value='active'>활성</option>
-              <option value='inactive'>비활성</option>
-            </select>
-          </div>
-        </div>
-      </Card>
+      {/* 검색·필터·페이지사이즈 */}
+      <DataTableToolbar
+        searchPlaceholder='학생 이름 또는 일정 제목 검색'
+        filters={[
+          {
+            key: 'type',
+            label: '유형',
+            allLabel: '모든 유형',
+            options: [
+              { value: 'recurring', label: '반복 일정' },
+              { value: 'one_time', label: '일회성 일정' },
+            ],
+          },
+          {
+            key: 'active',
+            label: '상태',
+            allLabel: '모든 상태',
+            options: [
+              { value: 'active', label: '활성' },
+              { value: 'inactive', label: '비활성' },
+            ],
+          },
+        ]}
+      />
 
       {/* 스케줄 목록 — 출석부와 유사한 컴팩트 테이블 */}
-      {filteredSchedules.length === 0 ? (
+      {schedules.length === 0 ? (
         <Card className='p-6 text-center text-sm text-gray-500'>
-          {noSchedulesMatchNarrowFilters
-            ? '검색 결과가 없습니다.'
-            : '등록된 부재 스케줄이 없습니다.'}
+          {hasNarrowFilters ? '검색 결과가 없습니다.' : '등록된 부재 스케줄이 없습니다.'}
         </Card>
       ) : (
         <Card className='relative overflow-hidden p-0'>
@@ -626,7 +587,7 @@ export default function SchedulesClient({
                 </tr>
               </thead>
               <tbody className='divide-y divide-gray-100'>
-                {filteredSchedules.map((schedule) => (
+                {schedules.map((schedule) => (
                   <tr
                     key={schedule.id}
                     className={cn(
@@ -775,6 +736,18 @@ export default function SchedulesClient({
             </table>
           </div>
         </Card>
+      )}
+
+      {schedules.length > 0 && (
+        <div className='flex justify-center'>
+          <Pagination
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            pathname={pathname}
+            searchParams={new URLSearchParams(sp.toString())}
+          />
+        </div>
       )}
 
       {/* 추가 모달 */}

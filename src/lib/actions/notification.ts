@@ -6,6 +6,46 @@ import { revalidatePath } from 'next/cache';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import type { MentoringType } from '@/types/database';
 
+/**
+ * notifications 테이블 INSERT 시 채울 branch_id 를 학생 또는 학부모에서 도출한다.
+ * - studentId 우선: 해당 학생 profiles.branch_id
+ * - 폴백: parent_student_links 첫 자녀의 branch_id
+ *
+ * NOT NULL 컬럼이라 INSERT 전에 반드시 호출해야 한다.
+ */
+async function resolveNotificationBranchId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ids: { studentId?: string | null; parentId?: string | null },
+): Promise<string | null> {
+  if (ids.studentId) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('branch_id, withdrawn_at')
+      .eq('id', ids.studentId)
+      .maybeSingle();
+    // 퇴원 학생 대상 신규 알림은 발송하지 않음 → branch_id 도 반환하지 않음.
+    if (data?.branch_id && !data.withdrawn_at) return data.branch_id;
+  }
+  if (ids.parentId) {
+    const { data: links } = await supabase
+      .from('parent_student_links')
+      .select('student_id')
+      .eq('parent_id', ids.parentId);
+    const studentIds = (links ?? []).map((l) => l.student_id as string);
+    if (studentIds.length > 0) {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('branch_id')
+        .in('id', studentIds)
+        .is('withdrawn_at', null)
+        .not('branch_id', 'is', null);
+      const first = profs?.[0];
+      if (first?.branch_id) return first.branch_id;
+    }
+  }
+  return null;
+}
+
 // ============================================
 // 학생 알림 관련
 // ============================================
@@ -14,7 +54,9 @@ import type { MentoringType } from '@/types/database';
 export async function getStudentNotifications(limit: number = 50) {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   const { data } = await supabase
@@ -31,7 +73,9 @@ export async function getStudentNotifications(limit: number = 50) {
 export async function getUnreadNotificationCount() {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return 0;
 
   const { count } = await supabase
@@ -47,7 +91,9 @@ export async function getUnreadNotificationCount() {
 export async function markNotificationAsRead(notificationId: string) {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const { error } = await supabase
@@ -69,7 +115,9 @@ export async function markNotificationAsRead(notificationId: string) {
 export async function markAllNotificationsAsRead() {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const { error } = await supabase
@@ -122,15 +170,13 @@ interface CreateUserNotificationParams {
 export async function createUserNotification(params: CreateUserNotificationParams) {
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('user_notifications')
-    .insert({
-      user_id: params.userId,
-      type: params.type,
-      title: params.title,
-      message: params.message,
-      link: params.link,
-    });
+  const { error } = await supabase.from('user_notifications').insert({
+    user_id: params.userId,
+    type: params.type,
+    title: params.title,
+    message: params.message,
+    link: params.link,
+  });
 
   if (error) {
     if (error.code === '23503') {
@@ -140,9 +186,12 @@ export async function createUserNotification(params: CreateUserNotificationParam
     return { error: '알림 생성에 실패했습니다.' };
   }
 
-  void sendPushToUser(params.userId, params.title, params.message, pushDataFromLink(params.link)).catch(
-    (e) => console.error('[push] createUserNotification', e)
-  );
+  void sendPushToUser(
+    params.userId,
+    params.title,
+    params.message,
+    pushDataFromLink(params.link),
+  ).catch((e) => console.error('[push] createUserNotification', e));
 
   return { success: true };
 }
@@ -151,7 +200,9 @@ export async function createUserNotification(params: CreateUserNotificationParam
 export async function getUserNotifications(limit: number = 50) {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   const { data } = await supabase
@@ -168,7 +219,9 @@ export async function getUserNotifications(limit: number = 50) {
 export async function getUnreadUserNotificationCount() {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return 0;
 
   const { count } = await supabase
@@ -184,7 +237,9 @@ export async function getUnreadUserNotificationCount() {
 export async function markUserNotificationAsRead(notificationId: string) {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const { error } = await supabase
@@ -205,7 +260,9 @@ export async function markUserNotificationAsRead(notificationId: string) {
 export async function markAllUserNotificationsAsRead() {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const { error } = await supabase
@@ -226,24 +283,25 @@ export async function markAllUserNotificationsAsRead() {
 export async function createStudentNotification(params: CreateNotificationParams) {
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('student_notifications')
-    .insert({
-      student_id: params.studentId,
-      type: params.type,
-      title: params.title,
-      message: params.message,
-      link: params.link,
-    });
+  const { error } = await supabase.from('student_notifications').insert({
+    student_id: params.studentId,
+    type: params.type,
+    title: params.title,
+    message: params.message,
+    link: params.link,
+  });
 
   if (error) {
     console.error('Error creating notification:', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
 
-  void sendPushToUser(params.studentId, params.title, params.message, pushDataFromLink(params.link)).catch(
-    (e) => console.error('[push] createStudentNotification', e)
-  );
+  void sendPushToUser(
+    params.studentId,
+    params.title,
+    params.message,
+    pushDataFromLink(params.link),
+  ).catch((e) => console.error('[push] createStudentNotification', e));
 
   return { success: true };
 }
@@ -251,11 +309,11 @@ export async function createStudentNotification(params: CreateNotificationParams
 // 다수 학생에게 알림 생성
 export async function createBulkStudentNotifications(
   studentIds: string[],
-  notification: Omit<CreateNotificationParams, 'studentId'>
+  notification: Omit<CreateNotificationParams, 'studentId'>,
 ) {
   const supabase = await createClient();
 
-  const notifications = studentIds.map(studentId => ({
+  const notifications = studentIds.map((studentId) => ({
     student_id: studentId,
     type: notification.type,
     title: notification.title,
@@ -263,9 +321,7 @@ export async function createBulkStudentNotifications(
     link: notification.link,
   }));
 
-  const { error } = await supabase
-    .from('student_notifications')
-    .insert(notifications);
+  const { error } = await supabase.from('student_notifications').insert(notifications);
 
   if (error) {
     console.error('Error creating bulk notifications:', error);
@@ -276,7 +332,7 @@ export async function createBulkStudentNotifications(
     studentIds,
     notification.title,
     notification.message,
-    pushDataFromLink(notification.link)
+    pushDataFromLink(notification.link),
   ).catch((e) => console.error('[push] createBulkStudentNotifications', e));
 
   return { success: true };
@@ -312,10 +368,14 @@ export async function sendNotificationToAll(params: SendNotificationParams) {
 
   // 2. 학부모 알림 (카카오톡)
   if (params.parentId) {
-    // 기존 notifications 테이블에 기록 (카카오 연동 후 발송)
-    await supabase
-      .from('notifications')
-      .insert({
+    const branchId = await resolveNotificationBranchId(supabase, {
+      studentId: params.studentId,
+      parentId: params.parentId,
+    });
+    if (branchId) {
+      // 기존 notifications 테이블에 기록 (카카오 연동 후 발송)
+      await supabase.from('notifications').insert({
+        branch_id: branchId,
         parent_id: params.parentId,
         student_id: params.studentId,
         type: params.type as 'late' | 'absent' | 'point' | 'schedule',
@@ -323,6 +383,12 @@ export async function sendNotificationToAll(params: SendNotificationParams) {
         sent_via: 'kakao',
         is_sent: false, // 카카오 연동 후 true로 변경
       });
+    } else {
+      console.warn('[notifications] branch_id 도출 실패, INSERT 스킵', {
+        studentId: params.studentId,
+        parentId: params.parentId,
+      });
+    }
   }
 
   return { success: true };
@@ -343,8 +409,8 @@ export { isAlimtalkConfigured, getAlimtalkConfig };
 
 interface SendKakaoAlimtalkParams {
   message: string;
-  parentIds?: string[];  // 특정 학부모 지정 (없으면 전체)
-  branchId?: string;     // 지점 필터링
+  parentIds?: string[]; // 특정 학부모 지정 (없으면 전체)
+  branchId?: string; // 지점 필터링
 }
 
 interface AlimtalkSendResult {
@@ -358,7 +424,7 @@ interface AlimtalkSendResult {
 
 // 학부모들에게 카카오 알림톡 발송
 export async function sendKakaoAlimtalkToParents(
-  params: SendKakaoAlimtalkParams
+  params: SendKakaoAlimtalkParams,
 ): Promise<AlimtalkSendResult> {
   const supabase = await createClient();
 
@@ -375,7 +441,9 @@ export async function sendKakaoAlimtalkToParents(
   }
 
   // 관리자 권한 확인
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return {
       success: false,
@@ -404,32 +472,37 @@ export async function sendKakaoAlimtalkToParents(
     };
   }
 
-  // 대상 학부모 조회
+  // 대상 학부모 조회 — 퇴원한 학부모는 발송 대상에서 제외
   let parentQuery = supabase
     .from('profiles')
     .select('id, name, phone')
-    .eq('user_type', 'parent');
+    .eq('user_type', 'parent')
+    .is('withdrawn_at', null);
 
   // 특정 학부모 지정 시
   if (params.parentIds && params.parentIds.length > 0) {
     parentQuery = parentQuery.in('id', params.parentIds);
   }
 
-  // 지점 필터링은 학부모와 연결된 학생의 지점으로 필터링
+  // 지점 필터링은 학부모와 연결된 학생의 지점으로 필터링.
+  // 퇴원 학생만 연결된 학부모는 자동으로 발송 대상에서 빠진다.
   if (params.branchId) {
-    // 해당 지점 학생과 연결된 학부모만 조회
+    // 해당 지점 활성 학생과 연결된 학부모만 조회
     const { data: studentLinks } = await supabase
       .from('parent_student_links')
-      .select(`
+      .select(
+        `
         parent_id,
         student_profiles!inner(
-          profiles!inner(branch_id)
+          profiles!inner(branch_id, withdrawn_at)
         )
-      `)
-      .eq('student_profiles.profiles.branch_id', params.branchId);
+      `,
+      )
+      .eq('student_profiles.profiles.branch_id', params.branchId)
+      .is('student_profiles.profiles.withdrawn_at', null);
 
     if (studentLinks && studentLinks.length > 0) {
-      const parentIdsInBranch = [...new Set(studentLinks.map(link => link.parent_id))];
+      const parentIdsInBranch = [...new Set(studentLinks.map((link) => link.parent_id))];
       parentQuery = parentQuery.in('id', parentIdsInBranch);
     } else {
       return {
@@ -469,7 +542,7 @@ export async function sendKakaoAlimtalkToParents(
   }
 
   // 전화번호가 있는 학부모만 필터링
-  const parentsWithPhone = parents.filter(p => p.phone && p.phone.trim() !== '');
+  const parentsWithPhone = parents.filter((p) => p.phone && p.phone.trim() !== '');
   const noPhoneCount = parents.length - parentsWithPhone.length;
 
   if (parentsWithPhone.length === 0) {
@@ -484,7 +557,7 @@ export async function sendKakaoAlimtalkToParents(
   }
 
   // 알림톡 메시지 생성 (최대 100건씩 분할)
-  const messages = parentsWithPhone.map(parent => ({
+  const messages = parentsWithPhone.map((parent) => ({
     to: parent.phone!,
     content: params.message,
   }));
@@ -502,18 +575,30 @@ export async function sendKakaoAlimtalkToParents(
     totalSent += result.successCount;
     totalFailed += result.failedCount;
 
-    // 발송 기록 저장
+    // 발송 기록 저장 — 각 parent 별로 branch_id 도출
     const batchParents = parentsWithPhone.slice(i, i + batchSize);
-    const notificationRecords = batchParents.map((parent, idx) => ({
-      parent_id: parent.id,
-      student_id: null,
-      type: 'system' as const,
-      message: params.message,
-      sent_via: 'kakao' as const,
-      is_sent: !result.failedNumbers.includes(batch[idx].to),
-    }));
+    const branchIdsForParents = await Promise.all(
+      batchParents.map((parent) => resolveNotificationBranchId(supabase, { parentId: parent.id })),
+    );
+    const notificationRecords = batchParents
+      .map((parent, idx) => {
+        const branchId = branchIdsForParents[idx] ?? params.branchId ?? null;
+        if (!branchId) return null;
+        return {
+          branch_id: branchId,
+          parent_id: parent.id,
+          student_id: null,
+          type: 'system' as const,
+          message: params.message,
+          sent_via: 'kakao' as const,
+          is_sent: !result.failedNumbers.includes(batch[idx].to),
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
 
-    await supabase.from('notifications').insert(notificationRecords);
+    if (notificationRecords.length > 0) {
+      await supabase.from('notifications').insert(notificationRecords);
+    }
   }
 
   return {
@@ -571,14 +656,26 @@ export async function sendKakaoAlimtalkToParent(params: {
   const result = analyzeAlimtalkResult(response);
 
   // 발송 기록 저장
-  await supabase.from('notifications').insert({
-    parent_id: params.parentId,
-    student_id: params.studentId || null,
-    type: params.type || 'system',
-    message: params.message,
-    sent_via: 'kakao',
-    is_sent: result.success,
+  const branchId = await resolveNotificationBranchId(supabase, {
+    studentId: params.studentId,
+    parentId: params.parentId,
   });
+  if (branchId) {
+    await supabase.from('notifications').insert({
+      branch_id: branchId,
+      parent_id: params.parentId,
+      student_id: params.studentId || null,
+      type: params.type || 'system',
+      message: params.message,
+      sent_via: 'kakao',
+      is_sent: result.success,
+    });
+  } else {
+    console.warn('[notifications] branch_id 도출 실패, INSERT 스킵', {
+      parentId: params.parentId,
+      studentId: params.studentId,
+    });
+  }
 
   return {
     success: result.success,
@@ -627,8 +724,7 @@ export async function sendMentoringAlimtalkToParent(params: {
   const supabase = await createClient();
 
   const typeSpecific = process.env[MENTORING_ALIMTALK_TEMPLATE_ENV[params.slotType][params.kind]];
-  const mentoringFallback =
-    process.env[MENTORING_ALIMTALK_TEMPLATE_ENV.mentoring[params.kind]];
+  const mentoringFallback = process.env[MENTORING_ALIMTALK_TEMPLATE_ENV.mentoring[params.kind]];
   const templateOverride = typeSpecific || mentoringFallback;
 
   const { data: parent, error: parentError } = await supabase
@@ -662,14 +758,26 @@ export async function sendMentoringAlimtalkToParent(params: {
 
   const result = analyzeAlimtalkResult(response);
 
-  await supabase.from('notifications').insert({
-    parent_id: params.parentId,
-    student_id: params.studentId,
-    type: 'system',
-    message: content,
-    sent_via: 'kakao',
-    is_sent: result.success,
+  const branchId = await resolveNotificationBranchId(supabase, {
+    studentId: params.studentId,
+    parentId: params.parentId,
   });
+  if (branchId) {
+    await supabase.from('notifications').insert({
+      branch_id: branchId,
+      parent_id: params.parentId,
+      student_id: params.studentId,
+      type: 'system',
+      message: content,
+      sent_via: 'kakao',
+      is_sent: result.success,
+    });
+  } else {
+    console.warn('[notifications] branch_id 도출 실패, INSERT 스킵', {
+      parentId: params.parentId,
+      studentId: params.studentId,
+    });
+  }
 
   if (!result.success) {
     return { success: false, error: response.error ?? '알림톡 발송에 실패했습니다.' };
@@ -677,4 +785,3 @@ export async function sendMentoringAlimtalkToParent(params: {
 
   return { success: true };
 }
-

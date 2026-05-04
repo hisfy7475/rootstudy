@@ -21,6 +21,10 @@ export interface Database {
           user_type: 'student' | 'parent' | 'admin';
           branch_id: string | null;
           is_approved: boolean;
+          is_super_admin: boolean;
+          withdrawn_at: string | null;
+          withdrawn_by: string | null;
+          withdrawn_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -32,6 +36,10 @@ export interface Database {
           user_type: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
+          is_super_admin?: boolean;
+          withdrawn_at?: string | null;
+          withdrawn_by?: string | null;
+          withdrawn_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -43,6 +51,10 @@ export interface Database {
           user_type?: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
+          is_super_admin?: boolean;
+          withdrawn_at?: string | null;
+          withdrawn_by?: string | null;
+          withdrawn_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -625,9 +637,10 @@ export interface Database {
       notifications: {
         Row: {
           id: string;
+          branch_id: string;
           parent_id: string | null;
           student_id: string | null;
-          type: 'late' | 'absent' | 'point' | 'schedule';
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
           message: string;
           sent_via: 'kakao';
           sent_at: string;
@@ -635,9 +648,10 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          branch_id: string;
           parent_id?: string | null;
           student_id?: string | null;
-          type: 'late' | 'absent' | 'point' | 'schedule';
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
           message: string;
           sent_via?: 'kakao';
           sent_at?: string;
@@ -645,9 +659,10 @@ export interface Database {
         };
         Update: {
           id?: string;
+          branch_id?: string;
           parent_id?: string | null;
           student_id?: string | null;
-          type?: 'late' | 'absent' | 'point' | 'schedule';
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
           message?: string;
           sent_via?: 'kakao';
           sent_at?: string;
@@ -1424,7 +1439,37 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      count_attendance_status: {
+        Args: { p_branch_id: string; p_target_date?: string };
+        Returns: {
+          checked_in: number;
+          checked_out: number;
+          on_break: number;
+          not_yet_arrived: number;
+          total: number;
+        }[];
+      };
+      points_summary: {
+        Args: { p_branch_id: string };
+        Returns: {
+          student_id: string;
+          reward_total: number;
+          penalty_total: number;
+          net_total: number;
+        }[];
+      };
+      focus_weekly_summary: {
+        Args: { p_branch_id: string; p_week_start: string };
+        Returns: {
+          student_id: string;
+          day_index: number;
+          total_score: number;
+          avg_score: number;
+          count: number;
+        }[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

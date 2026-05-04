@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatRoom } from '@/components/shared/chat';
 import { ChatMessageData } from '@/components/shared/chat';
+import { SearchInput } from '@/components/ui/search-input';
 import { getChatMessages, getChatRoomList } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
-import { MessageCircle, User, Clock, ChevronRight, Search, X, Loader2 } from 'lucide-react';
+import { MessageCircle, User, Clock, ChevronRight, Search, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -43,25 +44,16 @@ export function AdminChatClient({
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [messagesHasMore, setMessagesHasMore] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
   const sentinelRef = useRef<HTMLLIElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
 
-  // 검색 debounce (300ms)
+  // 검색어 확정 시 서버 재조회 (Enter / 돋보기 버튼 / X 클리어 트리거)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // 검색어 변경 시 서버 재조회
-  useEffect(() => {
-    if (debouncedSearch === '' && rooms === initialRooms) return;
+    if (appliedSearch === '' && rooms === initialRooms) return;
 
     let cancelled = false;
     const fetchSearchResults = async () => {
@@ -69,7 +61,7 @@ export function AdminChatClient({
       const result = await getChatRoomList({
         limit: PAGE_SIZE,
         offset: 0,
-        search: debouncedSearch || undefined,
+        search: appliedSearch || undefined,
       });
       if (!cancelled && result.data) {
         setRooms(result.data);
@@ -83,7 +75,7 @@ export function AdminChatClient({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [appliedSearch]);
 
   // 무한 스크롤: IntersectionObserver
   const loadMore = useCallback(async () => {
@@ -94,7 +86,7 @@ export function AdminChatClient({
     const result = await getChatRoomList({
       limit: PAGE_SIZE,
       offset: rooms.length,
-      search: debouncedSearch || undefined,
+      search: appliedSearch || undefined,
     });
 
     if (result.data) {
@@ -104,7 +96,7 @@ export function AdminChatClient({
 
     setIsLoadingMore(false);
     loadingRef.current = false;
-  }, [hasMore, rooms.length, debouncedSearch]);
+  }, [hasMore, rooms.length, appliedSearch]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -127,7 +119,7 @@ export function AdminChatClient({
   // 채널 useEffect 는 mount 1회만 실행되고 핸들러가 클로저로 캡처되므로,
   // 핸들러 내부에서 참조하는 값은 모두 ref 화해 stale 을 방지한다.
   // (selectedRoomId — 현재 보는 방 / roomsCount — 무한스크롤 누적 개수 /
-  // debouncedSearch — 검색 컨텍스트)
+  // appliedSearch — 검색 컨텍스트)
   const selectedRoomIdRef = useRef<string | null>(null);
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoom?.id ?? null;
@@ -138,10 +130,10 @@ export function AdminChatClient({
     roomsCountRef.current = rooms.length;
   }, [rooms.length]);
 
-  const debouncedSearchRef = useRef(debouncedSearch);
+  const appliedSearchRef = useRef(appliedSearch);
   useEffect(() => {
-    debouncedSearchRef.current = debouncedSearch;
-  }, [debouncedSearch]);
+    appliedSearchRef.current = appliedSearch;
+  }, [appliedSearch]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -207,7 +199,7 @@ export function AdminChatClient({
             const result = await getChatRoomList({
               limit: Math.max(roomsCountRef.current, PAGE_SIZE),
               offset: 0,
-              search: debouncedSearchRef.current || undefined,
+              search: appliedSearchRef.current || undefined,
             });
             if (result.data) {
               const fresh = result.data;
@@ -295,10 +287,6 @@ export function AdminChatClient({
     }
   };
 
-  const handleClearSearch = () => {
-    setSearchQuery('');
-  };
-
   return (
     <div className='p-6'>
       <div className='mb-6'>
@@ -322,24 +310,14 @@ export function AdminChatClient({
                 {rooms.length}개{hasMore ? '+' : ''}의 채팅방
               </p>
             </div>
-            <div className='relative'>
-              <Search className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-              <input
-                type='text'
-                placeholder='학생명으로 검색...'
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className='focus:ring-primary/30 focus:border-primary/50 placeholder:text-text-muted/60 w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pr-9 pl-9 text-sm transition-colors focus:ring-2 focus:outline-none'
-              />
-              {searchQuery && (
-                <button
-                  onClick={handleClearSearch}
-                  className='text-text-muted hover:text-text absolute top-1/2 right-3 -translate-y-1/2 transition-colors'
-                >
-                  <X className='h-4 w-4' />
-                </button>
-              )}
-            </div>
+            <SearchInput
+              mode='controlled'
+              value={appliedSearch}
+              onSubmit={(v) => setAppliedSearch(v)}
+              onClear={() => setAppliedSearch('')}
+              placeholder='학생명으로 검색...'
+              className='w-full max-w-none'
+            />
           </div>
 
           <div ref={listContainerRef} className='flex-1 overflow-y-auto'>
@@ -350,7 +328,7 @@ export function AdminChatClient({
               </div>
             ) : rooms.length === 0 ? (
               <div className='text-text-muted flex h-full flex-col items-center justify-center p-6'>
-                {debouncedSearch ? (
+                {appliedSearch ? (
                   <>
                     <Search className='mb-3 h-12 w-12 opacity-50' />
                     <p className='text-center'>검색 결과가 없습니다</p>
