@@ -84,7 +84,8 @@ export async function getStudentAbsenceSchedules(
 // admin_search_absence_schedules RPC 위임 — title + 학생 이름 OR 검색,
 // type/active 필터, 페이지네이션을 한 번에 처리. 권한은 RPC 내부에서 검증.
 export async function getAllAbsenceSchedules(params: {
-  branchId: string;
+  /** branchId === null 은 슈퍼관리자의 "전 지점" — RPC 내부에서 슈퍼 분기로 통과. */
+  branchId: string | null;
   q?: string;
   page?: number;
   pageSize?: number;

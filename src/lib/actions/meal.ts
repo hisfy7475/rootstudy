@@ -22,7 +22,12 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
   }
 }
 
-type AdminBranchContext = { userId: string; branchId: string };
+type AdminBranchContext = {
+  userId: string;
+  /** 호출자의 home branch_id. 슈퍼관리자는 home 이 없을 수 있음. */
+  branchId: string | null;
+  isSuperAdmin: boolean;
+};
 
 async function requireAdminBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -34,28 +39,31 @@ async function requireAdminBranch(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('user_type, branch_id')
+    .select('user_type, branch_id, is_super_admin')
     .eq('id', user.id)
     .maybeSingle();
 
-  if (!profile || profile.user_type !== 'admin' || !profile.branch_id) {
-    return null;
-  }
-
-  return { userId: user.id, branchId: profile.branch_id };
+  if (!profile || profile.user_type !== 'admin') return null;
+  const isSuperAdmin = !!profile.is_super_admin;
+  if (!isSuperAdmin && !profile.branch_id) return null;
+  return {
+    userId: user.id,
+    branchId: (profile.branch_id as string | null) ?? null,
+    isSuperAdmin,
+  };
 }
 
 async function assertMealProductInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   productId: string,
-  branchId: string,
+  ctx: AdminBranchContext,
 ): Promise<MealProduct | null> {
-  const { data, error } = await supabase
-    .from('meal_products')
-    .select('*')
-    .eq('id', productId)
-    .eq('branch_id', branchId)
-    .maybeSingle();
+  let q = supabase.from('meal_products').select('*').eq('id', productId);
+  if (!ctx.isSuperAdmin) {
+    if (!ctx.branchId) return null;
+    q = q.eq('branch_id', ctx.branchId);
+  }
+  const { data, error } = await q.maybeSingle();
 
   if (error) {
     console.error('[assertMealProductInBranch]', error);
@@ -176,10 +184,10 @@ export async function getMealProductsForAdmin(
   let query = supabase
     .from('meal_products')
     .select('*, meal_product_variants(*)', { count: 'exact' })
-    .eq('branch_id', ctx.branchId)
     .eq('category', params.category)
     .order(sort, { ascending: dir === 'asc' })
     .range(from, to);
+  if (!ctx.isSuperAdmin && ctx.branchId) query = query.eq('branch_id', ctx.branchId);
 
   if (params.status) query = query.eq('status', params.status);
   if (params.q && params.q.trim()) {
@@ -226,6 +234,10 @@ export async function createMealProduct(
   const validationErr = validateVariantInput(variantInput);
   if (validationErr) return { error: validationErr };
 
+  // create_meal_product_with_variant RPC 는 호출자의 home branch_id 와 일치해야 통과.
+  // 슈퍼관리자는 RPC 가드도 우회되지만, branch_id 가 NULL 이면 인서트가 NOT NULL 에 걸리므로 막음.
+  if (!ctx.branchId) return { error: '지점이 지정되지 않았습니다.' };
+
   const { data, error } = await supabase.rpc('create_meal_product_with_variant', {
     p_branch_id: ctx.branchId,
     p_name: input.name.trim(),
@@ -269,7 +281,7 @@ export async function updateMealProduct(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const existing = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const existing = await assertMealProductInBranch(supabase, productId, ctx);
   if (!existing) return { error: '상품을 찾을 수 없습니다.' };
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -279,13 +291,9 @@ export async function updateMealProduct(
   if (input.description !== undefined) patch.description = input.description?.trim() || null;
   if (input.status !== undefined) patch.status = input.status;
 
-  const { data: updated, error } = await supabase
-    .from('meal_products')
-    .update(patch)
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId)
-    .select()
-    .single();
+  let upQ = supabase.from('meal_products').update(patch).eq('id', productId);
+  if (!ctx.isSuperAdmin && ctx.branchId) upQ = upQ.eq('branch_id', ctx.branchId);
+  const { data: updated, error } = await upQ.select().single();
 
   if (error || !updated) {
     console.error('[updateMealProduct]', error);
@@ -329,7 +337,7 @@ export async function createMealProductVariant(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   const variantInput: VariantInput =
@@ -402,7 +410,8 @@ export async function updateMealProductVariant(
   const meta = Array.isArray(variant.meal_products)
     ? variant.meal_products[0]
     : variant.meal_products;
-  if (!meta || meta.branch_id !== ctx.branchId) {
+  if (!meta) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && meta.branch_id !== ctx.branchId) {
     return { error: '권한이 없습니다.' };
   }
 
@@ -575,7 +584,8 @@ export async function deleteMealProductVariant(
   const meta = Array.isArray(variant.meal_products)
     ? variant.meal_products[0]
     : variant.meal_products;
-  if (!meta || meta.branch_id !== ctx.branchId) {
+  if (!meta) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && meta.branch_id !== ctx.branchId) {
     return { error: '권한이 없습니다.' };
   }
 
@@ -635,7 +645,7 @@ export async function upsertMealMenu(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   const text = menuText.trim();
@@ -693,7 +703,7 @@ export async function deleteMealMenu(menuId: string): Promise<{ success?: true; 
   const branchId = Array.isArray(mp.meal_products)
     ? mp.meal_products[0]?.branch_id
     : mp.meal_products?.branch_id;
-  if (branchId !== ctx.branchId) {
+  if (!ctx.isSuperAdmin && branchId !== ctx.branchId) {
     return { error: '권한이 없습니다.' };
   }
 
@@ -741,7 +751,7 @@ export async function getMealOrdersForAdmin(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return [];
 
   let q = supabase
@@ -861,7 +871,8 @@ export async function adminCancelMealOrder(
     ? row.meal_product_variants[0]
     : row.meal_product_variants;
   const meta = Array.isArray(v?.meal_products) ? v?.meal_products[0] : v?.meal_products;
-  if (!meta || meta.branch_id !== ctx.branchId) {
+  if (!meta) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && meta.branch_id !== ctx.branchId) {
     return { error: '권한이 없습니다.' };
   }
 
@@ -1705,7 +1716,7 @@ export async function uploadMealProductImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   const file = formData.get('file') as File | null;
@@ -1741,11 +1752,12 @@ export async function uploadMealProductImage(
     data: { publicUrl },
   } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
 
-  const { error: dbErr } = await supabase
+  let imgUpQ = supabase
     .from('meal_products')
     .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId);
+    .eq('id', productId);
+  if (!ctx.isSuperAdmin && ctx.branchId) imgUpQ = imgUpQ.eq('branch_id', ctx.branchId);
+  const { error: dbErr } = await imgUpQ;
 
   if (dbErr) {
     console.error('[uploadMealProductImage] db', dbErr);
@@ -1768,7 +1780,7 @@ export async function deleteMealProductImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   if (product.image_url) {
@@ -1778,11 +1790,12 @@ export async function deleteMealProductImage(
     }
   }
 
-  const { error } = await supabase
+  let imgDelQ = supabase
     .from('meal_products')
     .update({ image_url: null, updated_at: new Date().toISOString() })
-    .eq('id', productId)
-    .eq('branch_id', ctx.branchId);
+    .eq('id', productId);
+  if (!ctx.isSuperAdmin && ctx.branchId) imgDelQ = imgDelQ.eq('branch_id', ctx.branchId);
+  const { error } = await imgDelQ;
 
   if (error) {
     console.error('[deleteMealProductImage]', error);
@@ -1807,7 +1820,7 @@ export async function uploadMealMenuImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   const { data: menu } = await supabase
@@ -1877,7 +1890,7 @@ export async function deleteMealMenuImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const product = await assertMealProductInBranch(supabase, productId, ctx.branchId);
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
   const { data: menu } = await supabase

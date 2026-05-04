@@ -39,7 +39,7 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
     );
   }
 
-  const { branchId } = ctx;
+  const { branchId, isSuperAdmin } = ctx;
 
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw.tab ?? '')
     ? (raw.tab as Tab)
@@ -132,6 +132,7 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
       studentTypeFilter={initialStudentTypeFilter}
       q={parsed.q}
       aggregates={aggregates}
+      currentIsSuperAdmin={isSuperAdmin}
     />
   );
 }

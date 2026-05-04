@@ -256,7 +256,8 @@ export interface AnnouncementRow {
 }
 
 export interface AnnouncementsListParams {
-  branchId: string;
+  /** branchId === null 은 슈퍼관리자의 "전 지점" 신호. */
+  branchId: string | null;
   page: number;
   pageSize: number;
   q?: string;
@@ -310,9 +311,9 @@ export async function getAnnouncementsForAdmin(
     `,
       { count: 'exact' },
     )
-    .eq('branch_id', branchId)
     .order(sort, { ascending: dir === 'asc' })
     .range(from, to);
+  if (branchId) query = query.eq('branch_id', branchId);
 
   if (audience) query = query.eq('target_audience', audience);
   if (important !== undefined) query = query.eq('is_important', important);
@@ -360,8 +361,8 @@ export async function getAnnouncementsForAdmin(
   return { rows, total, page: clampedPage, pageSize };
 }
 
-// 공지사항 통계 (페이지네이션과 별도 집계). 자기 branch 한정.
-export async function getAnnouncementStatsForAdmin(branchId: string) {
+// 공지사항 통계 (페이지네이션과 별도 집계). branchId === null 은 슈퍼관리자의 "전 지점".
+export async function getAnnouncementStatsForAdmin(branchId: string | null) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -379,25 +380,24 @@ export async function getAnnouncementStatsForAdmin(branchId: string) {
 
   const todayKST = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+  const totalQ = supabase.from('announcements').select('*', { count: 'exact', head: true });
+  const importantQ = supabase
+    .from('announcements')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_important', true);
+  const todayQ = supabase
+    .from('announcements')
+    .select('*', { count: 'exact', head: true })
+    .gte('created_at', `${todayKST}T00:00:00+09:00`);
+  const readsQ = supabase
+    .from('announcement_reads')
+    .select('id, announcements!inner(branch_id)', { count: 'exact', head: true });
+
   const [totalRes, importantRes, todayRes, readsRes] = await Promise.all([
-    supabase
-      .from('announcements')
-      .select('*', { count: 'exact', head: true })
-      .eq('branch_id', branchId),
-    supabase
-      .from('announcements')
-      .select('*', { count: 'exact', head: true })
-      .eq('branch_id', branchId)
-      .eq('is_important', true),
-    supabase
-      .from('announcements')
-      .select('*', { count: 'exact', head: true })
-      .eq('branch_id', branchId)
-      .gte('created_at', `${todayKST}T00:00:00+09:00`),
-    supabase
-      .from('announcement_reads')
-      .select('id, announcements!inner(branch_id)', { count: 'exact', head: true })
-      .eq('announcements.branch_id', branchId),
+    branchId ? totalQ.eq('branch_id', branchId) : totalQ,
+    branchId ? importantQ.eq('branch_id', branchId) : importantQ,
+    branchId ? todayQ.eq('branch_id', branchId) : todayQ,
+    branchId ? readsQ.eq('announcements.branch_id', branchId) : readsQ,
   ]);
 
   return {

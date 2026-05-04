@@ -24,6 +24,8 @@ import { DeleteMemberModal } from './_components/delete-member-modal';
 import { DeleteAdminModal } from './_components/delete-admin-modal';
 import { AddAdminModal } from './_components/add-admin-modal';
 import { ApprovalModal } from './_components/approval-modal';
+import { ResetAdminPasswordModal } from './_components/reset-admin-password-modal';
+import { setAdminSuperFlag } from '@/lib/actions/admin';
 import {
   User,
   UserCheck,
@@ -49,6 +51,7 @@ import {
   ArrowDown,
   Plus,
   UserX,
+  Key,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -91,6 +94,7 @@ interface Admin {
   phone: string | null;
   branch_id: string | null;
   branch_name: string | null;
+  is_super_admin: boolean;
   created_at: string;
 }
 
@@ -161,6 +165,8 @@ interface MembersClientProps {
   approval?: ApprovalFilter;
   q?: string;
   aggregates: MembersAggregates;
+  /** 현재 로그인한 어드민이 슈퍼관리자인지. 슈퍼 전용 액션·UI 게이트에 사용. */
+  currentIsSuperAdmin: boolean;
 }
 
 type Tab = 'students' | 'parents' | 'admins';
@@ -187,6 +193,7 @@ export function MembersClient({
   tab: activeTab = 'students',
   approval: studentFilter = 'all',
   aggregates,
+  currentIsSuperAdmin,
 }: MembersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -263,6 +270,7 @@ export function MembersClient({
   } | null>(null);
   const [addAdminOpen, setAddAdminOpen] = useState(false);
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<Admin | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<Admin | null>(null);
 
   // 카운트는 서버 aggregates 기반 (검색·필터와 무관한 branch 전체 기준)
   const pendingCount = aggregates.approval.pending;
@@ -307,9 +315,32 @@ export function MembersClient({
       const result = await updateAdminBranch(adminId, newBranchId || null);
       if (result.success) {
         refresh();
+      } else if (result.error) {
+        alert(result.error);
       }
     } catch (error) {
       console.error('Failed to update branch:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 슈퍼관리자 권한 토글 (슈퍼관리자만 호출 가능)
+  const handleToggleSuperAdmin = async (admin: Admin) => {
+    const next = !admin.is_super_admin;
+    const action = next ? '최고 관리자 권한을 부여' : '최고 관리자 권한을 회수';
+    if (!confirm(`${admin.name} 어드민에게 ${action}하시겠습니까?`)) return;
+    setLoading(true);
+    try {
+      const result = await setAdminSuperFlag(admin.id, next);
+      if (result.success) {
+        refresh();
+      } else if (result.error) {
+        alert(result.error);
+      }
+    } catch (error) {
+      console.error('Failed to toggle super flag:', error);
+      alert('권한 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -655,13 +686,15 @@ export function MembersClient({
         {/* 관리자 목록 테이블 */}
         {activeTab === 'admins' ? (
           <div className='space-y-4'>
-            {/* 관리자 추가 버튼 */}
-            <div className='flex justify-end'>
-              <Button onClick={() => setAddAdminOpen(true)} size='sm' className='gap-1.5'>
-                <Plus className='h-3.5 w-3.5' />
-                관리자 추가
-              </Button>
-            </div>
+            {/* 관리자 추가 버튼 (슈퍼관리자만) */}
+            {currentIsSuperAdmin && (
+              <div className='flex justify-end'>
+                <Button onClick={() => setAddAdminOpen(true)} size='sm' className='gap-1.5'>
+                  <Plus className='h-3.5 w-3.5' />
+                  관리자 추가
+                </Button>
+              </div>
+            )}
 
             <Card className='overflow-hidden'>
               <div className='overflow-x-auto'>
@@ -704,43 +737,92 @@ export function MembersClient({
                                 <Shield className='h-3 w-3 text-purple-600' />
                               </div>
                               <span className='font-medium'>{admin.name}</span>
+                              {admin.is_super_admin && (
+                                <span className='inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700'>
+                                  최고
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className='px-2 py-1.5 text-gray-600'>{admin.email}</td>
                           <td className='px-2 py-1.5'>{admin.phone || '-'}</td>
                           <td className='px-2 py-1.5'>
-                            <select
-                              value={admin.branch_id || ''}
-                              onChange={(e) => handleBranchChange(admin.id, e.target.value)}
-                              disabled={loading}
-                              className={cn(
-                                'focus:ring-primary/50 rounded border px-2 py-1 text-xs focus:ring-1 focus:outline-none',
-                                !admin.branch_id
-                                  ? 'border-yellow-300 bg-yellow-50 text-yellow-700'
-                                  : 'border-gray-200 bg-white',
-                              )}
-                            >
-                              <option value=''>지점 미지정</option>
-                              {branches.map((branch) => (
-                                <option key={branch.id} value={branch.id}>
-                                  {branch.name}
-                                </option>
-                              ))}
-                            </select>
+                            {admin.is_super_admin ? (
+                              <span className='inline-flex items-center gap-0.5 rounded border border-purple-200 bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700'>
+                                전 지점
+                              </span>
+                            ) : (
+                              <select
+                                value={admin.branch_id || ''}
+                                onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+                                disabled={loading || !currentIsSuperAdmin}
+                                className={cn(
+                                  'focus:ring-primary/50 rounded border px-2 py-1 text-xs focus:ring-1 focus:outline-none',
+                                  !admin.branch_id
+                                    ? 'border-yellow-300 bg-yellow-50 text-yellow-700'
+                                    : 'border-gray-200 bg-white',
+                                  !currentIsSuperAdmin && 'cursor-not-allowed opacity-70',
+                                )}
+                              >
+                                <option value=''>지점 미지정</option>
+                                {branches.map((branch) => (
+                                  <option key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td className='px-2 py-1.5 text-gray-500'>
                             {formatDate(admin.created_at)}
                           </td>
                           <td className='px-2 py-1.5 text-center'>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              onClick={() => setDeleteAdminTarget(admin)}
-                              disabled={loading}
-                              className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                            >
-                              <Trash2 className='h-3 w-3' />
-                            </Button>
+                            <div className='flex items-center justify-center gap-1'>
+                              {currentIsSuperAdmin && (
+                                <>
+                                  <Button
+                                    size='sm'
+                                    variant='outline'
+                                    onClick={() => setResetPasswordTarget(admin)}
+                                    disabled={loading}
+                                    className='h-6 border-amber-200 px-1.5 text-amber-600 hover:bg-amber-50'
+                                    title='비밀번호 강제 재설정'
+                                  >
+                                    <Key className='h-3 w-3' />
+                                  </Button>
+                                  <Button
+                                    size='sm'
+                                    variant='outline'
+                                    onClick={() => handleToggleSuperAdmin(admin)}
+                                    disabled={loading}
+                                    className={cn(
+                                      'h-6 px-2 text-[11px] font-medium',
+                                      admin.is_super_admin
+                                        ? 'border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                                        : 'border-purple-200 text-purple-600 hover:bg-purple-50',
+                                    )}
+                                    title={
+                                      admin.is_super_admin ? '최고 관리자 권한 회수' : '최고 관리자 권한 부여'
+                                    }
+                                  >
+                                    {admin.is_super_admin ? '권한 회수' : '권한 부여'}
+                                  </Button>
+                                  <Button
+                                    size='sm'
+                                    variant='outline'
+                                    onClick={() => setDeleteAdminTarget(admin)}
+                                    disabled={loading}
+                                    className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+                                    title='어드민 삭제'
+                                  >
+                                    <Trash2 className='h-3 w-3' />
+                                  </Button>
+                                </>
+                              )}
+                              {!currentIsSuperAdmin && (
+                                <span className='text-[10px] text-gray-400'>최고 관리자 전용</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1555,6 +1637,21 @@ export function MembersClient({
           onSuccess={() => {
             setDeleteAdminTarget(null);
             refresh();
+          }}
+        />
+      )}
+
+      {resetPasswordTarget && (
+        <ResetAdminPasswordModal
+          admin={{
+            id: resetPasswordTarget.id,
+            name: resetPasswordTarget.name,
+            email: resetPasswordTarget.email,
+          }}
+          onClose={() => setResetPasswordTarget(null)}
+          onSuccess={() => {
+            setResetPasswordTarget(null);
+            alert('비밀번호가 재설정되었습니다. 해당 어드민에게 안전하게 전달해 주세요.');
           }}
         />
       )}

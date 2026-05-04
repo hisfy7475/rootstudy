@@ -285,4 +285,5 @@
 | 2026-03-31 | Phase 6: 관리자 `getMealProductsForAdmin`·CRUD·메뉴 upsert/delete·주문 목록·`executeAdminMealOrderCancel`, `/admin/meals/*`·사이드바 급식 관리 |
 | 2026-03-31 | Phase 7: `phase7_mentoring` 마이그레이션, `mentoring.ts` 서버 액션, 학생·학부모 멘토링·신청·내역 UI, 하단 네비 멘토링 탭, 신청 시 지점 관리자 알림+푸시 |
 | 2026-04-01 | Phase 8: 관리자 멘토·슬롯 CRUD/벌크, 주간 캘린더·신청 목록 UI, 확정/거절/강제취소 시 학생+학부모 알림·푸시·`sendMentoringAlimtalkToParent`, `getMondayOfWeekKST`, `.env.example` 멘토링 템플릿 주석 |
+| 2026-05-04 | 최고 관리자(슈퍼관리자) 도입: `profiles.is_super_admin` 컬럼 + 부트스트랩, `is_super_admin()` SQL 헬퍼, 9개 테이블 RLS 슈퍼 바이패스, 8개 aggregate RPC 슈퍼 분기. `requireAdminBranch` `branchId: null` = 전 지점, `getUserScope` 슈퍼 시 모든 활성 branches.id. UI: 사이드바 "최고 관리자" 표기, 회원관리 어드민 탭 슈퍼 권한 토글·강제 비번 재설정·삭제(마지막 슈퍼 보호)·관리자 추가 모달 슈퍼 체크박스, 사이드바 본인 비밀번호 변경 진입점. `/admin/{date-types,periods,student-types,report}` SSR 초기 지점 = 어드민 본인 지점 우선. 채팅 알림 대상에 슈퍼관리자 자동 포함. **dev DB 적용 완료, prod 미적용.** |
 

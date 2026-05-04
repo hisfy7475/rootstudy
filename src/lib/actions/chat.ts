@@ -627,7 +627,7 @@ async function sendChatNotifications(params: {
 
   const parentIds = (parentLinks || []).map((link) => link.parent_id);
 
-  // 관리자 목록 조회 (같은 지점)
+  // 관리자 목록 조회: 같은 지점의 일반 어드민 + 모든 슈퍼관리자(전 지점 알림 수신).
   const { data: studentProfile } = await supabase
     .from('profiles')
     .select('branch_id')
@@ -638,7 +638,9 @@ async function sendChatNotifications(params: {
     .from('profiles')
     .select('id')
     .eq('user_type', 'admin')
-    .eq('branch_id', studentProfile?.branch_id || '');
+    .or(
+      `is_super_admin.eq.true,branch_id.eq.${studentProfile?.branch_id || '00000000-0000-0000-0000-000000000000'}`,
+    );
 
   const adminIds = (admins || []).map((admin) => admin.id);
 

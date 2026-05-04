@@ -21,6 +21,7 @@ export interface Database {
           user_type: 'student' | 'parent' | 'admin';
           branch_id: string | null;
           is_approved: boolean;
+          is_super_admin: boolean;
           withdrawn_at: string | null;
           withdrawn_by: string | null;
           withdrawn_reason: string | null;
@@ -35,6 +36,7 @@ export interface Database {
           user_type: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
+          is_super_admin?: boolean;
           withdrawn_at?: string | null;
           withdrawn_by?: string | null;
           withdrawn_reason?: string | null;
@@ -49,6 +51,7 @@ export interface Database {
           user_type?: 'student' | 'parent' | 'admin';
           branch_id?: string | null;
           is_approved?: boolean;
+          is_super_admin?: boolean;
           withdrawn_at?: string | null;
           withdrawn_by?: string | null;
           withdrawn_reason?: string | null;

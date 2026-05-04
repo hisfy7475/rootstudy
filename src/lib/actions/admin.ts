@@ -103,9 +103,9 @@ export async function getStudentsPresentDuringPeriod(
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  if (!branchId) return [];
-
-  const studentsQuery = supabase
+  // branchId === null 은 슈퍼관리자의 "전 지점" 신호. 일반 어드민이 branchId 없이 들어오면
+  // 페이지 단계에서 차단되므로 여기서 별도 가드는 하지 않는다.
+  let studentsQuery = supabase
     .from('student_profiles')
     .select(
       `
@@ -118,9 +118,9 @@ export async function getStudentsPresentDuringPeriod(
       )
     `,
     )
-    .eq('profiles.branch_id', branchId)
     .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
+  if (branchId) studentsQuery = studentsQuery.eq('profiles.branch_id', branchId);
 
   const { data: students, error: studentsError } = await studentsQuery;
   if (studentsError || !students?.length) return [];
@@ -426,9 +426,9 @@ export async function getDashboardStudents(params: {
   const studyDate = getStudyDate();
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
 
-  // 1) stats — RPC 호출. branchId 가 없으면 0으로.
+  // 1) stats — RPC 호출. branchId === null 은 슈퍼관리자의 "전 지점" 신호 (RPC 가 전체 반환).
   let stats = { total: 0, checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 };
-  if (branchId) {
+  {
     const { data: rpc, error: statsErr } = await supabase.rpc('count_attendance_status', {
       p_branch_id: branchId,
       p_target_date: formatDateKST(studyDate),
@@ -925,21 +925,23 @@ export async function givePoints(
 }
 
 // 상벌점 현황 — points_summary RPC 로 단일 쿼리 집계.
-export async function getPointsOverview(params: { branchId: string }) {
+// branchId === null 은 슈퍼관리자의 "전 지점" 신호.
+export async function getPointsOverview(params: { branchId: string | null }) {
   const supabase = await createClient();
   const { branchId } = params;
 
   // 학생 명단 (좌석 순) — 활성 학생만 (RPC 와 일관)
-  const { data: students } = await supabase
+  let studentsQ = supabase
     .from('student_profiles')
     .select('id, seat_number, profiles!inner (name, branch_id, withdrawn_at)')
-    .eq('profiles.branch_id', branchId)
     .is('profiles.withdrawn_at', null)
     .order('seat_number', { ascending: true });
+  if (branchId) studentsQ = studentsQ.eq('profiles.branch_id', branchId);
+  const { data: students } = await studentsQ;
 
   if (!students || students.length === 0) return [];
 
-  // 집계 RPC — 학생별 reward/penalty/net
+  // 집계 RPC — 학생별 reward/penalty/net. branchId 가 NULL 이면 슈퍼관리자 — RPC 가 전체 반환.
   const { data: summary } = await supabase.rpc('points_summary', {
     p_branch_id: branchId,
   });
@@ -969,8 +971,9 @@ export async function getPointsOverview(params: { branchId: string }) {
 
 // 상벌점 내역 — URL 페이지네이션 + 필터 + 정렬.
 // branch 격리는 RLS 가 자동 처리 (admin RLS qual: profiles.branch_id = get_admin_branch_id()).
+// branchId === null 은 슈퍼관리자의 "전 지점" 신호.
 export interface PointsHistoryParams {
-  branchId: string;
+  branchId: string | null;
   page: number;
   pageSize: number;
   q?: string;
@@ -1785,9 +1788,9 @@ export async function updateStudentApprovalStatus(
 // 알림 관련
 // ============================================
 
-// 알림 목록 조회
+// 알림 목록 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호 (RLS 가 자동 격리).
 export interface NotificationsListParams {
-  branchId: string;
+  branchId: string | null;
   page: number;
   pageSize: number;
   q?: string;
@@ -2741,6 +2744,7 @@ export interface AdminListRow {
   phone: string | null;
   branch_id: string | null;
   branch_name: string | null;
+  is_super_admin: boolean;
   created_at: string;
 }
 
@@ -2790,6 +2794,7 @@ export async function getAdminsList(params: {
     name: string;
     phone: string | null;
     branch_id: string | null;
+    is_super_admin: boolean;
     branch: { name: string | null } | null;
     created_at: string;
   };
@@ -2801,6 +2806,7 @@ export async function getAdminsList(params: {
     phone: a.phone,
     branch_id: a.branch_id,
     branch_name: a.branch?.name ?? null,
+    is_super_admin: !!a.is_super_admin,
     created_at: a.created_at,
   }));
 
@@ -3084,10 +3090,46 @@ export async function getWithdrawnAdminDetail(
   };
 }
 
-// 관리자 지점 변경
-export async function updateAdminBranch(adminId: string, branchId: string | null) {
-  const adminClient = createAdminClient();
+// ============================================
+// 슈퍼관리자 권한 헬퍼
+// ============================================
 
+async function requireSuperAdmin(): Promise<
+  { ok: true; userId: string } | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type, is_super_admin')
+    .eq('id', user.id)
+    .single();
+  if (profile?.user_type !== 'admin' || !profile?.is_super_admin) {
+    return { ok: false, error: '최고 관리자 권한이 필요합니다.' };
+  }
+  return { ok: true, userId: user.id };
+}
+
+async function countActiveSuperAdmins(): Promise<number> {
+  const adminClient = createAdminClient();
+  const { count } = await adminClient
+    .from('profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_type', 'admin')
+    .eq('is_super_admin', true)
+    .is('withdrawn_at', null);
+  return count ?? 0;
+}
+
+// 관리자 지점 변경 — 슈퍼관리자 전용
+export async function updateAdminBranch(adminId: string, branchId: string | null) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
+  const adminClient = createAdminClient();
   const { error } = await adminClient
     .from('profiles')
     .update({ branch_id: branchId })
@@ -3103,32 +3145,19 @@ export async function updateAdminBranch(adminId: string, branchId: string | null
   return { success: true };
 }
 
-// 관리자 계정 생성
+// 관리자 계정 생성 — 슈퍼관리자 전용
 export async function createAdmin(data: {
   email: string;
   password: string;
   name: string;
   phone?: string;
   branchId?: string;
+  isSuperAdmin?: boolean;
 }) {
-  const supabase = await createClient();
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const adminClient = createAdminClient();
-
-  // 현재 사용자가 관리자인지 확인
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const { data: currentProfile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
-    .single();
-
-  if (currentProfile?.user_type !== 'admin') {
-    return { error: '관리자만 새 관리자를 추가할 수 있습니다.' };
-  }
 
   // 1. Supabase Auth에 사용자 생성 (Admin Client로 RLS 우회)
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
@@ -3163,6 +3192,7 @@ export async function createAdmin(data: {
     user_type: 'admin',
     branch_id: data.branchId || null,
     is_approved: true, // 관리자는 승인 불필요
+    is_super_admin: data.isSuperAdmin === true,
   });
 
   if (profileError) {
@@ -3176,41 +3206,35 @@ export async function createAdmin(data: {
   return { success: true, adminId: newUserId };
 }
 
-// 관리자 계정 삭제
+// 관리자 계정 삭제 — 슈퍼관리자 전용. 마지막 슈퍼관리자 보호.
 export async function deleteAdmin(adminId: string) {
-  const supabase = await createClient();
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const adminClient = createAdminClient();
 
-  // 현재 사용자가 관리자인지 확인
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const { data: currentProfile } = await supabase
-    .from('profiles')
-    .select('user_type')
-    .eq('id', user.id)
-    .single();
-
-  if (currentProfile?.user_type !== 'admin') {
-    return { error: '관리자만 삭제할 수 있습니다.' };
-  }
-
   // 자기 자신은 삭제할 수 없음
-  if (adminId === user.id) {
+  if (adminId === auth.userId) {
     return { error: '자기 자신은 삭제할 수 없습니다.' };
   }
 
-  // 삭제 대상이 관리자인지 확인
-  const { data: targetProfile } = await supabase
+  // 삭제 대상이 관리자인지 + 슈퍼 여부 확인
+  const { data: targetProfile } = await adminClient
     .from('profiles')
-    .select('user_type, name')
+    .select('user_type, name, is_super_admin')
     .eq('id', adminId)
     .single();
 
   if (!targetProfile || targetProfile.user_type !== 'admin') {
     return { error: '삭제 대상이 관리자가 아닙니다.' };
+  }
+
+  // 마지막 슈퍼관리자 보호
+  if (targetProfile.is_super_admin) {
+    const supers = await countActiveSuperAdmins();
+    if (supers <= 1) {
+      return { error: '마지막 최고 관리자는 삭제할 수 없습니다.' };
+    }
   }
 
   try {
@@ -3257,6 +3281,109 @@ export async function deleteAdmin(adminId: string) {
   }
 }
 
+// 슈퍼관리자 권한 부여/회수 — 슈퍼관리자 전용. 회수 시 마지막 슈퍼 보호.
+export async function setAdminSuperFlag(adminId: string, value: boolean) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
+  if (!value) {
+    // 회수: 마지막 슈퍼 보호. 본인 회수도 동일.
+    const supers = await countActiveSuperAdmins();
+    if (supers <= 1) {
+      return { error: '마지막 최고 관리자의 권한은 회수할 수 없습니다.' };
+    }
+  }
+
+  const adminClient = createAdminClient();
+  const { error } = await adminClient
+    .from('profiles')
+    .update({ is_super_admin: value })
+    .eq('id', adminId)
+    .eq('user_type', 'admin');
+
+  if (error) {
+    console.error('Error setting super_admin flag:', error);
+    return { error: '최고 관리자 권한 변경에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+// 본인 비밀번호 변경 — 현재 비밀번호 검증 후 새 비밀번호 적용.
+// 검증은 cookie 비바인딩 raw client (anon, persistSession=false) 로 수행해 본 세션 영향 차단.
+export async function updateMyPassword(currentPassword: string, newPassword: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !user.email) return { error: '로그인이 필요합니다.' };
+  if (newPassword.length < 6) return { error: '새 비밀번호는 6자 이상이어야 합니다.' };
+  if (currentPassword === newPassword) {
+    return { error: '새 비밀번호가 현재 비밀번호와 같습니다.' };
+  }
+
+  const { createClient: createRawClient } = await import('@supabase/supabase-js');
+  const verifyClient = createRawClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    },
+  );
+  const { error: verifyError } = await verifyClient.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (verifyError) return { error: '현재 비밀번호가 일치하지 않습니다.' };
+
+  const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+  if (updateError) {
+    console.error('Error updating own password:', updateError);
+    return { error: '비밀번호 변경에 실패했습니다.' };
+  }
+  return { success: true };
+}
+
+// 다른 어드민 비밀번호 강제 재설정 — 슈퍼관리자 전용.
+// 본인 비밀번호는 본 액션이 아닌 updateMyPassword 로 처리.
+export async function resetAdminPassword(adminId: string, newPassword: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+  if (adminId === auth.userId) {
+    return { error: '본인 비밀번호는 본인 변경 화면을 사용해 주세요.' };
+  }
+  if (newPassword.length < 6) return { error: '비밀번호는 6자 이상이어야 합니다.' };
+
+  const adminClient = createAdminClient();
+  const { data: target } = await adminClient
+    .from('profiles')
+    .select('user_type')
+    .eq('id', adminId)
+    .single();
+  if (target?.user_type !== 'admin') {
+    return { error: '대상이 관리자가 아닙니다.' };
+  }
+
+  const { error } = await adminClient.auth.admin.updateUserById(adminId, {
+    password: newPassword,
+  });
+  if (error) {
+    console.error('Error force-resetting admin password:', error);
+    // user_not_found(404) — profiles 에는 있지만 auth.users 에 짝이 없는 고아 계정.
+    // 과거 시드/테스트로 만들어진 미가입 더미 어드민일 가능성이 높음. 사용자에게 안내.
+    if (error.status === 404 || error.code === 'user_not_found') {
+      return {
+        error:
+          '인증 시스템에 등록되지 않은 어드민입니다. 정상 가입 절차로 만들어진 계정이 아니라 비밀번호 재설정이 불가능합니다. 회원관리에서 이 어드민을 삭제하고 다시 추가해 주세요.',
+      };
+    }
+    return { error: 'Auth 비밀번호 재설정에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+
 // ============================================
 // 몰입도 점수 프리셋 관련
 // ============================================
@@ -3271,16 +3398,17 @@ export interface FocusScorePreset {
   is_active: boolean;
 }
 
-// 몰입도 점수 프리셋 조회
-export async function getFocusScorePresets(branchId: string): Promise<FocusScorePreset[]> {
+// 몰입도 점수 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
+export async function getFocusScorePresets(branchId: string | null): Promise<FocusScorePreset[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('focus_score_presets')
     .select('*')
-    .eq('branch_id', branchId)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
+  if (branchId) q = q.eq('branch_id', branchId);
+  const { data, error } = await q;
 
   if (error) {
     console.error('Error fetching focus score presets:', error);
@@ -3384,16 +3512,17 @@ export interface PenaltyPreset {
   is_active: boolean;
 }
 
-// 벌점 프리셋 조회
-export async function getPenaltyPresets(branchId: string): Promise<PenaltyPreset[]> {
+// 벌점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
+export async function getPenaltyPresets(branchId: string | null): Promise<PenaltyPreset[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('penalty_presets')
     .select('*')
-    .eq('branch_id', branchId)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
+  if (branchId) q = q.eq('branch_id', branchId);
+  const { data, error } = await q;
 
   if (error) {
     // 테이블이 없으면 빈 배열 반환 (기본 프리셋 사용)
@@ -3478,16 +3607,17 @@ export interface RewardPreset {
   is_active: boolean;
 }
 
-// 상점 프리셋 조회
-export async function getRewardPresets(branchId: string): Promise<RewardPreset[]> {
+// 상점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
+export async function getRewardPresets(branchId: string | null): Promise<RewardPreset[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('reward_presets')
     .select('*')
-    .eq('branch_id', branchId)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
+  if (branchId) q = q.eq('branch_id', branchId);
+  const { data, error } = await q;
 
   if (error) {
     console.error('Error fetching reward presets:', error);
@@ -4293,40 +4423,37 @@ export async function deleteMember(
 
   try {
     if (userType === 'parent') {
-      // 활성 자녀 수 계산
+      // 활성 자녀가 1명이라도 있으면 학부모 탈퇴를 막는다.
+      // 자녀 연결만 끊고 학부모만 남기는 과거 동작은 자녀 입장에서 학부모가 사라지는 효과라
+      // (채팅·알림톡·앱 노출 모두 끊김) 데이터·UX 일관성을 깬다.
+      // 클라이언트가 자녀들을 먼저 탈퇴 처리한 뒤 학부모를 탈퇴시키도록 강제한다.
       const { data: links } = await adminClient
         .from('parent_student_links')
         .select('student_id')
         .eq('parent_id', userId);
       const studentIds = (links ?? []).map((l) => l.student_id as string);
 
-      let activeChildCount = 0;
       if (studentIds.length > 0) {
         const { data: activeChildren } = await adminClient
           .from('profiles')
-          .select('id')
+          .select('id, name')
           .in('id', studentIds)
           .is('withdrawn_at', null);
-        activeChildCount = activeChildren?.length ?? 0;
-      }
+        const activeChildCount = activeChildren?.length ?? 0;
 
-      if (activeChildCount > 0) {
-        // 학부모는 그대로 두고 자녀 연결만 해제 — 활성 자녀가 같은 학부모를 잃지 않도록.
-        const { error: linkErr } = await adminClient
-          .from('parent_student_links')
-          .delete()
-          .eq('parent_id', userId);
-        if (linkErr) {
-          console.error('Error removing parent links:', linkErr);
-          return { error: '학부모-자녀 연결 해제에 실패했습니다.' };
+        if (activeChildCount > 0) {
+          const childNames = (activeChildren ?? [])
+            .map((c) => c.name as string)
+            .filter(Boolean)
+            .slice(0, 5)
+            .join(', ');
+          const more = activeChildCount > 5 ? ` 외 ${activeChildCount - 5}명` : '';
+          return {
+            error:
+              `연결된 활성 자녀(${activeChildCount}명: ${childNames}${more})가 있어 학부모 계정은 탈퇴할 수 없습니다. ` +
+              `자녀를 모두 탈퇴 처리한 뒤 다시 시도해 주세요.`,
+          };
         }
-        revalidatePath('/admin');
-        revalidatePath('/admin/members');
-        return {
-          success: true,
-          warning:
-            '활성 자녀가 있어 학부모 계정은 유지하고 자녀 연결만 모두 해제했습니다. 계정 자체를 비활성화하려면 자녀가 0명일 때 다시 시도해 주세요.',
-        };
       }
     }
 

@@ -1,15 +1,20 @@
-import { cache } from "react";
-import { createClient } from "@/lib/supabase/server";
+import { cache } from 'react';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * 요청자(auth user)에 대해 허용되는 branch_id 집합과 관련 메타를 반환한다.
  *
- * - admin/student: 자기 profile.branch_id 1개.
+ * - admin: 자기 profile.branch_id 1개 (일반) 또는 모든 활성 branches.id (슈퍼관리자).
+ * - student: 자기 profile.branch_id 1개.
  * - parent: 연결된 자녀들(`parent_student_links`)의 `profiles.branch_id` UNION (distinct).
  *
  * 학부모는 "자녀의 학부모"로 정의되기 때문에 `profiles.branch_id` 컬럼을 쓰지 않고
  * 자녀 지점 집합을 scope로 삼는다. 공용 유틸이며, 모든 서버 액션은 여기서 scope를 받아
  * 필터에 사용해야 한다.
+ *
+ * 슈퍼관리자에게는 빈 배열 sentinel 대신 **모든 활성 branches.id를 채워** 기존
+ * `.in('branch_id', scope.branchIds)` / `if (scope.branchIds.length > 0) ...`
+ * 패턴이 자동으로 전 지점 동작하도록 한다.
  *
  * `react.cache` 로 감싸 **같은 request 안에서는 한 번만 DB를 조회**한다.
  * 인자 identity 기반 캐시 함정을 피하려고 **인자를 받지 않으며** 내부에서
@@ -17,7 +22,7 @@ import { createClient } from "@/lib/supabase/server";
  */
 export type UserScope = {
   userId: string;
-  userType: "student" | "parent" | "admin";
+  userType: 'student' | 'parent' | 'admin';
   /** 요청자에게 허용된 branch_id 집합. 비어 있으면 접근 권한 없음. */
   branchIds: string[];
   /**
@@ -28,6 +33,8 @@ export type UserScope = {
   studentIds: string[];
   /** branchIds.length > 0. 호출부 early-return 판정에 사용. */
   hasAccess: boolean;
+  /** 슈퍼관리자 여부. admin 외 user_type 은 항상 false. */
+  isSuperAdmin: boolean;
 };
 
 /** 내부용 — cache 밖에서 await 가능한 resolver */
@@ -39,24 +46,52 @@ async function resolveScope(): Promise<UserScope | null> {
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from("profiles")
-    .select("user_type, branch_id")
-    .eq("id", user.id)
+    .from('profiles')
+    .select('user_type, branch_id, is_super_admin')
+    .eq('id', user.id)
     .maybeSingle();
 
   if (!profile) return null;
 
-  const userType = profile.user_type as UserScope["userType"];
+  const userType = profile.user_type as UserScope['userType'];
 
-  if (userType === "admin" || userType === "student") {
+  if (userType === 'admin') {
+    const isSuperAdmin = !!profile.is_super_admin;
+    if (isSuperAdmin) {
+      // 슈퍼관리자: 모든 활성 branches.id 를 채워 기존 호출처와 자연 호환.
+      const { data: branches } = await supabase.from('branches').select('id');
+      const branchIds = (branches ?? []).map((b) => b.id as string);
+      return {
+        userId: user.id,
+        userType,
+        branchIds,
+        studentIds: [],
+        hasAccess: true,
+        isSuperAdmin: true,
+      };
+    }
     const branchId = profile.branch_id as string | null;
     const branchIds = branchId ? [branchId] : [];
     return {
       userId: user.id,
       userType,
       branchIds,
-      studentIds: userType === "student" ? [user.id] : [],
+      studentIds: [],
       hasAccess: branchIds.length > 0,
+      isSuperAdmin: false,
+    };
+  }
+
+  if (userType === 'student') {
+    const branchId = profile.branch_id as string | null;
+    const branchIds = branchId ? [branchId] : [];
+    return {
+      userId: user.id,
+      userType,
+      branchIds,
+      studentIds: [user.id],
+      hasAccess: branchIds.length > 0,
+      isSuperAdmin: false,
     };
   }
 
@@ -64,18 +99,18 @@ async function resolveScope(): Promise<UserScope | null> {
   // parent_student_links.student_id FK 는 student_profiles(id)를 참조하므로
   // 프로필로 직접 조인할 수 없다. 두 단계 조회로 분리.
   const { data: links } = await supabase
-    .from("parent_student_links")
-    .select("student_id")
-    .eq("parent_id", user.id);
+    .from('parent_student_links')
+    .select('student_id')
+    .eq('parent_id', user.id);
 
   const studentIds = (links ?? []).map((l) => l.student_id as string);
 
   const branchIdSet = new Set<string>();
   if (studentIds.length > 0) {
     const { data: studentProfiles } = await supabase
-      .from("profiles")
-      .select("id, branch_id")
-      .in("id", studentIds);
+      .from('profiles')
+      .select('id, branch_id')
+      .in('id', studentIds);
     for (const sp of studentProfiles ?? []) {
       if (sp.branch_id) branchIdSet.add(sp.branch_id as string);
     }
@@ -84,10 +119,11 @@ async function resolveScope(): Promise<UserScope | null> {
   const branchIds = [...branchIdSet];
   return {
     userId: user.id,
-    userType: "parent",
+    userType: 'parent',
     branchIds,
     studentIds,
     hasAccess: branchIds.length > 0,
+    isSuperAdmin: false,
   };
 }
 
@@ -98,10 +134,8 @@ export const getUserScope = cache((): Promise<UserScope | null> => resolveScope(
  * 현재 parent 사용자가 주어진 studentId에 대해 조치 가능한지 확인.
  * parent_student_links 존재 여부로 판정. parent 외 역할은 그대로 false (호출부에서 별도 처리).
  */
-export const requireParentLinkedStudent = cache(
-  async (studentId: string): Promise<boolean> => {
-    const scope = await resolveScope();
-    if (!scope || scope.userType !== "parent") return false;
-    return scope.studentIds.includes(studentId);
-  },
-);
+export const requireParentLinkedStudent = cache(async (studentId: string): Promise<boolean> => {
+  const scope = await resolveScope();
+  if (!scope || scope.userType !== 'parent') return false;
+  return scope.studentIds.includes(studentId);
+});

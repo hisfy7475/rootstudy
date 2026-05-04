@@ -25,6 +25,7 @@ export function AddAdminModal({ branches, onClose, onSuccess }: AddAdminModalPro
     name: '',
     phone: '',
     branchId: '',
+    isSuperAdmin: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +50,7 @@ export function AddAdminModal({ branches, onClose, onSuccess }: AddAdminModalPro
         name: form.name,
         phone: form.phone || undefined,
         branchId: form.branchId || undefined,
+        isSuperAdmin: form.isSuperAdmin,
       });
 
       if (result.success) {
@@ -155,6 +157,21 @@ export function AddAdminModal({ branches, onClose, onSuccess }: AddAdminModalPro
               ))}
             </select>
           </div>
+
+          <label className='flex cursor-pointer items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 p-3'>
+            <input
+              type='checkbox'
+              checked={form.isSuperAdmin}
+              onChange={(e) => setForm((prev) => ({ ...prev, isSuperAdmin: e.target.checked }))}
+              className='mt-0.5 h-4 w-4 rounded border-purple-300 text-purple-600 focus:ring-purple-500'
+            />
+            <div>
+              <div className='text-sm font-medium text-purple-700'>최고 관리자로 지정</div>
+              <p className='mt-0.5 text-xs text-purple-600'>
+                전 지점 데이터 조회·수정·삭제, 다른 어드민 계정 관리 권한이 부여됩니다.
+              </p>
+            </div>
+          </label>
         </div>
 
         {error && (

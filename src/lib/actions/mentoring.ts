@@ -44,7 +44,16 @@ function logPostgrestQueryError(scope: string, error: unknown): void {
   }
 }
 
-type AdminBranchContext = { userId: string; branchId: string };
+type AdminBranchContext = {
+  userId: string;
+  /**
+   * 호출자의 home branch_id. 일반 어드민은 본인 지점, 슈퍼관리자는 본인 profile.branch_id
+   * 가 있으면 그 값 (없으면 null). mutation 시 row 의 branch_id 로 사용 가능.
+   * read 분기는 isSuperAdmin 을 우선 보고 필터를 생략.
+   */
+  branchId: string | null;
+  isSuperAdmin: boolean;
+};
 
 async function requireAdminBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -56,15 +65,19 @@ async function requireAdminBranch(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('user_type, branch_id')
+    .select('user_type, branch_id, is_super_admin')
     .eq('id', user.id)
     .maybeSingle();
 
-  if (!profile || profile.user_type !== 'admin' || !profile.branch_id) {
-    return null;
-  }
-
-  return { userId: user.id, branchId: profile.branch_id };
+  if (!profile || profile.user_type !== 'admin') return null;
+  const isSuperAdmin = !!profile.is_super_admin;
+  // 슈퍼관리자는 home branch_id 가 비어 있어도 read 가능. 일반 어드민은 미지정 차단.
+  if (!isSuperAdmin && !profile.branch_id) return null;
+  return {
+    userId: user.id,
+    branchId: (profile.branch_id as string | null) ?? null,
+    isSuperAdmin,
+  };
 }
 
 /**
@@ -759,14 +772,14 @@ export type AdminMentoringApplicationFilters = {
 async function assertMentorInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   mentorId: string,
-  branchId: string,
+  ctx: AdminBranchContext,
 ): Promise<Mentor | null> {
-  const { data, error } = await supabase
-    .from('mentors')
-    .select('*')
-    .eq('id', mentorId)
-    .eq('branch_id', branchId)
-    .maybeSingle();
+  let q = supabase.from('mentors').select('*').eq('id', mentorId);
+  if (!ctx.isSuperAdmin) {
+    if (!ctx.branchId) return null;
+    q = q.eq('branch_id', ctx.branchId);
+  }
+  const { data, error } = await q.maybeSingle();
   if (error) {
     console.error('[assertMentorInBranch]', error);
     return null;
@@ -777,14 +790,14 @@ async function assertMentorInBranch(
 async function assertSlotInBranch(
   supabase: Awaited<ReturnType<typeof createClient>>,
   slotId: string,
-  branchId: string,
+  ctx: AdminBranchContext,
 ): Promise<MentoringSlot | null> {
-  const { data, error } = await supabase
-    .from('mentoring_slots')
-    .select('*')
-    .eq('id', slotId)
-    .eq('branch_id', branchId)
-    .maybeSingle();
+  let q = supabase.from('mentoring_slots').select('*').eq('id', slotId);
+  if (!ctx.isSuperAdmin) {
+    if (!ctx.branchId) return null;
+    q = q.eq('branch_id', ctx.branchId);
+  }
+  const { data, error } = await q.maybeSingle();
   if (error) {
     console.error('[assertSlotInBranch]', error);
     return null;
@@ -792,17 +805,15 @@ async function assertSlotInBranch(
   return data as MentoringSlot | null;
 }
 
-/** 관리자: 지점 멘토 목록 */
+/** 관리자: 지점 멘토 목록. 슈퍼관리자는 전 지점. */
 export async function getMentorsForAdmin(): Promise<Mentor[]> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
-  const { data, error } = await supabase
-    .from('mentors')
-    .select('*')
-    .eq('branch_id', ctx.branchId)
-    .order('name', { ascending: true });
+  let q = supabase.from('mentors').select('*');
+  if (!ctx.isSuperAdmin && ctx.branchId) q = q.eq('branch_id', ctx.branchId);
+  const { data, error } = await q.order('name', { ascending: true });
 
   if (error) {
     logPostgrestQueryError('[getMentorsForAdmin]', error);
@@ -832,6 +843,10 @@ export async function createMentor(
 
   const subjects = normalizeSubjects(data.subjects);
   const subject = subjects[0] ?? data.subject?.trim() ?? null;
+
+  // 신규 mentor 는 호출자의 home branch_id 로 생성. 슈퍼관리자가 home 지점이 없으면
+  // 생성 불가 (UI 에서 target branch 선택 기능은 후속 트랙).
+  if (!ctx.branchId) return { error: '지점이 지정되지 않았습니다.' };
 
   const { data: inserted, error } = await supabase
     .from('mentors')
@@ -866,7 +881,7 @@ export async function updateMentor(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const existing = await assertMentorInBranch(supabase, mentorId, ctx.branchId);
+  const existing = await assertMentorInBranch(supabase, mentorId, ctx);
   if (!existing) return { error: '멘토를 찾을 수 없습니다.' };
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -890,13 +905,9 @@ export async function updateMentor(
     return { error: '이름을 입력해 주세요.' };
   }
 
-  const { data: updated, error } = await supabase
-    .from('mentors')
-    .update(patch)
-    .eq('id', mentorId)
-    .eq('branch_id', ctx.branchId)
-    .select()
-    .single();
+  let q = supabase.from('mentors').update(patch).eq('id', mentorId);
+  if (!ctx.isSuperAdmin && ctx.branchId) q = q.eq('branch_id', ctx.branchId);
+  const { data: updated, error } = await q.select().single();
 
   if (error || !updated) {
     logPostgrestQueryError('[updateMentor]', error);
@@ -924,7 +935,7 @@ export async function getAdminMentoringSlotsForRange(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
-  const { data, error } = await supabase
+  let slotsQ = supabase
     .from('mentoring_slots')
     .select(
       `
@@ -932,9 +943,10 @@ export async function getAdminMentoringSlotsForRange(
       mentors ( id, name, subject, subjects, headline, profile_image_url, is_active )
     `,
     )
-    .eq('branch_id', ctx.branchId)
     .gte('date', fromYmd)
-    .lte('date', toYmd)
+    .lte('date', toYmd);
+  if (!ctx.isSuperAdmin && ctx.branchId) slotsQ = slotsQ.eq('branch_id', ctx.branchId);
+  const { data, error } = await slotsQ
     .order('date', { ascending: true })
     .order('start_time', { ascending: true });
 
@@ -961,7 +973,7 @@ export async function getAdminMentoringSlotDetail(slotId: string): Promise<
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return null;
 
-  const { data, error } = await supabase
+  let detailQ = supabase
     .from('mentoring_slots')
     .select(
       `
@@ -969,9 +981,9 @@ export async function getAdminMentoringSlotDetail(slotId: string): Promise<
       mentors ( * )
     `,
     )
-    .eq('id', slotId)
-    .eq('branch_id', ctx.branchId)
-    .maybeSingle();
+    .eq('id', slotId);
+  if (!ctx.isSuperAdmin && ctx.branchId) detailQ = detailQ.eq('branch_id', ctx.branchId);
+  const { data, error } = await detailQ.maybeSingle();
 
   if (error || !data) {
     logPostgrestQueryError('[getAdminMentoringSlotDetail]', error);
@@ -1030,8 +1042,10 @@ export async function getAdminMentoringApplications(
       )
     `,
     )
-    .eq('mentoring_slots.branch_id', ctx.branchId)
     .order('applied_at', { ascending: false });
+  if (!ctx.isSuperAdmin && ctx.branchId) {
+    q = q.eq('mentoring_slots.branch_id', ctx.branchId);
+  }
 
   if (filters.fromDate) {
     q = q.gte('mentoring_slots.date', filters.fromDate);
@@ -1106,7 +1120,7 @@ export async function createMentoringSlot(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const mentor = await assertMentorInBranch(supabase, data.mentor_id, ctx.branchId);
+  const mentor = await assertMentorInBranch(supabase, data.mentor_id, ctx);
   if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
 
   const st = normalizeTimeForDb(data.start_time);
@@ -1115,10 +1129,16 @@ export async function createMentoringSlot(
 
   if (data.capacity < 1) return { error: '정원은 1 이상이어야 합니다.' };
 
+  // 슬롯은 mentor 의 branch_id 를 따라가도록 — 슈퍼관리자가 다른 지점 mentor 에게 슬롯
+  // 추가하는 것을 허용하기 위해 mentor.branch_id 를 우선 사용. 일반 어드민은 어차피
+  // 본인 branch mentor 만 통과되므로 결과 동일.
+  const slotBranchId = (mentor as Mentor).branch_id ?? ctx.branchId;
+  if (!slotBranchId) return { error: '지점이 지정되지 않았습니다.' };
+
   const { data: inserted, error } = await supabase
     .from('mentoring_slots')
     .insert({
-      branch_id: ctx.branchId,
+      branch_id: slotBranchId,
       mentor_id: data.mentor_id,
       date: data.date,
       start_time: st,
@@ -1166,7 +1186,7 @@ export async function createMentoringSlotsBulk(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { created: 0, error: '권한이 없습니다.' };
 
-  const mentor = await assertMentorInBranch(supabase, input.mentor_id, ctx.branchId);
+  const mentor = await assertMentorInBranch(supabase, input.mentor_id, ctx);
   if (!mentor) return { created: 0, error: '멘토를 찾을 수 없습니다.' };
 
   const st = normalizeTimeForDb(input.start_time);
@@ -1201,8 +1221,11 @@ export async function createMentoringSlotsBulk(
     }
   }
 
+  // 멘토의 branch_id 를 슬롯 branch 로 사용. (슈퍼관리자가 다른 지점 mentor 에게 슬롯 일괄 등록 허용)
+  const slotBranchId = (mentor as Mentor).branch_id ?? ctx.branchId;
+  if (!slotBranchId) return { created: 0, error: '지점이 지정되지 않았습니다.' };
   const payload = rows.map((r) => ({
-    branch_id: ctx.branchId,
+    branch_id: slotBranchId,
     mentor_id: r.mentor_id,
     date: r.date,
     start_time: r.start_time,
@@ -1237,11 +1260,11 @@ export async function updateMentoringSlot(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const existing = await assertSlotInBranch(supabase, slotId, ctx.branchId);
+  const existing = await assertSlotInBranch(supabase, slotId, ctx);
   if (!existing) return { error: '슬롯을 찾을 수 없습니다.' };
 
   if (data.mentor_id) {
-    const m = await assertMentorInBranch(supabase, data.mentor_id, ctx.branchId);
+    const m = await assertMentorInBranch(supabase, data.mentor_id, ctx);
     if (!m) return { error: '멘토를 찾을 수 없습니다.' };
   }
 
@@ -1270,13 +1293,9 @@ export async function updateMentoringSlot(
     return { error: '종료 시간이 시작 시간보다 커야 합니다.' };
   }
 
-  const { data: updated, error } = await supabase
-    .from('mentoring_slots')
-    .update(patch)
-    .eq('id', slotId)
-    .eq('branch_id', ctx.branchId)
-    .select()
-    .single();
+  let updateQ = supabase.from('mentoring_slots').update(patch).eq('id', slotId);
+  if (!ctx.isSuperAdmin && ctx.branchId) updateQ = updateQ.eq('branch_id', ctx.branchId);
+  const { data: updated, error } = await updateQ.select().single();
 
   if (error || !updated) {
     logPostgrestQueryError('[updateMentoringSlot]', error);
@@ -1295,7 +1314,7 @@ export async function deleteMentoringSlot(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const existing = await assertSlotInBranch(supabase, slotId, ctx.branchId);
+  const existing = await assertSlotInBranch(supabase, slotId, ctx);
   if (!existing) return { error: '슬롯을 찾을 수 없습니다.' };
 
   const { count, error: cErr } = await supabase
@@ -1311,11 +1330,9 @@ export async function deleteMentoringSlot(
     return { error: '신청 내역이 있는 슬롯은 삭제할 수 없습니다.' };
   }
 
-  const { error } = await supabase
-    .from('mentoring_slots')
-    .delete()
-    .eq('id', slotId)
-    .eq('branch_id', ctx.branchId);
+  let delQ = supabase.from('mentoring_slots').delete().eq('id', slotId);
+  if (!ctx.isSuperAdmin && ctx.branchId) delQ = delQ.eq('branch_id', ctx.branchId);
+  const { error } = await delQ;
 
   if (error) {
     logPostgrestQueryError('[deleteMentoringSlot]', error);
@@ -1381,7 +1398,7 @@ export async function uploadMentorProfileImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const mentor = await assertMentorInBranch(supabase, mentorId, ctx.branchId);
+  const mentor = await assertMentorInBranch(supabase, mentorId, ctx);
   if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
 
   const file = formData.get('file') as File | null;
@@ -1417,11 +1434,12 @@ export async function uploadMentorProfileImage(
     data: { publicUrl },
   } = supabase.storage.from(MENTOR_IMAGES_BUCKET).getPublicUrl(uploaded.path);
 
-  const { error: dbErr } = await supabase
+  let upQ = supabase
     .from('mentors')
     .update({ profile_image_url: publicUrl, updated_at: new Date().toISOString() })
-    .eq('id', mentorId)
-    .eq('branch_id', ctx.branchId);
+    .eq('id', mentorId);
+  if (!ctx.isSuperAdmin && ctx.branchId) upQ = upQ.eq('branch_id', ctx.branchId);
+  const { error: dbErr } = await upQ;
 
   if (dbErr) {
     console.error('[uploadMentorProfileImage] db', dbErr);
@@ -1440,7 +1458,7 @@ export async function deleteMentorProfileImage(
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
 
-  const mentor = await assertMentorInBranch(supabase, mentorId, ctx.branchId);
+  const mentor = await assertMentorInBranch(supabase, mentorId, ctx);
   if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
 
   if (mentor.profile_image_url) {
@@ -1450,11 +1468,12 @@ export async function deleteMentorProfileImage(
     }
   }
 
-  const { error } = await supabase
+  let delImgQ = supabase
     .from('mentors')
     .update({ profile_image_url: null, updated_at: new Date().toISOString() })
-    .eq('id', mentorId)
-    .eq('branch_id', ctx.branchId);
+    .eq('id', mentorId);
+  if (!ctx.isSuperAdmin && ctx.branchId) delImgQ = delImgQ.eq('branch_id', ctx.branchId);
+  const { error } = await delImgQ;
 
   if (error) {
     console.error('[deleteMentorProfileImage] db', error);
@@ -1694,7 +1713,10 @@ export async function confirmMentoringApplication(
   const app = row as MentoringApplication & { mentoring_slots: SlotJoin | SlotJoin[] };
   const slotsRaw = app.mentoring_slots;
   const slotJoin: SlotJoin | undefined = Array.isArray(slotsRaw) ? slotsRaw[0] : slotsRaw;
-  if (!slotJoin || slotJoin.branch_id !== ctx.branchId) return { error: '권한이 없습니다.' };
+  if (!slotJoin) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
 
   if (app.status !== 'pending') return { error: '대기 중인 신청만 확정할 수 있습니다.' };
 
@@ -1767,7 +1789,10 @@ export async function rejectMentoringApplication(
   const app = row as MentoringApplication & { mentoring_slots: SlotJoinR | SlotJoinR[] };
   const slotsRawR = app.mentoring_slots;
   const slotJoin: SlotJoinR | undefined = Array.isArray(slotsRawR) ? slotsRawR[0] : slotsRawR;
-  if (!slotJoin || slotJoin.branch_id !== ctx.branchId) return { error: '권한이 없습니다.' };
+  if (!slotJoin) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
 
   if (app.status !== 'pending') return { error: '대기 중인 신청만 거절할 수 있습니다.' };
 
@@ -1843,7 +1868,10 @@ export async function adminCancelMentoringApplication(
   const slotJoin = Array.isArray(app.mentoring_slots)
     ? app.mentoring_slots[0]
     : app.mentoring_slots;
-  if (!slotJoin || slotJoin.branch_id !== ctx.branchId) return { error: '권한이 없습니다.' };
+  if (!slotJoin) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
 
   if (app.status !== 'pending' && app.status !== 'confirmed') {
     return { error: '취소할 수 없는 상태입니다.' };
