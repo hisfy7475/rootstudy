@@ -2467,6 +2467,7 @@ export interface MemberListRow {
   school: string | null;
   grade: number | null;
   student_type_id: string | null;
+  parents: { id: string; name: string; phone: string | null }[];
 }
 
 // 학생 탭 — 검색·필터·정렬·페이지네이션 적용
@@ -2549,6 +2550,48 @@ export async function getMembersList(params: {
     return { rows: [], total: 0, page, pageSize };
   }
 
+  // 페이지 슬라이스 학생 ID → 연결된 학부모 배치 조회.
+  // service-role 사용 이유: 학부모 profile 은 branch_id=NULL 이라 admin RLS 로 읽히지 않음.
+  // 누수 차단: studentIds 자체가 RLS 걸린 본문 쿼리 결과라 admin branch 외 학생이 들어올 수 없음.
+  const studentIds = (data as unknown as { id: string }[]).map((p) => p.id);
+  const parentsByStudent: Record<string, { id: string; name: string; phone: string | null }[]> = {};
+
+  if (studentIds.length > 0) {
+    const adminClient = createAdminClient();
+
+    const { data: links } = await adminClient
+      .from('parent_student_links')
+      .select('student_id, parent_id')
+      .in('student_id', studentIds);
+
+    const parentIds = [...new Set((links ?? []).map((l) => l.parent_id as string))];
+
+    const parentMap: Record<string, { id: string; name: string; phone: string | null }> = {};
+    if (parentIds.length > 0) {
+      const { data: parentRows } = await adminClient
+        .from('profiles')
+        .select('id, name, phone')
+        .in('id', parentIds)
+        .is('withdrawn_at', null);
+
+      for (const p of (parentRows ?? []) as Array<{
+        id: string;
+        name: string;
+        phone: string | null;
+      }>) {
+        parentMap[p.id] = { id: p.id, name: p.name, phone: p.phone ?? null };
+      }
+    }
+
+    for (const link of (links ?? []) as Array<{ student_id: string; parent_id: string }>) {
+      const parent = parentMap[link.parent_id];
+      if (!parent) continue;
+      const arr = parentsByStudent[link.student_id] ?? [];
+      arr.push(parent);
+      parentsByStudent[link.student_id] = arr;
+    }
+  }
+
   type Row = {
     id: string;
     email: string;
@@ -2585,6 +2628,7 @@ export async function getMembersList(params: {
       student_type_id: sp?.student_type_id ?? null,
       school: p.school ?? null,
       grade: p.grade ?? null,
+      parents: parentsByStudent[p.id] ?? [],
     };
   });
 
