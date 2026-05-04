@@ -1500,6 +1500,17 @@ export async function getStudentDetail(studentId: string) {
 
   const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
 
+  // 퇴원 처리자 이름 1회 조회 (있을 경우)
+  let withdrawnByName: string | null = null;
+  if (profile?.withdrawn_by) {
+    const { data: withdrawnBy } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', profile.withdrawn_by)
+      .maybeSingle();
+    withdrawnByName = withdrawnBy?.name ?? null;
+  }
+
   // 복수 학부모 목록 처리
   type ParentProfileRow = {
     name: string | null;
@@ -1550,6 +1561,10 @@ export async function getStudentDetail(studentId: string) {
     phone: profile?.phone || '',
     createdAt: profile?.created_at || '',
     branchId: profile?.branch_id || null,
+    withdrawnAt: profile?.withdrawn_at ?? null,
+    withdrawnBy: profile?.withdrawn_by ?? null,
+    withdrawnByName,
+    withdrawnReason: profile?.withdrawn_reason ?? null,
     parents,
     parent: parents[0] || null,
     stats: {
@@ -2865,6 +2880,208 @@ export async function getWithdrawnMembers(params: {
   }));
 
   return { rows, total: count ?? 0, page, pageSize };
+}
+
+// ============================================
+// 퇴원 학부모 / 관리자 상세 조회 (read-only)
+// ============================================
+
+export interface WithdrawnParentDetail {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  branchId: string | null;
+  branchName: string | null;
+  createdAt: string;
+  withdrawnAt: string | null;
+  withdrawnBy: string | null;
+  withdrawnByName: string | null;
+  withdrawnReason: string | null;
+  children: {
+    id: string;
+    name: string;
+    branchName: string | null;
+    seatNumber: number | null;
+    withdrawnAt: string | null;
+  }[];
+}
+
+export async function getWithdrawnParentDetail(
+  parentId: string,
+): Promise<WithdrawnParentDetail | null> {
+  const supabase = await createClient();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select(`*, branch:branch_id (id, name)`)
+    .eq('id', parentId)
+    .eq('user_type', 'parent')
+    .maybeSingle();
+
+  if (!profile) return null;
+
+  type ProfileRow = {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    branch_id: string | null;
+    branch: { name: string | null } | null;
+    created_at: string;
+    withdrawn_at: string | null;
+    withdrawn_by: string | null;
+    withdrawn_reason: string | null;
+  };
+  const p = profile as unknown as ProfileRow;
+
+  let withdrawnByName: string | null = null;
+  if (p.withdrawn_by) {
+    const { data: by } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', p.withdrawn_by)
+      .maybeSingle();
+    withdrawnByName = by?.name ?? null;
+  }
+
+  // 연결된 자녀 (퇴원 자녀 포함)
+  const { data: links } = await supabase
+    .from('parent_student_links')
+    .select(
+      `
+      student:student_id (
+        id,
+        seat_number,
+        profiles!inner (
+          name,
+          withdrawn_at,
+          branch:branch_id ( name )
+        )
+      )
+    `,
+    )
+    .eq('parent_id', parentId);
+
+  type ChildRow = {
+    student: {
+      id: string;
+      seat_number: number | null;
+      profiles: {
+        name: string | null;
+        withdrawn_at: string | null;
+        branch: { name: string | null } | null;
+      } | null;
+    } | null;
+  };
+
+  const children = ((links ?? []) as unknown as ChildRow[])
+    .map((l) => {
+      const s = l.student;
+      if (!s) return null;
+      const sp = s.profiles;
+      if (!sp) return null;
+      return {
+        id: s.id,
+        name: sp.name ?? '',
+        branchName: sp.branch?.name ?? null,
+        seatNumber: s.seat_number,
+        withdrawnAt: sp.withdrawn_at,
+      };
+    })
+    .filter(
+      (
+        c,
+      ): c is {
+        id: string;
+        name: string;
+        branchName: string | null;
+        seatNumber: number | null;
+        withdrawnAt: string | null;
+      } => c !== null,
+    );
+
+  return {
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+    branchId: p.branch_id,
+    branchName: p.branch?.name ?? null,
+    createdAt: p.created_at,
+    withdrawnAt: p.withdrawn_at,
+    withdrawnBy: p.withdrawn_by,
+    withdrawnByName,
+    withdrawnReason: p.withdrawn_reason,
+    children,
+  };
+}
+
+export interface WithdrawnAdminDetail {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  branchId: string | null;
+  branchName: string | null;
+  createdAt: string;
+  withdrawnAt: string | null;
+  withdrawnBy: string | null;
+  withdrawnByName: string | null;
+  withdrawnReason: string | null;
+}
+
+export async function getWithdrawnAdminDetail(
+  adminId: string,
+): Promise<WithdrawnAdminDetail | null> {
+  const supabase = await createClient();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select(`*, branch:branch_id (id, name)`)
+    .eq('id', adminId)
+    .eq('user_type', 'admin')
+    .maybeSingle();
+
+  if (!profile) return null;
+
+  type ProfileRow = {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    branch_id: string | null;
+    branch: { name: string | null } | null;
+    created_at: string;
+    withdrawn_at: string | null;
+    withdrawn_by: string | null;
+    withdrawn_reason: string | null;
+  };
+  const p = profile as unknown as ProfileRow;
+
+  let withdrawnByName: string | null = null;
+  if (p.withdrawn_by) {
+    const { data: by } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', p.withdrawn_by)
+      .maybeSingle();
+    withdrawnByName = by?.name ?? null;
+  }
+
+  return {
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+    branchId: p.branch_id,
+    branchName: p.branch?.name ?? null,
+    createdAt: p.created_at,
+    withdrawnAt: p.withdrawn_at,
+    withdrawnBy: p.withdrawn_by,
+    withdrawnByName,
+    withdrawnReason: p.withdrawn_reason,
+  };
 }
 
 // 관리자 지점 변경

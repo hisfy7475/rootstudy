@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/ui/search-input';
 import { restoreMember, type WithdrawnMemberRow } from '@/lib/actions/admin';
-import { ArrowLeft, RotateCcw, UserX } from 'lucide-react';
+import { ArrowLeft, Eye, RotateCcw, UserX } from 'lucide-react';
+import { WithdrawnDetailModal } from './_components/withdrawn-detail-modal';
 
 interface Props {
   rows: WithdrawnMemberRow[];
@@ -39,6 +40,7 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
   const pathname = usePathname();
   const sp = useSearchParams();
   const [restoreTarget, setRestoreTarget] = useState<WithdrawnMemberRow | null>(null);
+  const [detailTarget, setDetailTarget] = useState<WithdrawnMemberRow | null>(null);
   const [confirmName, setConfirmName] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -106,7 +108,7 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
                   <th className='py-2 pr-3'>지점</th>
                   <th className='py-2 pr-3'>퇴원일</th>
                   <th className='py-2 pr-3'>사유</th>
-                  <th className='py-2'>복구</th>
+                  <th className='py-2'>관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,18 +123,29 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
                       {row.withdrawn_reason ?? '-'}
                     </td>
                     <td className='py-2'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => {
-                          setRestoreTarget(row);
-                          setConfirmName('');
-                        }}
-                        className='gap-1'
-                      >
-                        <RotateCcw className='h-3.5 w-3.5' />
-                        복구
-                      </Button>
+                      <div className='flex items-center gap-1.5'>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => setDetailTarget(row)}
+                          className='gap-1'
+                        >
+                          <Eye className='h-3.5 w-3.5' />
+                          상세
+                        </Button>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => {
+                            setRestoreTarget(row);
+                            setConfirmName('');
+                          }}
+                          className='gap-1'
+                        >
+                          <RotateCcw className='h-3.5 w-3.5' />
+                          복구
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -197,6 +210,10 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
             </div>
           </Card>
         </div>
+      )}
+
+      {detailTarget && (
+        <WithdrawnDetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
       )}
     </div>
   );
