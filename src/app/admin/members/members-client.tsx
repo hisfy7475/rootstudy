@@ -15,15 +15,15 @@ import {
   updateStudentCapsId,
   updateAdminBranch,
   updateStudentType,
-  approveStudent,
   rejectStudent,
-  deleteMember,
-  createAdmin,
-  deleteAdmin,
   updateStudentApprovalStatus,
   type MembersAggregates,
 } from '@/lib/actions/admin';
 import { getStudentTypes } from '@/lib/actions/student-type';
+import { DeleteMemberModal } from './_components/delete-member-modal';
+import { DeleteAdminModal } from './_components/delete-admin-modal';
+import { AddAdminModal } from './_components/add-admin-modal';
+import { ApprovalModal } from './_components/approval-modal';
 import {
   User,
   UserCheck,
@@ -43,13 +43,11 @@ import {
   UserMinus,
   Clock,
   CheckCircle2,
-  AlertTriangle,
   Trash2,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Plus,
-  Lock,
   UserX,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -252,33 +250,19 @@ export function MembersClient({
   // 인라인 이름 편집 상태
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
-  // 승인 모달 상태
-  const [approvalModal, setApprovalModal] = useState<{ student: Member } | null>(null);
-  const [approvalForm, setApprovalForm] = useState({
-    capsId: '',
-    seatNumber: '',
-    studentTypeId: '',
-  });
-  const [approvalStudentTypes, setApprovalStudentTypes] = useState<StudentTypeOption[]>([]);
-  // 탈퇴 모달 상태
-  const [deleteModal, setDeleteModal] = useState<{
-    member: Member | ParentMember;
+  // 모달 타겟 — 입력 state는 각 모달 컴포넌트가 자체 보유 (리렌더 격리)
+  const [approvalTarget, setApprovalTarget] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    member: { id: string; name: string; email: string };
     userType: 'student' | 'parent';
   } | null>(null);
-  const [deleteConfirmName, setDeleteConfirmName] = useState('');
-  // 관리자 추가 모달 상태
-  const [addAdminModal, setAddAdminModal] = useState(false);
-  const [addAdminForm, setAddAdminForm] = useState({
-    email: '',
-    password: '',
-    name: '',
-    phone: '',
-    branchId: '',
-  });
-  const [addAdminError, setAddAdminError] = useState<string | null>(null);
-  // 관리자 삭제 모달 상태
-  const [deleteAdminModal, setDeleteAdminModal] = useState<Admin | null>(null);
-  const [deleteAdminConfirmName, setDeleteAdminConfirmName] = useState('');
+  const [addAdminOpen, setAddAdminOpen] = useState(false);
+  const [deleteAdminTarget, setDeleteAdminTarget] = useState<Admin | null>(null);
 
   // 카운트는 서버 aggregates 기반 (검색·필터와 무관한 branch 전체 기준)
   const pendingCount = aggregates.approval.pending;
@@ -384,55 +368,13 @@ export function MembersClient({
   };
 
   // 승인 모달 열기
-  const handleOpenApproval = async (student: Member) => {
-    setApprovalModal({ student });
-    setApprovalForm({ capsId: '', seatNumber: '', studentTypeId: '' });
-    setLoading(true);
-    try {
-      // 학생 상세 정보 + 학생 타입 목록을 병렬 로드
-      const [detail, types] = await Promise.all([getStudentDetail(student.id), getStudentTypes()]);
-      setApprovalStudentTypes(types.map((t) => ({ id: t.id, name: t.name })));
-      // 학생이 가입 시 선택한 학생타입을 미리 채움
-      if (detail) {
-        setApprovalForm((prev) => ({
-          ...prev,
-          studentTypeId: detail.studentTypeId || '',
-          seatNumber: detail.seatNumber ? String(detail.seatNumber) : '',
-          capsId: detail.capsId || '',
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to load approval data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 승인 처리
-  const handleApprove = async () => {
-    if (!approvalModal) return;
-
-    setLoading(true);
-    try {
-      const result = await approveStudent(
-        approvalModal.student.id,
-        approvalForm.capsId,
-        approvalForm.seatNumber ? parseInt(approvalForm.seatNumber) : null,
-        approvalForm.studentTypeId || null,
-      );
-
-      if (result.success) {
-        refresh();
-        setApprovalModal(null);
-      } else {
-        alert(result.error || '승인에 실패했습니다.');
-      }
-    } catch (error) {
-      console.error('Failed to approve student:', error);
-      alert('승인 처리 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
+  const handleOpenApproval = (student: Member) => {
+    setApprovalTarget({
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      phone: student.phone,
+    });
   };
 
   // 비승인 처리
@@ -497,38 +439,10 @@ export function MembersClient({
 
   // 탈퇴 모달 열기
   const handleOpenDeleteModal = (member: Member | ParentMember, userType: 'student' | 'parent') => {
-    setDeleteModal({ member, userType });
-    setDeleteConfirmName('');
-  };
-
-  // 탈퇴 처리
-  const handleDelete = async () => {
-    if (!deleteModal) return;
-    if (deleteConfirmName.trim() !== deleteModal.member.name.trim()) {
-      alert('회원 이름이 일치하지 않습니다.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await deleteMember(deleteModal.member.id, deleteModal.userType);
-
-      if (result.success) {
-        refresh();
-        setDeleteModal(null);
-        setSelectedStudent(null); // 상세 모달도 닫기
-        if (result.warning) {
-          alert(result.warning);
-        }
-      } else {
-        alert(result.error || '탈퇴 처리에 실패했습니다.');
-      }
-    } catch (error) {
-      console.error('Failed to delete member:', error);
-      alert('탈퇴 처리 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
+    setDeleteTarget({
+      member: { id: member.id, name: member.name, email: member.email },
+      userType,
+    });
   };
 
   // 이름 수정 핸들러
@@ -593,74 +507,6 @@ export function MembersClient({
     } catch (error) {
       console.error(`Failed to update ${field}:`, error);
       alert('학교 수정 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 관리자 추가 처리
-  const handleAddAdmin = async () => {
-    if (!addAdminForm.email || !addAdminForm.password || !addAdminForm.name) {
-      setAddAdminError('이메일, 비밀번호, 이름은 필수입니다.');
-      return;
-    }
-
-    if (addAdminForm.password.length < 6) {
-      setAddAdminError('비밀번호는 최소 6자 이상이어야 합니다.');
-      return;
-    }
-
-    setLoading(true);
-    setAddAdminError(null);
-    try {
-      const result = await createAdmin({
-        email: addAdminForm.email,
-        password: addAdminForm.password,
-        name: addAdminForm.name,
-        phone: addAdminForm.phone || undefined,
-        branchId: addAdminForm.branchId || undefined,
-      });
-
-      if (result.success) {
-        refresh();
-        setAddAdminModal(false);
-        setAddAdminForm({ email: '', password: '', name: '', phone: '', branchId: '' });
-      } else {
-        setAddAdminError(result.error || '관리자 추가에 실패했습니다.');
-      }
-    } catch (error) {
-      console.error('Failed to create admin:', error);
-      setAddAdminError('관리자 추가 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 관리자 삭제 처리
-  const handleDeleteAdmin = async () => {
-    if (!deleteAdminModal) return;
-    if (deleteAdminConfirmName !== deleteAdminModal.name) {
-      alert('관리자 이름이 일치하지 않습니다.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await deleteAdmin(deleteAdminModal.id);
-
-      if (result.success) {
-        refresh();
-        setDeleteAdminModal(null);
-        setDeleteAdminConfirmName('');
-        if (result.warning) {
-          alert(result.warning);
-        }
-      } else {
-        alert(result.error || '관리자 삭제에 실패했습니다.');
-      }
-    } catch (error) {
-      console.error('Failed to delete admin:', error);
-      alert('관리자 삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -811,15 +657,7 @@ export function MembersClient({
           <div className='space-y-4'>
             {/* 관리자 추가 버튼 */}
             <div className='flex justify-end'>
-              <Button
-                onClick={() => {
-                  setAddAdminModal(true);
-                  setAddAdminForm({ email: '', password: '', name: '', phone: '', branchId: '' });
-                  setAddAdminError(null);
-                }}
-                size='sm'
-                className='gap-1.5'
-              >
+              <Button onClick={() => setAddAdminOpen(true)} size='sm' className='gap-1.5'>
                 <Plus className='h-3.5 w-3.5' />
                 관리자 추가
               </Button>
@@ -897,10 +735,7 @@ export function MembersClient({
                             <Button
                               size='sm'
                               variant='outline'
-                              onClick={() => {
-                                setDeleteAdminModal(admin);
-                                setDeleteAdminConfirmName('');
-                              }}
+                              onClick={() => setDeleteAdminTarget(admin)}
                               disabled={loading}
                               className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
                             >
@@ -1678,414 +1513,50 @@ export function MembersClient({
         </div>
       )}
 
-      {/* 승인 모달 */}
-      {approvalModal && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
-          <Card className='w-full max-w-md space-y-5 p-6'>
-            <div className='flex items-center justify-between'>
-              <h2 className='text-lg font-semibold'>학생 가입 승인</h2>
-              <button
-                onClick={() => setApprovalModal(null)}
-                className='text-text-muted hover:text-text'
-              >
-                <X className='h-5 w-5' />
-              </button>
-            </div>
-
-            {/* 학생 정보 */}
-            <div className='space-y-3 rounded-xl bg-gray-50 p-4'>
-              <div className='flex items-center gap-3'>
-                <div className='flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100'>
-                  <User className='h-5 w-5 text-yellow-600' />
-                </div>
-                <div>
-                  <p className='font-medium'>{approvalModal.student.name}</p>
-                  <p className='text-text-muted text-sm'>{approvalModal.student.email}</p>
-                </div>
-              </div>
-              <div className='flex items-center gap-2 pl-[52px] text-sm'>
-                <Phone className='text-text-muted h-3.5 w-3.5' />
-                <span>{approvalModal.student.phone || '-'}</span>
-              </div>
-            </div>
-
-            {/* 입력 폼 */}
-            <div className='space-y-4'>
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>
-                  CAPS ID <span className='text-text-muted font-normal'>(출입관리 학번)</span>
-                </label>
-                <Input
-                  type='text'
-                  placeholder='CAPS ID 입력'
-                  value={approvalForm.capsId}
-                  onChange={(e) => setApprovalForm((prev) => ({ ...prev, capsId: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>좌석 번호</label>
-                <Input
-                  type='number'
-                  placeholder='좌석 번호 입력'
-                  value={approvalForm.seatNumber}
-                  onChange={(e) =>
-                    setApprovalForm((prev) => ({ ...prev, seatNumber: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>학생 타입</label>
-                <select
-                  value={approvalForm.studentTypeId}
-                  onChange={(e) =>
-                    setApprovalForm((prev) => ({ ...prev, studentTypeId: e.target.value }))
-                  }
-                  className='focus:ring-primary/50 h-10 w-full rounded-lg border px-3 text-sm focus:ring-2 focus:outline-none'
-                >
-                  <option value=''>학생 타입 선택</option>
-                  {approvalStudentTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* 버튼 */}
-            <div className='flex gap-3 pt-2'>
-              <Button
-                variant='outline'
-                className='flex-1'
-                onClick={() => setApprovalModal(null)}
-                disabled={loading}
-              >
-                취소
-              </Button>
-              <Button
-                className='flex-1 bg-green-600 text-white hover:bg-green-700'
-                onClick={handleApprove}
-                disabled={loading}
-              >
-                {loading ? '처리중...' : '승인'}
-              </Button>
-            </div>
-          </Card>
-        </div>
+      {approvalTarget && (
+        <ApprovalModal
+          student={approvalTarget}
+          onClose={() => setApprovalTarget(null)}
+          onSuccess={() => {
+            setApprovalTarget(null);
+            refresh();
+          }}
+        />
       )}
 
-      {/* 퇴원 확인 모달 */}
-      {deleteModal && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
-          <Card className='w-full max-w-md space-y-5 p-6'>
-            <div className='flex items-center justify-between'>
-              <h2 className='flex items-center gap-2 text-lg font-semibold text-red-600'>
-                <AlertTriangle className='h-5 w-5' />
-                회원 퇴원 처리
-              </h2>
-              <button
-                onClick={() => setDeleteModal(null)}
-                className='text-text-muted hover:text-text'
-              >
-                <X className='h-5 w-5' />
-              </button>
-            </div>
-
-            {/* 안내 메시지 */}
-            <div className='space-y-2 rounded-xl border border-red-200 bg-red-50 p-4'>
-              <p className='font-medium text-red-700'>
-                <strong>[{deleteModal.member.name}]</strong> 회원을 퇴원 처리합니다.
-              </p>
-              {deleteModal.userType === 'student' ? (
-                <p className='text-sm text-red-600'>
-                  학생 계정이 즉시 비활성화되어 로그인이 차단되며, 학생 목록·출결·좌석 등 활성
-                  화면에서 사라집니다. 모의고사 응시·결제·상담 등 과거 이력은 보존되어 통계에 그대로
-                  반영됩니다.
-                </p>
-              ) : (
-                <p className='text-sm text-red-600'>
-                  활성 자녀가 있으면 학부모 계정은 유지하고 <strong>자녀 연결만 모두 해제</strong>
-                  합니다(자녀 계정은 영향 없음). 활성 자녀가 0명일 때만 학부모 계정 자체가
-                  비활성화됩니다.
-                </p>
-              )}
-              <p className='text-xs text-red-600'>
-                필요 시 「퇴원 회원 보기」에서 복구할 수 있습니다.
-              </p>
-            </div>
-
-            {/* 회원 정보 */}
-            <div className='space-y-2 rounded-xl bg-gray-50 p-4'>
-              <div className='flex items-center gap-3'>
-                <div
-                  className={cn(
-                    'flex h-10 w-10 items-center justify-center rounded-full',
-                    deleteModal.userType === 'student' ? 'bg-primary/10' : 'bg-secondary/10',
-                  )}
-                >
-                  {deleteModal.userType === 'student' ? (
-                    <User className='text-primary h-5 w-5' />
-                  ) : (
-                    <UserCheck className='text-secondary h-5 w-5' />
-                  )}
-                </div>
-                <div>
-                  <p className='font-medium'>{deleteModal.member.name}</p>
-                  <p className='text-text-muted text-sm'>{deleteModal.member.email}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 확인 입력 */}
-            <div>
-              <label className='mb-1.5 block text-sm font-medium'>
-                확인을 위해 회원 이름을 입력하세요
-              </label>
-              <Input
-                type='text'
-                placeholder={deleteModal.member.name}
-                value={deleteConfirmName}
-                onChange={(e) => setDeleteConfirmName(e.target.value)}
-                className='border-red-200 focus:ring-red-500'
-              />
-            </div>
-
-            {/* 버튼 */}
-            <div className='flex gap-3 pt-2'>
-              <Button
-                variant='outline'
-                className='flex-1'
-                onClick={() => setDeleteModal(null)}
-                disabled={loading}
-              >
-                취소
-              </Button>
-              <Button
-                className='flex-1 bg-red-600 text-white hover:bg-red-700'
-                onClick={handleDelete}
-                disabled={loading || deleteConfirmName.trim() !== deleteModal.member.name.trim()}
-              >
-                <Trash2 className='mr-1 h-4 w-4' />
-                {loading ? '처리중...' : '퇴원 처리'}
-              </Button>
-            </div>
-          </Card>
-        </div>
+      {deleteTarget && (
+        <DeleteMemberModal
+          member={deleteTarget.member}
+          userType={deleteTarget.userType}
+          onClose={() => setDeleteTarget(null)}
+          onSuccess={() => {
+            setDeleteTarget(null);
+            setSelectedStudent(null);
+            refresh();
+          }}
+        />
       )}
 
-      {/* 관리자 추가 모달 */}
-      {addAdminModal && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
-          <Card className='w-full max-w-md space-y-5 p-6'>
-            <div className='flex items-center justify-between'>
-              <h2 className='flex items-center gap-2 text-lg font-semibold'>
-                <Shield className='h-5 w-5 text-purple-600' />
-                관리자 추가
-              </h2>
-              <button
-                onClick={() => setAddAdminModal(false)}
-                className='text-text-muted hover:text-text'
-              >
-                <X className='h-5 w-5' />
-              </button>
-            </div>
-
-            {/* 입력 폼 */}
-            <div className='space-y-4'>
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>
-                  이메일 <span className='text-red-500'>*</span>
-                </label>
-                <div className='relative'>
-                  <Mail className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-                  <Input
-                    type='email'
-                    placeholder='admin@example.com'
-                    value={addAdminForm.email}
-                    onChange={(e) =>
-                      setAddAdminForm((prev) => ({ ...prev, email: e.target.value }))
-                    }
-                    className='pl-10'
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>
-                  비밀번호 <span className='text-red-500'>*</span>
-                </label>
-                <div className='relative'>
-                  <Lock className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-                  <Input
-                    type='password'
-                    placeholder='최소 6자 이상'
-                    value={addAdminForm.password}
-                    onChange={(e) =>
-                      setAddAdminForm((prev) => ({ ...prev, password: e.target.value }))
-                    }
-                    className='pl-10'
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>
-                  이름 <span className='text-red-500'>*</span>
-                </label>
-                <div className='relative'>
-                  <User className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-                  <Input
-                    type='text'
-                    placeholder='관리자 이름'
-                    value={addAdminForm.name}
-                    onChange={(e) => setAddAdminForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className='pl-10'
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>전화번호</label>
-                <div className='relative'>
-                  <Phone className='text-text-muted absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-                  <Input
-                    type='tel'
-                    placeholder='010-0000-0000'
-                    value={addAdminForm.phone}
-                    onChange={(e) =>
-                      setAddAdminForm((prev) => ({ ...prev, phone: e.target.value }))
-                    }
-                    className='pl-10'
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className='mb-1.5 block text-sm font-medium'>소속 지점</label>
-                <select
-                  value={addAdminForm.branchId}
-                  onChange={(e) =>
-                    setAddAdminForm((prev) => ({ ...prev, branchId: e.target.value }))
-                  }
-                  className='focus:ring-primary/50 h-10 w-full rounded-lg border px-3 text-sm focus:ring-2 focus:outline-none'
-                >
-                  <option value=''>지점 선택 (선택사항)</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* 에러 메시지 */}
-            {addAdminError && (
-              <div className='rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600'>
-                {addAdminError}
-              </div>
-            )}
-
-            {/* 버튼 */}
-            <div className='flex gap-3 pt-2'>
-              <Button
-                variant='outline'
-                className='flex-1'
-                onClick={() => setAddAdminModal(false)}
-                disabled={loading}
-              >
-                취소
-              </Button>
-              <Button className='flex-1' onClick={handleAddAdmin} disabled={loading}>
-                <UserPlus className='mr-1 h-4 w-4' />
-                {loading ? '추가중...' : '관리자 추가'}
-              </Button>
-            </div>
-          </Card>
-        </div>
+      {addAdminOpen && (
+        <AddAdminModal
+          branches={branches}
+          onClose={() => setAddAdminOpen(false)}
+          onSuccess={() => {
+            setAddAdminOpen(false);
+            refresh();
+          }}
+        />
       )}
 
-      {/* 관리자 삭제 모달 */}
-      {deleteAdminModal && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
-          <Card className='w-full max-w-md space-y-5 p-6'>
-            <div className='flex items-center justify-between'>
-              <h2 className='flex items-center gap-2 text-lg font-semibold text-red-600'>
-                <AlertTriangle className='h-5 w-5' />
-                관리자 삭제
-              </h2>
-              <button
-                onClick={() => setDeleteAdminModal(null)}
-                className='text-text-muted hover:text-text'
-              >
-                <X className='h-5 w-5' />
-              </button>
-            </div>
-
-            {/* 경고 메시지 */}
-            <div className='space-y-2 rounded-xl border border-red-200 bg-red-50 p-4'>
-              <p className='font-medium text-red-700'>이 작업은 되돌릴 수 없습니다.</p>
-              <p className='text-sm text-red-600'>
-                <strong>[{deleteAdminModal.name}]</strong> 관리자를 삭제하시겠습니까?
-              </p>
-            </div>
-
-            {/* 관리자 정보 */}
-            <div className='space-y-2 rounded-xl bg-gray-50 p-4'>
-              <div className='flex items-center gap-3'>
-                <div className='flex h-10 w-10 items-center justify-center rounded-full bg-purple-100'>
-                  <Shield className='h-5 w-5 text-purple-600' />
-                </div>
-                <div>
-                  <p className='font-medium'>{deleteAdminModal.name}</p>
-                  <p className='text-text-muted text-sm'>{deleteAdminModal.email}</p>
-                </div>
-              </div>
-              {deleteAdminModal.branch_name && (
-                <div className='flex items-center gap-2 pl-[52px] text-sm'>
-                  <Building2 className='text-text-muted h-3.5 w-3.5' />
-                  <span>{deleteAdminModal.branch_name}</span>
-                </div>
-              )}
-            </div>
-
-            {/* 확인 입력 */}
-            <div>
-              <label className='mb-1.5 block text-sm font-medium'>
-                확인을 위해 관리자 이름을 입력하세요
-              </label>
-              <Input
-                type='text'
-                placeholder={deleteAdminModal.name}
-                value={deleteAdminConfirmName}
-                onChange={(e) => setDeleteAdminConfirmName(e.target.value)}
-                className='border-red-200 focus:ring-red-500'
-              />
-            </div>
-
-            {/* 버튼 */}
-            <div className='flex gap-3 pt-2'>
-              <Button
-                variant='outline'
-                className='flex-1'
-                onClick={() => setDeleteAdminModal(null)}
-                disabled={loading}
-              >
-                취소
-              </Button>
-              <Button
-                className='flex-1 bg-red-600 text-white hover:bg-red-700'
-                onClick={handleDeleteAdmin}
-                disabled={loading || deleteAdminConfirmName !== deleteAdminModal.name}
-              >
-                <Trash2 className='mr-1 h-4 w-4' />
-                {loading ? '처리중...' : '삭제'}
-              </Button>
-            </div>
-          </Card>
-        </div>
+      {deleteAdminTarget && (
+        <DeleteAdminModal
+          admin={deleteAdminTarget}
+          onClose={() => setDeleteAdminTarget(null)}
+          onSuccess={() => {
+            setDeleteAdminTarget(null);
+            refresh();
+          }}
+        />
       )}
     </div>
   );
