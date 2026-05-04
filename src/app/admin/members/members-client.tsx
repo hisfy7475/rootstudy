@@ -70,6 +70,7 @@ interface Member {
   school: string | null;
   grade: number | null;
   student_type_id: string | null;
+  parents: { id: string; name: string; phone: string | null }[];
 }
 
 interface ParentMember {
@@ -200,19 +201,14 @@ export function MembersClient({
   const sp = useSearchParams();
   const [, startTransition] = useTransition();
 
-  // 학생 ID → 연결된 학부모 매핑은 학부모 페이지 데이터에 의존하므로
-  // 학생 탭에서는 정보가 비어있을 수 있다. 학생 탭에서는 학부모 칼럼이 별도 props
-  // 가 없는 한 빈 배열로 표시된다 (리팩토링 트레이드오프 — 표시 필요 시 별도 쿼리 추가 검토).
+  // 학생 행이 자체적으로 parents 를 들고 있으므로 students 에서 직접 매핑.
   const studentParentMap = useMemo(() => {
     const map: Record<string, { id: string; name: string; phone: string | null }[]> = {};
-    for (const parent of parents) {
-      for (const student of parent.students) {
-        if (!map[student.id]) map[student.id] = [];
-        map[student.id].push({ id: parent.id, name: parent.name, phone: parent.phone });
-      }
+    for (const s of students) {
+      if (s.parents && s.parents.length > 0) map[s.id] = s.parents;
     }
     return map;
-  }, [parents]);
+  }, [students]);
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
   const [studentTypes, setStudentTypes] = useState<StudentTypeOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -802,7 +798,9 @@ export function MembersClient({
                                         : 'border-purple-200 text-purple-600 hover:bg-purple-50',
                                     )}
                                     title={
-                                      admin.is_super_admin ? '최고 관리자 권한 회수' : '최고 관리자 권한 부여'
+                                      admin.is_super_admin
+                                        ? '최고 관리자 권한 회수'
+                                        : '최고 관리자 권한 부여'
                                     }
                                   >
                                     {admin.is_super_admin ? '권한 회수' : '권한 부여'}
@@ -1580,6 +1578,11 @@ export function MembersClient({
                       school: null,
                       grade: null,
                       student_type_id: selectedStudent.studentTypeId ?? null,
+                      parents: selectedStudent.parents.map((p) => ({
+                        id: p.id,
+                        name: p.name,
+                        phone: p.phone,
+                      })),
                     };
                     handleOpenDeleteModal(memberData, 'student');
                   }}
