@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ChatRoom } from '@/components/shared/chat';
 import { ChatMessageData } from '@/components/shared/chat';
 import { SearchInput } from '@/components/ui/search-input';
@@ -13,7 +14,7 @@ import { ko } from 'date-fns/locale';
 
 const PAGE_SIZE = 30;
 
-interface ChatRoomItem {
+export interface ChatRoomItem {
   id: string;
   student_id: string;
   student_name: string;
@@ -29,6 +30,9 @@ interface AdminChatClientProps {
   initialHasMore: boolean;
   currentUserId: string;
   currentUserName: string;
+  initialSelectedRoom?: ChatRoomItem | null;
+  initialSelectedMessages?: ChatMessageData[];
+  initialSelectedHasMore?: boolean;
 }
 
 export function AdminChatClient({
@@ -36,13 +40,25 @@ export function AdminChatClient({
   initialHasMore,
   currentUserId,
   currentUserName,
+  initialSelectedRoom = null,
+  initialSelectedMessages = [],
+  initialSelectedHasMore = false,
 }: AdminChatClientProps) {
-  const [rooms, setRooms] = useState<ChatRoomItem[]>(initialRooms);
+  const searchParams = useSearchParams();
+  const urlStudentId = searchParams.get('studentId');
+
+  // 첫 30개에 없는 방을 SSR이 prepend 한 경우 좌측에서도 즉시 보이게 한다.
+  const [rooms, setRooms] = useState<ChatRoomItem[]>(() => {
+    if (initialSelectedRoom && !initialRooms.some((r) => r.id === initialSelectedRoom.id)) {
+      return [initialSelectedRoom, ...initialRooms];
+    }
+    return initialRooms;
+  });
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState<ChatRoomItem | null>(null);
-  const [messages, setMessages] = useState<ChatMessageData[]>([]);
-  const [messagesHasMore, setMessagesHasMore] = useState(false);
+  const [selectedRoom, setSelectedRoom] = useState<ChatRoomItem | null>(initialSelectedRoom);
+  const [messages, setMessages] = useState<ChatMessageData[]>(initialSelectedMessages);
+  const [messagesHasMore, setMessagesHasMore] = useState(initialSelectedHasMore);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [appliedSearch, setAppliedSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -50,10 +66,12 @@ export function AdminChatClient({
   const sentinelRef = useRef<HTMLLIElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  // 사용자가 검색을 실제로 트리거했는지 추적 (prepend 등으로 reference 비교가 깨질 수 있어 ref 로 명시).
+  const searchTouchedRef = useRef(false);
 
   // 검색어 확정 시 서버 재조회 (Enter / 돋보기 버튼 / X 클리어 트리거)
   useEffect(() => {
-    if (appliedSearch === '' && rooms === initialRooms) return;
+    if (!searchTouchedRef.current) return;
 
     let cancelled = false;
     const fetchSearchResults = async () => {
@@ -74,7 +92,6 @@ export function AdminChatClient({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSearch]);
 
   // 무한 스크롤: IntersectionObserver
@@ -90,7 +107,12 @@ export function AdminChatClient({
     });
 
     if (result.data) {
-      setRooms((prev) => [...prev, ...result.data!]);
+      // pinnedRoom prepend 로 동일 id 가 페이지에 다시 들어올 수 있어 dedup.
+      const fresh = result.data;
+      setRooms((prev) => {
+        const ids = new Set(prev.map((r) => r.id));
+        return [...prev, ...fresh.filter((r: ChatRoomItem) => !ids.has(r.id))];
+      });
       setHasMore(result.hasMore ?? false);
     }
 
@@ -249,29 +271,87 @@ export function AdminChatClient({
     // 채널 자체는 mount 1회만 생성. 핸들러가 참조하는 모든 값은 ref 로 캡처.
   }, []);
 
-  const handleSelectRoom = async (room: ChatRoomItem) => {
-    setSelectedRoom(room);
-    setIsLoadingMessages(true);
-
-    try {
-      const result = await getChatMessages(room.id, 50);
-      if (result.data) {
-        setMessages(result.data);
-        setMessagesHasMore(result.hasMore ?? false);
+  const handleSelectRoom = useCallback(
+    async (room: ChatRoomItem) => {
+      // URL 을 SSoT 로 유지하되 RSC 재fetch 와 history 누적을 모두 피하기 위해
+      // 네이티브 History API 를 직접 사용한다 (Next.js 가 useSearchParams 를 동기화).
+      // router.replace 는 Next.js 16 + Turbopack 환경에서 searchParams 변경 시
+      // history entry 가 누적되는 거동을 보여 채택하지 않는다.
+      if (urlStudentId !== room.student_id) {
+        window.history.replaceState(null, '', `/admin/chat?studentId=${room.student_id}`);
       }
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-    } finally {
-      setIsLoadingMessages(false);
-    }
 
-    setRooms((prev) => prev.map((r) => (r.id === room.id ? { ...r, unread_count: 0 } : r)));
-  };
+      setSelectedRoom(room);
+      setIsLoadingMessages(true);
+
+      try {
+        const result = await getChatMessages(room.id, 50);
+        if (result.data) {
+          setMessages(result.data);
+          setMessagesHasMore(result.hasMore ?? false);
+        }
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? { ...r, unread_count: 0 } : r)));
+    },
+    [urlStudentId],
+  );
 
   const handleBack = () => {
+    // URL 을 비우면 아래 동기화 effect 가 selectedRoom/messages 를 정리한다.
+    window.history.replaceState(null, '', '/admin/chat');
     setSelectedRoom(null);
     setMessages([]);
+    setMessagesHasMore(false);
   };
+
+  // URL → 상태 동기화 (브라우저 뒤로/앞으로, 외부 진입, 좌측 클릭 모두 같은 경로로 흡수)
+  // 마운트 시 SSR 이 채운 selectedRoom 과 URL 이 같으면 재fetch 하지 않는다.
+  const initialUrlStudentIdRef = useRef(initialSelectedRoom?.student_id ?? null);
+  useEffect(() => {
+    if (urlStudentId === initialUrlStudentIdRef.current) {
+      // 첫 1회는 SSR 값을 그대로 사용하고, 이후 사이클부터는 정상 동기화.
+      initialUrlStudentIdRef.current = '__consumed__';
+      return;
+    }
+
+    if (!urlStudentId) {
+      setSelectedRoom(null);
+      setMessages([]);
+      setMessagesHasMore(false);
+      return;
+    }
+
+    // 이미 보고 있는 방이면 no-op.
+    if (selectedRoom?.student_id === urlStudentId) return;
+
+    const target = rooms.find((r) => r.student_id === urlStudentId);
+    if (target) {
+      void handleSelectRoom(target);
+      return;
+    }
+
+    // 좌측 첫 페이지에 없는 방 — 단일 조회 후 prepend + 선택.
+    let cancelled = false;
+    (async () => {
+      const single = await getChatRoomList({ studentId: urlStudentId, limit: 1 });
+      if (cancelled) return;
+      const room = single.data?.[0];
+      if (room) {
+        setRooms((prev) => (prev.some((r) => r.id === room.id) ? prev : [room, ...prev]));
+        void handleSelectRoom(room);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // selectedRoom 은 effect 내부에서만 비교용으로 읽으므로 의존성에서 제외.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlStudentId, handleSelectRoom]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -313,8 +393,14 @@ export function AdminChatClient({
             <SearchInput
               mode='controlled'
               value={appliedSearch}
-              onSubmit={(v) => setAppliedSearch(v)}
-              onClear={() => setAppliedSearch('')}
+              onSubmit={(v) => {
+                searchTouchedRef.current = true;
+                setAppliedSearch(v);
+              }}
+              onClear={() => {
+                searchTouchedRef.current = true;
+                setAppliedSearch('');
+              }}
               placeholder='학생명으로 검색...'
               className='w-full max-w-none'
             />

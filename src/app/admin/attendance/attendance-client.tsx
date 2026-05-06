@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,7 +77,7 @@ interface AttendanceClientProps {
   initialData: {
     data: AttendanceStudent[];
     total: number;
-    stats: { checkedIn: number; checkedOut: number; onBreak: number; notYetArrived: number };
+    stats: { checkedIn: number; checkedOut: number; notYetArrived: number };
   };
   todayPeriods: Period[];
   dateTypeName: string | null;
@@ -157,7 +158,7 @@ function getWeekRangeText(mondayStr: string): string {
   return `${startMonth}월 ${startDay}일 ~ ${endMonth}월 ${endDay}일`;
 }
 
-type StatusFilter = 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived' | null;
+type StatusFilter = 'checked_in' | 'checked_out' | 'not_arrived' | null;
 
 function getCurrentStudyDateStr(): string {
   const sd = getStudyDate();
@@ -428,7 +429,6 @@ export function AttendanceClient({
     total,
     checkedIn: globalStats.checkedIn,
     checkedOut: globalStats.checkedOut,
-    onBreak: globalStats.onBreak,
     notYetArrived: globalStats.notYetArrived,
   };
 
@@ -573,7 +573,7 @@ export function AttendanceClient({
       {viewMode === 'daily' ? (
         <>
           {/* 통계 카드 - 클릭 시 필터 */}
-          <div className='grid grid-cols-5 gap-3 print:grid-cols-5 print:gap-1'>
+          <div className='grid grid-cols-4 gap-3 print:grid-cols-4 print:gap-1'>
             {/* 전체 - 필터 해제 */}
             <button
               onClick={() => {
@@ -603,22 +603,6 @@ export function AttendanceClient({
               <div className='text-xs text-green-600 print:text-[10px]'>입실</div>
               <div className='text-xl font-bold text-green-600 print:text-base'>
                 {stats.checkedIn}
-              </div>
-            </button>
-            {/* 외출 */}
-            <button
-              onClick={() => handleFilterClick('on_break')}
-              className={cn(
-                'rounded-lg border p-3 text-left transition-all print:p-1.5',
-                activeFilter === 'on_break'
-                  ? 'border-amber-400 bg-amber-100 shadow-md ring-2 ring-amber-400'
-                  : 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'on_break' && 'opacity-50',
-              )}
-            >
-              <div className='text-xs text-amber-600 print:text-[10px]'>외출</div>
-              <div className='text-xl font-bold text-amber-600 print:text-base'>
-                {stats.onBreak}
               </div>
             </button>
             {/* 퇴실 */}
@@ -661,7 +645,6 @@ export function AttendanceClient({
                 {
                   {
                     checked_in: '입실',
-                    on_break: '외출',
                     checked_out: '퇴실',
                     not_arrived: '미등원',
                   }[activeFilter]
@@ -756,11 +739,17 @@ export function AttendanceClient({
                             </span>
                           </td>
 
-                          {/* 이름 */}
+                          {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
                           <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
                             <div className='flex items-center gap-1.5'>
                               <User className='h-3.5 w-3.5 text-gray-400 print:hidden' />
-                              <span className='font-medium'>{student.name}</span>
+                              <Link
+                                href={`/admin/chat?studentId=${student.id}`}
+                                className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
+                                title='채팅방 열기'
+                              >
+                                {student.name}
+                              </Link>
                             </div>
                           </td>
 
@@ -1014,9 +1003,15 @@ export function AttendanceClient({
                         </span>
                       </td>
 
-                      {/* 이름 */}
+                      {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
                       <td className='sticky left-10 z-10 bg-white px-2 py-1.5 print:px-1 print:py-0.5'>
-                        <span className='font-medium'>{student.name}</span>
+                        <Link
+                          href={`/admin/chat?studentId=${student.id}`}
+                          className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
+                          title='채팅방 열기'
+                        >
+                          {student.name}
+                        </Link>
                       </td>
 
                       {/* 각 날짜별 출석 상태 */}

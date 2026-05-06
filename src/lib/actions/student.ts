@@ -563,6 +563,116 @@ export async function changeSubject(subjectName: string) {
   return { success: true };
 }
 
+// 현재 선택된 과목 리셋 (오입력 취소 — 선택된 카드의 X 배지로 호출)
+// 삭제된 row의 정보를 반환하여 클라이언트의 "실행 취소"에 활용
+export async function resetCurrentSubject(): Promise<{
+  success?: { subjectName: string; startedAt: string };
+  error?: string;
+}> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const { data: lastAttendance } = await supabase
+    .from('attendance')
+    .select('type')
+    .eq('student_id', user.id)
+    .gte('timestamp', start.toISOString())
+    .lte('timestamp', end.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(1)
+    .single();
+
+  const isCheckedIn = lastAttendance?.type === 'check_in' || lastAttendance?.type === 'break_end';
+  if (!isCheckedIn) {
+    return { error: '입실 상태에서만 과목을 해제할 수 있습니다.' };
+  }
+
+  const { data: deleted, error: deleteError } = await supabase
+    .from('subjects')
+    .delete()
+    .eq('student_id', user.id)
+    .eq('is_current', true)
+    .select('subject_name, started_at')
+    .single();
+
+  if (deleteError || !deleted) {
+    console.error('Error resetting current subject:', deleteError);
+    return { error: '과목 해제에 실패했습니다.' };
+  }
+
+  revalidatePath('/student');
+  revalidatePath('/student/subject');
+  return {
+    success: { subjectName: deleted.subject_name, startedAt: deleted.started_at },
+  };
+}
+
+// 실행 취소: 직전에 reset된 과목을 같은 started_at으로 복원
+// 사이에 다른 과목이 선택되었으면 거절
+export async function restoreSubject(
+  subjectName: string,
+  startedAt: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const { data: lastAttendance } = await supabase
+    .from('attendance')
+    .select('type')
+    .eq('student_id', user.id)
+    .gte('timestamp', start.toISOString())
+    .lte('timestamp', end.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(1)
+    .single();
+
+  const isCheckedIn = lastAttendance?.type === 'check_in' || lastAttendance?.type === 'break_end';
+  if (!isCheckedIn) {
+    return { error: '입실 상태에서만 과목을 복원할 수 있습니다.' };
+  }
+
+  const { data: existing } = await supabase
+    .from('subjects')
+    .select('id')
+    .eq('student_id', user.id)
+    .eq('is_current', true)
+    .maybeSingle();
+
+  if (existing) {
+    return { error: '이미 다른 과목이 선택되어 복원할 수 없습니다.' };
+  }
+
+  const { error } = await supabase.from('subjects').insert({
+    student_id: user.id,
+    subject_name: subjectName,
+    started_at: startedAt,
+    is_current: true,
+  });
+
+  if (error) {
+    console.error('Error restoring subject:', error);
+    return { error: '과목 복원에 실패했습니다.' };
+  }
+
+  revalidatePath('/student');
+  revalidatePath('/student/subject');
+  return { success: true };
+}
+
 // 오늘(학습일 기준)의 몰입도 조회
 export async function getTodayFocus() {
   const supabase = await createClient();

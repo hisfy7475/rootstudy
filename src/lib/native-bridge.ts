@@ -17,7 +17,8 @@ export type WebToNativeMessage =
   | { type: 'LOGOUT'; payload: Record<string, never> }
   | { type: 'PICK_IMAGE'; payload: { source: 'camera' | 'gallery'; roomId: string } }
   | { type: 'PICK_FILE'; payload: { roomId: string } }
-  | { type: 'REQUEST_PUSH_TOKEN'; payload: Record<string, never> };
+  | { type: 'REQUEST_PUSH_TOKEN'; payload: Record<string, never> }
+  | { type: 'COPY_TEXT'; payload: { text: string } };
 
 type RNWebViewWindow = Window & {
   ReactNativeWebView?: { postMessage: (message: string) => void };

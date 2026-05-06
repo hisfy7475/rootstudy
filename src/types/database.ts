@@ -602,6 +602,7 @@ export interface Database {
           is_read_by_parent: boolean;
           is_read_by_admin: boolean;
           created_at: string;
+          client_message_id: string | null;
         };
         Insert: {
           id?: string;
@@ -617,6 +618,7 @@ export interface Database {
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
           created_at?: string;
+          client_message_id?: string | null;
         };
         Update: {
           id?: string;
@@ -632,6 +634,7 @@ export interface Database {
           is_read_by_parent?: boolean;
           is_read_by_admin?: boolean;
           created_at?: string;
+          client_message_id?: string | null;
         };
       };
       notifications: {

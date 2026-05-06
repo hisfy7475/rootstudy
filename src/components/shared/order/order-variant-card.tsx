@@ -26,7 +26,7 @@ function formatMonthDay(dateStr: string): string {
 }
 
 function weekdayKo(dateStr: string): string {
-  const date = new Date(`${dateStr}T00:00:00+09:00`);
+  const date = new Date(`${dateStr}T12:00:00+09:00`);
   return WEEKDAY_KO[date.getUTCDay()] ?? '';
 }
 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MealImage } from '@/components/shared/meal-image';
+import { ImageLightbox } from '@/components/shared/image-lightbox';
 import {
   createMealOrder,
   cancelPendingMealOrder,
@@ -40,7 +41,6 @@ export function MockExamDetailClient({
     [product.variants],
   );
 
-  const [tab, setTab] = useState<'policy' | 'detail'>('policy');
   const [loading, setLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +49,7 @@ export function MockExamDetailClient({
   );
   const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
   const [conflictMode, setConflictMode] = useState<'new' | 'resume'>('new');
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const paid = variant ? (paidOrderByVariant[variant.id] ?? null) : null;
   const capacityLeft = variant ? (capacityLeftByVariant[variant.id] ?? null) : null;
 
@@ -161,7 +162,12 @@ export function MockExamDetailClient({
 
   return (
     <div className='space-y-4'>
-      <div className='relative -mx-0 h-48 w-full overflow-hidden rounded-xl'>
+      <button
+        type='button'
+        onClick={() => setLightboxOpen(true)}
+        aria-label={`${product.name} 이미지 확대`}
+        className='focus-visible:ring-primary relative -mx-0 block aspect-square w-full overflow-hidden rounded-xl focus-visible:ring-2 focus-visible:outline-none'
+      >
         <MealImage
           src={product.image_url}
           type='product'
@@ -170,7 +176,7 @@ export function MockExamDetailClient({
           priority
           className='rounded-xl'
         />
-      </div>
+      </button>
 
       <div>
         <span className='bg-muted rounded-full px-2 py-0.5 text-xs font-medium'>모의고사</span>
@@ -187,56 +193,31 @@ export function MockExamDetailClient({
       </div>
 
       <div>
-        <div className='flex border-b'>
-          <button
-            type='button'
-            onClick={() => setTab('policy')}
-            className={cn(
-              'flex-1 py-2.5 text-sm font-semibold transition-colors',
-              tab === 'policy'
-                ? 'border-primary text-primary border-b-2'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            취소 및 환불 정책
-          </button>
-          <button
-            type='button'
-            onClick={() => setTab('detail')}
-            className={cn(
-              'flex-1 py-2.5 text-sm font-semibold transition-colors',
-              tab === 'detail'
-                ? 'border-primary text-primary border-b-2'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            상세 정보
-          </button>
+        <h2 className='border-b py-2.5 text-sm font-semibold'>상세 정보</h2>
+        <div className='mt-3'>
+          {product.description ? (
+            <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
+          ) : (
+            <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
+          )}
         </div>
+      </div>
 
-        {tab === 'policy' ? (
-          <div className='bg-muted/50 mt-3 space-y-1.5 rounded-lg p-4'>
-            <ul className='space-y-1.5 text-sm'>
-              {policy.lines.map((line, idx) => (
-                <li
-                  key={idx}
-                  className={cn('flex gap-2', line.emphasized && 'font-semibold text-red-600')}
-                >
-                  <span aria-hidden>•</span>
-                  <span className='whitespace-pre-wrap'>{line.text}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <div className='mt-3'>
-            {product.description ? (
-              <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
-            ) : (
-              <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
-            )}
-          </div>
-        )}
+      <div>
+        <h2 className='border-b py-2.5 text-sm font-semibold'>취소 및 환불 정책</h2>
+        <div className='bg-muted/50 mt-3 space-y-1.5 rounded-lg p-4'>
+          <ul className='space-y-1.5 text-sm'>
+            {policy.lines.map((line, idx) => (
+              <li
+                key={idx}
+                className={cn('flex gap-2', line.emphasized && 'font-semibold text-red-600')}
+              >
+                <span aria-hidden>•</span>
+                <span className='whitespace-pre-wrap'>{line.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
       {error && !paid ? <p className='text-sm text-red-600'>{error}</p> : null}
@@ -308,6 +289,14 @@ export function MockExamDetailClient({
           onConfirm={handleForcePay}
         />
       ) : null}
+
+      <ImageLightbox
+        open={lightboxOpen}
+        src={product.image_url}
+        alt={product.name}
+        fallbackType='product'
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
@@ -272,6 +273,9 @@ export default function WebViewScreen() {
           break;
         case "REQUEST_PUSH_TOKEN":
           sendPushTokenToWeb();
+          break;
+        case "COPY_TEXT":
+          void Clipboard.setStringAsync(msg.payload.text);
           break;
       }
     },
