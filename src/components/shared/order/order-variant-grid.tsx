@@ -7,7 +7,7 @@ const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const;
 
 function formatHeader(dateStr: string): string {
   const [y, m, d] = dateStr.split('-');
-  const date = new Date(`${dateStr}T00:00:00+09:00`);
+  const date = new Date(`${dateStr}T12:00:00+09:00`);
   const dow = WEEKDAY_KO[date.getUTCDay()] ?? '';
   return `${y}.${m}.${d} (${dow})`;
 }
