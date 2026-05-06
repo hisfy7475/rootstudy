@@ -59,7 +59,6 @@ export function ProductDetailClient({
       ? initialVariantId
       : (variants[0]?.id ?? null),
   );
-  const [tab, setTab] = useState<'policy' | 'detail'>('detail');
   const [loading, setLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,7 +196,7 @@ export function ProductDetailClient({
         type='button'
         onClick={() => setLightboxOpen(true)}
         aria-label={`${product.name} 이미지 확대`}
-        className='focus-visible:ring-primary relative -mx-0 block h-48 w-full overflow-hidden rounded-xl focus-visible:ring-2 focus-visible:outline-none'
+        className='focus-visible:ring-primary relative -mx-0 block aspect-square w-full overflow-hidden rounded-xl focus-visible:ring-2 focus-visible:outline-none'
       >
         <MealImage
           src={product.image_url}
@@ -243,98 +242,73 @@ export function ProductDetailClient({
       )}
 
       <div>
-        <div className='flex border-b'>
-          <button
-            type='button'
-            onClick={() => setTab('detail')}
-            className={cn(
-              'flex-1 py-2.5 text-sm font-semibold transition-colors',
-              tab === 'detail'
-                ? 'border-primary text-primary border-b-2'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            상세 정보
-          </button>
-          <button
-            type='button'
-            onClick={() => setTab('policy')}
-            className={cn(
-              'flex-1 py-2.5 text-sm font-semibold transition-colors',
-              tab === 'policy'
-                ? 'border-primary text-primary border-b-2'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            취소 및 환불 정책
-          </button>
-        </div>
+        <h2 className='border-b py-2.5 text-sm font-semibold'>상세 정보</h2>
+        <div className='mt-3 space-y-3'>
+          {product.description ? (
+            <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
+          ) : (
+            <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
+          )}
 
-        {tab === 'detail' ? (
-          <div className='mt-3 space-y-3'>
-            {product.description ? (
-              <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
-            ) : (
-              <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
-            )}
-
-            {filteredMenus.length > 0 && (
-              <div>
-                <button
-                  type='button'
-                  className='bg-muted/50 hover:bg-muted flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
-                  onClick={() => setMenuOpen((v) => !v)}
-                >
-                  <span>일별 메뉴 ({filteredMenus.length}일)</span>
-                  {menuOpen ? <ChevronUp className='size-4' /> : <ChevronDown className='size-4' />}
-                </button>
-                {menuOpen && (
-                  <ul className='mt-2 space-y-1.5'>
-                    {filteredMenus.map((m) => (
-                      <li key={m.id}>
-                        <Card className='overflow-hidden p-0'>
-                          <div className='flex items-center gap-2.5 px-2.5 py-2'>
-                            {m.image_url && (
-                              <div className='relative h-14 w-14 shrink-0 overflow-hidden rounded-md'>
-                                <MealImage
-                                  src={m.image_url}
-                                  type='menu'
-                                  alt={`${m.date} 식단`}
-                                  fill
-                                  className='rounded-md'
-                                />
-                              </div>
-                            )}
-                            <div className='min-w-0 flex-1'>
-                              <p className='text-muted-foreground text-xs'>{m.date}</p>
-                              <p className='mt-0.5 line-clamp-2 text-sm whitespace-pre-wrap'>
-                                {m.menu_text}
-                              </p>
+          {filteredMenus.length > 0 && (
+            <div>
+              <button
+                type='button'
+                className='bg-muted/50 hover:bg-muted flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <span>일별 메뉴 ({filteredMenus.length}일)</span>
+                {menuOpen ? <ChevronUp className='size-4' /> : <ChevronDown className='size-4' />}
+              </button>
+              {menuOpen && (
+                <ul className='mt-2 space-y-1.5'>
+                  {filteredMenus.map((m) => (
+                    <li key={m.id}>
+                      <Card className='overflow-hidden p-0'>
+                        <div className='flex items-center gap-2.5 px-2.5 py-2'>
+                          {m.image_url && (
+                            <div className='relative h-14 w-14 shrink-0 overflow-hidden rounded-md'>
+                              <MealImage
+                                src={m.image_url}
+                                type='menu'
+                                alt={`${m.date} 식단`}
+                                fill
+                                className='rounded-md'
+                              />
                             </div>
+                          )}
+                          <div className='min-w-0 flex-1'>
+                            <p className='text-muted-foreground text-xs'>{m.date}</p>
+                            <p className='mt-0.5 line-clamp-2 text-sm whitespace-pre-wrap'>
+                              {m.menu_text}
+                            </p>
                           </div>
-                        </Card>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className='bg-muted/50 mt-3 space-y-1.5 rounded-lg p-4'>
-            <ul className='space-y-1.5 text-sm'>
-              {policy.lines.map((line, idx) => (
-                <li
-                  key={idx}
-                  className={cn('flex gap-2', line.emphasized && 'font-semibold text-red-600')}
-                >
-                  <span aria-hidden>•</span>
-                  <span className='whitespace-pre-wrap'>{line.text}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                        </div>
+                      </Card>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h2 className='border-b py-2.5 text-sm font-semibold'>취소 및 환불 정책</h2>
+        <div className='bg-muted/50 mt-3 space-y-1.5 rounded-lg p-4'>
+          <ul className='space-y-1.5 text-sm'>
+            {policy.lines.map((line, idx) => (
+              <li
+                key={idx}
+                className={cn('flex gap-2', line.emphasized && 'font-semibold text-red-600')}
+              >
+                <span aria-hidden>•</span>
+                <span className='whitespace-pre-wrap'>{line.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
       {error && !paid ? <p className='text-sm text-red-600'>{error}</p> : null}
