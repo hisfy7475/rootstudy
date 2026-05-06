@@ -17,12 +17,12 @@ export async function getOrCreateChatRoom(studentId: string) {
     return { error: '로그인이 필요합니다.' };
   }
 
-  // 기존 채팅방 조회
-  const { data: existingRoom, error: selectError } = await supabase
+  // 기존 채팅방 조회 (RLS 적용 — 같은 지점 어드민/학부모/학생만 보임)
+  const { data: existingRoom } = await supabase
     .from('chat_rooms')
     .select('*')
     .eq('student_id', studentId)
-    .single();
+    .maybeSingle();
 
   if (existingRoom) {
     return { data: existingRoom };
@@ -36,12 +36,25 @@ export async function getOrCreateChatRoom(studentId: string) {
     .select()
     .single();
 
-  if (insertError) {
-    console.error('Error creating chat room:', insertError);
-    return { error: '채팅방 생성에 실패했습니다.' };
+  if (newRoom) {
+    return { data: newRoom };
   }
 
-  return { data: newRoom };
+  // 동시 호출 시 UNIQUE(student_id) 충돌(23505)이 날 수 있다.
+  // 그땐 다른 호출자가 이미 만들었다는 뜻이므로 admin 클라이언트로 재SELECT 하여 흡수.
+  if ((insertError as { code?: string } | null)?.code === '23505') {
+    const { data: raceRoom } = await adminSupabase
+      .from('chat_rooms')
+      .select('*')
+      .eq('student_id', studentId)
+      .single();
+    if (raceRoom) {
+      return { data: raceRoom };
+    }
+  }
+
+  console.error('Error creating chat room:', insertError);
+  return { error: '채팅방 생성에 실패했습니다.' };
 }
 
 // 현재 사용자의 채팅방 조회 (학생/학부모용)
@@ -194,10 +207,12 @@ export async function getAdminUnreadChatCount() {
 }
 
 // 관리자용 채팅방 목록 조회 (페이지네이션 + 서버사이드 검색)
+// studentId 지정 시 단일 방 조회 모드로 동작 (외부 진입점에서 활용)
 export async function getChatRoomList(options?: {
   limit?: number;
   offset?: number;
   search?: string;
+  studentId?: string;
 }) {
   const supabase = await createClient();
   const {
@@ -221,12 +236,14 @@ export async function getChatRoomList(options?: {
   const limit = options?.limit ?? 30;
   const offset = options?.offset ?? 0;
   const search = options?.search?.trim() || null;
+  const studentId = options?.studentId ?? null;
 
   const { data: rooms, error } = await supabase.rpc('get_chat_room_list', {
     p_limit: limit + 1,
     p_offset: offset,
     p_search: search,
     p_admin_id: user.id,
+    p_student_id: studentId,
   });
 
   if (error) {
@@ -693,7 +710,9 @@ async function sendChatNotifications(params: {
   }
 
   // 관리자에게 알림 (발신자가 관리자가 아닌 경우)
+  // link 에 studentId 를 부착해 알림 탭 시 해당 학생 채팅방으로 직진하도록 한다.
   if (params.senderType !== 'admin') {
+    const adminLink = `/admin/chat?studentId=${room.student_id}`;
     for (const adminId of adminIds) {
       if (adminId !== params.senderId) {
         notificationPromises.push(
@@ -702,7 +721,7 @@ async function sendChatNotifications(params: {
             type: 'chat',
             title: `${senderLabel}의 새 메시지`,
             message: notificationMessage,
-            link: '/admin/chat',
+            link: adminLink,
           }),
         );
       }

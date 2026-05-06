@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -738,11 +739,17 @@ export function AttendanceClient({
                             </span>
                           </td>
 
-                          {/* 이름 */}
+                          {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
                           <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
                             <div className='flex items-center gap-1.5'>
                               <User className='h-3.5 w-3.5 text-gray-400 print:hidden' />
-                              <span className='font-medium'>{student.name}</span>
+                              <Link
+                                href={`/admin/chat?studentId=${student.id}`}
+                                className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
+                                title='채팅방 열기'
+                              >
+                                {student.name}
+                              </Link>
                             </div>
                           </td>
 
@@ -996,9 +1003,15 @@ export function AttendanceClient({
                         </span>
                       </td>
 
-                      {/* 이름 */}
+                      {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
                       <td className='sticky left-10 z-10 bg-white px-2 py-1.5 print:px-1 print:py-0.5'>
-                        <span className='font-medium'>{student.name}</span>
+                        <Link
+                          href={`/admin/chat?studentId=${student.id}`}
+                          className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
+                          title='채팅방 열기'
+                        >
+                          {student.name}
+                        </Link>
                       </td>
 
                       {/* 각 날짜별 출석 상태 */}
