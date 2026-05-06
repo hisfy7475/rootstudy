@@ -7,27 +7,31 @@ import { getMandatoryTime } from './date-type';
 import { isInAbsencePeriod } from './absence-schedule';
 import { PENALTY_RULES } from '@/lib/constants';
 import { createStudentNotification } from './notification';
-import { getRewardPresets, getPenaltyPresets, type RewardPreset, type PenaltyPreset } from './admin';
+import {
+  getRewardPresets,
+  getPenaltyPresets,
+  type RewardPreset,
+  type PenaltyPreset,
+} from './admin';
+import { softDeleteUser } from '@/lib/withdraw';
 
 // 내부용: 자동 벌점 부여 (관리자 로그인 없이)
 async function giveAutoPoints(
   studentId: string,
   type: 'reward' | 'penalty',
   amount: number,
-  reason: string
+  reason: string,
 ) {
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('points')
-    .insert({
-      student_id: studentId,
-      admin_id: null, // 자동 부여이므로 관리자 없음
-      type,
-      amount,
-      reason,
-      is_auto: true,
-    });
+  const { error } = await supabase.from('points').insert({
+    student_id: studentId,
+    admin_id: null, // 자동 부여이므로 관리자 없음
+    type,
+    amount,
+    reason,
+    is_auto: true,
+  });
 
   if (error) {
     console.error('Error giving auto points:', error);
@@ -81,7 +85,11 @@ async function checkLateArrival(studentId: string) {
   if (now <= mandatoryStartTime) return; // 정시 또는 이전 입실
 
   // 부재 스케줄 면제 확인
-  const exemption = await isInAbsencePeriod(studentId, now, mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined);
+  const exemption = await isInAbsencePeriod(
+    studentId,
+    now,
+    mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined,
+  );
   if (exemption.isExempted) return; // 면제 대상
 
   // 자동 벌점 부여
@@ -89,7 +97,7 @@ async function checkLateArrival(studentId: string) {
     studentId,
     'penalty',
     PENALTY_RULES.lateCheckIn.amount,
-    PENALTY_RULES.lateCheckIn.reason
+    PENALTY_RULES.lateCheckIn.reason,
   );
 }
 
@@ -109,7 +117,7 @@ async function checkEarlyDeparture(studentId: string) {
   // 의무 종료 시간 파싱
   const [endHour, endMinute] = mandatory.endTime.split(':').map(Number);
   const mandatoryEndTime = new Date(studyDate);
-  
+
   // 시간이 24시를 넘는 경우 처리 (예: 25:30 = 다음날 01:30)
   if (endHour >= 24) {
     mandatoryEndTime.setDate(mandatoryEndTime.getDate() + 1);
@@ -122,7 +130,11 @@ async function checkEarlyDeparture(studentId: string) {
   if (now >= mandatoryEndTime) return; // 정시 또는 이후 퇴실
 
   // 부재 스케줄 면제 확인
-  const exemption = await isInAbsencePeriod(studentId, now, mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined);
+  const exemption = await isInAbsencePeriod(
+    studentId,
+    now,
+    mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined,
+  );
   if (exemption.isExempted) return; // 면제 대상
 
   // 자동 벌점 부여
@@ -130,15 +142,17 @@ async function checkEarlyDeparture(studentId: string) {
     studentId,
     'penalty',
     PENALTY_RULES.earlyCheckOut.amount,
-    PENALTY_RULES.earlyCheckOut.reason
+    PENALTY_RULES.earlyCheckOut.reason,
   );
 }
 
 // 학생의 오늘(학습일 기준) 입실/퇴실 기록 조회
 export async function getTodayAttendance() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { attendance: [], status: 'checked_out' as const };
 
   // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
@@ -174,8 +188,10 @@ export async function getTodayAttendance() {
 // 오늘(학습일 기준)의 학습시간 계산 (초 단위)
 export async function getTodayStudyTime() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { totalSeconds: 0, checkInTime: null };
 
   // 학습일 기준으로 조회 (06:00 ~ 다음날 03:00)
@@ -200,7 +216,7 @@ export async function getTodayStudyTime() {
 
   for (const record of attendance) {
     const timestamp = new Date(record.timestamp);
-    
+
     switch (record.type) {
       case 'check_in':
         checkInTime = timestamp;
@@ -226,9 +242,9 @@ export async function getTodayStudyTime() {
   }
 
   // 아직 입실 중이면 현재까지 시간 추가 (클라이언트에서 실시간 계산)
-  return { 
-    totalSeconds, 
-    checkInTime: checkInTime ? checkInTime.toISOString() : null 
+  return {
+    totalSeconds,
+    checkInTime: checkInTime ? checkInTime.toISOString() : null,
   };
 }
 
@@ -236,11 +252,13 @@ export async function getTodayStudyTime() {
 // attendance 테이블의 check_in 기록 기반으로 출석 여부 판단
 export async function getWeeklyGoals(studentId?: string) {
   const supabase = await createClient();
-  
+
   let targetStudentId = studentId;
-  
+
   if (!targetStudentId) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return [];
     targetStudentId = user.id;
   }
@@ -264,7 +282,9 @@ export async function getWeeklyGoals(studentId?: string) {
   const attendedDates = new Set<string>();
   if (attendanceRecords) {
     for (const record of attendanceRecords) {
-      const dateStr = new Date(record.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD KST
+      const dateStr = new Date(record.timestamp).toLocaleDateString('en-CA', {
+        timeZone: 'Asia/Seoul',
+      }); // YYYY-MM-DD KST
       attendedDates.add(dateStr);
     }
   }
@@ -278,13 +298,13 @@ export async function getWeeklyGoals(studentId?: string) {
     const date = new Date(startOfWeek);
     date.setDate(startOfWeek.getDate() + i);
     const dateStr = date.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD KST
-    
+
     const attended = attendedDates.has(dateStr);
-    
+
     weekDays.push({
       date: date.toISOString(),
       // 출석한 날: true, 오늘 이후(미래): null, 과거 미출석: false
-      achieved: attended ? true : (date <= today ? false : null),
+      achieved: attended ? true : date <= today ? false : null,
     });
   }
 
@@ -294,17 +314,17 @@ export async function getWeeklyGoals(studentId?: string) {
 // 입실 처리
 export async function checkIn() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const { error } = await supabase
-    .from('attendance')
-    .insert({
-      student_id: user.id,
-      type: 'check_in',
-      source: 'manual',
-    });
+  const { error } = await supabase.from('attendance').insert({
+    student_id: user.id,
+    type: 'check_in',
+    source: 'manual',
+  });
 
   if (error) {
     console.error('Error checking in:', error);
@@ -321,8 +341,10 @@ export async function checkIn() {
 // 퇴실 처리
 export async function checkOut() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   // 조기퇴실 체크 및 자동 벌점 (비동기로 실행, 퇴실 처리에는 영향 없음)
@@ -335,13 +357,11 @@ export async function checkOut() {
     .eq('student_id', user.id)
     .eq('is_current', true);
 
-  const { error } = await supabase
-    .from('attendance')
-    .insert({
-      student_id: user.id,
-      type: 'check_out',
-      source: 'manual',
-    });
+  const { error } = await supabase.from('attendance').insert({
+    student_id: user.id,
+    type: 'check_out',
+    source: 'manual',
+  });
 
   if (error) {
     console.error('Error checking out:', error);
@@ -356,17 +376,17 @@ export async function checkOut() {
 // 외출 시작
 export async function startBreak() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const { error } = await supabase
-    .from('attendance')
-    .insert({
-      student_id: user.id,
-      type: 'break_start',
-      source: 'manual',
-    });
+  const { error } = await supabase.from('attendance').insert({
+    student_id: user.id,
+    type: 'break_start',
+    source: 'manual',
+  });
 
   if (error) {
     console.error('Error starting break:', error);
@@ -380,8 +400,10 @@ export async function startBreak() {
 // 외출 종료 (15분 외출 로직 적용)
 export async function endBreak() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   // 학습일 기준으로 오늘의 break_start 기록 조회
@@ -405,9 +427,9 @@ export async function endBreak() {
   if (breakStartRecord) {
     const breakStartTime = new Date(breakStartRecord.timestamp);
     const elapsedMinutes = (now.getTime() - breakStartTime.getTime()) / (1000 * 60);
-    
+
     const { ATTENDANCE_CONFIG } = await import('@/lib/constants');
-    
+
     // 15분 초과 시: 퇴실-재입실 처리
     if (elapsedMinutes > ATTENDANCE_CONFIG.gracePeriodMinutes) {
       // 현재 학습 중인 과목 종료 (break_start 시점으로)
@@ -418,14 +440,12 @@ export async function endBreak() {
         .eq('is_current', true);
 
       // 1. break_start 시점에 check_out 추가
-      const { error: checkOutError } = await supabase
-        .from('attendance')
-        .insert({
-          student_id: user.id,
-          type: 'check_out',
-          timestamp: breakStartRecord.timestamp, // break_start와 동일 시간
-          source: 'manual',
-        });
+      const { error: checkOutError } = await supabase.from('attendance').insert({
+        student_id: user.id,
+        type: 'check_out',
+        timestamp: breakStartRecord.timestamp, // break_start와 동일 시간
+        source: 'manual',
+      });
 
       if (checkOutError) {
         console.error('Error adding check_out:', checkOutError);
@@ -433,13 +453,11 @@ export async function endBreak() {
       }
 
       // 2. 현재 시점에 check_in 추가 (재입실)
-      const { error: checkInError } = await supabase
-        .from('attendance')
-        .insert({
-          student_id: user.id,
-          type: 'check_in',
-          source: 'manual',
-        });
+      const { error: checkInError } = await supabase.from('attendance').insert({
+        student_id: user.id,
+        type: 'check_in',
+        source: 'manual',
+      });
 
       if (checkInError) {
         console.error('Error adding check_in:', checkInError);
@@ -453,13 +471,11 @@ export async function endBreak() {
   }
 
   // 15분 이내: 기존 로직 (break_end만 추가)
-  const { error } = await supabase
-    .from('attendance')
-    .insert({
-      student_id: user.id,
-      type: 'break_end',
-      source: 'manual',
-    });
+  const { error } = await supabase.from('attendance').insert({
+    student_id: user.id,
+    type: 'break_end',
+    source: 'manual',
+  });
 
   if (error) {
     console.error('Error ending break:', error);
@@ -473,8 +489,10 @@ export async function endBreak() {
 // 현재 학습 과목 조회
 export async function getCurrentSubject() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
   // 현재 학습일 시작 시간 이후에 시작된 과목만 조회 (전날 stale 과목 방어)
@@ -494,14 +512,16 @@ export async function getCurrentSubject() {
 // 과목 변경
 export async function changeSubject(subjectName: string) {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   // 입실 상태 확인 - attendance 테이블에서 오늘의 마지막 기록 확인
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
-  
+
   const { data: lastAttendance } = await supabase
     .from('attendance')
     .select('type')
@@ -511,10 +531,10 @@ export async function changeSubject(subjectName: string) {
     .order('timestamp', { ascending: false })
     .limit(1)
     .single();
-    
+
   // 마지막 기록이 check_in 또는 break_end여야 입실 상태
   const isCheckedIn = lastAttendance?.type === 'check_in' || lastAttendance?.type === 'break_end';
-  
+
   if (!isCheckedIn) {
     return { error: '입실 상태에서만 과목을 변경할 수 있습니다.' };
   }
@@ -527,13 +547,11 @@ export async function changeSubject(subjectName: string) {
     .eq('is_current', true);
 
   // 새 과목 시작
-  const { error } = await supabase
-    .from('subjects')
-    .insert({
-      student_id: user.id,
-      subject_name: subjectName,
-      is_current: true,
-    });
+  const { error } = await supabase.from('subjects').insert({
+    student_id: user.id,
+    subject_name: subjectName,
+    is_current: true,
+  });
 
   if (error) {
     console.error('Error changing subject:', error);
@@ -548,8 +566,10 @@ export async function changeSubject(subjectName: string) {
 // 오늘(학습일 기준)의 몰입도 조회
 export async function getTodayFocus() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // 학습일 기준으로 조회
@@ -570,8 +590,10 @@ export async function getTodayFocus() {
 // 주간 몰입도 조회 (DAY_CONFIG.weekStartsOn 기준)
 export async function getWeeklyFocus() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // 이번 주 시작일 (DAY_CONFIG 기준)
@@ -590,8 +612,10 @@ export async function getWeeklyFocus() {
 // 상벌점 내역 조회
 export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { points: [], summary: { reward: 0, penalty: 0, total: 0 } };
 
   let query = supabase
@@ -608,11 +632,9 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
 
   // 총점 계산
   const allPoints = data || [];
-  const reward = allPoints
-    .filter(p => p.type === 'reward')
-    .reduce((sum, p) => sum + p.amount, 0);
+  const reward = allPoints.filter((p) => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
   const penalty = allPoints
-    .filter(p => p.type === 'penalty')
+    .filter((p) => p.type === 'penalty')
     .reduce((sum, p) => sum + p.amount, 0);
 
   return {
@@ -654,8 +676,10 @@ export async function getPointPresets(): Promise<{
 // 오늘(학습일 기준)의 과목 기록 조회
 export async function getTodaySubjects() {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // 학습일 기준으로 조회
@@ -676,11 +700,13 @@ export async function getTodaySubjects() {
 // 주간 학습 시간 계산 (분 단위)
 export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
   const supabase = await createClient();
-  
+
   let targetStudentId = studentId;
-  
+
   if (!targetStudentId) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return 0;
     targetStudentId = user.id;
   }
@@ -708,7 +734,7 @@ export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
 
   for (const record of attendance) {
     const timestamp = new Date(record.timestamp);
-    
+
     switch (record.type) {
       case 'check_in':
         checkInTime = timestamp;
@@ -748,11 +774,13 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
   studentTypeName: string | null;
 }> {
   const supabase = await createClient();
-  
+
   let targetStudentId = studentId;
-  
+
   if (!targetStudentId) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return { goalHours: 0, actualMinutes: 0, progressPercent: 0, studentTypeName: null };
     targetStudentId = user.id;
   }
@@ -760,13 +788,15 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
   // 학생의 타입 정보와 지점 정보 조회
   const { data: studentProfile } = await supabase
     .from('student_profiles')
-    .select(`
+    .select(
+      `
       student_type_id,
       student_types (
         name,
         weekly_goal_hours
       )
-    `)
+    `,
+    )
     .eq('id', targetStudentId)
     .single();
 
@@ -800,9 +830,8 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
 
   // 달성률 계산
   const goalMinutes = goalHours * 60;
-  const progressPercent = goalMinutes > 0 
-    ? Math.min(100, Math.round((actualMinutes / goalMinutes) * 100))
-    : 0;
+  const progressPercent =
+    goalMinutes > 0 ? Math.min(100, Math.round((actualMinutes / goalMinutes) * 100)) : 0;
 
   return {
     goalHours,
@@ -816,49 +845,49 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
 async function calculateWeeklyGoalHours(
   studentTypeId: string,
   branchId: string,
-  defaultGoalHours: number
+  defaultGoalHours: number,
 ): Promise<number> {
   const supabase = await createClient();
-  
+
   // 이번 주의 시작일(일요일)과 종료일(토요일) 계산
   const weekStart = getWeekStart(new Date());
   const weekDates: string[] = [];
-  
+
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStart);
     date.setDate(date.getDate() + i);
     weekDates.push(date.toISOString().split('T')[0]);
   }
-  
+
   // 해당 주의 날짜별 date_type 조회
   const { data: dateAssignments } = await supabase
     .from('date_assignments')
     .select('date, date_type_id')
     .eq('branch_id', branchId)
     .in('date', weekDates);
-  
+
   // 날짜별 date_type_id 맵 생성
   const dateTypeMap = new Map<string, string>();
-  dateAssignments?.forEach(da => {
+  dateAssignments?.forEach((da) => {
     dateTypeMap.set(da.date, da.date_type_id);
   });
-  
+
   // 학생 타입의 날짜 타입별 목표 설정 조회
   const { data: goalSettings } = await supabase
     .from('weekly_goal_settings')
     .select('date_type_id, weekly_goal_hours')
     .eq('student_type_id', studentTypeId);
-  
+
   // 날짜 타입별 목표시간 맵 생성
   const goalMap = new Map<string, number>();
-  goalSettings?.forEach(gs => {
+  goalSettings?.forEach((gs) => {
     goalMap.set(gs.date_type_id, gs.weekly_goal_hours);
   });
-  
+
   // 날짜 타입별 일수 카운트 및 목표시간 합산
   let totalGoalHours = 0;
   let assignedDays = 0;
-  
+
   for (const date of weekDates) {
     const dateTypeId = dateTypeMap.get(date);
     if (dateTypeId && goalMap.has(dateTypeId)) {
@@ -867,7 +896,7 @@ async function calculateWeeklyGoalHours(
       assignedDays++;
     }
   }
-  
+
   // 모든 날짜에 설정이 있으면 계산된 값 사용, 아니면 기본값으로 채움
   if (assignedDays === 7) {
     return Math.round(totalGoalHours);
@@ -875,7 +904,7 @@ async function calculateWeeklyGoalHours(
     // 일부만 설정된 경우: 설정된 날은 설정값, 나머지는 기본값의 일일 비율로 계산
     const unassignedDays = 7 - assignedDays;
     const dailyDefault = defaultGoalHours / 7;
-    return Math.round(totalGoalHours + (dailyDefault * unassignedDays));
+    return Math.round(totalGoalHours + dailyDefault * unassignedDays);
   } else {
     // 설정이 없으면 기본값 사용
     return defaultGoalHours;
@@ -918,9 +947,12 @@ function getMonthStart(date: Date = new Date()): Date {
 }
 
 // 기간별 날짜 범위 계산
-function getPeriodBounds(period: StudyPeriod, baseDate: Date = new Date()): { start: Date; end: Date } {
+function getPeriodBounds(
+  period: StudyPeriod,
+  baseDate: Date = new Date(),
+): { start: Date; end: Date } {
   const studyDate = getStudyDate(baseDate);
-  
+
   switch (period) {
     case 'daily':
       return getStudyDayBounds(studyDate);
@@ -942,14 +974,14 @@ function getPeriodBounds(period: StudyPeriod, baseDate: Date = new Date()): { st
 // 출석 기록에서 학습 세션 추출
 function extractStudySessions(
   attendance: Array<{ type: string; timestamp: string }>,
-  periodEnd: Date
+  periodEnd: Date,
 ): StudySession[] {
   const sessions: StudySession[] = [];
   let checkInTime: Date | null = null;
 
   for (const record of attendance) {
     const timestamp = new Date(record.timestamp);
-    
+
     switch (record.type) {
       case 'check_in':
         checkInTime = timestamp;
@@ -997,7 +1029,7 @@ function extractStudySessions(
 // 기간별 학습 통계 조회
 export async function getStudyStatsByPeriod(
   period: StudyPeriod,
-  baseDate?: Date
+  baseDate?: Date,
 ): Promise<{
   totalSeconds: number;
   sessions: StudySession[];
@@ -1005,8 +1037,10 @@ export async function getStudyStatsByPeriod(
   periodEnd: string;
 }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { totalSeconds: 0, sessions: [], periodStart: '', periodEnd: '' };
 
   const { start, end } = getPeriodBounds(period, baseDate);
@@ -1033,7 +1067,7 @@ export async function getStudyStatsByPeriod(
 // 기간별 과목별 학습시간 조회
 export async function getSubjectStudyTime(
   period: StudyPeriod,
-  baseDate?: Date
+  baseDate?: Date,
 ): Promise<{
   subjectTimes: Record<string, number>;
   subjectRecords: SubjectStudyRecord[];
@@ -1041,14 +1075,16 @@ export async function getSubjectStudyTime(
   unclassifiedSegments: UnclassifiedSegment[];
 }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
-    return { 
-      subjectTimes: {}, 
-      subjectRecords: [], 
-      unclassifiedSeconds: 0, 
-      unclassifiedSegments: [] 
+    return {
+      subjectTimes: {},
+      subjectRecords: [],
+      unclassifiedSeconds: 0,
+      unclassifiedSegments: [],
     };
   }
 
@@ -1082,10 +1118,10 @@ export async function getSubjectStudyTime(
 
   for (const subject of subjects || []) {
     const subjectStart = new Date(subject.started_at);
-    const subjectEnd = subject.ended_at 
-      ? new Date(subject.ended_at) 
-      : subject.is_current 
-        ? new Date() 
+    const subjectEnd = subject.ended_at
+      ? new Date(subject.ended_at)
+      : subject.is_current
+        ? new Date()
         : subjectStart;
 
     // 학습 세션과 교차하는 시간만 계산 (퇴실 이후 시간 제외)
@@ -1097,8 +1133,9 @@ export async function getSubjectStudyTime(
         effectiveSeconds += Math.floor((overlapEnd - overlapStart) / 1000);
       }
     }
-    
-    subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + effectiveSeconds;
+
+    subjectTimes[subject.subject_name] =
+      (subjectTimes[subject.subject_name] || 0) + effectiveSeconds;
     subjectRecords.push({
       subjectName: subject.subject_name,
       startTime: subjectStart,
@@ -1124,14 +1161,14 @@ export async function getSubjectStudyTime(
 // 미분류 구간 계산
 function calculateUnclassifiedSegments(
   studySessions: StudySession[],
-  subjectRecords: SubjectStudyRecord[]
+  subjectRecords: SubjectStudyRecord[],
 ): UnclassifiedSegment[] {
   const segments: UnclassifiedSegment[] = [];
-  
+
   for (const session of studySessions) {
     // 이 세션과 겹치는 과목 기록 찾기
-    const overlappingSubjects = subjectRecords.filter(sr => 
-      sr.startTime < session.endTime && sr.endTime > session.startTime
+    const overlappingSubjects = subjectRecords.filter(
+      (sr) => sr.startTime < session.endTime && sr.endTime > session.startTime,
     );
 
     if (overlappingSubjects.length === 0) {
@@ -1145,7 +1182,7 @@ function calculateUnclassifiedSegments(
     } else {
       // 세션 내 미분류 구간 찾기
       const covered: Array<{ start: number; end: number }> = [];
-      
+
       for (const sr of overlappingSubjects) {
         const overlapStart = Math.max(session.startTime.getTime(), sr.startTime.getTime());
         const overlapEnd = Math.min(session.endTime.getTime(), sr.endTime.getTime());
@@ -1203,15 +1240,17 @@ function calculateUnclassifiedSegments(
 // 일별 학습 시간 추이 (주간/월간 용)
 export async function getDailyStudyTrend(
   period: 'weekly' | 'monthly',
-  baseDate?: Date
+  baseDate?: Date,
 ): Promise<Array<{ date: string; totalSeconds: number; subjectTimes: Record<string, number> }>> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   const { start, end } = getPeriodBounds(period, baseDate);
-  
+
   // 전체 기간의 출석 기록
   const { data: attendance } = await supabase
     .from('attendance')
@@ -1231,10 +1270,13 @@ export async function getDailyStudyTrend(
     .order('started_at', { ascending: true });
 
   // 일별로 데이터 그룹화
-  const dailyData: Map<string, { 
-    attendance: typeof attendance;
-    subjects: typeof subjects;
-  }> = new Map();
+  const dailyData: Map<
+    string,
+    {
+      attendance: typeof attendance;
+      subjects: typeof subjects;
+    }
+  > = new Map();
 
   // 기간 내 모든 날짜 초기화
   const current = new Date(start);
@@ -1263,8 +1305,12 @@ export async function getDailyStudyTrend(
   }
 
   // 일별 통계 계산
-  const result: Array<{ date: string; totalSeconds: number; subjectTimes: Record<string, number> }> = [];
-  
+  const result: Array<{
+    date: string;
+    totalSeconds: number;
+    subjectTimes: Record<string, number>;
+  }> = [];
+
   for (const [dateStr, data] of dailyData) {
     const dayBounds = getStudyDayBounds(new Date(dateStr));
     const sessions = extractStudySessions(data.attendance || [], dayBounds.end);
@@ -1273,13 +1319,14 @@ export async function getDailyStudyTrend(
     const subjectTimes: Record<string, number> = {};
     for (const subject of data.subjects || []) {
       const subjectStart = new Date(subject.started_at);
-      const subjectEnd = subject.ended_at 
-        ? new Date(subject.ended_at) 
-        : subject.is_current 
-          ? new Date() 
+      const subjectEnd = subject.ended_at
+        ? new Date(subject.ended_at)
+        : subject.is_current
+          ? new Date()
           : subjectStart;
       const durationSeconds = Math.floor((subjectEnd.getTime() - subjectStart.getTime()) / 1000);
-      subjectTimes[subject.subject_name] = (subjectTimes[subject.subject_name] || 0) + durationSeconds;
+      subjectTimes[subject.subject_name] =
+        (subjectTimes[subject.subject_name] || 0) + durationSeconds;
     }
 
     result.push({ date: dateStr, totalSeconds, subjectTimes });
@@ -1291,7 +1338,7 @@ export async function getDailyStudyTrend(
 // 이전 기간 대비 비교
 export async function getStudyComparison(
   period: StudyPeriod,
-  baseDate?: Date
+  baseDate?: Date,
 ): Promise<{
   currentSeconds: number;
   previousSeconds: number;
@@ -1299,10 +1346,10 @@ export async function getStudyComparison(
   changeDirection: 'up' | 'down' | 'same';
 }> {
   const date = baseDate || new Date();
-  
+
   // 현재 기간 통계
   const currentStats = await getStudyStatsByPeriod(period, date);
-  
+
   // 이전 기간 날짜 계산
   let previousDate: Date;
   switch (period) {
@@ -1323,9 +1370,15 @@ export async function getStudyComparison(
   // 이전 기간 통계
   const previousStats = await getStudyStatsByPeriod(period, previousDate);
 
-  const changePercent = previousStats.totalSeconds > 0
-    ? Math.round(((currentStats.totalSeconds - previousStats.totalSeconds) / previousStats.totalSeconds) * 100)
-    : currentStats.totalSeconds > 0 ? 100 : 0;
+  const changePercent =
+    previousStats.totalSeconds > 0
+      ? Math.round(
+          ((currentStats.totalSeconds - previousStats.totalSeconds) / previousStats.totalSeconds) *
+            100,
+        )
+      : currentStats.totalSeconds > 0
+        ? 100
+        : 0;
 
   const changeDirection = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'same';
 
@@ -1341,11 +1394,13 @@ export async function getStudyComparison(
 export async function assignUnclassifiedTime(
   startTime: string,
   endTime: string,
-  subjectName: string
+  subjectName: string,
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const start = new Date(startTime);
@@ -1374,10 +1429,10 @@ export async function assignUnclassifiedTime(
     if (existing.is_current && !existing.ended_at) {
       continue;
     }
-    
+
     const existingStart = new Date(existing.started_at);
     const existingEnd = existing.ended_at ? new Date(existing.ended_at) : existingStart;
-    
+
     // 할당하려는 시간과 겹치는지 확인
     if (existingStart < end && existingEnd > start) {
       return { error: '이미 과목이 할당된 시간대와 겹칩니다.' };
@@ -1385,15 +1440,13 @@ export async function assignUnclassifiedTime(
   }
 
   // 새 과목 기록 삽입
-  const { error } = await supabase
-    .from('subjects')
-    .insert({
-      student_id: user.id,
-      subject_name: subjectName,
-      started_at: start.toISOString(),
-      ended_at: end.toISOString(),
-      is_current: false,
-    });
+  const { error } = await supabase.from('subjects').insert({
+    student_id: user.id,
+    subject_name: subjectName,
+    started_at: start.toISOString(),
+    ended_at: end.toISOString(),
+    is_current: false,
+  });
 
   if (error) {
     console.error('Error assigning subject:', error);
@@ -1435,14 +1488,17 @@ export interface LinkedParent {
 // 학생 본인 프로필 조회 (parent_code 포함)
 export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
   // profiles 조회
   const { data: profile } = await supabase
     .from('profiles')
-    .select(`
+    .select(
+      `
       id,
       email,
       name,
@@ -1451,7 +1507,8 @@ export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
       branches (
         name
       )
-    `)
+    `,
+    )
     .eq('id', user.id)
     .single();
 
@@ -1460,7 +1517,8 @@ export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
   // student_profiles 조회
   const { data: studentProfile } = await supabase
     .from('student_profiles')
-    .select(`
+    .select(
+      `
       seat_number,
       parent_code,
       birthday,
@@ -1468,7 +1526,8 @@ export async function getStudentProfile(): Promise<StudentProfileInfo | null> {
       student_types (
         name
       )
-    `)
+    `,
+    )
     .eq('id', user.id)
     .single();
 
@@ -1499,29 +1558,28 @@ export async function updateStudentProfile(data: {
   studentTypeId?: string | null;
 }): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
   const profileUpdateData: { name?: string; phone?: string | null } = {};
-  
+
   if (data.name !== undefined) {
     if (!data.name.trim()) {
       return { error: '이름을 입력해주세요.' };
     }
     profileUpdateData.name = data.name.trim();
   }
-  
+
   if (data.phone !== undefined) {
     profileUpdateData.phone = data.phone.trim() || null;
   }
 
   // profiles 테이블 업데이트 (이름, 전화번호)
   if (Object.keys(profileUpdateData).length > 0) {
-    const { error } = await supabase
-      .from('profiles')
-      .update(profileUpdateData)
-      .eq('id', user.id);
+    const { error } = await supabase.from('profiles').update(profileUpdateData).eq('id', user.id);
 
     if (error) {
       console.error('Error updating profile:', error);
@@ -1549,8 +1607,10 @@ export async function updateStudentProfile(data: {
 // 연결된 학부모 목록 조회
 export async function getLinkedParents(): Promise<LinkedParent[]> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return [];
 
   // parent_student_links에서 연결된 학부모 ID 목록 조회
@@ -1561,7 +1621,7 @@ export async function getLinkedParents(): Promise<LinkedParent[]> {
 
   if (!links || links.length === 0) return [];
 
-  const parentIds = links.map(link => link.parent_id);
+  const parentIds = links.map((link) => link.parent_id);
 
   // 학부모 정보 조회
   const { data: profiles } = await supabase
@@ -1571,7 +1631,7 @@ export async function getLinkedParents(): Promise<LinkedParent[]> {
 
   if (!profiles) return [];
 
-  return profiles.map(p => ({
+  return profiles.map((p) => ({
     id: p.id,
     name: p.name,
     email: p.email,
@@ -1582,11 +1642,13 @@ export async function getLinkedParents(): Promise<LinkedParent[]> {
 // 비밀번호 변경
 export async function changePassword(
   currentPassword: string,
-  newPassword: string
+  newPassword: string,
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !user.email) return { error: '로그인이 필요합니다.' };
 
   if (!currentPassword || !newPassword) {
@@ -1617,5 +1679,53 @@ export async function changePassword(
     return { error: '비밀번호 변경에 실패했습니다.' };
   }
 
+  return { success: true };
+}
+
+// 학생 본인 회원 탈퇴 (Apple App Store 5.1.1(v) 대응)
+//
+// - 현재 비밀번호 재인증 후 soft delete 처리
+// - 어드민 deleteMember 와 동일한 보존 정책 (모의고사·결제·CAPS 이력 유지)
+// - 미승인 학생(is_approved=false) 도 동일하게 탈퇴 가능
+export async function withdrawSelf(
+  currentPassword: string,
+  reason?: string,
+): Promise<{ success?: boolean; warning?: string; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !user.email) return { error: '로그인이 필요합니다.' };
+
+  if (!currentPassword) {
+    return { error: '현재 비밀번호를 입력해주세요.' };
+  }
+
+  // 현재 비밀번호 확인 (재인증)
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (signInError) {
+    return { error: '현재 비밀번호가 올바르지 않습니다.' };
+  }
+
+  const result = await softDeleteUser({
+    userId: user.id,
+    withdrawnBy: user.id,
+    reason: reason?.trim() || null,
+  });
+
+  if ('error' in result) {
+    return { error: result.error };
+  }
+
+  revalidatePath('/student');
+  revalidatePath('/student/settings');
+
+  if (result.warning) {
+    return { success: true, warning: result.warning };
+  }
   return { success: true };
 }

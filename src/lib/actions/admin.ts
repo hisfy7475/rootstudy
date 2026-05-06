@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
 import { escapeLike } from '@/lib/list-params';
+import { softDeleteUser } from '@/lib/withdraw';
 import {
   getStudyDate,
   getStudyDayBounds,
@@ -4501,38 +4502,22 @@ export async function deleteMember(
       }
     }
 
-    const { error: updateError } = await adminClient
-      .from('profiles')
-      .update({
-        withdrawn_at: new Date().toISOString(),
-        withdrawn_by: user.id,
-        withdrawn_reason: reason ?? null,
-      })
-      .eq('id', userId);
-
-    if (updateError) {
-      console.error('Error marking profile withdrawn:', updateError);
-      return { error: '회원 퇴원 처리에 실패했습니다.' };
-    }
-
-    // 비활성 토큰 누적 방지 — 기기 재로그인 시 다시 등록됨
-    await adminClient.from('push_tokens').delete().eq('user_id', userId);
-
-    // Supabase Auth ban (사실상 영구 차단). 복구 시 'none' 으로 해제.
-    const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
-      ban_duration: '876000h',
+    const result = await softDeleteUser({
+      userId,
+      withdrawnBy: user.id,
+      reason,
     });
 
-    if (authError) {
-      console.error('Error banning auth user:', authError);
-      return {
-        success: true,
-        warning: '계정 차단(Auth ban) 적용에 실패했습니다. 수동 확인이 필요합니다.',
-      };
+    if ('error' in result) {
+      return { error: result.error };
     }
 
     revalidatePath('/admin');
     revalidatePath('/admin/members');
+
+    if (result.warning) {
+      return { success: true, warning: result.warning };
+    }
     return { success: true };
   } catch (error) {
     console.error('Error in deleteMember:', error);

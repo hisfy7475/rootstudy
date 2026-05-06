@@ -28,10 +28,10 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const branchId = formData.get('branchId') as string;
   const studentTypeId = formData.get('studentTypeId') as string;
 
-  if (!email || !password || !name || !phone || !school || !branchId || !studentTypeId) {
+  if (!email || !password || !name || !school || !branchId || !studentTypeId) {
     return {
       success: false,
-      error: '필수 항목을 모두 입력해주세요. (이메일, 비밀번호, 이름, 전화번호, 학교, 지점, 학년)',
+      error: '필수 항목을 모두 입력해주세요. (이메일, 비밀번호, 이름, 학교, 지점, 학년)',
     };
   }
 

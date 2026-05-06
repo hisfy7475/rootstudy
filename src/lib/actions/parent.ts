@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
+import { softDeleteUser } from '@/lib/withdraw';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -612,5 +613,62 @@ export async function removeChildFromParent(studentId: string) {
 
   revalidatePath('/parent');
   revalidatePath('/parent/settings');
+  return { success: true };
+}
+
+// 학부모 본인 회원 탈퇴 (Apple App Store 5.1.1(v) 대응)
+//
+// 어드민 deleteMember 는 활성 자녀가 있으면 차단하지만, 셀프 탈퇴는
+// Apple 정책상 막을 수 없으므로 자녀 연결을 자동 해제 후 soft delete.
+// 자녀 계정·학습 기록은 그대로 보존되고, 단지 알림톡 채널이 끊긴다.
+export async function withdrawSelf(
+  currentPassword: string,
+): Promise<{ success?: boolean; warning?: string; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !user.email) return { error: '로그인이 필요합니다.' };
+
+  if (!currentPassword) {
+    return { error: '현재 비밀번호를 입력해주세요.' };
+  }
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (signInError) {
+    return { error: '현재 비밀번호가 올바르지 않습니다.' };
+  }
+
+  // 자녀 연결 자동 해제 — service-role 로 RLS 우회 (학부모 RLS 가 자기 행에 한정)
+  const adminClient = createAdminClient();
+  const { error: linkError } = await adminClient
+    .from('parent_student_links')
+    .delete()
+    .eq('parent_id', user.id);
+  if (linkError) {
+    console.error('Error unlinking children on parent withdrawal:', linkError);
+    return { error: '자녀 연결 해제에 실패했습니다. 잠시 후 다시 시도해 주세요.' };
+  }
+
+  const result = await softDeleteUser({
+    userId: user.id,
+    withdrawnBy: user.id,
+    reason: null,
+  });
+
+  if ('error' in result) {
+    return { error: result.error };
+  }
+
+  revalidatePath('/parent');
+  revalidatePath('/parent/settings');
+
+  if (result.warning) {
+    return { success: true, warning: result.warning };
+  }
   return { success: true };
 }
