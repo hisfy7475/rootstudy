@@ -12,7 +12,7 @@ import {
   type ChatFileAttachment,
 } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
-import { isNativeApp } from '@/lib/utils';
+import { isNativeApp, randomUUID } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 
 interface ChatRoomProps {
@@ -51,7 +51,6 @@ export function ChatRoom({
   const [realtimeChannelGen, setRealtimeChannelGen] = useState(0);
   const realtimeRetryRef = useRef(0);
   const realtimeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingMessageIds = useRef<Set<string>>(new Set());
   const profileCacheRef = useRef<ProfileCache>(new Map());
 
   // initialMessages로부터 프로필 캐시 구성
@@ -139,11 +138,6 @@ export function ChatRoom({
             filter: `room_id=eq.${roomId}`,
           },
           async (payload) => {
-            if (pendingMessageIds.current.has(payload.new.id)) {
-              pendingMessageIds.current.delete(payload.new.id);
-              return;
-            }
-
             const senderId = payload.new.sender_id as string;
             let cached = profileCacheRef.current.get(senderId);
 
@@ -179,24 +173,11 @@ export function ChatRoom({
               created_at: payload.new.created_at,
             };
 
+            // optimistic 메시지의 id 가 곧 서버 row 의 id (clientId 가 PK).
+            // 따라서 같은 id 가 이미 state 에 있으면 echo 이며 무시하면 된다 —
+            // tempId→realId 스왑이나 content 매칭 휴리스틱이 필요 없다.
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMessage.id)) return prev;
-              // 자신이 보낸 메시지의 realtime echo 가 sendMessage 의 await 보다
-              // 먼저 도착하면 optimistic temp 메시지가 그대로 남아 있다가
-              // 곧이어 await 결과로 tempId→realId 매핑이 실행되며 동일 id 가
-              // 두 번 들어가 React key 중복 에러가 발생한다. 같은 발신자의
-              // optimistic temp 메시지가 있으면 그것을 교체한다.
-              if (newMessage.sender_id === currentUserId) {
-                const tempIdx = prev.findIndex(
-                  (m) =>
-                    m.id.startsWith('temp-') &&
-                    m.sender_id === currentUserId &&
-                    m.content === newMessage.content,
-                );
-                if (tempIdx >= 0) {
-                  return prev.map((m, i) => (i === tempIdx ? newMessage : m));
-                }
-              }
               return [...prev, newMessage];
             });
 
@@ -257,9 +238,9 @@ export function ChatRoom({
       attachment: ChatFileAttachment | null,
     ) => {
       setIsSending(true);
-      const tempId = `temp-${Date.now()}`;
+      const clientId = randomUUID();
       const optimisticMessage: ChatMessageData = {
-        id: tempId,
+        id: clientId,
         room_id: roomId,
         sender_id: currentUserId,
         sender_name: currentUserName,
@@ -277,30 +258,15 @@ export function ChatRoom({
       setMessages((prev) => [...prev, optimisticMessage]);
 
       try {
-        const result = await sendMessage(roomId, '', imageUrl, attachment);
+        const result = await sendMessage(roomId, '', imageUrl, attachment, clientId);
         if (result.error) {
-          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          setMessages((prev) => prev.filter((m) => m.id !== clientId));
           alert(result.error);
-        } else if (result.data) {
-          pendingMessageIds.current.add(result.data.id);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    id: result.data!.id,
-                    created_at: result.data!.created_at,
-                    image_url: result.data!.image_url,
-                    file_url: result.data!.file_url ?? m.file_url,
-                    file_name: result.data!.file_name ?? m.file_name,
-                    file_type: result.data!.file_type ?? m.file_type,
-                  }
-                : m,
-            ),
-          );
         }
+        // 성공 시 별도 처리 불필요: optimistic 의 id 가 곧 서버 row 의 id 이므로
+        // realtime echo 도, sendMessage 응답도 같은 row 를 가리킨다.
       } catch {
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setMessages((prev) => prev.filter((m) => m.id !== clientId));
         alert('메시지 전송에 실패했습니다.');
       } finally {
         setIsSending(false);
@@ -343,9 +309,10 @@ export function ChatRoom({
     markAsRead(roomId);
   }, [roomId]);
 
-  // 메시지 전송
+  // 메시지 전송. clientId 는 ChatInput 에서 발송 단위로 생성한 uuid 이며
+  // optimistic 메시지의 id 와 서버 row 의 id 양쪽으로 그대로 사용된다.
   const handleSend = useCallback(
-    async (content: string, imageFile?: File | null, dataFile?: File | null) => {
+    async (content: string, imageFile: File | null, dataFile: File | null, clientId: string) => {
       setIsSending(true);
 
       let imageUrl: string | null = null;
@@ -395,9 +362,8 @@ export function ChatRoom({
         }
       }
 
-      const tempId = `temp-${Date.now()}`;
       const optimisticMessage: ChatMessageData = {
-        id: tempId,
+        id: clientId,
         room_id: roomId,
         sender_id: currentUserId,
         sender_name: currentUserName,
@@ -416,31 +382,15 @@ export function ChatRoom({
       setMessages((prev) => [...prev, optimisticMessage]);
 
       try {
-        const result = await sendMessage(roomId, content, imageUrl, fileAttachment);
+        const result = await sendMessage(roomId, content, imageUrl, fileAttachment, clientId);
         if (result.error) {
-          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          setMessages((prev) => prev.filter((m) => m.id !== clientId));
           console.error('Send message error:', result.error);
           alert(result.error);
-        } else if (result.data) {
-          pendingMessageIds.current.add(result.data.id);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    id: result.data!.id,
-                    created_at: result.data!.created_at,
-                    image_url: result.data!.image_url,
-                    file_url: result.data!.file_url ?? m.file_url,
-                    file_name: result.data!.file_name ?? m.file_name,
-                    file_type: result.data!.file_type ?? m.file_type,
-                  }
-                : m,
-            ),
-          );
         }
+        // 성공 시 추가 처리 불필요 — optimistic id == 서버 id.
       } catch (error) {
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setMessages((prev) => prev.filter((m) => m.id !== clientId));
         console.error('Send message error:', error);
         alert('메시지 전송에 실패했습니다.');
       } finally {

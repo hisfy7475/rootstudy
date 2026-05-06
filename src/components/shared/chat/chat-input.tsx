@@ -2,13 +2,18 @@
 
 import { useState, useRef, KeyboardEvent, ClipboardEvent, ChangeEvent } from 'react';
 import { Send, ImagePlus, Paperclip, X } from 'lucide-react';
-import { cn, isNativeApp } from '@/lib/utils';
+import { cn, isNativeApp, randomUUID } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
 import Image from 'next/image';
 
 interface ChatInputProps {
   roomId: string;
-  onSend: (message: string, imageFile?: File | null, dataFile?: File | null) => void;
+  onSend: (
+    message: string,
+    imageFile: File | null,
+    dataFile: File | null,
+    clientId: string,
+  ) => Promise<void>;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -29,6 +34,10 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dataFileInputRef = useRef<HTMLInputElement>(null);
+  // 같은 tick 안에 도착한 두 번째 Enter / 더블클릭이 onSend 를 두 번 호출하지 않도록
+  // React state 와 무관하게 동기적으로 막는 가드. disabled prop 은 부모의 setIsSending
+  // 전파를 거치므로 같은 tick 에는 의지할 수 없다.
+  const inFlightRef = useRef(false);
   const isNative = typeof window !== 'undefined' && isNativeApp();
 
   const handleImageSelect = (file: File) => {
@@ -46,7 +55,7 @@ export function ChatInput({
 
     setSelectedDataFile(null);
     setSelectedImage(file);
-    
+
     // 미리보기 생성
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -125,125 +134,133 @@ export function ChatInput({
     fileInputRef.current?.click();
   };
 
-  const handleSend = () => {
-    if ((message.trim() || selectedImage || selectedDataFile) && !disabled) {
-      onSend(message.trim(), selectedImage, selectedDataFile);
+  const handleSend = async () => {
+    if (inFlightRef.current) return;
+    if (!(message.trim() || selectedImage || selectedDataFile) || disabled) return;
+    inFlightRef.current = true;
+    try {
+      const clientId = randomUUID();
+      await onSend(message.trim(), selectedImage, selectedDataFile, clientId);
       setMessage('');
       clearImage();
       clearDataFile();
-      // 텍스트영역 높이 리셋
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
+    } finally {
+      inFlightRef.current = false;
     }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter로 전송 (Shift+Enter는 줄바꿈)
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    // 한글/일본어/중국어 IME 조합 확정용 Enter 는 발송 트리거가 아니다.
+    // keyCode 229 는 IME 가 키 처리 중임을 나타내는 표준 sentinel.
+    if (
+      e.nativeEvent.isComposing ||
+      (e.nativeEvent as unknown as { keyCode?: number }).keyCode === 229
+    ) {
+      return;
     }
+    e.preventDefault();
+    void handleSend();
   };
 
   // 텍스트영역 자동 높이 조절
   const handleInput = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        120
-      )}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   };
 
   const canSend = (message.trim() || selectedImage || selectedDataFile) && !disabled;
 
   return (
-    <div className="border-t border-gray-200 bg-white p-3">
+    <div className='border-t border-gray-200 bg-white p-3'>
       {selectedDataFile && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-text">
-          <Paperclip className="w-4 h-4 flex-shrink-0 text-text-muted" />
-          <span className="flex-1 truncate">{selectedDataFile.name}</span>
+        <div className='text-text mb-3 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm'>
+          <Paperclip className='text-text-muted h-4 w-4 flex-shrink-0' />
+          <span className='flex-1 truncate'>{selectedDataFile.name}</span>
           <button
-            type="button"
+            type='button'
             onClick={clearDataFile}
-            className="p-1 rounded-full hover:bg-gray-200"
-            aria-label="첨부 취소"
+            className='rounded-full p-1 hover:bg-gray-200'
+            aria-label='첨부 취소'
           >
-            <X className="w-4 h-4" />
+            <X className='h-4 w-4' />
           </button>
         </div>
       )}
 
       {/* 이미지 미리보기 */}
       {imagePreview && (
-        <div className="mb-3 relative inline-block">
-          <div className="relative rounded-xl overflow-hidden border border-gray-200">
+        <div className='relative mb-3 inline-block'>
+          <div className='relative overflow-hidden rounded-xl border border-gray-200'>
             <Image
               src={imagePreview}
-              alt="선택된 이미지"
+              alt='선택된 이미지'
               width={120}
               height={120}
-              className="object-cover"
+              className='object-cover'
               style={{ width: 120, height: 120 }}
             />
             <button
               onClick={clearImage}
-              className="absolute top-1 right-1 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
+              className='absolute top-1 right-1 rounded-full bg-black/50 p-1 transition-colors hover:bg-black/70'
             >
-              <X className="w-4 h-4 text-white" />
+              <X className='h-4 w-4 text-white' />
             </button>
           </div>
         </div>
       )}
 
-      <div className="flex items-end gap-2">
+      <div className='flex items-end gap-2'>
         {/* 이미지 업로드 버튼 */}
         <input
           ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
+          type='file'
+          accept='image/jpeg,image/png,image/gif,image/webp'
           onChange={handleFileChange}
-          className="hidden"
+          className='hidden'
         />
         <input
           ref={dataFileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/zip"
+          type='file'
+          accept='.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/zip'
           onChange={handleDataFileChange}
-          className="hidden"
+          className='hidden'
         />
         <button
-          type="button"
+          type='button'
           onClick={openImagePicker}
           disabled={disabled || !!selectedDataFile}
           className={cn(
-            'flex-shrink-0 w-11 h-11 rounded-full',
+            'h-11 w-11 flex-shrink-0 rounded-full',
             'flex items-center justify-center',
             'transition-all duration-200',
             'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700',
-            'disabled:cursor-not-allowed disabled:opacity-50'
+            'disabled:cursor-not-allowed disabled:opacity-50',
           )}
-          title="이미지 첨부"
+          title='이미지 첨부'
         >
-          <ImagePlus className="w-5 h-5" />
+          <ImagePlus className='h-5 w-5' />
         </button>
 
         <button
-          type="button"
+          type='button'
           onClick={openDataFilePicker}
           disabled={disabled || !!selectedImage}
           className={cn(
-            'flex-shrink-0 w-11 h-11 rounded-full',
+            'h-11 w-11 flex-shrink-0 rounded-full',
             'flex items-center justify-center',
             'transition-all duration-200',
             'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700',
-            'disabled:cursor-not-allowed disabled:opacity-50'
+            'disabled:cursor-not-allowed disabled:opacity-50',
           )}
-          title="파일 첨부 (PDF·문서 등)"
+          title='파일 첨부 (PDF·문서 등)'
         >
-          <Paperclip className="w-5 h-5" />
+          <Paperclip className='h-5 w-5' />
         </button>
 
         <textarea
@@ -266,30 +283,30 @@ export function ChatInput({
           rows={1}
           className={cn(
             'flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50',
-            'px-4 py-3 text-base text-text',
+            'text-text px-4 py-3 text-base',
             'placeholder:text-text-muted',
             'transition-all duration-200',
-            'focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent focus:bg-white',
+            'focus:ring-primary focus:border-transparent focus:bg-white focus:ring-2 focus:outline-none',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            'max-h-[120px]'
+            'max-h-[120px]',
           )}
         />
         <button
-          onClick={handleSend}
+          onClick={() => void handleSend()}
           disabled={!canSend}
           className={cn(
-            'flex-shrink-0 w-11 h-11 rounded-full',
+            'h-11 w-11 flex-shrink-0 rounded-full',
             'flex items-center justify-center',
             'transition-all duration-200',
             canSend
-              ? 'bg-primary text-white hover:bg-primary/90 shadow-sm'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 text-white shadow-sm'
+              : 'cursor-not-allowed bg-gray-200 text-gray-400',
           )}
         >
-          <Send className="w-5 h-5" />
+          <Send className='h-5 w-5' />
         </button>
       </div>
-      <p className="text-xs text-text-muted mt-2 px-1">
+      <p className='text-text-muted mt-2 px-1 text-xs'>
         Enter로 전송, Shift+Enter로 줄바꿈, 클립보드에서 이미지 붙여넣기 가능
       </p>
     </div>

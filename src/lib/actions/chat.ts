@@ -519,11 +519,15 @@ export type ChatFileAttachment = {
 };
 
 // 메시지 전송
+// clientId: 클라이언트가 발송 시 crypto.randomUUID()로 생성한 uuid.
+// (sender_id, client_message_id) partial unique 제약 + id 직접 INSERT 로
+// 같은 메시지의 2중 발송이 unique_violation(23505) 으로 흡수된다.
 export async function sendMessage(
   roomId: string,
   content: string,
   imageUrl?: string | null,
   fileAttachment?: ChatFileAttachment | null,
+  clientId?: string,
 ) {
   const supabase = await createClient();
   const {
@@ -568,10 +572,13 @@ export async function sendMessage(
     return { error: '퇴원 처리된 학생의 채팅방에는 메시지를 보낼 수 없습니다.' };
   }
 
-  // 메시지 삽입 (발신자 타입에 따라 읽음 표시 설정)
+  // 메시지 삽입 (발신자 타입에 따라 읽음 표시 설정).
+  // clientId 가 있으면 PK(id)와 client_message_id 양쪽에 동일 uuid 를 박아
+  // 동일 (sender_id, client_message_id) 재시도가 23505 로 흡수되도록 한다.
   const { data: message, error } = await supabase
     .from('chat_messages')
     .insert({
+      ...(clientId ? { id: clientId, client_message_id: clientId } : {}),
       room_id: roomId,
       sender_id: user.id,
       content: content.trim(),
@@ -585,6 +592,20 @@ export async function sendMessage(
     })
     .select()
     .single();
+
+  // 동일 clientId 재시도: 첫 호출에서 이미 INSERT + 알림 발송이 끝났으므로
+  // 기존 row 만 재SELECT 해서 그대로 반환하고 알림 재발송은 스킵한다.
+  if (error && (error as { code?: string }).code === '23505' && clientId) {
+    const { data: existing } = await supabase
+      .from('chat_messages')
+      .select()
+      .eq('sender_id', user.id)
+      .eq('client_message_id', clientId)
+      .maybeSingle();
+    if (existing) {
+      return { data: existing };
+    }
+  }
 
   if (error) {
     console.error('Error sending message:', error);
