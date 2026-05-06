@@ -1,23 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  getAnnouncements,
-  getAnnouncementById,
-  markAnnouncementAsRead,
-  type AnnouncementWithReadStatus,
-} from '@/lib/actions/announcement';
-import {
-  Megaphone,
-  Star,
-  ChevronLeft,
-  RefreshCw,
-  Calendar,
-  FileText,
-} from 'lucide-react';
+import { getAnnouncements, type AnnouncementWithReadStatus } from '@/lib/actions/announcement';
+import { Megaphone, Star, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AnnouncementsClientProps {
@@ -25,27 +13,35 @@ interface AnnouncementsClientProps {
   initialUnreadCount: number;
 }
 
+function formatDate(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return '방금 전';
+  if (diffMins < 60) return `${diffMins}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  if (diffDays < 7) return `${diffDays}일 전`;
+
+  return date.toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
 export function AnnouncementsClient({
   initialAnnouncements,
   initialUnreadCount,
 }: AnnouncementsClientProps) {
-  const searchParams = useSearchParams();
-  const selectedId = searchParams.get('id');
-
-  const [announcements, setAnnouncements] = useState<AnnouncementWithReadStatus[]>(initialAnnouncements);
+  const [announcements, setAnnouncements] =
+    useState<AnnouncementWithReadStatus[]>(initialAnnouncements);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [loading, setLoading] = useState(false);
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState<AnnouncementWithReadStatus | null>(null);
-
-  // URL에 id가 있으면 해당 공지 선택
-  useEffect(() => {
-    if (selectedId) {
-      const announcement = announcements.find(a => a.id === selectedId);
-      if (announcement) {
-        handleSelectAnnouncement(announcement);
-      }
-    }
-  }, [selectedId, announcements]);
 
   const refreshAnnouncements = async () => {
     setLoading(true);
@@ -60,221 +56,103 @@ export function AnnouncementsClient({
     }
   };
 
-  const handleSelectAnnouncement = async (announcement: AnnouncementWithReadStatus) => {
-    const full = await getAnnouncementById(announcement.id);
-    setSelectedAnnouncement(full ?? announcement);
-
-    // 읽음 처리
-    if (!announcement.is_read) {
-      const result = await markAnnouncementAsRead(announcement.id);
-      if (result.success) {
-        setAnnouncements((prev) =>
-          prev.map((a) => (a.id === announcement.id ? { ...a, is_read: true } : a))
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      }
-    }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return '방금 전';
-    if (diffMins < 60) return `${diffMins}분 전`;
-    if (diffHours < 24) return `${diffHours}시간 전`;
-    if (diffDays < 7) return `${diffDays}일 전`;
-
-    return date.toLocaleDateString('ko-KR', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
-  const formatFullDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('ko-KR', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  // 상세 보기
-  if (selectedAnnouncement) {
-    return (
-      <div className="p-4 space-y-4">
-        {/* 헤더 */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedAnnouncement(null)}
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <h1 className="text-xl font-bold">공지사항</h1>
-        </div>
-
-        {/* 상세 내용 */}
-        <Card className="p-6">
-          <div className="flex items-start gap-2 mb-4">
-            {selectedAnnouncement.is_important && (
-              <Star className="w-5 h-5 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-            )}
-            <h2 className="text-xl font-bold">{selectedAnnouncement.title}</h2>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm text-text-muted mb-6">
-            <Calendar className="w-4 h-4" />
-            <span>{formatFullDate(selectedAnnouncement.created_at)}</span>
-            {selectedAnnouncement.creator_name && (
-              <>
-                <span>•</span>
-                <span>{selectedAnnouncement.creator_name}</span>
-              </>
-            )}
-          </div>
-
-          <div className="prose prose-sm max-w-none">
-            <p className="whitespace-pre-wrap text-text">
-              {selectedAnnouncement.content}
-            </p>
-          </div>
-
-          {selectedAnnouncement.attachments && selectedAnnouncement.attachments.length > 0 && (
-            <div className="mt-6 border-t border-gray-100 pt-4">
-              <h3 className="text-sm font-semibold text-text-muted mb-2">첨부파일</h3>
-              <ul className="space-y-2">
-                {selectedAnnouncement.attachments.map((att) => (
-                  <li key={att.id}>
-                    <a
-                      href={att.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline text-sm flex items-center gap-2"
-                    >
-                      <FileText className="w-4 h-4 flex-shrink-0" />
-                      <span className="break-all">{att.file_name}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Card>
-      </div>
-    );
-  }
-
-  // 목록 보기
   return (
-    <div className="p-4 space-y-4">
+    <div className='space-y-4 p-4'>
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
+      <div className='flex items-center justify-between'>
         <div>
-          <h1 className="text-xl font-bold">공지사항</h1>
+          <h1 className='text-xl font-bold'>공지사항</h1>
           {unreadCount > 0 && (
-            <p className="text-sm text-text-muted">
-              읽지 않은 공지 {unreadCount}개
-            </p>
+            <p className='text-text-muted text-sm'>읽지 않은 공지 {unreadCount}개</p>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={refreshAnnouncements}
-          disabled={loading}
-        >
-          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+        <Button variant='ghost' size='sm' onClick={refreshAnnouncements} disabled={loading}>
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
       </div>
 
       {/* 공지사항 목록 */}
       {announcements.length === 0 ? (
-        <Card className="p-8 text-center">
-          <Megaphone className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-          <p className="text-text-muted">공지사항이 없습니다</p>
+        <Card className='p-8 text-center'>
+          <Megaphone className='mx-auto mb-3 h-12 w-12 text-gray-300' />
+          <p className='text-text-muted'>공지사항이 없습니다</p>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className='space-y-3'>
           {/* 중요 공지 */}
-          {announcements.filter(a => a.is_important).map((announcement) => (
-            <Card
-              key={announcement.id}
-              className={cn(
-                'p-4 cursor-pointer transition-all hover:shadow-md border-l-4 border-yellow-400 bg-yellow-50',
-                !announcement.is_read && 'ring-2 ring-primary/20'
-              )}
-              onClick={() => handleSelectAnnouncement(announcement)}
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0">
-                  <Star className="w-5 h-5 text-yellow-600 fill-yellow-600" />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold truncate">{announcement.title}</span>
-                    {!announcement.is_read && (
-                      <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white rounded-full">
-                        NEW
-                      </span>
-                    )}
+          {announcements
+            .filter((a) => a.is_important)
+            .map((announcement) => (
+              <Link
+                key={announcement.id}
+                href={`/student/announcements/${announcement.id}`}
+                className='block'
+              >
+                <Card
+                  className={cn(
+                    'cursor-pointer border-l-4 border-yellow-400 bg-yellow-50 p-4 transition-all hover:shadow-md',
+                    !announcement.is_read && 'ring-primary/20 ring-2',
+                  )}
+                >
+                  <div className='flex items-start gap-3'>
+                    <div className='flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-yellow-100'>
+                      <Star className='h-5 w-5 fill-yellow-600 text-yellow-600' />
+                    </div>
+                    <div className='min-w-0 flex-1'>
+                      <div className='mb-1 flex items-center gap-2'>
+                        <span className='truncate font-semibold'>{announcement.title}</span>
+                        {!announcement.is_read && (
+                          <span className='bg-primary rounded-full px-2 py-0.5 text-xs font-bold text-white'>
+                            NEW
+                          </span>
+                        )}
+                      </div>
+                      <p className='text-text-muted line-clamp-2 text-sm'>{announcement.content}</p>
+                      <p className='mt-1 text-xs text-gray-400'>
+                        {formatDate(announcement.created_at)}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-sm text-text-muted line-clamp-2">
-                    {announcement.content}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {formatDate(announcement.created_at)}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          ))}
+                </Card>
+              </Link>
+            ))}
 
           {/* 일반 공지 */}
-          {announcements.filter(a => !a.is_important).map((announcement) => (
-            <Card
-              key={announcement.id}
-              className={cn(
-                'p-4 cursor-pointer transition-all hover:shadow-md',
-                !announcement.is_read && 'border-l-4 border-primary',
-                announcement.is_read && 'opacity-70'
-              )}
-              onClick={() => handleSelectAnnouncement(announcement)}
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Megaphone className="w-5 h-5 text-primary" />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium truncate">{announcement.title}</span>
-                    {!announcement.is_read && (
-                      <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                    )}
+          {announcements
+            .filter((a) => !a.is_important)
+            .map((announcement) => (
+              <Link
+                key={announcement.id}
+                href={`/student/announcements/${announcement.id}`}
+                className='block'
+              >
+                <Card
+                  className={cn(
+                    'cursor-pointer p-4 transition-all hover:shadow-md',
+                    !announcement.is_read && 'border-primary border-l-4',
+                    announcement.is_read && 'opacity-70',
+                  )}
+                >
+                  <div className='flex items-start gap-3'>
+                    <div className='bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl'>
+                      <Megaphone className='text-primary h-5 w-5' />
+                    </div>
+                    <div className='min-w-0 flex-1'>
+                      <div className='mb-1 flex items-center gap-2'>
+                        <span className='truncate font-medium'>{announcement.title}</span>
+                        {!announcement.is_read && (
+                          <span className='bg-primary h-2 w-2 flex-shrink-0 rounded-full' />
+                        )}
+                      </div>
+                      <p className='text-text-muted line-clamp-2 text-sm'>{announcement.content}</p>
+                      <p className='mt-1 text-xs text-gray-400'>
+                        {formatDate(announcement.created_at)}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-sm text-text-muted line-clamp-2">
-                    {announcement.content}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {formatDate(announcement.created_at)}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          ))}
+                </Card>
+              </Link>
+            ))}
         </div>
       )}
     </div>

@@ -107,6 +107,79 @@ export async function getAnnouncements(limit: number = 50): Promise<Announcement
   });
 }
 
+/**
+ * 학생/학부모용 공지 상세 조회 (권한 필터 포함).
+ *
+ * announcements 테이블 RLS는 인증 사용자 모두에게 SELECT를 허용하므로,
+ * `[id]` 라우트에서 직접 URL 접근 시 다른 지점·다른 audience 공지를 볼 수 있는 빈틈이 있다.
+ * 본 함수는 `getAnnouncements` 목록 함수가 사용하는 동일한 audience/branch 필터를
+ * 단건 조회에 적용해 앱 레벨에서 격리한다.
+ *
+ * 어드민은 모든 공지를 관리해야 하므로 무필터인 `getAnnouncementById`를 그대로 사용한다.
+ */
+export async function getAnnouncementByIdForViewer(
+  id: string,
+): Promise<AnnouncementWithReadStatus | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const scope = await getUserScope();
+  if (!scope) return null;
+
+  let query = supabase
+    .from('announcements')
+    .select(
+      `
+      *,
+      announcement_reads!left(user_id),
+      profiles!announcements_created_by_fkey(name)
+    `,
+    )
+    .eq('id', id);
+
+  if (scope.userType === 'student') {
+    query = query.in('target_audience', ['all', 'student']);
+  } else if (scope.userType === 'parent') {
+    query = query.in('target_audience', ['all', 'parent']);
+  }
+
+  if (scope.userType !== 'admin' && scope.branchIds.length > 0) {
+    const csv = scope.branchIds.map((bid) => `"${bid}"`).join(',');
+    query = query.or(`branch_id.is.null,branch_id.in.(${csv})`);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) return null;
+
+  const reads = data.announcement_reads || [];
+  const isRead = reads.some((r: { user_id: string }) => r.user_id === user.id);
+
+  const { data: attachmentRows } = await supabase
+    .from('announcement_attachments')
+    .select('*')
+    .eq('announcement_id', id)
+    .order('created_at', { ascending: true });
+
+  return {
+    id: data.id,
+    branch_id: data.branch_id,
+    title: data.title,
+    content: data.content,
+    is_important: data.is_important,
+    target_audience: data.target_audience,
+    created_by: data.created_by,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    is_read: isRead,
+    creator_name: data.profiles?.name,
+    attachments: (attachmentRows || []) as AnnouncementAttachmentRow[],
+  };
+}
+
 // 공지사항 상세 조회
 export async function getAnnouncementById(id: string): Promise<AnnouncementWithReadStatus | null> {
   const supabase = await createClient();
@@ -233,8 +306,8 @@ export async function markAnnouncementAsRead(announcementId: string) {
     return { error: '읽음 처리에 실패했습니다.' };
   }
 
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
   return { success: true };
 }
 
@@ -470,8 +543,8 @@ export async function createAnnouncement(params: CreateAnnouncementParams) {
   }
 
   revalidatePath('/admin/announcements');
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
 
   return { success: true, data: announcement };
 }
@@ -514,8 +587,8 @@ export async function updateAnnouncement(id: string, params: Partial<CreateAnnou
   }
 
   revalidatePath('/admin/announcements');
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
 
   return { success: true };
 }
@@ -548,8 +621,8 @@ export async function deleteAnnouncement(id: string) {
   }
 
   revalidatePath('/admin/announcements');
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
 
   return { success: true };
 }
@@ -665,8 +738,8 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
   }
 
   revalidatePath('/admin/announcements');
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
 
   return { data: row as AnnouncementAttachmentRow };
 }
@@ -730,8 +803,8 @@ export async function deleteAnnouncementAttachment(attachmentId: string) {
   }
 
   revalidatePath('/admin/announcements');
-  revalidatePath('/student/announcements');
-  revalidatePath('/parent/announcements');
+  revalidatePath('/student/announcements', 'layout');
+  revalidatePath('/parent/announcements', 'layout');
 
   return { success: true };
 }
@@ -818,7 +891,7 @@ async function sendAnnouncementNotifications(
         type: 'system',
         title: '새 공지사항',
         message: title,
-        link: `/student/announcements?id=${announcementId}`,
+        link: `/student/announcements/${announcementId}`,
       });
     }
   }
@@ -834,7 +907,7 @@ async function sendAnnouncementNotifications(
             type: 'system',
             title: '새 공지사항',
             message: title,
-            link: `/parent/announcements?id=${announcementId}`,
+            link: `/parent/announcements/${announcementId}`,
           }),
         ),
       );
