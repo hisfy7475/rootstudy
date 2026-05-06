@@ -3,10 +3,28 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Mail, Lock, User, Phone, ArrowLeft, Copy, Check, UserPlus, Building2, GraduationCap, BookOpen } from 'lucide-react';
+import {
+  Mail,
+  Lock,
+  User,
+  Phone,
+  ArrowLeft,
+  Copy,
+  Check,
+  Building2,
+  GraduationCap,
+  BookOpen,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card';
 import { signUpStudent } from '../../actions';
 import { getAllBranches, type Branch } from '@/lib/actions/branch';
 import { getStudentTypes } from '@/lib/actions/student-type';
@@ -73,49 +91,44 @@ export default function StudentSignupPage() {
   // 회원가입 완료 - 학부모 연결 코드 표시
   if (parentCode) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-success/20 rounded-full flex items-center justify-center">
-              <Check className="w-8 h-8 text-success" />
+      <div className='bg-background flex min-h-screen items-center justify-center p-4'>
+        <Card className='w-full max-w-md'>
+          <CardHeader className='text-center'>
+            <div className='bg-success/20 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
+              <Check className='text-success h-8 w-8' />
             </div>
-            <CardTitle className="text-2xl">회원가입 완료!</CardTitle>
-            <CardDescription>
-              아래 연결 코드를 학부모님께 전달해주세요
-            </CardDescription>
+            <CardTitle className='text-2xl'>회원가입 완료!</CardTitle>
+            <CardDescription>아래 연결 코드를 학부모님께 전달해주세요</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="bg-gray-50 rounded-2xl p-6 text-center">
-              <div className="text-sm text-text-muted mb-2">학부모 연결 코드</div>
-              <div className="text-3xl font-bold tracking-widest text-primary mb-4">
+            <div className='rounded-2xl bg-gray-50 p-6 text-center'>
+              <div className='text-text-muted mb-2 text-sm'>학부모 연결 코드</div>
+              <div className='text-primary mb-4 text-3xl font-bold tracking-widest'>
                 {parentCode}
               </div>
-              <Button
-                variant="outline"
-                onClick={copyToClipboard}
-                className="gap-2"
-              >
+              <Button variant='outline' onClick={copyToClipboard} className='gap-2'>
                 {copied ? (
                   <>
-                    <Check className="w-4 h-4" />
+                    <Check className='h-4 w-4' />
                     복사됨
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4" />
+                    <Copy className='h-4 w-4' />
                     코드 복사
                   </>
                 )}
               </Button>
             </div>
-            <p className="mt-4 text-sm text-text-muted text-center">
-              학부모님이 회원가입 시 이 코드를 입력하면<br />
+            <p className='text-text-muted mt-4 text-center text-sm'>
+              학부모님이 회원가입 시 이 코드를 입력하면
+              <br />
               학생과 학부모 계정이 연결됩니다.
             </p>
           </CardContent>
           <CardFooter>
-            <Link href="/login" className="w-full">
-              <Button className="w-full">로그인 하러 가기</Button>
+            <Link href='/login' className='w-full'>
+              <Button className='w-full'>로그인 하러 가기</Button>
             </Link>
           </CardFooter>
         </Card>
@@ -125,63 +138,61 @@ export default function StudentSignupPage() {
 
   // 회원가입 폼
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <Link 
-            href="/login" 
-            className="absolute left-6 top-6 p-2 rounded-xl hover:bg-gray-100 transition-colors"
+    <div className='bg-background flex min-h-screen items-center justify-center p-4'>
+      <Card className='w-full max-w-md'>
+        <CardHeader className='text-center'>
+          <Link
+            href='/login'
+            className='absolute top-6 left-6 rounded-xl p-2 transition-colors hover:bg-gray-100'
           >
-            <ArrowLeft className="w-5 h-5 text-text-muted" />
+            <ArrowLeft className='text-text-muted h-5 w-5' />
           </Link>
-          <div className="mx-auto mb-4">
+          <div className='mx-auto mb-4'>
             <Image
-              src="/logo.png"
-              alt="WHEVER STUDY route 관리형 독서실"
+              src='/logo.png'
+              alt='WHEVER STUDY route 관리형 독서실'
               width={180}
               height={72}
-              className="object-contain"
+              className='object-contain'
               priority
             />
           </div>
-          <CardTitle className="text-2xl">학생 회원가입</CardTitle>
-          <CardDescription>
-            학습 관리를 시작해보세요
-          </CardDescription>
+          <CardTitle className='text-2xl'>학생 회원가입</CardTitle>
+          <CardDescription>학습 관리를 시작해보세요</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={handleSubmit} className="space-y-4">
+          <form action={handleSubmit} className='space-y-4'>
             {/* 계정 정보 */}
-            <div className="space-y-4">
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+            <div className='space-y-4'>
+              <div className='relative'>
+                <Mail className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <Input
-                  type="email"
-                  name="email"
-                  placeholder="이메일"
-                  className="pl-12"
+                  type='email'
+                  name='email'
+                  placeholder='이메일'
+                  className='pl-12'
                   required
                   disabled={isLoading}
                 />
               </div>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+              <div className='relative'>
+                <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <Input
-                  type="password"
-                  name="password"
-                  placeholder="비밀번호 (6자 이상)"
-                  className="pl-12"
+                  type='password'
+                  name='password'
+                  placeholder='비밀번호 (6자 이상)'
+                  className='pl-12'
                   required
                   disabled={isLoading}
                 />
               </div>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+              <div className='relative'>
+                <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <Input
-                  type="password"
-                  name="confirmPassword"
-                  placeholder="비밀번호 확인"
-                  className="pl-12"
+                  type='password'
+                  name='confirmPassword'
+                  placeholder='비밀번호 확인'
+                  className='pl-12'
                   required
                   disabled={isLoading}
                 />
@@ -189,83 +200,91 @@ export default function StudentSignupPage() {
             </div>
 
             {/* 구분선 */}
-            <div className="relative py-1">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
+            <div className='relative py-1'>
+              <div className='absolute inset-0 flex items-center'>
+                <div className='w-full border-t border-gray-200' />
               </div>
-              <div className="relative flex justify-center">
-                <span className="bg-white px-3 text-xs text-text-muted">개인 정보</span>
+              <div className='relative flex justify-center'>
+                <span className='text-text-muted bg-white px-3 text-xs'>개인 정보</span>
               </div>
             </div>
 
             {/* 개인 정보 */}
-            <div className="space-y-4">
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+            <div className='space-y-4'>
+              <div className='relative'>
+                <User className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <Input
-                  type="text"
-                  name="name"
-                  placeholder="이름"
-                  className="pl-12"
+                  type='text'
+                  name='name'
+                  placeholder='이름'
+                  className='pl-12'
                   required
                   disabled={isLoading}
                 />
               </div>
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+              <div>
+                <div className='relative'>
+                  <Phone className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
+                  <Input
+                    type='tel'
+                    name='phone'
+                    placeholder='전화번호 (선택)'
+                    className='pl-12'
+                    disabled={isLoading}
+                  />
+                </div>
+                <p className='text-text-muted mt-1 text-xs'>
+                  학원 알림톡(출결·상벌점·공지) 수신 및 비상 연락용입니다.
+                </p>
+              </div>
+              <div className='relative'>
+                <BookOpen className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <Input
-                  type="tel"
-                  name="phone"
-                  placeholder="전화번호"
-                  className="pl-12"
+                  type='text'
+                  name='school'
+                  placeholder='학교 이름'
+                  className='pl-12'
                   required
                   disabled={isLoading}
                 />
               </div>
-              <div className="relative">
-                <BookOpen className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
-                <Input
-                  type="text"
-                  name="school"
-                  placeholder="학교 이름"
-                  className="pl-12"
-                  required
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="relative">
-                <Building2 className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+              <div className='relative'>
+                <Building2 className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <select
-                  name="branchId"
+                  name='branchId'
                   required
                   disabled={isLoading}
                   value={selectedBranchId}
                   onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
+                  className='focus:ring-primary w-full appearance-none rounded-xl border border-gray-200 bg-white py-3 pr-4 pl-12 text-gray-800 focus:ring-2 focus:outline-none'
                 >
-                  <option value="">지점 선택</option>
-                  {branches.map(branch => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  <option value=''>지점 선택</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
                   ))}
                 </select>
               </div>
 
               {/* 학생 타입(학년) 선택 - 필수 */}
-              <div className="relative">
-                <GraduationCap className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-muted" />
+              <div className='relative'>
+                <GraduationCap className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
                 <select
-                  name="studentTypeId"
+                  name='studentTypeId'
                   required
                   disabled={isLoading || studentTypes.length === 0}
-                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary text-gray-800 bg-white appearance-none"
+                  className='focus:ring-primary w-full appearance-none rounded-xl border border-gray-200 bg-white py-3 pr-4 pl-12 text-gray-800 focus:ring-2 focus:outline-none'
                 >
-                  <option value="">학년 선택</option>
-                  {studentTypes.map(type => (
-                    <option key={type.id} value={type.id}>{type.name}</option>
+                  <option value=''>학년 선택</option>
+                  {studentTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
                   ))}
                 </select>
                 {studentTypes.length === 0 && (
-                  <p className="text-xs text-text-muted mt-1 ml-1">
+                  <p className='text-text-muted mt-1 ml-1 text-xs'>
                     등록된 학년이 없습니다. 관리자에게 문의하세요.
                   </p>
                 )}
@@ -273,25 +292,20 @@ export default function StudentSignupPage() {
             </div>
 
             {error && (
-              <div className="p-3 rounded-xl bg-error/10 text-error text-sm text-center">
+              <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
                 {error}
               </div>
             )}
 
-            <Button
-              type="submit"
-              className="w-full"
-              size="lg"
-              disabled={isLoading}
-            >
+            <Button type='submit' className='w-full' size='lg' disabled={isLoading}>
               {isLoading ? '가입 중...' : '회원가입'}
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="justify-center">
-          <span className="text-sm text-text-muted">
+        <CardFooter className='justify-center'>
+          <span className='text-text-muted text-sm'>
             이미 계정이 있으신가요?{' '}
-            <Link href="/login" className="text-primary hover:underline">
+            <Link href='/login' className='text-primary hover:underline'>
               로그인
             </Link>
           </span>

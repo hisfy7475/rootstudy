@@ -4,9 +4,20 @@ import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { User, UserPlus, Key, CheckCircle, Trash2, AlertTriangle } from 'lucide-react';
-import { addChildToParent, removeChildFromParent } from '@/lib/actions/parent';
+import {
+  User,
+  UserPlus,
+  Key,
+  CheckCircle,
+  Trash2,
+  AlertTriangle,
+  Lock,
+  LogOut,
+  UserX,
+} from 'lucide-react';
+import { addChildToParent, removeChildFromParent, withdrawSelf } from '@/lib/actions/parent';
 import { verifyParentCode } from '@/app/(auth)/actions';
+import { signOutWithNativeSync } from '@/lib/sign-out-app';
 
 interface Student {
   id: string;
@@ -31,6 +42,12 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
   const [isPending, startTransition] = useTransition();
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+
+  // 회원 탈퇴 모달 상태
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+  const [withdrawPassword, setWithdrawPassword] = useState('');
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const activeChildCount = students.filter((s) => !s.withdrawnAt).length;
 
   async function handleVerifyCode() {
     if (!newCode) {
@@ -101,6 +118,33 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
         setError(result.error || '연결 해제에 실패했습니다.');
       }
       setRemovingId(null);
+    });
+  }
+
+  function handleOpenWithdraw() {
+    setWithdrawPassword('');
+    setWithdrawError(null);
+    setIsWithdrawModalOpen(true);
+  }
+
+  function handleCloseWithdraw() {
+    if (isPending) return;
+    setIsWithdrawModalOpen(false);
+  }
+
+  function handleConfirmWithdraw() {
+    setWithdrawError(null);
+    if (!withdrawPassword) {
+      setWithdrawError('현재 비밀번호를 입력해주세요.');
+      return;
+    }
+    startTransition(async () => {
+      const result = await withdrawSelf(withdrawPassword);
+      if (result.success) {
+        await signOutWithNativeSync();
+      } else {
+        setWithdrawError(result.error || '회원 탈퇴에 실패했습니다.');
+      }
     });
   }
 
@@ -270,6 +314,104 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
       {/* 전역 에러 표시 */}
       {error && !isAddingChild && (
         <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>{error}</div>
+      )}
+
+      {/* 계정 관리 */}
+      <Card className='p-4'>
+        <div className='mb-4 flex items-center gap-2'>
+          <Lock className='text-primary h-5 w-5' />
+          <h2 className='text-text font-semibold'>계정 관리</h2>
+        </div>
+        <div className='space-y-2'>
+          <Button
+            variant='outline'
+            className='w-full justify-start gap-3 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600'
+            onClick={() => void signOutWithNativeSync()}
+          >
+            <LogOut className='h-4 w-4' />
+            로그아웃
+          </Button>
+          <Button
+            variant='outline'
+            className='w-full justify-start gap-3 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700'
+            onClick={handleOpenWithdraw}
+          >
+            <UserX className='h-4 w-4' />
+            회원 탈퇴
+          </Button>
+        </div>
+      </Card>
+
+      {/* 회원 탈퇴 모달 */}
+      {isWithdrawModalOpen && (
+        <div
+          className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4'
+          onClick={handleCloseWithdraw}
+        >
+          <div
+            className='w-full max-w-md rounded-2xl bg-white p-6 shadow-xl'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='mb-4 flex items-center gap-3'>
+              <div className='flex h-12 w-12 items-center justify-center rounded-full bg-red-100'>
+                <AlertTriangle className='h-6 w-6 text-red-600' />
+              </div>
+              <div>
+                <h3 className='text-text text-lg font-bold'>회원 탈퇴</h3>
+                <p className='text-text-muted text-xs'>정말 탈퇴하시겠어요?</p>
+              </div>
+            </div>
+
+            <div className='text-text-muted mb-4 space-y-2 rounded-xl bg-gray-50 p-3 text-xs'>
+              {activeChildCount > 0 ? (
+                <p>
+                  · 연결된 자녀 <strong className='text-red-600'>{activeChildCount}명</strong>과의
+                  연결이 자동 해제됩니다. 자녀 계정·학습 기록은 유지되지만, 앞으로 자녀의
+                  출결·알림톡을 받을 수 없습니다.
+                </p>
+              ) : null}
+              <p>· 탈퇴 후 본 계정으로 다시 로그인할 수 없습니다.</p>
+              <p>· 다시 자녀를 연결하려면 새 학부모 계정을 만들어야 합니다.</p>
+              <p>· 복구가 필요하면 다니던 지점 데스크에 문의해 주세요.</p>
+            </div>
+
+            <div className='space-y-3'>
+              <div>
+                <label className='text-text-muted text-xs'>현재 비밀번호</label>
+                <Input
+                  type='password'
+                  value={withdrawPassword}
+                  onChange={(e) => setWithdrawPassword(e.target.value)}
+                  placeholder='현재 비밀번호'
+                  className='mt-1'
+                  disabled={isPending}
+                />
+              </div>
+              {withdrawError && (
+                <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
+                  {withdrawError}
+                </div>
+              )}
+              <div className='flex gap-2 pt-2'>
+                <Button
+                  variant='outline'
+                  className='flex-1'
+                  onClick={handleCloseWithdraw}
+                  disabled={isPending}
+                >
+                  취소
+                </Button>
+                <Button
+                  className='flex-1 bg-red-600 text-white hover:bg-red-700'
+                  onClick={handleConfirmWithdraw}
+                  disabled={isPending}
+                >
+                  {isPending ? '처리 중...' : '탈퇴 확정'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
