@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,16 @@ import {
   deleteAnnouncement,
   uploadAnnouncementAttachment,
   deleteAnnouncementAttachment,
+  finalizeAnnouncementNotifications,
   type AnnouncementAttachmentRow,
   type AnnouncementsListResult,
 } from '@/lib/actions/announcement';
+import {
+  ANNOUNCEMENT_FILE_ACCEPT,
+  ANNOUNCEMENT_FILE_MAX_BYTES,
+  ANNOUNCEMENT_FILE_MAX_COUNT,
+  isAnnouncementMimeAllowed,
+} from '@/lib/announcement-config';
 import { sendKakaoAlimtalkToParents, getAlimtalkConfig } from '@/lib/actions/notification';
 import {
   Megaphone,
@@ -80,12 +87,15 @@ export function AnnouncementsClient({
   const page = initialResult.page;
   const pageSize = initialResult.pageSize;
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AnnouncementAttachmentRow[]>([]);
+  // 사용자가 X로 표시한 기존 첨부 — 모달의 "수정/등록" 버튼을 눌러야 실제 DB·Storage에서 삭제된다.
+  const [markedDeletedIds, setMarkedDeletedIds] = useState<string[]>([]);
   const [alimtalkResult, setAlimtalkResult] = useState<{
     show: boolean;
     success: boolean;
@@ -146,6 +156,7 @@ export function AnnouncementsClient({
     setEditingId(null);
     setPendingFiles([]);
     setExistingAttachments([]);
+    setMarkedDeletedIds([]);
     setFormData({
       title: '',
       content: '',
@@ -161,6 +172,7 @@ export function AnnouncementsClient({
   const openEditModal = async (announcement: Announcement) => {
     setEditingId(announcement.id);
     setPendingFiles([]);
+    setMarkedDeletedIds([]);
     setFormData({
       title: announcement.title,
       content: announcement.content,
@@ -175,18 +187,28 @@ export function AnnouncementsClient({
     setExistingAttachments(full?.attachments ?? []);
   };
 
+  // 저장 시 실제 남게 될 첨부 수 (마킹된 기존 첨부는 제외).
+  const effectiveExistingCount = existingAttachments.length - markedDeletedIds.length;
+  const totalAttachmentCount = effectiveExistingCount + pendingFiles.length;
+
   const addPendingFiles = (files: FileList | null) => {
     if (!files?.length) return;
     const next = [...pendingFiles];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      if (f.size > 20 * 1024 * 1024) {
+      // 저장 후 실제 남을 첨부 수 + 이번 배치 누적이 한도를 넘는지 매 회 검사
+      if (effectiveExistingCount + next.length >= ANNOUNCEMENT_FILE_MAX_COUNT) {
+        alert(`첨부는 최대 ${ANNOUNCEMENT_FILE_MAX_COUNT}개까지입니다.`);
+        break;
+      }
+      if (f.size > ANNOUNCEMENT_FILE_MAX_BYTES) {
         alert(`${f.name}: 20MB 이하만 첨부할 수 있습니다.`);
         continue;
       }
-      if (next.length >= 15) {
-        alert('첨부는 최대 15개까지입니다.');
-        break;
+      // 브라우저가 MIME을 비워서 보내는 경우(드물지만 발생)에는 거부 — 서버에서도 어차피 막힌다.
+      if (!isAnnouncementMimeAllowed(f.type)) {
+        alert(`${f.name}: 지원하지 않는 파일 형식입니다.`);
+        continue;
       }
       next.push(f);
     }
@@ -197,27 +219,54 @@ export function AnnouncementsClient({
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDeleteExistingAttachment = async (attachmentId: string) => {
-    if (!confirm('이 첨부파일을 삭제할까요?')) return;
-    const res = await deleteAnnouncementAttachment(attachmentId);
-    if (res.error) {
-      alert(res.error);
-      return;
-    }
-    setExistingAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+  /** 기존 첨부를 "삭제 예정"으로 마킹만 한다. 실제 삭제는 handleSubmit에서 일괄 수행. */
+  const markExistingForDeletion = (attachmentId: string) => {
+    setMarkedDeletedIds((prev) => (prev.includes(attachmentId) ? prev : [...prev, attachmentId]));
   };
 
-  const uploadPendingForAnnouncement = async (announcementId: string) => {
+  /** 마킹을 되돌린다. */
+  const unmarkExistingForDeletion = (attachmentId: string) => {
+    setMarkedDeletedIds((prev) => prev.filter((id) => id !== attachmentId));
+  };
+
+  /**
+   * 펜딩 파일을 순차 업로드.
+   * 한 건이라도 실패하면 그 시점에 중단하고 그때까지 성공한 첨부 ID 목록을 함께 반환한다.
+   * 호출자가 이 목록으로 롤백(deleteAnnouncementAttachment)을 수행한다.
+   */
+  const uploadPendingForAnnouncement = async (
+    announcementId: string,
+  ): Promise<{
+    success: boolean;
+    uploadedIds: string[];
+    failure?: { fileName: string; reason: string };
+  }> => {
+    const uploadedIds: string[] = [];
     for (const file of pendingFiles) {
       const fd = new FormData();
       fd.append('file', file);
       const up = await uploadAnnouncementAttachment(announcementId, fd);
-      if (up.error) {
-        alert(`첨부 업로드 실패 (${file.name}): ${up.error}`);
-        return false;
+      if (up.error || !up.data) {
+        return {
+          success: false,
+          uploadedIds,
+          failure: { fileName: file.name, reason: up.error || '업로드 실패' },
+        };
+      }
+      uploadedIds.push(up.data.id);
+    }
+    return { success: true, uploadedIds };
+  };
+
+  /** 업로드된 첨부들을 best-effort로 삭제한다 (롤백). */
+  const rollbackAttachments = async (ids: string[]) => {
+    for (const id of ids) {
+      try {
+        await deleteAnnouncementAttachment(id);
+      } catch (e) {
+        console.error('rollback attachment failed', id, e);
       }
     }
-    return true;
   };
 
   const handleSubmit = async () => {
@@ -231,6 +280,8 @@ export function AnnouncementsClient({
 
     try {
       if (editingId) {
+        // 수정: 기존 공지는 보존. 본문 update → 펜딩 업로드 → 마킹된 기존 첨부 일괄 삭제 순서.
+        // 펜딩 업로드 실패 시 새 첨부만 롤백하고, 마킹된 기존 첨부는 손대지 않는다(보존).
         const result = await updateAnnouncement(editingId, {
           title: formData.title,
           content: formData.content,
@@ -242,30 +293,74 @@ export function AnnouncementsClient({
           return;
         }
         if (pendingFiles.length > 0) {
-          const ok = await uploadPendingForAnnouncement(editingId);
-          if (!ok) return;
+          const r = await uploadPendingForAnnouncement(editingId);
+          if (!r.success) {
+            await rollbackAttachments(r.uploadedIds);
+            alert(
+              `첨부 업로드 실패 (${r.failure?.fileName}): ${r.failure?.reason}\n등록된 첨부는 모두 취소되었습니다.`,
+            );
+            return;
+          }
+        }
+        // 업로드까지 모두 성공한 시점에서 마킹된 기존 첨부를 일괄 삭제 (사용자가 X 누른 항목들).
+        if (markedDeletedIds.length > 0) {
+          for (const id of markedDeletedIds) {
+            try {
+              const dr = await deleteAnnouncementAttachment(id);
+              if (dr.error) console.error('mark-delete failed', id, dr.error);
+            } catch (e) {
+              console.error('mark-delete threw', id, e);
+            }
+          }
+          setMarkedDeletedIds([]);
+        }
+        if (pendingFiles.length > 0 || markedDeletedIds.length > 0) {
           setPendingFiles([]);
           const full = await getAnnouncementById(editingId);
           setExistingAttachments(full?.attachments ?? []);
         }
       } else {
+        // 신규 생성: "공지 + 첨부 + 알림"을 트랜잭션 단위로 다룬다.
+        // 첨부가 있으면 알림 발송을 보류하고(sendNotification:false),
+        // 첨부 업로드까지 모두 성공한 뒤에만 finalize 호출로 알림 발송.
+        // 첨부 실패 시: 업로드된 첨부 + 공지 자체를 모두 삭제 → 아무것도 안 만들어진 상태로 복구.
+        const hasFiles = pendingFiles.length > 0;
+        const userWantsNotification = formData.sendNotification;
+
         const result = await createAnnouncement({
           title: formData.title,
           content: formData.content,
           isImportant: formData.isImportant,
           targetAudience: formData.targetAudience,
-          sendNotification: formData.sendNotification,
+          sendNotification: hasFiles ? false : userWantsNotification,
         });
         if (result.error) {
           alert(result.error);
           return;
         }
         const newId = result.data?.id;
-        if (newId && pendingFiles.length > 0) {
-          const ok = await uploadPendingForAnnouncement(newId);
-          if (!ok) return;
+        if (!newId) {
+          alert('공지 ID를 받아오지 못했습니다.');
+          return;
         }
-        setPendingFiles([]);
+
+        if (hasFiles) {
+          const r = await uploadPendingForAnnouncement(newId);
+          if (!r.success) {
+            // 완전 롤백: 업로드된 첨부 → 공지 본문 순서로 삭제
+            await rollbackAttachments(r.uploadedIds);
+            await deleteAnnouncement(newId);
+            alert(
+              `첨부 업로드 실패 (${r.failure?.fileName}): ${r.failure?.reason}\n공지가 등록되지 않았습니다. 다시 시도해주세요.`,
+            );
+            return;
+          }
+          // 첨부까지 모두 성공한 시점에서 알림 발송 (사용자가 발송 옵션 켰을 때만)
+          if (userWantsNotification) {
+            await finalizeAnnouncementNotifications(newId);
+          }
+          setPendingFiles([]);
+        }
       }
 
       // 카카오 알림톡 발송 (새 공지 생성 시에만)
@@ -531,41 +626,106 @@ export function AnnouncementsClient({
               </div>
 
               <div>
-                <label className='mb-1 block flex items-center gap-2 text-sm font-medium'>
+                <label className='mb-2 flex items-center gap-2 text-sm font-medium'>
                   <Paperclip className='h-4 w-4' />
-                  첨부파일 (PDF·이미지·문서 등, 파일당 20MB, 최대 15개)
+                  첨부파일
                 </label>
                 <input
+                  ref={fileInputRef}
                   type='file'
                   multiple
-                  className='text-text-muted block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-gray-300 file:bg-white file:px-3 file:py-1.5'
+                  accept={ANNOUNCEMENT_FILE_ACCEPT}
+                  className='hidden'
                   onChange={(e) => {
                     addPendingFiles(e.target.files);
                     e.target.value = '';
                   }}
                 />
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={totalAttachmentCount >= ANNOUNCEMENT_FILE_MAX_COUNT}
+                  >
+                    <Paperclip className='mr-1.5 h-4 w-4' />
+                    파일 선택
+                  </Button>
+                  <span className='text-text-muted text-xs'>
+                    {totalAttachmentCount === 0
+                      ? '선택된 파일 없음'
+                      : `선택: ${totalAttachmentCount} / ${ANNOUNCEMENT_FILE_MAX_COUNT}개`}
+                  </span>
+                </div>
+                <div className='mt-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs leading-relaxed'>
+                  <p className='text-text-muted'>
+                    <span className='font-medium text-gray-700'>지원 포맷</span>
+                    {' · '}PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, JPG/PNG/GIF/WEBP
+                  </p>
+                  <p className='text-text-muted mt-0.5'>
+                    <span className='font-medium text-gray-700'>제한</span>
+                    {' · '}파일당 20MB, 최대 {ANNOUNCEMENT_FILE_MAX_COUNT}개
+                  </p>
+                </div>
                 {existingAttachments.length > 0 && (
-                  <ul className='mt-2 space-y-1 text-sm'>
-                    {existingAttachments.map((att) => (
-                      <li
-                        key={att.id}
-                        className='flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2 py-1.5'
-                      >
-                        <span className='flex min-w-0 items-center gap-2 truncate'>
-                          <FileText className='text-text-muted h-4 w-4 flex-shrink-0' />
-                          <span className='truncate'>{att.file_name}</span>
-                        </span>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='h-8 px-2 text-red-600'
-                          onClick={() => void handleDeleteExistingAttachment(att.id)}
+                  <ul className='mt-3 space-y-1 text-sm'>
+                    {existingAttachments.map((att) => {
+                      const isMarkedDelete = markedDeletedIds.includes(att.id);
+                      return (
+                        <li
+                          key={att.id}
+                          className={cn(
+                            'flex items-center justify-between gap-2 rounded-lg px-2 py-1.5',
+                            isMarkedDelete ? 'bg-red-50' : 'bg-gray-50',
+                          )}
                         >
-                          삭제
-                        </Button>
-                      </li>
-                    ))}
+                          <span className='flex min-w-0 items-center gap-2 truncate'>
+                            <FileText
+                              className={cn(
+                                'h-4 w-4 flex-shrink-0',
+                                isMarkedDelete ? 'text-red-300' : 'text-text-muted',
+                              )}
+                            />
+                            <span
+                              className={cn(
+                                'truncate',
+                                isMarkedDelete && 'text-red-400 line-through',
+                              )}
+                            >
+                              {att.file_name}
+                            </span>
+                            {isMarkedDelete && (
+                              <span className='flex-shrink-0 text-xs font-medium text-red-500'>
+                                삭제 예정
+                              </span>
+                            )}
+                          </span>
+                          {isMarkedDelete ? (
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='text-text-muted h-7 flex-shrink-0 px-2 text-xs'
+                              onClick={() => unmarkExistingForDeletion(att.id)}
+                            >
+                              되돌리기
+                            </Button>
+                          ) : (
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              aria-label='첨부 삭제 표시'
+                              className='h-7 w-7 flex-shrink-0 p-0 text-red-600 hover:bg-red-50'
+                              onClick={() => markExistingForDeletion(att.id)}
+                            >
+                              <X className='h-4 w-4' />
+                            </Button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 {pendingFiles.length > 0 && (
@@ -575,15 +735,19 @@ export function AnnouncementsClient({
                         key={`${f.name}-${i}`}
                         className='bg-primary/5 flex items-center justify-between gap-2 rounded-lg px-2 py-1.5'
                       >
-                        <span className='truncate'>업로드 예정: {f.name}</span>
+                        <span className='flex min-w-0 items-center gap-2 truncate'>
+                          <FileText className='text-primary h-4 w-4 flex-shrink-0' />
+                          <span className='truncate'>업로드 예정: {f.name}</span>
+                        </span>
                         <Button
                           type='button'
                           variant='ghost'
                           size='sm'
-                          className='h-8 px-2'
+                          aria-label='첨부 제거'
+                          className='text-text-muted h-7 w-7 flex-shrink-0 p-0 hover:bg-gray-100'
                           onClick={() => removePendingAt(i)}
                         >
-                          제거
+                          <X className='h-4 w-4' />
                         </Button>
                       </li>
                     ))}

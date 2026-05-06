@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { createBulkStudentNotifications, createUserNotification } from './notification';
 import { getUserScope } from '@/lib/auth/scope';
+import { ANNOUNCEMENT_FILE_MAX_BYTES, isAnnouncementMimeAllowed } from '@/lib/announcement-config';
 
 // ============================================
 // 공지사항 조회
@@ -553,27 +554,13 @@ export async function deleteAnnouncement(id: string) {
   return { success: true };
 }
 
-const ANNOUNCEMENT_FILE_MAX_BYTES = 20 * 1024 * 1024;
-const ANNOUNCEMENT_ALLOWED_MIME = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'text/plain',
-  'text/csv',
-  'application/zip',
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-] as const;
-
 function sanitizeAnnouncementFileSegment(name: string): string {
-  const base = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
-  return base.slice(0, 200) || 'file';
+  // Supabase Storage 키 검증기는 ASCII 중에서도 일부만 허용한다.
+  // 안전을 위해 영숫자/마침표/언더스코어/하이픈만 남기고 나머지는 모두 _로 치환.
+  // (대괄호·중괄호·#·% 등은 ASCII printable이지만 거부되어 'Invalid key'가 발생함)
+  const base = name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_');
+  const trimmed = base.replace(/^[._]+/, '').slice(0, 200);
+  return trimmed || 'file';
 }
 
 /** 공지 첨부 목록 (학생/학부모·관리자 공통, RLS) */
@@ -630,9 +617,7 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
   const file = formData.get('file') as File;
   if (!file) return { error: '파일이 없습니다.' };
 
-  if (
-    !ANNOUNCEMENT_ALLOWED_MIME.includes(file.type as (typeof ANNOUNCEMENT_ALLOWED_MIME)[number])
-  ) {
+  if (!isAnnouncementMimeAllowed(file.type)) {
     return { error: '지원하지 않는 파일 형식입니다.' };
   }
 
@@ -674,6 +659,8 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
 
   if (insErr) {
     console.error('[uploadAnnouncementAttachment] insert', insErr);
+    // DB INSERT 실패 시 Storage에 남은 객체를 정리해 orphan을 막는다.
+    await supabase.storage.from('announcement-files').remove([uploaded.path]);
     return { error: '첨부 정보 저장에 실패했습니다.' };
   }
 
@@ -745,6 +732,48 @@ export async function deleteAnnouncementAttachment(attachmentId: string) {
   revalidatePath('/admin/announcements');
   revalidatePath('/student/announcements');
   revalidatePath('/parent/announcements');
+
+  return { success: true };
+}
+
+// ============================================
+// 알림 발송 (외부에서 첨부 업로드 후 발송할 때 사용)
+// ============================================
+
+/**
+ * 신규 공지 첨부 업로드가 모두 성공한 뒤 호출.
+ * createAnnouncement(sendNotification:false)로 알림을 보류해 두고,
+ * 첨부까지 트랜잭션이 완성된 뒤에만 학생/학부모에게 푸시·인앱 알림을 발송.
+ */
+export async function finalizeAnnouncementNotifications(announcementId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (!profile || profile.user_type !== 'admin') {
+    return { error: '관리자 권한이 필요합니다.' };
+  }
+
+  const { data: ann, error } = await supabase
+    .from('announcements')
+    .select('id, title, target_audience, branch_id')
+    .eq('id', announcementId)
+    .maybeSingle();
+  if (error || !ann) return { error: '공지를 찾을 수 없습니다.' };
+
+  await sendAnnouncementNotifications(
+    ann.id,
+    ann.title,
+    ann.target_audience as 'all' | 'student' | 'parent',
+    ann.branch_id,
+  );
 
   return { success: true };
 }
