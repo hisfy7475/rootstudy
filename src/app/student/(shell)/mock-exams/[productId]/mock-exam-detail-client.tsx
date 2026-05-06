@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MealImage } from '@/components/shared/meal-image';
+import { ImageLightbox } from '@/components/shared/image-lightbox';
 import {
   createMealOrder,
   cancelPendingMealOrder,
@@ -49,6 +50,7 @@ export function MockExamDetailClient({
   );
   const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
   const [conflictMode, setConflictMode] = useState<'new' | 'resume'>('new');
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const paid = variant ? (paidOrderByVariant[variant.id] ?? null) : null;
   const capacityLeft = variant ? (capacityLeftByVariant[variant.id] ?? null) : null;
 
@@ -161,7 +163,12 @@ export function MockExamDetailClient({
 
   return (
     <div className='space-y-4'>
-      <div className='relative -mx-0 h-48 w-full overflow-hidden rounded-xl'>
+      <button
+        type='button'
+        onClick={() => setLightboxOpen(true)}
+        aria-label={`${product.name} 이미지 확대`}
+        className='focus-visible:ring-primary relative -mx-0 block h-48 w-full overflow-hidden rounded-xl focus-visible:ring-2 focus-visible:outline-none'
+      >
         <MealImage
           src={product.image_url}
           type='product'
@@ -170,7 +177,7 @@ export function MockExamDetailClient({
           priority
           className='rounded-xl'
         />
-      </div>
+      </button>
 
       <div>
         <span className='bg-muted rounded-full px-2 py-0.5 text-xs font-medium'>모의고사</span>
@@ -308,6 +315,14 @@ export function MockExamDetailClient({
           onConfirm={handleForcePay}
         />
       ) : null}
+
+      <ImageLightbox
+        open={lightboxOpen}
+        src={product.image_url}
+        alt={product.name}
+        fallbackType='product'
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   );
 }
