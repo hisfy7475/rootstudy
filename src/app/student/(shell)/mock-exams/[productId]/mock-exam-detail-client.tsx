@@ -40,7 +40,7 @@ export function MockExamDetailClient({
     [product.variants],
   );
 
-  const [tab, setTab] = useState<'policy' | 'detail'>('policy');
+  const [tab, setTab] = useState<'policy' | 'detail'>('detail');
   const [loading, setLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,18 +190,6 @@ export function MockExamDetailClient({
         <div className='flex border-b'>
           <button
             type='button'
-            onClick={() => setTab('policy')}
-            className={cn(
-              'flex-1 py-2.5 text-sm font-semibold transition-colors',
-              tab === 'policy'
-                ? 'border-primary text-primary border-b-2'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            취소 및 환불 정책
-          </button>
-          <button
-            type='button'
             onClick={() => setTab('detail')}
             className={cn(
               'flex-1 py-2.5 text-sm font-semibold transition-colors',
@@ -212,9 +200,29 @@ export function MockExamDetailClient({
           >
             상세 정보
           </button>
+          <button
+            type='button'
+            onClick={() => setTab('policy')}
+            className={cn(
+              'flex-1 py-2.5 text-sm font-semibold transition-colors',
+              tab === 'policy'
+                ? 'border-primary text-primary border-b-2'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            취소 및 환불 정책
+          </button>
         </div>
 
-        {tab === 'policy' ? (
+        {tab === 'detail' ? (
+          <div className='mt-3'>
+            {product.description ? (
+              <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
+            ) : (
+              <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
+            )}
+          </div>
+        ) : (
           <div className='bg-muted/50 mt-3 space-y-1.5 rounded-lg p-4'>
             <ul className='space-y-1.5 text-sm'>
               {policy.lines.map((line, idx) => (
@@ -227,14 +235,6 @@ export function MockExamDetailClient({
                 </li>
               ))}
             </ul>
-          </div>
-        ) : (
-          <div className='mt-3'>
-            {product.description ? (
-              <p className='text-sm whitespace-pre-wrap'>{product.description}</p>
-            ) : (
-              <p className='text-muted-foreground text-sm'>등록된 설명이 없습니다.</p>
-            )}
           </div>
         )}
       </div>
