@@ -76,7 +76,7 @@ interface AttendanceClientProps {
   initialData: {
     data: AttendanceStudent[];
     total: number;
-    stats: { checkedIn: number; checkedOut: number; onBreak: number; notYetArrived: number };
+    stats: { checkedIn: number; checkedOut: number; notYetArrived: number };
   };
   todayPeriods: Period[];
   dateTypeName: string | null;
@@ -157,7 +157,7 @@ function getWeekRangeText(mondayStr: string): string {
   return `${startMonth}월 ${startDay}일 ~ ${endMonth}월 ${endDay}일`;
 }
 
-type StatusFilter = 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived' | null;
+type StatusFilter = 'checked_in' | 'checked_out' | 'not_arrived' | null;
 
 function getCurrentStudyDateStr(): string {
   const sd = getStudyDate();
@@ -428,7 +428,6 @@ export function AttendanceClient({
     total,
     checkedIn: globalStats.checkedIn,
     checkedOut: globalStats.checkedOut,
-    onBreak: globalStats.onBreak,
     notYetArrived: globalStats.notYetArrived,
   };
 
@@ -573,7 +572,7 @@ export function AttendanceClient({
       {viewMode === 'daily' ? (
         <>
           {/* 통계 카드 - 클릭 시 필터 */}
-          <div className='grid grid-cols-5 gap-3 print:grid-cols-5 print:gap-1'>
+          <div className='grid grid-cols-4 gap-3 print:grid-cols-4 print:gap-1'>
             {/* 전체 - 필터 해제 */}
             <button
               onClick={() => {
@@ -603,22 +602,6 @@ export function AttendanceClient({
               <div className='text-xs text-green-600 print:text-[10px]'>입실</div>
               <div className='text-xl font-bold text-green-600 print:text-base'>
                 {stats.checkedIn}
-              </div>
-            </button>
-            {/* 외출 */}
-            <button
-              onClick={() => handleFilterClick('on_break')}
-              className={cn(
-                'rounded-lg border p-3 text-left transition-all print:p-1.5',
-                activeFilter === 'on_break'
-                  ? 'border-amber-400 bg-amber-100 shadow-md ring-2 ring-amber-400'
-                  : 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm',
-                activeFilter !== null && activeFilter !== 'on_break' && 'opacity-50',
-              )}
-            >
-              <div className='text-xs text-amber-600 print:text-[10px]'>외출</div>
-              <div className='text-xl font-bold text-amber-600 print:text-base'>
-                {stats.onBreak}
               </div>
             </button>
             {/* 퇴실 */}
@@ -661,7 +644,6 @@ export function AttendanceClient({
                 {
                   {
                     checked_in: '입실',
-                    on_break: '외출',
                     checked_out: '퇴실',
                     not_arrived: '미등원',
                   }[activeFilter]

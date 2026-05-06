@@ -3737,7 +3737,7 @@ export async function getAttendanceBoard(
   targetDate?: string,
   branchId?: string | null,
   searchQuery?: string,
-  statusFilter?: 'checked_in' | 'checked_out' | 'on_break' | 'not_arrived',
+  statusFilter?: 'checked_in' | 'checked_out' | 'not_arrived',
 ) {
   const supabase = await createClient();
 
@@ -3761,14 +3761,14 @@ export async function getAttendanceBoard(
     return {
       data: [],
       total: 0,
-      stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 },
+      stats: { checkedIn: 0, checkedOut: 0, notYetArrived: 0 },
     };
   }
   if (!allStudentRows || allStudentRows.length === 0) {
     return {
       data: [],
       total: 0,
-      stats: { checkedIn: 0, checkedOut: 0, onBreak: 0, notYetArrived: 0 },
+      stats: { checkedIn: 0, checkedOut: 0, notYetArrived: 0 },
     };
   }
 
@@ -3801,14 +3801,13 @@ export async function getAttendanceBoard(
   const allAttendanceByStudent = groupById(allStudentsAttendance);
 
   // Step 3: 전체 학생 상태 계산 + 통계 + 상태별 ID 맵
+  // 외출(break_start) 상태는 활성 학습 세션 중이므로 입실(checked_in) 으로 합산한다.
   let globalCheckedIn = 0,
     globalCheckedOut = 0,
-    globalOnBreak = 0,
     globalNotYetArrived = 0;
   const statusIdMap: Record<string, string[]> = {
     checked_in: [],
     checked_out: [],
-    on_break: [],
     not_arrived: [],
   };
 
@@ -3819,15 +3818,13 @@ export async function getAttendanceBoard(
       statusIdMap['not_arrived'].push(sid);
     } else {
       const lastRecord = records[records.length - 1];
-      if (lastRecord.type === 'check_in' || lastRecord.type === 'break_end') {
+      if (
+        lastRecord.type === 'check_in' ||
+        lastRecord.type === 'break_end' ||
+        lastRecord.type === 'break_start'
+      ) {
         globalCheckedIn++;
         statusIdMap['checked_in'].push(sid);
-      } else if (lastRecord.type === 'check_out') {
-        globalCheckedOut++;
-        statusIdMap['checked_out'].push(sid);
-      } else if (lastRecord.type === 'break_start') {
-        globalOnBreak++;
-        statusIdMap['on_break'].push(sid);
       } else {
         globalCheckedOut++;
         statusIdMap['checked_out'].push(sid);
@@ -3837,7 +3834,6 @@ export async function getAttendanceBoard(
   let globalStats = {
     checkedIn: globalCheckedIn,
     checkedOut: globalCheckedOut,
-    onBreak: globalOnBreak,
     notYetArrived: globalNotYetArrived,
   };
 
@@ -3852,9 +3848,8 @@ export async function getAttendanceBoard(
     const r = rpcStats?.[0];
     if (r) {
       globalStats = {
-        checkedIn: r.checked_in,
+        checkedIn: (r.checked_in ?? 0) + (r.on_break ?? 0),
         checkedOut: r.checked_out,
-        onBreak: r.on_break,
         notYetArrived: r.not_yet_arrived,
       };
     }
