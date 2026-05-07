@@ -83,7 +83,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
   ]);
 
   return (
-    <div className='mx-auto max-w-7xl space-y-6 p-4 md:p-8'>
+    <div className='space-y-6 p-6'>
       <div>
         <h1 className='text-2xl font-bold tracking-tight'>통합 신청내역</h1>
         <p className='text-muted-foreground mt-1 text-sm'>
