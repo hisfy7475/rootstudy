@@ -1,6 +1,11 @@
 'use server';
 
 import { createAdminClient, createClient } from '@/lib/supabase/server';
+import {
+  CHAT_FILE_MAX_BYTES,
+  resolveChatFileMime,
+  sanitizeChatFileSegment,
+} from '@shared/uploads/chat';
 
 // ============================================
 // 채팅방 관련
@@ -435,28 +440,6 @@ export async function uploadChatImage(roomId: string, formData: FormData) {
   return { data: { url: publicUrl } };
 }
 
-const CHAT_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20MB
-const CHAT_FILE_ALLOWED_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'text/plain',
-  'text/csv',
-  'application/zip',
-] as const;
-
-function sanitizeChatFileSegment(name: string): string {
-  const base = name
-    .replace(/[/\\]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/[^\x20-\x7E]/g, '');
-  return base.slice(0, 200) || 'file';
-}
-
 /** 일반 파일 첨부 업로드 (이미지 제외 → `uploadChatImage` 사용) */
 export async function uploadChatFile(roomId: string, formData: FormData) {
   const supabase = await createClient();
@@ -473,11 +456,15 @@ export async function uploadChatFile(roomId: string, formData: FormData) {
     return { error: '파일이 없습니다.' };
   }
 
+  // 위장 이미지 차단은 MIME 결정 이전에 처리.
   if (file.type.startsWith('image/')) {
     return { error: '이미지는 이미지 첨부 버튼을 사용해 주세요.' };
   }
 
-  if (!CHAT_FILE_ALLOWED_TYPES.includes(file.type as (typeof CHAT_FILE_ALLOWED_TYPES)[number])) {
+  // 확장자 우선으로 MIME을 결정. 브라우저가 한글/대괄호 파일명에서
+  // file.type 을 비워 보내도 확장자가 화이트리스트면 통과한다.
+  const resolvedMime = resolveChatFileMime(file.type, file.name);
+  if (!resolvedMime) {
     return { error: '지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)' };
   }
 
@@ -491,7 +478,7 @@ export async function uploadChatFile(roomId: string, formData: FormData) {
   const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, {
     cacheControl: '3600',
     upsert: false,
-    contentType: file.type || undefined,
+    contentType: resolvedMime,
   });
 
   if (error) {
@@ -499,15 +486,17 @@ export async function uploadChatFile(roomId: string, formData: FormData) {
     return { error: '파일 업로드에 실패했습니다.' };
   }
 
+  // ?download=<원본이름> 쿼리로 Content-Disposition을 강제해
+  // 다운로드 시 한글 원본 파일명이 보존되도록 한다.
   const {
     data: { publicUrl },
-  } = supabase.storage.from('chat-files').getPublicUrl(data.path);
+  } = supabase.storage.from('chat-files').getPublicUrl(data.path, { download: file.name });
 
   return {
     data: {
       url: publicUrl,
       fileName: file.name,
-      mimeType: file.type || null,
+      mimeType: resolvedMime,
     },
   };
 }

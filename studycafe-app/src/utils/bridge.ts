@@ -14,6 +14,7 @@ export type NativeToWebMessage =
     }
   | { type: 'PUSH_TOKEN'; payload: { expo_push_token: string; platform: 'ios' | 'android' } }
   | { type: 'FILE_UPLOADED'; payload: { url: string; filename: string; mime_type: string } }
+  | { type: 'FILE_UPLOAD_ERROR'; payload: { message: string } }
   | { type: 'DEEP_LINK'; payload: { path: string } };
 
 // -- Web → Native -----------------------------------------------------------

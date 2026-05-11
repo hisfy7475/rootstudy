@@ -110,6 +110,7 @@ export function ChatMessageItem({
             {fileUrl && fileType === 'file' && (
               <a
                 href={fileUrl}
+                download={fileName ?? undefined}
                 target='_blank'
                 rel='noopener noreferrer'
                 className={cn(

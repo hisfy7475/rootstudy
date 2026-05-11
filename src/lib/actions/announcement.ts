@@ -4,7 +4,11 @@ import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { createBulkStudentNotifications, createUserNotification } from './notification';
 import { getUserScope } from '@/lib/auth/scope';
-import { ANNOUNCEMENT_FILE_MAX_BYTES, isAnnouncementMimeAllowed } from '@/lib/announcement-config';
+import {
+  ANNOUNCEMENT_FILE_MAX_BYTES,
+  resolveAnnouncementFileMime,
+  sanitizeAnnouncementFileSegment,
+} from '@/lib/announcement-config';
 
 // ============================================
 // 공지사항 조회
@@ -627,15 +631,6 @@ export async function deleteAnnouncement(id: string) {
   return { success: true };
 }
 
-function sanitizeAnnouncementFileSegment(name: string): string {
-  // Supabase Storage 키 검증기는 ASCII 중에서도 일부만 허용한다.
-  // 안전을 위해 영숫자/마침표/언더스코어/하이픈만 남기고 나머지는 모두 _로 치환.
-  // (대괄호·중괄호·#·% 등은 ASCII printable이지만 거부되어 'Invalid key'가 발생함)
-  const base = name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_');
-  const trimmed = base.replace(/^[._]+/, '').slice(0, 200);
-  return trimmed || 'file';
-}
-
 /** 공지 첨부 목록 (학생/학부모·관리자 공통, RLS) */
 export async function getAnnouncementAttachments(
   announcementId: string,
@@ -690,7 +685,10 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
   const file = formData.get('file') as File;
   if (!file) return { error: '파일이 없습니다.' };
 
-  if (!isAnnouncementMimeAllowed(file.type)) {
+  // MIME은 확장자 우선으로 결정한다. 브라우저가 file.type을 빈 문자열로 주는
+  // 한글/특수문자 파일명에서도 확장자가 화이트리스트면 통과시키기 위함.
+  const resolvedMime = resolveAnnouncementFileMime(file.type, file.name);
+  if (!resolvedMime) {
     return { error: '지원하지 않는 파일 형식입니다.' };
   }
 
@@ -706,7 +704,7 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
     .upload(path, file, {
       cacheControl: '3600',
       upsert: false,
-      contentType: file.type || undefined,
+      contentType: resolvedMime,
     });
 
   if (upErr) {
@@ -714,9 +712,16 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
     return { error: '파일 업로드에 실패했습니다.' };
   }
 
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('announcement-files').getPublicUrl(uploaded.path);
+  // 이미지가 아닌 첨부는 다운로드 시 원본 파일명(한글 등)이 보존되도록
+  // ?download=<원본이름> 쿼리를 박아 Content-Disposition 헤더를 강제한다.
+  // 이미지는 인라인 미리보기를 유지해야 하므로 옵션 미적용.
+  const isImage = resolvedMime.startsWith('image/');
+  const { data: pub } = isImage
+    ? supabase.storage.from('announcement-files').getPublicUrl(uploaded.path)
+    : supabase.storage
+        .from('announcement-files')
+        .getPublicUrl(uploaded.path, { download: file.name });
+  const publicUrl = pub.publicUrl;
 
   const { data: row, error: insErr } = await supabase
     .from('announcement_attachments')
@@ -725,7 +730,7 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
       file_url: publicUrl,
       file_name: file.name,
       file_size: file.size,
-      mime_type: file.type || null,
+      mime_type: resolvedMime,
     })
     .select()
     .single();

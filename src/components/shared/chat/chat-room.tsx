@@ -279,8 +279,18 @@ export function ChatRoom({
       try {
         const parsed = JSON.parse(raw) as {
           type?: string;
-          payload?: { url?: string; filename?: string; mime_type?: string };
+          payload?: {
+            url?: string;
+            filename?: string;
+            mime_type?: string;
+            message?: string;
+          };
         };
+        if (parsed.type === 'FILE_UPLOAD_ERROR') {
+          setIsSending(false);
+          alert(parsed.payload?.message ?? '파일 업로드에 실패했습니다.');
+          return;
+        }
         if (parsed.type !== 'FILE_UPLOADED' || !parsed.payload?.url) return;
         const url = parsed.payload.url;
         const mime = parsed.payload.mime_type ?? '';

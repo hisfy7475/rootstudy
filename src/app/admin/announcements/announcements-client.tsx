@@ -22,7 +22,7 @@ import {
   ANNOUNCEMENT_FILE_ACCEPT,
   ANNOUNCEMENT_FILE_MAX_BYTES,
   ANNOUNCEMENT_FILE_MAX_COUNT,
-  isAnnouncementMimeAllowed,
+  resolveAnnouncementFileMime,
 } from '@/lib/announcement-config';
 import { sendKakaoAlimtalkToParents, getAlimtalkConfig } from '@/lib/actions/notification';
 import {
@@ -205,8 +205,9 @@ export function AnnouncementsClient({
         alert(`${f.name}: 20MB 이하만 첨부할 수 있습니다.`);
         continue;
       }
-      // 브라우저가 MIME을 비워서 보내는 경우(드물지만 발생)에는 거부 — 서버에서도 어차피 막힌다.
-      if (!isAnnouncementMimeAllowed(f.type)) {
+      // 확장자 우선으로 결정한다. 브라우저가 file.type을 비워서 주는
+      // 한글/특수문자 파일명도 확장자가 화이트리스트면 통과.
+      if (!resolveAnnouncementFileMime(f.type, f.name)) {
         alert(`${f.name}: 지원하지 않는 파일 형식입니다.`);
         continue;
       }

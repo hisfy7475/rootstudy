@@ -4,6 +4,7 @@ import { useState, useRef, KeyboardEvent, ClipboardEvent, ChangeEvent } from 're
 import { Send, ImagePlus, Paperclip, X } from 'lucide-react';
 import { cn, isNativeApp, randomUUID } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
+import { CHAT_FILE_ACCEPT, CHAT_FILE_MAX_BYTES, resolveChatFileMime } from '@shared/uploads/chat';
 import Image from 'next/image';
 
 interface ChatInputProps {
@@ -91,8 +92,6 @@ export function ChatInput({
     }
   };
 
-  const MAX_DATA_FILE_SIZE = 20 * 1024 * 1024;
-
   const handleDataFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (dataFileInputRef.current) {
@@ -103,7 +102,11 @@ export function ChatInput({
       alert('이미지는 이미지 첨부 버튼을 사용해 주세요.');
       return;
     }
-    if (file.size > MAX_DATA_FILE_SIZE) {
+    if (!resolveChatFileMime(file.type, file.name)) {
+      alert('지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)');
+      return;
+    }
+    if (file.size > CHAT_FILE_MAX_BYTES) {
       alert('파일 크기는 20MB 이하여야 합니다.');
       return;
     }
@@ -227,7 +230,7 @@ export function ChatInput({
         <input
           ref={dataFileInputRef}
           type='file'
-          accept='.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/zip'
+          accept={CHAT_FILE_ACCEPT}
           onChange={handleDataFileChange}
           className='hidden'
         />

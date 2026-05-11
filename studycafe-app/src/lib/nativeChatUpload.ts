@@ -2,22 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../constants';
 import type { StoredSession } from '../hooks/useSecureTokenStore';
-
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
-
-const CHAT_FILE_ALLOWED_TYPES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'text/plain',
-  'text/csv',
-  'application/zip',
-]);
+import {
+  CHAT_FILE_MAX_BYTES,
+  resolveChatFileMime,
+  sanitizeChatFileSegment,
+} from '@shared/uploads/chat';
+import { FILE_SIZE_10MB } from '@shared/uploads/file-utils';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg',
@@ -25,14 +15,6 @@ const ALLOWED_IMAGE_TYPES = new Set([
   'image/gif',
   'image/webp',
 ]);
-
-function sanitizeChatFileSegment(name: string): string {
-  const base = name
-    .replace(/[/\\]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/[^\x20-\x7E]/g, '');
-  return base.slice(0, 200) || 'file';
-}
 
 function createAuthedClient(session: StoredSession) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -59,7 +41,7 @@ async function uploadToStorage(
   fileName: string,
   mimeType: string,
   accessToken: string
-): Promise<string> {
+): Promise<void> {
   const formData = new FormData();
   formData.append('', {
     uri: fileUri,
@@ -83,14 +65,8 @@ async function uploadToStorage(
   if (!res.ok) {
     const body = await res.text();
     console.error('[nativeChatUpload] storage upload failed:', res.status, body);
-    throw new Error(`Storage upload failed: ${res.status}`);
+    throw new Error('파일 업로드에 실패했습니다.');
   }
-
-  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    .storage.from(bucket)
-    .getPublicUrl(storagePath);
-
-  return pub.publicUrl;
 }
 
 export type NativeUploadOk = { url: string; filename: string; mime_type: string };
@@ -106,7 +82,7 @@ export async function uploadChatImageFromNative(
   if (!ALLOWED_IMAGE_TYPES.has(mt)) {
     throw new Error('지원하지 않는 이미지 형식입니다.');
   }
-  if (size != null && size > MAX_IMAGE_BYTES) {
+  if (size != null && size > FILE_SIZE_10MB) {
     throw new Error('이미지 크기는 10MB 이하여야 합니다.');
   }
 
@@ -127,11 +103,21 @@ export async function uploadChatImageFromNative(
   const fileName = `${Date.now()}.${ext}`;
   const storagePath = `${userData.user.id}/${roomId}/${fileName}`;
 
-  const publicUrl = await uploadToStorage(
-    'chat-images', storagePath, uri, fileName, mt, session.access_token
+  await uploadToStorage(
+    'chat-images',
+    storagePath,
+    uri,
+    fileName,
+    mt,
+    session.access_token,
   );
 
-  return { url: publicUrl, filename: `image.${ext}`, mime_type: mt };
+  // 이미지는 인라인 미리보기 유지를 위해 download 옵션 미적용.
+  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    .storage.from('chat-images')
+    .getPublicUrl(storagePath);
+
+  return { url: pub.publicUrl, filename: `image.${ext}`, mime_type: mt };
 }
 
 export async function uploadChatFileFromNative(
@@ -142,14 +128,17 @@ export async function uploadChatFileFromNative(
   mimeType: string | undefined,
   size: number | undefined | null
 ): Promise<NativeUploadOk> {
-  const mt = mimeType?.trim() || 'application/octet-stream';
-  if (mt.startsWith('image/')) {
+  // 위장 이미지 차단은 MIME 결정 이전.
+  if (mimeType && mimeType.trim().toLowerCase().startsWith('image/')) {
     throw new Error('이미지는 이미지 첨부를 사용해 주세요.');
   }
-  if (!CHAT_FILE_ALLOWED_TYPES.has(mt)) {
+  // 확장자 우선으로 MIME 결정. DocumentPicker가 mimeType undefined/octet-stream을
+  // 주는 Android 케이스에서도 확장자가 화이트리스트면 통과.
+  const resolvedMime = resolveChatFileMime(mimeType, filename);
+  if (!resolvedMime) {
     throw new Error('지원하지 않는 파일 형식입니다.');
   }
-  if (size != null && size > MAX_FILE_BYTES) {
+  if (size != null && size > CHAT_FILE_MAX_BYTES) {
     throw new Error('파일 크기는 20MB 이하여야 합니다.');
   }
 
@@ -162,9 +151,20 @@ export async function uploadChatFileFromNative(
   const safeBase = sanitizeChatFileSegment(filename || 'file');
   const storagePath = `${userData.user.id}/${roomId}/${Date.now()}_${safeBase}`;
 
-  const publicUrl = await uploadToStorage(
-    'chat-files', storagePath, uri, safeBase, mt, session.access_token
+  await uploadToStorage(
+    'chat-files',
+    storagePath,
+    uri,
+    safeBase,
+    resolvedMime,
+    session.access_token,
   );
 
-  return { url: publicUrl, filename: filename || safeBase, mime_type: mt };
+  // 다운로드 시 원본 한글 파일명이 보존되도록 ?download=<원본이름> 강제.
+  const downloadName = filename || safeBase;
+  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    .storage.from('chat-files')
+    .getPublicUrl(storagePath, { download: downloadName });
+
+  return { url: pub.publicUrl, filename: downloadName, mime_type: resolvedMime };
 }
