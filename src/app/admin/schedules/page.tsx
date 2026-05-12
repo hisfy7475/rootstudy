@@ -53,6 +53,7 @@ export default async function AdminSchedulesPage({ searchParams }: PageProps) {
       .from('student_profiles')
       .select('id, seat_number, profiles!inner(name, branch_id)')
       .eq('profiles.branch_id', branchId)
+      .is('profiles.withdrawn_at', null)
       .order('seat_number', { ascending: true });
 
     if (error || !data) return [];

@@ -4051,6 +4051,7 @@ export async function getWeeklyAttendance(
     `,
         { count: spOffset === 0 ? 'exact' : undefined },
       )
+      .is('profiles.withdrawn_at', null)
       .order('seat_number', { ascending: true });
 
     if (branchId) {
@@ -4259,7 +4260,8 @@ export async function getTodayFocusScoresByPeriod(branchId?: string | null, targ
     const { data: branchStudents } = await supabase
       .from('student_profiles')
       .select('id, profiles!inner(branch_id)')
-      .eq('profiles.branch_id', branchId);
+      .eq('profiles.branch_id', branchId)
+      .is('profiles.withdrawn_at', null);
     studentIds = branchStudents?.map((s) => s.id) || [];
   }
 

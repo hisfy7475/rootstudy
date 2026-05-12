@@ -61,19 +61,19 @@ function getTargetWeekStartKST(weekParam?: string): Date {
 function calculateStudyMinutes(
   attendance: Array<{ type: string; timestamp: string }>,
   weekStart: Date,
-  weekEnd: Date
+  weekEnd: Date,
 ): number {
   let totalMinutes = 0;
   let checkInTime: Date | null = null;
 
   // 타임스탬프 순으로 정렬
   const sorted = [...attendance].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
 
   for (const record of sorted) {
     const timestamp = new Date(record.timestamp);
-    
+
     // 해당 주 범위 내의 기록만 처리
     if (timestamp < weekStart || timestamp >= weekEnd) continue;
 
@@ -110,10 +110,10 @@ function calculateStudyMinutes(
 
 // 투트랙 주간 목표 설정 반환 타입
 interface WeeklyGoalResult {
-  goalMinutes: number;           // 목표 시간 (분)
-  rewardPoints: number;          // 목표 달성 시 상점
-  minimumMinutes: number;        // 최소 시간 (분)
-  minimumPenaltyPoints: number;  // 최소 미달 시 벌점
+  goalMinutes: number; // 목표 시간 (분)
+  rewardPoints: number; // 목표 달성 시 상점
+  minimumMinutes: number; // 최소 시간 (분)
+  minimumPenaltyPoints: number; // 최소 미달 시 벌점
 }
 
 // 학생의 주간 목표시간 계산 (날짜 타입별 가중 평균) - 투트랙 지원
@@ -122,7 +122,7 @@ async function calculateWeeklyGoalMinutes(
   studentTypeId: string,
   branchId: string,
   weekDates: string[],
-  defaultGoalHours: number
+  defaultGoalHours: number,
 ): Promise<WeeklyGoalResult> {
   // 해당 주의 날짜별 date_type 조회
   const { data: dateAssignments } = await supabase
@@ -197,9 +197,9 @@ async function calculateWeeklyGoalMinutes(
     const finalGoalHours = totalGoalHours + dailyDefault * unassignedDays;
     return {
       goalMinutes: Math.round(finalGoalHours * 60),
-      rewardPoints: Math.round(totalRewardPoints * 7 / assignedDays),
-      minimumMinutes: Math.round(totalMinimumHours * 60 * 7 / assignedDays),
-      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints * 7 / assignedDays),
+      rewardPoints: Math.round((totalRewardPoints * 7) / assignedDays),
+      minimumMinutes: Math.round((totalMinimumHours * 60 * 7) / assignedDays),
+      minimumPenaltyPoints: Math.round((totalMinimumPenaltyPoints * 7) / assignedDays),
     };
   } else {
     // 설정이 없으면 기본값 사용 (투트랙 미적용)
@@ -232,7 +232,7 @@ export async function GET(request: Request) {
     processed: number;
     rewarded: number;
     penalized: number;
-    neutral: number;  // 투트랙: 중간 (상벌점 없음)
+    neutral: number; // 투트랙: 중간 (상벌점 없음)
     skipped: number;
     errors: string[];
   } = {
@@ -251,17 +251,27 @@ export async function GET(request: Request) {
     const { endExclusive: lastWeekEnd } = getCalendarWeekBoundsKST(weekStartStr);
     const weekDates = getWeekDateStringsFromMondayKST(weekStartStr);
 
-    // 3. 모든 학생 조회 (타입 정보 포함)
+    // 3. 모든 학생 조회 (타입/지점/가입일 포함, 퇴원생 제외)
+    //    퇴원 시점이 정산 대상 주 중간이더라도 그 주의 신규 정산에서 제외한다.
+    //    이미 처리된 기존 weekly_point_history 행은 그대로 보존된다.
     const { data: students, error: studentsError } = await supabase
       .from('student_profiles')
-      .select(`
+      .select(
+        `
         id,
         student_type_id,
         student_types (
           weekly_goal_hours
+        ),
+        profiles!inner (
+          branch_id,
+          created_at,
+          withdrawn_at
         )
-      `)
-      .not('student_type_id', 'is', null);
+      `,
+      )
+      .not('student_type_id', 'is', null)
+      .is('profiles.withdrawn_at', null);
 
     if (studentsError) {
       throw new Error(`Failed to fetch students: ${studentsError.message}`);
@@ -275,21 +285,17 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. 학생별 지점 정보 및 가입일 조회
+    // 4. 학생별 지점 정보 및 가입일 매핑 (조인 결과 재사용)
     const studentIds = students.map((s) => s.id);
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, branch_id, created_at')
-      .in('id', studentIds);
-
     const branchMap = new Map<string, string>();
     const joinedAtMap = new Map<string, Date>();
-    profiles?.forEach((p) => {
-      if (p.branch_id) {
-        branchMap.set(p.id, p.branch_id);
+    students.forEach((s) => {
+      const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+      if (p?.branch_id) {
+        branchMap.set(s.id, p.branch_id);
       }
-      if (p.created_at) {
-        joinedAtMap.set(p.id, new Date(p.created_at));
+      if (p?.created_at) {
+        joinedAtMap.set(s.id, new Date(p.created_at));
       }
     });
 
@@ -303,10 +309,7 @@ export async function GET(request: Request) {
 
     // 6. 학생별 출석 기록 조회
     // PostgREST max-rows 제한(기본 1000행)을 우회하기 위해 학생 1명씩 개별 조회
-    const attendanceByStudent = new Map<
-      string,
-      Array<{ type: string; timestamp: string }>
-    >();
+    const attendanceByStudent = new Map<string, Array<{ type: string; timestamp: string }>>();
     for (const studentId of studentIds) {
       const { data: studentAttendance } = await supabase
         .from('attendance')
@@ -319,7 +322,7 @@ export async function GET(request: Request) {
       if (studentAttendance && studentAttendance.length > 0) {
         attendanceByStudent.set(
           studentId,
-          studentAttendance.map((a) => ({ type: a.type, timestamp: a.timestamp }))
+          studentAttendance.map((a) => ({ type: a.type, timestamp: a.timestamp })),
         );
       }
     }
@@ -352,36 +355,33 @@ export async function GET(request: Request) {
             student.student_type_id,
             branchId,
             weekDates,
-            defaultGoalHours
+            defaultGoalHours,
           );
 
         // 실제 학습시간 계산
         const attendance = attendanceByStudent.get(student.id) || [];
-        const totalStudyMinutes = calculateStudyMinutes(
-          attendance,
-          lastWeekStart,
-          lastWeekEnd
-        );
+        const totalStudyMinutes = calculateStudyMinutes(attendance, lastWeekStart, lastWeekEnd);
 
         // 투트랙 판단
         const goalHours = Math.floor(goalMinutes / 60);
         const minimumHours = Math.floor(minimumMinutes / 60);
         const studyHours = Math.floor(totalStudyMinutes / 60);
-        
+
         const isGoalAchieved = totalStudyMinutes >= goalMinutes;
         const isBelowMinimum = minimumMinutes > 0 && totalStudyMinutes < minimumMinutes;
 
         // 해당 주차에 가입한 신규 학생은 최소시간 미달 벌점 면제
         const joinedAt = joinedAtMap.get(student.id);
-        const isNewThisWeek = joinedAt !== undefined && joinedAt >= lastWeekStart && joinedAt < lastWeekEnd;
+        const isNewThisWeek =
+          joinedAt !== undefined && joinedAt >= lastWeekStart && joinedAt < lastWeekEnd;
         const applyPenalty = isBelowMinimum && !isNewThisWeek;
-        
+
         // 투트랙: 목표 달성 → 상점, 최소 미달 → 벌점, 중간 → 없음
         let pointType: 'reward' | 'penalty' | null = null;
         let pointAmount = 0;
         let reason = '';
         let notificationTitle = '';
-        
+
         if (isGoalAchieved) {
           // 목표 달성 → 상점
           pointType = 'reward';
@@ -436,21 +436,17 @@ export async function GET(request: Request) {
         }
 
         // weekly_point_history에 기록 (모든 경우)
-        const { error: historyError } = await supabase
-          .from('weekly_point_history')
-          .insert({
-            student_id: student.id,
-            week_start: weekStartStr,
-            total_study_minutes: totalStudyMinutes,
-            goal_minutes: goalMinutes,
-            is_achieved: isGoalAchieved,
-            point_id: pointId,
-          });
+        const { error: historyError } = await supabase.from('weekly_point_history').insert({
+          student_id: student.id,
+          week_start: weekStartStr,
+          total_study_minutes: totalStudyMinutes,
+          goal_minutes: goalMinutes,
+          is_achieved: isGoalAchieved,
+          point_id: pointId,
+        });
 
         if (historyError) {
-          results.errors.push(
-            `History for ${student.id}: ${historyError.message}`
-          );
+          results.errors.push(`History for ${student.id}: ${historyError.message}`);
           continue;
         }
 
@@ -463,8 +459,7 @@ export async function GET(request: Request) {
           results.neutral++;
         }
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Unknown error';
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         results.errors.push(`Student ${student.id}: ${errorMessage}`);
       }
     }
@@ -476,13 +471,9 @@ export async function GET(request: Request) {
       results,
     });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Weekly points cron error:', errorMessage);
 
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
   }
 }
