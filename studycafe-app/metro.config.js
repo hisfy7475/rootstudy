@@ -13,7 +13,8 @@ const config = getDefaultConfig(projectRoot);
 config.watchFolders = [workspaceRoot];
 
 // RN 의존성은 studycafe-app/node_modules 에서만 찾는다 (루트와 충돌 방지).
+// 단, hierarchical lookup은 켜둬야 react-native/node_modules 같은 nested
+// 패키지(@react-native/virtualized-lists 등)를 metro가 해석할 수 있다.
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
-config.resolver.disableHierarchicalLookup = true;
 
 module.exports = config;
