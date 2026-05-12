@@ -2,10 +2,7 @@
 
 import type { RefObject } from 'react';
 import { cn } from '@/lib/utils';
-import type {
-  ImmersionReportData,
-  WeeklyTrendPoint,
-} from '@/lib/actions/report';
+import type { ImmersionReportData, WeeklyTrendPoint } from '@/lib/actions/report';
 import { AttendanceCard } from './attendance-card';
 import { StudyTimeCard } from './study-time-card';
 import { FocusScoreCard } from './focus-score-card';
@@ -63,22 +60,22 @@ export function ImmersionReportView({
   const cardClass = 'print:break-inside-avoid';
 
   return (
-    <div className="max-w-lg mx-auto space-y-4 pb-6 print:max-w-none print:pb-0">
+    <div className='mx-auto max-w-lg space-y-4 pb-6 print:max-w-none print:pb-0'>
       <div
         ref={printRef}
         className={cn(
           'print-report space-y-4',
-          'print:grid print:grid-cols-2 print:gap-3 print:p-0'
+          'print:grid print:grid-cols-2 print:gap-3 print:p-0',
         )}
       >
         <div
           className={cn(
             'hidden print:col-span-2 print:block print:break-inside-avoid',
-            'mb-0 border-b border-gray-200 pb-3 text-center print:mb-3'
+            'mb-0 border-b border-gray-200 pb-3 text-center print:mb-3',
           )}
         >
-          <p className="text-lg font-bold text-text">{report.studentName}</p>
-          <p className="mt-1 text-sm text-text-muted">
+          <p className='text-text text-lg font-bold'>{report.studentName}</p>
+          <p className='text-text-muted mt-1 text-sm'>
             {report.studentTypeName ?? '학년 미지정'}
             {report.seatNumber != null ? ` · 좌석 ${report.seatNumber}` : ''}
             {weekRangeLabel ? ` · ${weekRangeLabel}` : ''}
@@ -90,14 +87,11 @@ export function ImmersionReportView({
         <div className={cardClass}>
           <StudyTimeCard
             dailyData={report.dailyData}
-            gradeAvgSeconds={report.gradeStudyAvgSeconds}
+            gradeAvgSeconds={report.gradeStudyPeerAvgSeconds}
           />
         </div>
         <div className={cardClass}>
-          <FocusScoreCard
-            dailyData={report.dailyData}
-            weeklyFocusAvg={report.weeklyFocusAvg}
-          />
+          <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
         </div>
         <div className={cardClass}>
           <SubjectBandChart data={report.subjectByDay} />
@@ -119,7 +113,7 @@ export function ImmersionReportView({
           />
         </div>
 
-        <p className="hidden text-center text-xs text-text-muted print:col-span-2 print:block print:break-inside-avoid">
+        <p className='text-text-muted hidden text-center text-xs print:col-span-2 print:block print:break-inside-avoid'>
           인쇄 일시 (KST): {printDateStr}
         </p>
       </div>

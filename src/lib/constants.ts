@@ -131,6 +131,12 @@ export const PENALTY_RULES = {
   earlyCheckOut: { amount: 1, reason: '조기퇴실' },
 } as const;
 
+// 또래 비교 벤치마크 (몰입도 리포트 "동일학년 상위 N% 평균")
+export const PEER_BENCHMARK = {
+  /** 상위 ratio (0~1). 0.3이면 동일학년 상위 30%. */
+  topRatio: 0.3,
+} as const;
+
 // 부재 사유
 export const ABSENCE_REASONS = [
   { value: 'academy', label: '학원 또는 과외 참석' },

@@ -52,19 +52,12 @@ function StudyTimeChart({
   const chartWidth = svgWidth - paddingX * 2;
   const chartHeight = svgHeight - paddingTop - paddingBottom;
 
-  const maxSeconds = Math.max(
-    ...dailyData.map((d) => d.studySeconds),
-    gradeAvgDailySeconds,
-    3600
-  );
+  const maxSeconds = Math.max(...dailyData.map((d) => d.studySeconds), gradeAvgDailySeconds, 3600);
   const stepX = chartWidth / Math.max(dailyData.length - 1, 1);
 
   const getX = (i: number) =>
-    dailyData.length <= 1
-      ? paddingX + chartWidth / 2
-      : paddingX + i * stepX;
-  const getY = (seconds: number) =>
-    paddingTop + chartHeight - (seconds / maxSeconds) * chartHeight;
+    dailyData.length <= 1 ? paddingX + chartWidth / 2 : paddingX + i * stepX;
+  const getY = (seconds: number) => paddingTop + chartHeight - (seconds / maxSeconds) * chartHeight;
 
   const points = dailyData.map((d, i) => ({
     x: getX(i),
@@ -82,12 +75,8 @@ function StudyTimeChart({
   }));
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg
-        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full"
-        style={{ minWidth: 280 }}
-      >
+    <div className='w-full overflow-x-auto'>
+      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className='w-full' style={{ minWidth: 280 }}>
         {gridLines.map((line, i) => (
           <line
             key={i}
@@ -95,8 +84,8 @@ function StudyTimeChart({
             y1={line.y}
             x2={svgWidth - paddingX}
             y2={line.y}
-            stroke="#f0f0f0"
-            strokeWidth="1"
+            stroke='#f0f0f0'
+            strokeWidth='1'
           />
         ))}
 
@@ -105,18 +94,18 @@ function StudyTimeChart({
           y1={gradeY}
           x2={svgWidth - paddingX}
           y2={gradeY}
-          stroke="#9CA3AF"
-          strokeWidth="1.5"
-          strokeDasharray="5 4"
+          stroke='#9CA3AF'
+          strokeWidth='1.5'
+          strokeDasharray='5 4'
         />
 
         <polyline
           points={polylinePoints}
-          fill="none"
-          stroke="#7C9FF5"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
+          fill='none'
+          stroke='#7C9FF5'
+          strokeWidth='2'
+          strokeLinejoin='round'
+          strokeLinecap='round'
         />
 
         {points.map((p, i) => (
@@ -124,19 +113,19 @@ function StudyTimeChart({
             <circle
               cx={p.x}
               cy={p.y}
-              r="4"
+              r='4'
               fill={p.seconds > 0 ? '#7C9FF5' : '#d1d5db'}
-              stroke="white"
-              strokeWidth="1.5"
+              stroke='white'
+              strokeWidth='1.5'
             />
             {p.label && (
               <text
                 x={p.x}
                 y={p.y - 9}
-                textAnchor="middle"
-                fontSize="9"
-                fill="#374151"
-                fontWeight="500"
+                textAnchor='middle'
+                fontSize='9'
+                fill='#374151'
+                fontWeight='500'
               >
                 {p.label}
               </text>
@@ -145,14 +134,7 @@ function StudyTimeChart({
         ))}
 
         {points.map((p, i) => (
-          <text
-            key={i}
-            x={p.x}
-            y={svgHeight - 4}
-            textAnchor="middle"
-            fontSize="10"
-            fill="#9ca3af"
-          >
+          <text key={i} x={p.x} y={svgHeight - 4} textAnchor='middle' fontSize='10' fill='#9ca3af'>
             {DAY_LABELS[i]}
           </text>
         ))}
@@ -167,33 +149,31 @@ export function StudyTimeCard({ dailyData, gradeAvgSeconds }: StudyTimeCardProps
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <div className="h-5 w-1.5 rounded-full bg-primary" />
-          <h3 className="text-lg font-semibold leading-none tracking-tight text-text">
+      <CardHeader className='pb-2'>
+        <div className='flex items-center gap-2'>
+          <div className='bg-primary h-5 w-1.5 rounded-full' />
+          <h3 className='text-text text-lg leading-none font-semibold tracking-tight'>
             순수 공부 시간
           </h3>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-3 ml-0.5 flex flex-col gap-1 sm:ml-3.5">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 shrink-0 text-primary" />
-            <span className="text-sm text-text-muted">
+        <div className='mb-3 ml-0.5 flex flex-col gap-1 sm:ml-3.5'>
+          <div className='flex items-center gap-2'>
+            <Clock className='text-primary h-4 w-4 shrink-0' />
+            <span className='text-text-muted text-sm'>
               주간 합계:{' '}
-              <span className="font-bold text-text">{formatStudyTimeFull(weekTotal)}</span>
+              <span className='text-text font-bold'>{formatStudyTimeFull(weekTotal)}</span>
             </span>
           </div>
-          <p className="pl-6 text-xs text-text-muted">
-            동일 학년 평균:{' '}
-            <span className="font-medium text-text">{formatStudyTimeFull(gradeAvgSeconds)}</span>{' '}
+          {/* 라벨의 "30%"는 PEER_BENCHMARK.topRatio와 수동 동기화 필요 */}
+          <p className='text-text-muted pl-6 text-xs'>
+            동일학년 상위 30% 평균:{' '}
+            <span className='text-text font-medium'>{formatStudyTimeFull(gradeAvgSeconds)}</span>{' '}
             (주간)
           </p>
         </div>
-        <StudyTimeChart
-          dailyData={dailyData}
-          gradeAvgDailySeconds={gradeAvgDaily}
-        />
+        <StudyTimeChart dailyData={dailyData} gradeAvgDailySeconds={gradeAvgDaily} />
       </CardContent>
     </Card>
   );
