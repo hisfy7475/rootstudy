@@ -128,8 +128,6 @@ export interface Database {
           id: string;
           name: string;
           weekly_goal_hours: number;
-          vacation_weekly_hours: number;
-          semester_weekly_hours: number;
           created_at: string;
         };
         Insert: {
@@ -144,8 +142,6 @@ export interface Database {
           id?: string;
           name?: string;
           weekly_goal_hours?: number;
-          vacation_weekly_hours?: number;
-          semester_weekly_hours?: number;
           created_at?: string;
         };
       };
@@ -1209,6 +1205,7 @@ export interface Database {
           paid_at: string | null;
           cancelled_at: string | null;
           cancel_reason: string | null;
+          seat_number_snapshot: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -1224,6 +1221,7 @@ export interface Database {
           paid_at?: string | null;
           cancelled_at?: string | null;
           cancel_reason?: string | null;
+          seat_number_snapshot?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1239,6 +1237,7 @@ export interface Database {
           paid_at?: string | null;
           cancelled_at?: string | null;
           cancel_reason?: string | null;
+          seat_number_snapshot?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1398,6 +1397,7 @@ export interface Database {
           rejected_at: string | null;
           cancelled_at: string | null;
           cancel_reason: string | null;
+          seat_number_snapshot: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -1417,6 +1417,7 @@ export interface Database {
           rejected_at?: string | null;
           cancelled_at?: string | null;
           cancel_reason?: string | null;
+          seat_number_snapshot?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1436,6 +1437,7 @@ export interface Database {
           rejected_at?: string | null;
           cancelled_at?: string | null;
           cancel_reason?: string | null;
+          seat_number_snapshot?: number | null;
           created_at?: string;
           updated_at?: string;
         };
