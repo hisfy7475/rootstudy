@@ -69,6 +69,34 @@ export async function createBranch(name: string, address?: string) {
     return { error: '지점 추가에 실패했습니다.' };
   }
 
+  // 시스템 preset 자동 시드 (지각/조기퇴실).
+  // 이 preset 이 있어야 자동 부여 트리거가 preset_id 로 KST 일자 중복 차단을 적용한다.
+  // 누락 시 신규 지점 학생의 자동 벌점이 preset_id=null 로 들어가 중복 부과 방지가 안 됨.
+  const { error: presetError } = await supabase.from('penalty_presets').insert([
+    {
+      branch_id: data.id,
+      amount: 1,
+      reason: '지각',
+      code: 'late_checkin',
+      is_system: true,
+      sort_order: -1000,
+      is_active: true,
+    },
+    {
+      branch_id: data.id,
+      amount: 1,
+      reason: '조기퇴실',
+      code: 'early_checkout',
+      is_system: true,
+      sort_order: -999,
+      is_active: true,
+    },
+  ]);
+  if (presetError) {
+    // 시드 실패는 fatal 아님 — 지점은 이미 생성됨. 운영자가 수동으로 preset 추가 가능.
+    console.error('Error seeding system presets for new branch:', presetError);
+  }
+
   revalidatePath('/admin/branches');
   return { success: true, data };
 }

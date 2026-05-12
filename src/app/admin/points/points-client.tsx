@@ -207,6 +207,14 @@ export function PointsClient({
     }
   }
 
+  // 선택된 reason 텍스트가 등록된 preset 과 일치하면 그 preset.id 반환.
+  // additionalNote 가 붙어 reason 이 변형되면 null (= custom reason, 중복 차단 미적용).
+  function findPresetId(type: 'reward' | 'penalty', reasonText: string): string | null {
+    const presets = type === 'reward' ? rewardPresets : penaltyPresets;
+    const found = presets.find((p) => p.reason === reasonText);
+    return found?.id ?? null;
+  }
+
   // ── 부여 폼 ─────────────────────────────────────────────
   const filteredStudentsForSearch = studentSearchText
     ? students.filter(
@@ -249,11 +257,24 @@ export function PointsClient({
       alert('올바른 점수를 입력해주세요.');
       return;
     }
-    const finalReason = additionalNote.trim() ? `${reason} - ${additionalNote.trim()}` : reason;
+    const hasNote = additionalNote.trim().length > 0;
+    const finalReason = hasNote ? `${reason} - ${additionalNote.trim()}` : reason;
+    // additionalNote 없음 + preset 매칭됨 → presetId 전달해 KST 일자 중복 차단 활성화.
+    // additionalNote 있으면 자유 텍스트 의도이므로 중복 차단 미적용.
+    const presetId = hasNote ? null : findPresetId(pointType, reason);
     setLoading(true);
     try {
-      const result = await givePoints(selectedStudent, pointType, pointAmount, finalReason);
-      if (result.success) {
+      const result = await givePoints(
+        selectedStudent,
+        pointType,
+        pointAmount,
+        finalReason,
+        false,
+        presetId,
+      );
+      if (result.error) {
+        alert(result.error);
+      } else if (result.success) {
         showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
         resetForm();
         refreshData();
@@ -277,8 +298,11 @@ export function PointsClient({
     }
     setLoading(true);
     try {
-      const result = await givePoints(studentId, type, presetAmount, presetReason);
-      if (result.success) {
+      const presetId = findPresetId(type, presetReason);
+      const result = await givePoints(studentId, type, presetAmount, presetReason, false, presetId);
+      if (result.error) {
+        alert(result.error);
+      } else if (result.success) {
         showSuccess(`${type === 'reward' ? '상점' : '벌점'} ${presetAmount}점 부여 완료`);
         refreshData();
       }

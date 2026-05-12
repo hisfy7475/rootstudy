@@ -16,24 +16,50 @@ import {
 import { softDeleteUser } from '@/lib/withdraw';
 
 // 내부용: 자동 벌점 부여 (관리자 로그인 없이)
+//
+// presetCode 가 주어지면 학생.branch 의 동일 code 시스템 preset 을 lookup 해 preset_id 와 함께 insert.
+// (student, preset, KST 일자) partial unique index 로 같은 날 중복 부과는 silent 차단.
 async function giveAutoPoints(
   studentId: string,
   type: 'reward' | 'penalty',
   amount: number,
   reason: string,
+  presetCode?: string,
 ) {
   const supabase = await createClient();
 
+  let presetId: string | null = null;
+  if (presetCode) {
+    const branchId = await getStudentBranchId(studentId);
+    if (branchId) {
+      const tableName = type === 'penalty' ? 'penalty_presets' : 'reward_presets';
+      const { data: preset } = await supabase
+        .from(tableName)
+        .select('id')
+        .eq('branch_id', branchId)
+        .eq('code', presetCode)
+        .maybeSingle();
+      presetId = (preset?.id as string | undefined) ?? null;
+    }
+  }
+
+  // INSERT 후 23505 (unique_violation) 시 silent skip — 자동 트리거는 사용자에게 응답하지 않음.
   const { error } = await supabase.from('points').insert({
     student_id: studentId,
-    admin_id: null, // 자동 부여이므로 관리자 없음
+    admin_id: null,
     type,
     amount,
     reason,
     is_auto: true,
+    preset_id: presetId,
+    preset_type: presetId ? type : null,
   });
 
   if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      // 같은 학생/preset/KST 일자에 이미 부여됨 → 정상 동작, 알림 발송 안 함
+      return { success: true, skipped: true };
+    }
     console.error('Error giving auto points:', error);
     return { error: '자동 벌점 부여에 실패했습니다.' };
   }
@@ -92,12 +118,13 @@ async function checkLateArrival(studentId: string) {
   );
   if (exemption.isExempted) return; // 면제 대상
 
-  // 자동 벌점 부여
+  // 자동 벌점 부여 — 'late_checkin' 시스템 preset 사용 (KST 일자 중복 차단)
   await giveAutoPoints(
     studentId,
     'penalty',
     PENALTY_RULES.lateCheckIn.amount,
     PENALTY_RULES.lateCheckIn.reason,
+    'late_checkin',
   );
 }
 
@@ -137,12 +164,13 @@ async function checkEarlyDeparture(studentId: string) {
   );
   if (exemption.isExempted) return; // 면제 대상
 
-  // 자동 벌점 부여
+  // 자동 벌점 부여 — 'early_checkout' 시스템 preset 사용
   await giveAutoPoints(
     studentId,
     'penalty',
     PENALTY_RULES.earlyCheckOut.amount,
     PENALTY_RULES.earlyCheckOut.reason,
+    'early_checkout',
   );
 }
 

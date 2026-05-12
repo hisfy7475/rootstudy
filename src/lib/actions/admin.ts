@@ -857,6 +857,7 @@ export async function givePoints(
   amount: number,
   reason: string,
   isAuto: boolean = false,
+  presetId: string | null = null,
 ) {
   const supabase = await createClient();
 
@@ -865,6 +866,43 @@ export async function givePoints(
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
+  // 슈퍼관리자가 부여하는 케이스: client 가 전 지점 preset 합집합에서 첫 매칭 ID 를 보내
+  // 학생의 실제 지점 preset 과 다를 수 있다 (같은 이름의 preset 이 여러 지점에 존재).
+  // 이 경우 unique index 가 student × preset 단위라 잘못된 preset 으로 들어가면 중복 차단이
+  // 사실상 우회된다. 학생 branch 의 preset 으로 재매칭한다.
+  let effectivePresetId = presetId;
+  let effectivePresetType: 'reward' | 'penalty' | null = presetId ? type : null;
+  if (effectivePresetId) {
+    const { data: studentProfile } = await supabase
+      .from('profiles')
+      .select('branch_id')
+      .eq('id', studentId)
+      .maybeSingle();
+    const branchId = (studentProfile?.branch_id as string | null) ?? null;
+    if (branchId) {
+      const tableName = type === 'reward' ? 'reward_presets' : 'penalty_presets';
+      const { data: preset } = await supabase
+        .from(tableName)
+        .select('id, branch_id')
+        .eq('id', effectivePresetId)
+        .maybeSingle();
+      if (!preset || (preset.branch_id as string) !== branchId) {
+        // mismatch — 학생 branch 의 동일 reason preset 으로 재매칭
+        const { data: matched } = await supabase
+          .from(tableName)
+          .select('id')
+          .eq('branch_id', branchId)
+          .eq('reason', reason)
+          .eq('is_active', true)
+          .maybeSingle();
+        effectivePresetId = (matched?.id as string | undefined) ?? null;
+        effectivePresetType = effectivePresetId ? type : null;
+      }
+    }
+  }
+
+  // preset 지정 시 (student, preset, KST 일자) partial unique index 가 같은 날 중복을 차단.
+  // 표현식 unique index (date_trunc) 는 onConflict 미지원이라 일반 INSERT 후 23505 catch.
   const { error } = await supabase.from('points').insert({
     student_id: studentId,
     admin_id: user.id,
@@ -872,9 +910,15 @@ export async function givePoints(
     amount,
     reason,
     is_auto: isAuto,
+    preset_id: effectivePresetId,
+    preset_type: effectivePresetType,
   });
 
   if (error) {
+    // 23505 = unique_violation. KST 일자 중복 차단에 걸린 경우.
+    if ((error as { code?: string }).code === '23505') {
+      return { error: '오늘 이미 같은 항목으로 부여됐습니다.' };
+    }
     console.error('Error giving points:', error);
     return { error: '상벌점 부여에 실패했습니다.' };
   }
@@ -3564,6 +3608,9 @@ export interface PenaltyPreset {
   color: string;
   sort_order: number;
   is_active: boolean;
+  /** 시스템 preset (자동 부여) 식별자. 'late_checkin' | 'early_checkout' 등. */
+  code?: string | null;
+  is_system?: boolean;
 }
 
 // 벌점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
@@ -3659,6 +3706,8 @@ export interface RewardPreset {
   color: string;
   sort_order: number;
   is_active: boolean;
+  code?: string | null;
+  is_system?: boolean;
 }
 
 // 상점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
