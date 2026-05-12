@@ -13,6 +13,7 @@ import {
 } from '@/lib/actions/meal';
 import { Download, Loader2 } from 'lucide-react';
 import { cn, getTodayKST } from '@/lib/utils';
+import { formatSeatSnapshot } from '@/lib/seat-display';
 
 type StatusTab = MealOrderAdminFilter['status'];
 
@@ -107,6 +108,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
     setExporting(true);
     try {
       const rows = orders.map((o) => ({
+        좌석: formatSeatSnapshot(o.seat_number_snapshot, o.student_seat_number_current),
         학생명: o.student_name ?? '',
         결제자명: o.payer_name ?? '',
         옵션: variantLabel(o.variant?.kind),
@@ -227,6 +229,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 border-b text-left'>
               <tr>
+                <th className='p-3 font-medium'>좌석</th>
                 <th className='p-3 font-medium'>학생</th>
                 <th className='p-3 font-medium'>결제자</th>
                 <th className='p-3 font-medium'>옵션</th>
@@ -239,13 +242,16 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={8} className='text-muted-foreground p-8 text-center'>
                     내역이 없습니다.
                   </td>
                 </tr>
               ) : (
                 filtered.map((o) => (
                   <tr key={o.id} className='border-b last:border-0'>
+                    <td className='p-3 text-xs whitespace-nowrap'>
+                      {formatSeatSnapshot(o.seat_number_snapshot, o.student_seat_number_current)}
+                    </td>
                     <td className='p-3'>
                       <span>{o.student_name ?? o.student_id.slice(0, 8)}</span>
                       {o.student_withdrawn_at && (

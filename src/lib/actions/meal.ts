@@ -737,6 +737,8 @@ export type MealOrderForAdmin = MealOrder & {
   student_withdrawn_at: string | null;
   /** 결제자(학부모/학생)가 퇴원 처리된 경우의 시각. */
   payer_withdrawn_at: string | null;
+  /** 응시자의 현재 좌석. seat_number_snapshot 과 비교해 "이동했음"을 UI에서 표시. */
+  student_seat_number_current: number | null;
   variant: Pick<
     MealProductVariant,
     'id' | 'kind' | 'product_start_date' | 'product_end_date'
@@ -802,6 +804,14 @@ export async function getMealOrdersForAdmin(
     (profiles ?? []).map((p) => [p.id, { name: p.name, withdrawn_at: p.withdrawn_at }]),
   );
 
+  const studentIds = new Set<string>();
+  for (const o of rows) studentIds.add(o.student_id);
+  const { data: studentProfiles } = await supabase
+    .from('student_profiles')
+    .select('id, seat_number')
+    .in('id', [...studentIds]);
+  const seatById = new Map((studentProfiles ?? []).map((sp) => [sp.id, sp.seat_number]));
+
   return rows.map((o) => {
     const v = Array.isArray(o.meal_product_variants)
       ? o.meal_product_variants[0]
@@ -814,6 +824,7 @@ export async function getMealOrdersForAdmin(
       payer_name: payerProfile?.name ?? null,
       student_withdrawn_at: studentProfile?.withdrawn_at ?? null,
       payer_withdrawn_at: payerProfile?.withdrawn_at ?? null,
+      student_seat_number_current: seatById.get(o.student_id) ?? null,
       variant: v
         ? {
             id: v.id,

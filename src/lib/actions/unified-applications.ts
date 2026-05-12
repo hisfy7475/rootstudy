@@ -48,10 +48,14 @@ export interface UnifiedAppRow {
   amount: number | null;
   paid_at: string | null;
   meta: Record<string, unknown>;
+  /** 신청 시점 좌석 (트리거가 자동 채움). 학생이 좌석 이동·퇴원해도 신청 당시 좌석 보존. */
+  seat_number_snapshot: number | null;
   // hydration 필드
   student_name: string | null;
   student_phone: string | null;
   student_withdrawn_at: string | null;
+  /** 응시자(학생)의 현재 좌석. snapshot 과 비교해 "이동했음"을 UI에서 표시. */
+  student_seat_number_current: number | null;
   user_name: string | null;
   branch_name: string | null;
   detail_href: string;
@@ -107,6 +111,7 @@ type UnifiedAppDbRow = Omit<
   | 'student_name'
   | 'student_phone'
   | 'student_withdrawn_at'
+  | 'student_seat_number_current'
   | 'user_name'
   | 'branch_name'
   | 'detail_href'
@@ -150,7 +155,10 @@ async function hydrateRows(
     if (r.branch_id) branchIds.add(r.branch_id);
   }
 
-  const [profileRes, branchRes] = await Promise.all([
+  const studentIds = new Set<string>();
+  for (const r of raw) if (r.student_id) studentIds.add(r.student_id);
+
+  const [profileRes, branchRes, studentProfileRes] = await Promise.all([
     profileIds.size > 0
       ? supabase
           .from('profiles')
@@ -167,6 +175,9 @@ async function hydrateRows(
     branchIds.size > 0
       ? supabase.from('branches').select('id, name').in('id', Array.from(branchIds))
       : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
+    studentIds.size > 0
+      ? supabase.from('student_profiles').select('id, seat_number').in('id', Array.from(studentIds))
+      : Promise.resolve({ data: [] as Array<{ id: string; seat_number: number | null }> }),
   ]);
 
   const profileMap = new Map<
@@ -182,6 +193,9 @@ async function hydrateRows(
   }
   const branchMap = new Map<string, string>();
   for (const b of branchRes.data ?? []) branchMap.set(b.id as string, b.name as string);
+  const seatMap = new Map<string, number | null>();
+  for (const sp of studentProfileRes.data ?? [])
+    seatMap.set(sp.id as string, (sp.seat_number as number | null) ?? null);
 
   return raw.map((r) => {
     const student = profileMap.get(r.student_id);
@@ -191,6 +205,7 @@ async function hydrateRows(
       student_name: student?.name ?? null,
       student_phone: student?.phone ?? null,
       student_withdrawn_at: student?.withdrawn_at ?? null,
+      student_seat_number_current: seatMap.get(r.student_id) ?? null,
       user_name: user?.name ?? null,
       branch_name: branchMap.get(r.branch_id) ?? null,
       detail_href: buildDetailHref(r.domain, r.item_id),
