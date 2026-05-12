@@ -582,13 +582,15 @@ export function MembersClient({
               <UserCheck className='mr-2 h-4 w-4' />
               학부모 ({aggregates.parentTotal})
             </Button>
-            <Button
-              variant={activeTab === 'admins' ? 'default' : 'outline'}
-              onClick={() => handleTabChange('admins')}
-            >
-              <Shield className='mr-2 h-4 w-4' />
-              관리자 ({aggregates.adminTotal})
-            </Button>
+            {currentIsSuperAdmin && (
+              <Button
+                variant={activeTab === 'admins' ? 'default' : 'outline'}
+                onClick={() => handleTabChange('admins')}
+              >
+                <Shield className='mr-2 h-4 w-4' />
+                관리자 ({aggregates.adminTotal})
+              </Button>
+            )}
           </div>
           <SearchInput placeholder='이름 또는 이메일로 검색' className='flex-1' />
         </div>

@@ -43,6 +43,8 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  /** true면 최고 관리자에게만 노출 (일반 지점 관리자에게는 숨김). */
+  requireSuperAdmin?: boolean;
 }
 
 const adminNavItems: NavItem[] = [
@@ -55,7 +57,7 @@ const adminNavItems: NavItem[] = [
   { href: '/members', label: '회원 관리', icon: Users },
   { href: '/student-types', label: '학생 타입', icon: GraduationCap },
   { href: '/schedules', label: '부재 스케줄', icon: CalendarClock },
-  { href: '/branches', label: '지점 관리', icon: Building2 },
+  { href: '/branches', label: '지점 관리', icon: Building2, requireSuperAdmin: true },
   { href: '/date-types', label: '날짜 타입', icon: Calendar },
   { href: '/periods', label: '교시 관리', icon: Clock },
   { href: '/notifications', label: '알림 관리', icon: Bell },
@@ -85,6 +87,9 @@ export function Sidebar({
   const { collapsed, toggleCollapsed } = useSidebar();
   const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+
+  // 메뉴 노출 가시화. requireSuperAdmin 항목은 최고 관리자에게만 표시.
+  const visibleNavItems = adminNavItems.filter((item) => !item.requireSuperAdmin || isSuperAdmin);
 
   useEffect(() => {
     setUnreadChatCount(initialUnreadChatCount);
@@ -194,7 +199,7 @@ export function Sidebar({
 
       <nav className='flex-1 overflow-y-auto py-3'>
         <ul className='space-y-0.5 px-3'>
-          {adminNavItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const fullPath = basePath + item.href;
             const isActive =
               pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));
@@ -347,7 +352,7 @@ export function Sidebar({
         {/* 네비게이션 */}
         <nav className='flex-1 overflow-x-hidden overflow-y-auto py-1'>
           <ul className={cn('space-y-0.5', collapsed ? 'px-1.5' : 'px-3')}>
-            {adminNavItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const fullPath = basePath + item.href;
               const isActive =
                 pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));

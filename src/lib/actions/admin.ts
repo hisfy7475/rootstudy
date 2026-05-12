@@ -5,6 +5,7 @@ import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
 import { escapeLike } from '@/lib/list-params';
 import { softDeleteUser } from '@/lib/withdraw';
+import { requireSuperAdmin } from '@/lib/auth/require-super-admin';
 import {
   getStudyDate,
   getStudyDayBounds,
@@ -2793,16 +2794,23 @@ export interface AdminListRow {
   created_at: string;
 }
 
-// 관리자 탭 — name/email 검색 + 페이지네이션
+// 관리자 탭 — name/email 검색 + 페이지네이션. 최고 관리자 전용.
+// 가드 실패 시에도 page.tsx의 destructuring 호환을 위해 빈 결과 형태로 반환.
 export async function getAdminsList(params: {
   branchId?: string | null;
   q?: string;
   page?: number;
   pageSize?: number;
 }): Promise<{ rows: AdminListRow[]; total: number; page: number; pageSize: number }> {
-  const supabase = await createClient();
   const page = Math.max(1, params.page ?? 1);
   const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) {
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  const supabase = await createClient();
   const offset = (page - 1) * pageSize;
 
   let query = supabase
@@ -3136,27 +3144,8 @@ export async function getWithdrawnAdminDetail(
 }
 
 // ============================================
-// 슈퍼관리자 권한 헬퍼
+// 슈퍼관리자 헬퍼 (countActiveSuperAdmins만 유지 — requireSuperAdmin은 공용 모듈)
 // ============================================
-
-async function requireSuperAdmin(): Promise<
-  { ok: true; userId: string } | { ok: false; error: string }
-> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, is_super_admin')
-    .eq('id', user.id)
-    .single();
-  if (profile?.user_type !== 'admin' || !profile?.is_super_admin) {
-    return { ok: false, error: '최고 관리자 권한이 필요합니다.' };
-  }
-  return { ok: true, userId: user.id };
-}
 
 async function countActiveSuperAdmins(): Promise<number> {
   const adminClient = createAdminClient();
@@ -3169,12 +3158,24 @@ async function countActiveSuperAdmins(): Promise<number> {
   return count ?? 0;
 }
 
-// 관리자 지점 변경 — 슈퍼관리자 전용
+// 관리자 지점 변경 — 슈퍼관리자 전용. 대상이 슈퍼라면 특정 지점 매핑 거부 (NULL 로 비우는 것은 허용).
 export async function updateAdminBranch(adminId: string, branchId: string | null) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
 
   const adminClient = createAdminClient();
+
+  if (branchId !== null) {
+    const { data: target } = await adminClient
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('id', adminId)
+      .single();
+    if (target?.is_super_admin) {
+      return { error: '최고 관리자는 특정 지점에 묶을 수 없습니다. 먼저 권한을 회수해 주세요.' };
+    }
+  }
+
   const { error } = await adminClient
     .from('profiles')
     .update({ branch_id: branchId })
@@ -3190,7 +3191,7 @@ export async function updateAdminBranch(adminId: string, branchId: string | null
   return { success: true };
 }
 
-// 관리자 계정 생성 — 슈퍼관리자 전용
+// 관리자 계정 생성 — 슈퍼관리자 전용. 슈퍼+지점 동시 지정은 거부 (DB CHECK와 동일 정책).
 export async function createAdmin(data: {
   email: string;
   password: string;
@@ -3201,6 +3202,11 @@ export async function createAdmin(data: {
 }) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
+
+  const isSuperReq = data.isSuperAdmin === true;
+  if (isSuperReq && data.branchId) {
+    return { error: '최고 관리자는 지점을 지정할 수 없습니다. 지점 없이 생성해 주세요.' };
+  }
 
   const adminClient = createAdminClient();
 
@@ -3235,9 +3241,9 @@ export async function createAdmin(data: {
     name: data.name,
     phone: data.phone || null,
     user_type: 'admin',
-    branch_id: data.branchId || null,
+    branch_id: isSuperReq ? null : data.branchId || null,
     is_approved: true, // 관리자는 승인 불필요
-    is_super_admin: data.isSuperAdmin === true,
+    is_super_admin: isSuperReq,
   });
 
   if (profileError) {
@@ -3327,6 +3333,7 @@ export async function deleteAdmin(adminId: string) {
 }
 
 // 슈퍼관리자 권한 부여/회수 — 슈퍼관리자 전용. 회수 시 마지막 슈퍼 보호.
+// 부여 시 branch_id 도 함께 NULL 로 정규화 (슈퍼는 전 지점 권한이므로 특정 지점 매핑 금지 — DB CHECK 와 동일 정책).
 export async function setAdminSuperFlag(adminId: string, value: boolean) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
@@ -3340,9 +3347,11 @@ export async function setAdminSuperFlag(adminId: string, value: boolean) {
   }
 
   const adminClient = createAdminClient();
+  const update: { is_super_admin: boolean; branch_id?: null } = { is_super_admin: value };
+  if (value) update.branch_id = null;
   const { error } = await adminClient
     .from('profiles')
-    .update({ is_super_admin: value })
+    .update(update)
     .eq('id', adminId)
     .eq('user_type', 'admin');
 

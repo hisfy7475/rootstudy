@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { requireSuperAdmin } from '@/lib/auth/require-super-admin';
 
 // ============================================
 // 지점(Branch) 관련
@@ -20,10 +21,7 @@ export interface Branch {
 export async function getAllBranches(includeInactive: boolean = false): Promise<Branch[]> {
   const supabase = await createClient();
 
-  let query = supabase
-    .from('branches')
-    .select('*')
-    .order('display_order', { ascending: true });
+  let query = supabase.from('branches').select('*').order('display_order', { ascending: true });
 
   if (!includeInactive) {
     query = query.eq('is_active', true);
@@ -39,8 +37,11 @@ export async function getAllBranches(includeInactive: boolean = false): Promise<
   return data || [];
 }
 
-// 지점 추가 (맨 마지막 순서로)
+// 지점 추가 (맨 마지막 순서로) — 최고 관리자 전용
 export async function createBranch(name: string, address?: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const supabase = await createClient();
 
   // 현재 최대 display_order 조회
@@ -72,14 +73,17 @@ export async function createBranch(name: string, address?: string) {
   return { success: true, data };
 }
 
-// 지점 수정
-export async function updateBranch(id: string, data: { name?: string; address?: string; is_active?: boolean }) {
+// 지점 수정 — 최고 관리자 전용
+export async function updateBranch(
+  id: string,
+  data: { name?: string; address?: string; is_active?: boolean },
+) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from('branches')
-    .update(data)
-    .eq('id', id);
+  const { error } = await supabase.from('branches').update(data).eq('id', id);
 
   if (error) {
     console.error('Error updating branch:', error);
@@ -90,18 +94,21 @@ export async function updateBranch(id: string, data: { name?: string; address?: 
   return { success: true };
 }
 
-// 지점 삭제 (비활성화)
+// 지점 삭제 (비활성화) — 내부 updateBranch 가드로 보호
 export async function deactivateBranch(id: string) {
   return updateBranch(id, { is_active: false });
 }
 
-// 지점 활성화
+// 지점 활성화 — 내부 updateBranch 가드로 보호
 export async function activateBranch(id: string) {
   return updateBranch(id, { is_active: true });
 }
 
-// 지점 순서 위로 이동
+// 지점 순서 위로 이동 — 최고 관리자 전용
 export async function moveBranchUp(id: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const supabase = await createClient();
 
   // 현재 지점 정보 가져오기
@@ -149,8 +156,11 @@ export async function moveBranchUp(id: string) {
   return { success: true };
 }
 
-// 지점 순서 아래로 이동
+// 지점 순서 아래로 이동 — 최고 관리자 전용
 export async function moveBranchDown(id: string) {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return { error: auth.error };
+
   const supabase = await createClient();
 
   // 현재 지점 정보 가져오기
@@ -215,7 +225,7 @@ export async function getBranchStudentCounts(): Promise<{ branchId: string; coun
 
   // 지점별 카운트 집계
   const counts: { [key: string]: number } = {};
-  (data || []).forEach(p => {
+  (data || []).forEach((p) => {
     if (p.branch_id) {
       counts[p.branch_id] = (counts[p.branch_id] || 0) + 1;
     }
