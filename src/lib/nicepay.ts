@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
+import { encodeFormUrlEucKr, truncateBytesForEucKr } from './nicepay-encoding';
 
 /**
  * NICEPay PG Web v3 (developers.nicepay.co.kr)
@@ -310,16 +311,21 @@ export async function cancelPayment(
   const ediDate = formatNicepayEdiDate();
   const signData = buildCancelSignData(args.mid, args.cancelAmt, ediDate, args.merchantKey);
 
-  const body = formEncode({
+  // CancelMsg 는 한글 가능. NICEPay 가맹점이 EUC-KR 기준이라 UTF-8 전송 시 깨짐 발생 (GoodsName 과 동일 패턴).
+  // body 전체를 EUC-KR percent-encoding 으로 전송 + Content-Type charset=euc-kr 명시.
+  // ASCII 필드(TID/MID/Amt 등)는 영향 없음. CancelMsg 만 안전 길이로 자른 후 보낸다.
+  // encodeFormUrlEucKr 결과는 모두 ASCII (percent-encoded) string 이라 그대로 fetch body 로 전달.
+  const safeCancelMsg = truncateBytesForEucKr(args.cancelMsg, 100);
+  const body = encodeFormUrlEucKr({
     TID: args.tid,
     MID: args.mid,
     Moid: args.moid,
     CancelAmt: args.cancelAmt,
-    CancelMsg: args.cancelMsg,
+    CancelMsg: safeCancelMsg,
     PartialCancelCode: args.partialCancelCode ?? '0',
     EdiDate: ediDate,
     SignData: signData,
-    CharSet: 'utf-8',
+    CharSet: 'euc-kr',
     EdiType: 'JSON',
   });
 
@@ -329,7 +335,7 @@ export async function cancelPayment(
     const res = await fetch(CANCEL_PROCESS_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=euc-kr',
       },
       body,
       signal: options?.signal,
@@ -367,7 +373,9 @@ export function buildMealPaymentWindowParams(input: {
   const amt = String(Math.trunc(input.amount));
   const ediDate = formatNicepayEdiDate();
   const signData = buildPaymentWindowSignData(ediDate, mid, amt, merchantKey);
-  const goodsNameShort = input.goodsName.slice(0, 40);
+  // EUC-KR 바이트 기준 40 바이트로 잘라 NICEPay 측 디코딩 깨짐 방지.
+  // 문자 수 기준 slice(0, 40) 는 멀티바이트 한글 + 특수문자 케이스에서 NICEPay 응답이 손상됐던 원인.
+  const goodsNameShort = truncateBytesForEucKr(input.goodsName, 40);
 
   return {
     mid,
