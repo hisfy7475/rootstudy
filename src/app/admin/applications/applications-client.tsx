@@ -16,6 +16,7 @@ import {
   type UnifiedAppRow,
   type UnifiedAppStatus,
 } from '@/lib/actions/unified-applications';
+import { formatSeatSnapshot } from '@/lib/seat-display';
 
 const DOMAIN_LABEL: Record<UnifiedAppDomain, string> = {
   meal: '급식',
@@ -340,6 +341,7 @@ export function ApplicationsClient({
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>신청일</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>도메인</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>상태</th>
+                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>좌석</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>학생</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>내역</th>
                 <th className='px-3 py-2 text-right font-medium whitespace-nowrap'>금액</th>
@@ -350,7 +352,7 @@ export function ApplicationsClient({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className='text-muted-foreground px-3 py-8 text-center'>
+                  <td colSpan={9} className='text-muted-foreground px-3 py-8 text-center'>
                     조건에 맞는 신청 내역이 없습니다.
                   </td>
                 </tr>
@@ -401,6 +403,9 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
           {statusToText(row.status_normalized)}
         </span>
       </td>
+      <td className='px-3 py-2 align-top text-xs whitespace-nowrap'>
+        {formatSeatSnapshot(row.seat_number_snapshot, row.student_seat_number_current)}
+      </td>
       <td className='px-3 py-2 align-top'>
         <div className='font-medium whitespace-nowrap'>
           {row.student_name ?? '—'}
@@ -442,6 +447,7 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
     상태: statusToText(r.status_normalized),
     상태원본: r.status_raw,
     지점: r.branch_name ?? '',
+    좌석: formatSeatSnapshot(r.seat_number_snapshot, r.student_seat_number_current),
     학생: r.student_name ?? '',
     학생전화: r.student_phone ?? '',
     퇴원여부: r.student_withdrawn_at ? '퇴원' : '',

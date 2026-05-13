@@ -156,6 +156,21 @@ export default function WebViewScreen() {
     [],
   );
 
+  // 네이티브 업로드 실패를 웹에 전달해 사용자에게 토스트로 알린다.
+  // 에러 메시지에 토큰/경로 등 민감 정보가 섞이지 않도록 nativeChatUpload 측에서
+  // 사용자 노출 안전한 한글 문구로만 throw 하도록 보장되어야 한다.
+  const postFileUploadErrorToWeb = useCallback((message: string) => {
+    const safe =
+      typeof message === "string" && message.length > 0 && message.length < 200
+        ? message
+        : "파일 업로드에 실패했습니다.";
+    const script = buildInjectNativeMessageScript({
+      type: "FILE_UPLOAD_ERROR",
+      payload: { message: safe },
+    });
+    webViewRef.current?.injectJavaScript(script);
+  }, []);
+
   const handlePickImage = useCallback(
     async (payload: { source: "camera" | "gallery"; roomId: string }) => {
       const session = sessionRef.current;
@@ -217,9 +232,12 @@ export default function WebViewScreen() {
         postFileUploadedToWeb(result);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
+        postFileUploadErrorToWeb(
+          e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
+        );
       }
     },
-    [sessionRef, postFileUploadedToWeb],
+    [sessionRef, postFileUploadedToWeb, postFileUploadErrorToWeb],
   );
 
   const handlePickFile = useCallback(
@@ -247,9 +265,12 @@ export default function WebViewScreen() {
         postFileUploadedToWeb(result);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
+        postFileUploadErrorToWeb(
+          e instanceof Error ? e.message : "파일 업로드에 실패했습니다.",
+        );
       }
     },
-    [sessionRef, postFileUploadedToWeb],
+    [sessionRef, postFileUploadedToWeb, postFileUploadErrorToWeb],
   );
 
   const handleMessage = useCallback(

@@ -54,6 +54,7 @@ export async function executePaidMealOrderCancel(
       `
       id,
       user_id,
+      student_id,
       order_id,
       amount,
       status,
@@ -75,6 +76,7 @@ export async function executePaidMealOrderCancel(
   const raw = order as {
     id: string;
     user_id: string;
+    student_id: string;
     order_id: string;
     amount: number;
     status: string;
@@ -84,8 +86,17 @@ export async function executePaidMealOrderCancel(
 
   const variant = pickVariant(raw.meal_product_variants);
 
+  // 권한 — 결제자 본인이거나, 학부모-자녀 연결 관계의 자녀 결제건이면 통과.
   if (raw.user_id !== params.userId) {
-    return { success: false, error: '권한이 없습니다.', status: 403 };
+    const { data: link } = await admin
+      .from('parent_student_links')
+      .select('parent_id')
+      .eq('parent_id', params.userId)
+      .eq('student_id', raw.student_id)
+      .maybeSingle();
+    if (!link) {
+      return { success: false, error: '권한이 없습니다.', status: 403 };
+    }
   }
 
   if (raw.status !== 'paid') {

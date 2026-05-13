@@ -42,7 +42,12 @@ export async function getStudentType(id: string): Promise<StudentType | null> {
   return data;
 }
 
-// 학생 타입 생성
+// 학생 타입 생성 + 모든 date_type 에 weekly_goal_settings 기본값 자동 seed
+//
+// weekly_goal_settings 가 SSOT 이므로, 신규 타입을 만들 때 모든 date_type 에 기본값 row 가 없으면
+// 학생 화면/리포트에서 fallback (student_types.weekly_goal_hours / 가중평균) 경로로만 동작해
+// 운영자가 학기중/방학별 목표를 설정해야 한다는 사실을 놓치기 쉽다.
+// 신규 타입 생성 시점에 weekly_goal_hours 값으로 모든 date_type row 를 미리 채워 둔다.
 export async function createStudentType(data: {
   name: string;
   weekly_goal_hours: number;
@@ -61,6 +66,27 @@ export async function createStudentType(data: {
   if (error) {
     console.error('Error creating student type:', error);
     return { success: false, error: error.message };
+  }
+
+  // 모든 date_type 에 기본 seed row 생성 (운영자가 학기/방학별 세부값을 곧바로 편집 가능)
+  const { data: dateTypes } = await supabase.from('date_type_definitions').select('id');
+  if (dateTypes && dateTypes.length > 0) {
+    const seedRows = dateTypes.map((dt) => ({
+      student_type_id: newType.id,
+      date_type_id: dt.id,
+      weekly_goal_hours: data.weekly_goal_hours,
+      reward_points: 0,
+      penalty_points: 0,
+      minimum_hours: 0,
+      minimum_penalty_points: 0,
+    }));
+    const { error: seedError } = await supabase
+      .from('weekly_goal_settings')
+      .upsert(seedRows, { onConflict: 'student_type_id,date_type_id' });
+    if (seedError) {
+      console.error('Error seeding weekly_goal_settings:', seedError);
+      // seed 실패는 fatal 이 아님 (타입은 이미 생성됨, fallback 경로로 동작)
+    }
   }
 
   revalidatePath('/admin/student-types');
@@ -383,6 +409,15 @@ export async function saveWeeklyGoalSetting(data: {
 }
 
 // 주간 목표 설정 일괄 저장
+//
+// delete+insert 패턴은 (1) 부분 실패 시 데이터 손실, (2) 동시 호출 시 (student_type, date_type)
+// 중복 row 생성 위험이 있다. UNIQUE (student_type_id, date_type_id) 제약 + upsert 로 대체.
+//
+// 중요: prune (제거된 date_type 정리) 범위는 반드시 `inScopeDateTypeIds` 로 제한해야 한다.
+//   date_type_definitions 는 지점별로 분리되지만 weekly_goal_settings 는 (student_type, date_type)
+//   복합키만 가져, 슈퍼관리자가 한 지점 모달을 저장하면 student_type 단위로 prune 했을 때
+//   다른 지점의 row 도 함께 삭제되는 데이터 손실이 발생한다. 호출자가 "이번 저장에서 다룬
+//   date_type 의 전체 집합" 을 inScopeDateTypeIds 로 넘겨야 한다.
 export async function saveWeeklyGoalSettingsBatch(
   studentTypeId: string,
   settings: Array<{
@@ -393,23 +428,14 @@ export async function saveWeeklyGoalSettingsBatch(
     minimum_hours: number;
     minimum_penalty_points: number;
   }>,
+  /** prune 대상 date_type 의 전체 집합 (보통 모달이 로드한 한 지점의 date_type id 목록).
+   *  생략 시 prune 을 비활성화 (안전 기본값). */
+  inScopeDateTypeIds?: string[],
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
-  // 기존 설정 삭제
-  const { error: deleteError } = await supabase
-    .from('weekly_goal_settings')
-    .delete()
-    .eq('student_type_id', studentTypeId);
-
-  if (deleteError) {
-    console.error('Error deleting existing settings:', deleteError);
-    return { success: false, error: deleteError.message };
-  }
-
-  // 새 설정 추가
   if (settings.length > 0) {
-    const insertData = settings.map((s) => ({
+    const upsertData = settings.map((s) => ({
       student_type_id: studentTypeId,
       date_type_id: s.date_type_id,
       weekly_goal_hours: s.weekly_goal_hours,
@@ -419,11 +445,31 @@ export async function saveWeeklyGoalSettingsBatch(
       minimum_penalty_points: s.minimum_penalty_points,
     }));
 
-    const { error: insertError } = await supabase.from('weekly_goal_settings').insert(insertData);
+    const { error: upsertError } = await supabase
+      .from('weekly_goal_settings')
+      .upsert(upsertData, { onConflict: 'student_type_id,date_type_id' });
 
-    if (insertError) {
-      console.error('Error inserting settings:', insertError);
-      return { success: false, error: insertError.message };
+    if (upsertError) {
+      console.error('Error upserting settings:', upsertError);
+      return { success: false, error: upsertError.message };
+    }
+  }
+
+  // settings 에 없지만 inScope 에는 있는 date_type row 만 삭제.
+  // inScope 미지정 시 prune 하지 않음 (다른 지점 데이터 보존).
+  if (inScopeDateTypeIds && inScopeDateTypeIds.length > 0) {
+    const keepIds = new Set(settings.map((s) => s.date_type_id));
+    const removeIds = inScopeDateTypeIds.filter((id) => !keepIds.has(id));
+    if (removeIds.length > 0) {
+      const { error: pruneError } = await supabase
+        .from('weekly_goal_settings')
+        .delete()
+        .eq('student_type_id', studentTypeId)
+        .in('date_type_id', removeIds);
+      if (pruneError) {
+        console.error('Error pruning obsolete settings:', pruneError);
+        return { success: false, error: pruneError.message };
+      }
     }
   }
 

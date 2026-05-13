@@ -152,12 +152,15 @@ export function PayClient({
   return (
     <div className='space-y-4'>
       {paymentInit ? (
+        // form charset 을 EUC-KR 로 강제. NICEPay PG Web v3 가맹점이 EUC-KR 디코딩 기준이라
+        // UTF-8 전송 시 한글 GoodsName 이 일부 케이스에서 손상돼 응답에 `&#65533;` 로 echo 되던 문제 해결.
+        // 브라우저는 acceptCharset 에 따라 form-encoded body 의 한글 value 를 EUC-KR 바이트로 변환한다.
         <form
           ref={formRef}
           name='payForm'
           method='post'
           action={returnUrl}
-          acceptCharset='utf-8'
+          acceptCharset='euc-kr'
           className='hidden'
           aria-hidden
         >
@@ -174,7 +177,7 @@ export function PayClient({
           <input type='hidden' name='NpLang' value='KO' />
           <input type='hidden' name='GoodsCl' value='1' />
           <input type='hidden' name='TransType' value='0' />
-          <input type='hidden' name='CharSet' value='utf-8' />
+          <input type='hidden' name='CharSet' value='euc-kr' />
           <input type='hidden' name='EdiDate' value={paymentInit.ediDate} />
           <input type='hidden' name='SignData' value={paymentInit.signData} />
           {/* 네이티브 앱(WebView)에서 결제 시, 카드사 앱 이탈 후 우리 앱으로 복귀하기 위한 scheme.

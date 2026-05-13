@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import {
   getMembersAggregates,
   getMembersList,
@@ -40,6 +41,11 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
   }
 
   const { branchId, isSuperAdmin } = ctx;
+
+  // 관리자 탭은 최고 관리자 전용. 일반 관리자가 URL 직접 접근 시 students 탭으로 강제.
+  if (raw.tab === 'admins' && !isSuperAdmin) {
+    redirect('/admin/members?tab=students');
+  }
 
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw.tab ?? '')
     ? (raw.tab as Tab)

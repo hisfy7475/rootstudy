@@ -118,6 +118,9 @@ export function UserOrdersClient({
               <p className='text-muted-foreground text-sm'>
                 {o.amount.toLocaleString('ko-KR')}원 ·{' '}
                 {new Date(o.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+                {o.seat_number_snapshot != null ? (
+                  <span className='ml-1'>· 좌석 {o.seat_number_snapshot}</span>
+                ) : null}
               </p>
               {o.variant?.product_start_date && o.variant?.product_end_date ? (
                 <p className='text-muted-foreground text-xs'>

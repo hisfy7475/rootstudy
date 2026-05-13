@@ -5,6 +5,7 @@ import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
 import { escapeLike } from '@/lib/list-params';
 import { softDeleteUser } from '@/lib/withdraw';
+import { requireSuperAdmin } from '@/lib/auth/require-super-admin';
 import {
   getStudyDate,
   getStudyDayBounds,
@@ -856,6 +857,7 @@ export async function givePoints(
   amount: number,
   reason: string,
   isAuto: boolean = false,
+  presetId: string | null = null,
 ) {
   const supabase = await createClient();
 
@@ -864,6 +866,43 @@ export async function givePoints(
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
+  // 슈퍼관리자가 부여하는 케이스: client 가 전 지점 preset 합집합에서 첫 매칭 ID 를 보내
+  // 학생의 실제 지점 preset 과 다를 수 있다 (같은 이름의 preset 이 여러 지점에 존재).
+  // 이 경우 unique index 가 student × preset 단위라 잘못된 preset 으로 들어가면 중복 차단이
+  // 사실상 우회된다. 학생 branch 의 preset 으로 재매칭한다.
+  let effectivePresetId = presetId;
+  let effectivePresetType: 'reward' | 'penalty' | null = presetId ? type : null;
+  if (effectivePresetId) {
+    const { data: studentProfile } = await supabase
+      .from('profiles')
+      .select('branch_id')
+      .eq('id', studentId)
+      .maybeSingle();
+    const branchId = (studentProfile?.branch_id as string | null) ?? null;
+    if (branchId) {
+      const tableName = type === 'reward' ? 'reward_presets' : 'penalty_presets';
+      const { data: preset } = await supabase
+        .from(tableName)
+        .select('id, branch_id')
+        .eq('id', effectivePresetId)
+        .maybeSingle();
+      if (!preset || (preset.branch_id as string) !== branchId) {
+        // mismatch — 학생 branch 의 동일 reason preset 으로 재매칭
+        const { data: matched } = await supabase
+          .from(tableName)
+          .select('id')
+          .eq('branch_id', branchId)
+          .eq('reason', reason)
+          .eq('is_active', true)
+          .maybeSingle();
+        effectivePresetId = (matched?.id as string | undefined) ?? null;
+        effectivePresetType = effectivePresetId ? type : null;
+      }
+    }
+  }
+
+  // preset 지정 시 (student, preset, KST 일자) partial unique index 가 같은 날 중복을 차단.
+  // 표현식 unique index (date_trunc) 는 onConflict 미지원이라 일반 INSERT 후 23505 catch.
   const { error } = await supabase.from('points').insert({
     student_id: studentId,
     admin_id: user.id,
@@ -871,9 +910,15 @@ export async function givePoints(
     amount,
     reason,
     is_auto: isAuto,
+    preset_id: effectivePresetId,
+    preset_type: effectivePresetType,
   });
 
   if (error) {
+    // 23505 = unique_violation. KST 일자 중복 차단에 걸린 경우.
+    if ((error as { code?: string }).code === '23505') {
+      return { error: '오늘 이미 같은 항목으로 부여됐습니다.' };
+    }
     console.error('Error giving points:', error);
     return { error: '상벌점 부여에 실패했습니다.' };
   }
@@ -2793,16 +2838,23 @@ export interface AdminListRow {
   created_at: string;
 }
 
-// 관리자 탭 — name/email 검색 + 페이지네이션
+// 관리자 탭 — name/email 검색 + 페이지네이션. 최고 관리자 전용.
+// 가드 실패 시에도 page.tsx의 destructuring 호환을 위해 빈 결과 형태로 반환.
 export async function getAdminsList(params: {
   branchId?: string | null;
   q?: string;
   page?: number;
   pageSize?: number;
 }): Promise<{ rows: AdminListRow[]; total: number; page: number; pageSize: number }> {
-  const supabase = await createClient();
   const page = Math.max(1, params.page ?? 1);
   const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
+
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) {
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  const supabase = await createClient();
   const offset = (page - 1) * pageSize;
 
   let query = supabase
@@ -3136,27 +3188,8 @@ export async function getWithdrawnAdminDetail(
 }
 
 // ============================================
-// 슈퍼관리자 권한 헬퍼
+// 슈퍼관리자 헬퍼 (countActiveSuperAdmins만 유지 — requireSuperAdmin은 공용 모듈)
 // ============================================
-
-async function requireSuperAdmin(): Promise<
-  { ok: true; userId: string } | { ok: false; error: string }
-> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('user_type, is_super_admin')
-    .eq('id', user.id)
-    .single();
-  if (profile?.user_type !== 'admin' || !profile?.is_super_admin) {
-    return { ok: false, error: '최고 관리자 권한이 필요합니다.' };
-  }
-  return { ok: true, userId: user.id };
-}
 
 async function countActiveSuperAdmins(): Promise<number> {
   const adminClient = createAdminClient();
@@ -3169,12 +3202,24 @@ async function countActiveSuperAdmins(): Promise<number> {
   return count ?? 0;
 }
 
-// 관리자 지점 변경 — 슈퍼관리자 전용
+// 관리자 지점 변경 — 슈퍼관리자 전용. 대상이 슈퍼라면 특정 지점 매핑 거부 (NULL 로 비우는 것은 허용).
 export async function updateAdminBranch(adminId: string, branchId: string | null) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
 
   const adminClient = createAdminClient();
+
+  if (branchId !== null) {
+    const { data: target } = await adminClient
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('id', adminId)
+      .single();
+    if (target?.is_super_admin) {
+      return { error: '최고 관리자는 특정 지점에 묶을 수 없습니다. 먼저 권한을 회수해 주세요.' };
+    }
+  }
+
   const { error } = await adminClient
     .from('profiles')
     .update({ branch_id: branchId })
@@ -3190,7 +3235,7 @@ export async function updateAdminBranch(adminId: string, branchId: string | null
   return { success: true };
 }
 
-// 관리자 계정 생성 — 슈퍼관리자 전용
+// 관리자 계정 생성 — 슈퍼관리자 전용. 슈퍼+지점 동시 지정은 거부 (DB CHECK와 동일 정책).
 export async function createAdmin(data: {
   email: string;
   password: string;
@@ -3201,6 +3246,11 @@ export async function createAdmin(data: {
 }) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
+
+  const isSuperReq = data.isSuperAdmin === true;
+  if (isSuperReq && data.branchId) {
+    return { error: '최고 관리자는 지점을 지정할 수 없습니다. 지점 없이 생성해 주세요.' };
+  }
 
   const adminClient = createAdminClient();
 
@@ -3235,9 +3285,9 @@ export async function createAdmin(data: {
     name: data.name,
     phone: data.phone || null,
     user_type: 'admin',
-    branch_id: data.branchId || null,
+    branch_id: isSuperReq ? null : data.branchId || null,
     is_approved: true, // 관리자는 승인 불필요
-    is_super_admin: data.isSuperAdmin === true,
+    is_super_admin: isSuperReq,
   });
 
   if (profileError) {
@@ -3327,6 +3377,7 @@ export async function deleteAdmin(adminId: string) {
 }
 
 // 슈퍼관리자 권한 부여/회수 — 슈퍼관리자 전용. 회수 시 마지막 슈퍼 보호.
+// 부여 시 branch_id 도 함께 NULL 로 정규화 (슈퍼는 전 지점 권한이므로 특정 지점 매핑 금지 — DB CHECK 와 동일 정책).
 export async function setAdminSuperFlag(adminId: string, value: boolean) {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return { error: auth.error };
@@ -3340,9 +3391,11 @@ export async function setAdminSuperFlag(adminId: string, value: boolean) {
   }
 
   const adminClient = createAdminClient();
+  const update: { is_super_admin: boolean; branch_id?: null } = { is_super_admin: value };
+  if (value) update.branch_id = null;
   const { error } = await adminClient
     .from('profiles')
-    .update({ is_super_admin: value })
+    .update(update)
     .eq('id', adminId)
     .eq('user_type', 'admin');
 
@@ -3555,6 +3608,9 @@ export interface PenaltyPreset {
   color: string;
   sort_order: number;
   is_active: boolean;
+  /** 시스템 preset (자동 부여) 식별자. 'late_checkin' | 'early_checkout' 등. */
+  code?: string | null;
+  is_system?: boolean;
 }
 
 // 벌점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
@@ -3650,6 +3706,8 @@ export interface RewardPreset {
   color: string;
   sort_order: number;
   is_active: boolean;
+  code?: string | null;
+  is_system?: boolean;
 }
 
 // 상점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
@@ -4042,6 +4100,7 @@ export async function getWeeklyAttendance(
     `,
         { count: spOffset === 0 ? 'exact' : undefined },
       )
+      .is('profiles.withdrawn_at', null)
       .order('seat_number', { ascending: true });
 
     if (branchId) {
@@ -4250,7 +4309,8 @@ export async function getTodayFocusScoresByPeriod(branchId?: string | null, targ
     const { data: branchStudents } = await supabase
       .from('student_profiles')
       .select('id, profiles!inner(branch_id)')
-      .eq('profiles.branch_id', branchId);
+      .eq('profiles.branch_id', branchId)
+      .is('profiles.withdrawn_at', null);
     studentIds = branchStudents?.map((s) => s.id) || [];
   }
 

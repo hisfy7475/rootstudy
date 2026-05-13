@@ -147,7 +147,8 @@ export function AddAdminModal({ branches, onClose, onSuccess }: AddAdminModalPro
             <select
               value={form.branchId}
               onChange={(e) => setForm((prev) => ({ ...prev, branchId: e.target.value }))}
-              className='focus:ring-primary/50 h-10 w-full rounded-lg border px-3 text-sm focus:ring-2 focus:outline-none'
+              disabled={form.isSuperAdmin}
+              className='focus:ring-primary/50 h-10 w-full rounded-lg border px-3 text-sm focus:ring-2 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500'
             >
               <option value=''>지점 선택 (선택사항)</option>
               {branches.map((branch) => (
@@ -156,13 +157,25 @@ export function AddAdminModal({ branches, onClose, onSuccess }: AddAdminModalPro
                 </option>
               ))}
             </select>
+            {form.isSuperAdmin && (
+              <p className='mt-1 text-xs text-purple-600'>
+                최고 관리자는 전 지점 권한이므로 지점을 지정하지 않습니다.
+              </p>
+            )}
           </div>
 
           <label className='flex cursor-pointer items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 p-3'>
             <input
               type='checkbox'
               checked={form.isSuperAdmin}
-              onChange={(e) => setForm((prev) => ({ ...prev, isSuperAdmin: e.target.checked }))}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  isSuperAdmin: e.target.checked,
+                  // 슈퍼 체크 시 지점 입력값 자동 비우기 (모순 입력 방지)
+                  branchId: e.target.checked ? '' : prev.branchId,
+                }))
+              }
               className='mt-0.5 h-4 w-4 rounded border-purple-300 text-purple-600 focus:ring-purple-500'
             />
             <div>
