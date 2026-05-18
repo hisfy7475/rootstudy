@@ -1037,6 +1037,7 @@ export async function getStudentsForReport(branchId?: string): Promise<
     .from('profiles')
     .select('id, name')
     .eq('user_type', 'student')
+    .is('withdrawn_at', null)
     .order('name', { ascending: true });
 
   if (branchId) {
