@@ -51,6 +51,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
   const detailHref = `/admin/${isExam ? 'mock-exams' : 'meals'}/${product.id}`;
   const startLabel = isExam ? '시험시작일' : '식사시작일';
   const endLabel = isExam ? '시험종료일' : '식사종료일';
+  const dateLabel = isExam ? '시험일자' : '이용일자';
   const filePrefix = isExam ? '모의고사신청' : '급식신청';
   const cancelReasonPlaceholder = isExam
     ? '취소 사유 (예: 일정 변경)'
@@ -233,6 +234,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
                 <th className='p-3 font-medium'>학생</th>
                 <th className='p-3 font-medium'>결제자</th>
                 <th className='p-3 font-medium'>옵션</th>
+                <th className='p-3 font-medium'>{dateLabel}</th>
                 <th className='p-3 font-medium'>상태</th>
                 <th className='p-3 font-medium'>금액</th>
                 <th className='p-3 font-medium'>결제일</th>
@@ -242,7 +244,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={9} className='text-muted-foreground p-8 text-center'>
                     내역이 없습니다.
                   </td>
                 </tr>
@@ -270,11 +272,13 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
                     </td>
                     <td className='p-3 text-xs whitespace-nowrap'>
                       {variantLabel(o.variant?.kind)}
-                      {o.variant ? (
-                        <span className='text-muted-foreground ml-1'>
-                          {o.variant.product_start_date}~{o.variant.product_end_date}
-                        </span>
-                      ) : null}
+                    </td>
+                    <td className='p-3 text-xs whitespace-nowrap'>
+                      {o.variant
+                        ? o.variant.product_start_date === o.variant.product_end_date
+                          ? o.variant.product_start_date
+                          : `${o.variant.product_start_date} ~ ${o.variant.product_end_date}`
+                        : '-'}
                     </td>
                     <td className='p-3'>
                       <span className='text-xs'>{statusLabel[o.status] ?? o.status}</span>
