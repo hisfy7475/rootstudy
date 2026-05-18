@@ -104,15 +104,35 @@ function formatAmount(amount: number | null | undefined): string {
 }
 
 function formatServiceDate(row: UnifiedAppRow): string {
-  const m = row.meta as Record<string, unknown>;
+  const start = row.service_start_date;
+  const end = row.service_end_date;
+  if (!start) return '—';
   if (row.domain === 'mentoring') {
-    const d = m.slot_date as string | null | undefined;
-    return d ?? '—';
+    const st = row.service_start_time;
+    const et = row.service_end_time;
+    return st && et ? `${start} ${trimSeconds(st)}~${trimSeconds(et)}` : start;
   }
-  const start = m.product_start_date as string | null | undefined;
-  const end = m.product_end_date as string | null | undefined;
-  if (!start || !end) return '—';
   return start === end ? start : `${start} ~ ${end}`;
+}
+
+function trimSeconds(t: string): string {
+  return t.length >= 5 ? t.slice(0, 5) : t;
+}
+
+function formatServiceDateForExcel(row: UnifiedAppRow): string {
+  const s = row.service_start_date;
+  const e = row.service_end_date;
+  if (!s) return '';
+  if (row.domain === 'mentoring') return s;
+  return s === e ? s : `${s} ~ ${e}`;
+}
+
+function formatServiceTimeForExcel(row: UnifiedAppRow): string {
+  if (row.domain !== 'mentoring') return '';
+  const st = row.service_start_time;
+  const et = row.service_end_time;
+  if (!st || !et) return '';
+  return `${trimSeconds(st)}~${trimSeconds(et)}`;
 }
 
 function describeSubCategory(domain: UnifiedAppDomain, raw: string | null): string {
@@ -199,7 +219,9 @@ export function ApplicationsClient({
     setExportError(null);
     setExporting(true);
     try {
-      const sortParam = (searchParams.get('sort') as 'applied_at' | 'amount') ?? 'applied_at';
+      const sortParam =
+        (searchParams.get('sort') as 'applied_at' | 'amount' | 'service_start_date') ??
+        'service_start_date';
       const dirParam = (searchParams.get('dir') as 'asc' | 'desc') ?? 'desc';
       const trimmedQ = local.q.trim();
       const { rows, truncated } = await exportUnifiedApplicationsForAdmin({
@@ -268,7 +290,7 @@ export function ApplicationsClient({
         </div>
         <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
           <label className='space-y-1 text-sm'>
-            <span className='text-muted-foreground'>신청일 From</span>
+            <span className='text-muted-foreground'>이용일 From</span>
             <input
               type='date'
               className='border-input w-full rounded-xl border px-3 py-2'
@@ -277,7 +299,7 @@ export function ApplicationsClient({
             />
           </label>
           <label className='space-y-1 text-sm'>
-            <span className='text-muted-foreground'>신청일 To</span>
+            <span className='text-muted-foreground'>이용일 To</span>
             <input
               type='date'
               className='border-input w-full rounded-xl border px-3 py-2'
@@ -468,7 +490,8 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
     신청자: r.user_name ?? '',
     내역: r.item_name ?? '',
     세부유형: describeSubCategory(r.domain, r.sub_category),
-    이용일자: formatServiceDate(r),
+    이용일자: formatServiceDateForExcel(r),
+    이용시간: formatServiceTimeForExcel(r),
     금액: r.amount ?? '',
     결제일: formatDateTime(r.paid_at),
     취소사유:
