@@ -20,6 +20,11 @@ import {
 } from '@/lib/constants';
 import type { CounselingTemplate } from '@/types/database';
 import type { SubjectCategory } from '@/lib/constants';
+import {
+  extractStudySessions,
+  type AttendanceRecord,
+  type StudySessionChunk,
+} from '@/lib/study-time';
 
 // === 반환 타입 정의 ===
 
@@ -93,8 +98,6 @@ export interface WeeklyTrendPoint {
   gradePeerAvgSeconds: number;
 }
 
-type AttendanceRecord = { type: string; timestamp: string };
-
 const _peerAttendanceCache = new Map<
   string,
   { data: Array<{ student_id: string; type: string; timestamp: string }>; ts: number }
@@ -129,65 +132,6 @@ async function fetchPaginatedAttendance(
       .order('timestamp', { ascending: true })
       .range(from, to);
   });
-}
-
-interface StudySessionChunk {
-  startTime: Date;
-  endTime: Date;
-  durationSeconds: number;
-}
-
-function extractStudySessions(
-  attendance: AttendanceRecord[],
-  periodEnd: Date,
-): StudySessionChunk[] {
-  const sessions: StudySessionChunk[] = [];
-  let checkInTime: Date | null = null;
-
-  for (const record of attendance) {
-    const timestamp = new Date(record.timestamp);
-
-    switch (record.type) {
-      case 'check_in':
-        checkInTime = timestamp;
-        break;
-      case 'check_out':
-        if (checkInTime) {
-          sessions.push({
-            startTime: checkInTime,
-            endTime: timestamp,
-            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
-          });
-          checkInTime = null;
-        }
-        break;
-      case 'break_start':
-        if (checkInTime) {
-          sessions.push({
-            startTime: checkInTime,
-            endTime: timestamp,
-            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
-          });
-          checkInTime = null;
-        }
-        break;
-      case 'break_end':
-        checkInTime = timestamp;
-        break;
-    }
-  }
-
-  if (checkInTime) {
-    const now = new Date();
-    const endTime = now < periodEnd ? now : periodEnd;
-    sessions.push({
-      startTime: checkInTime,
-      endTime,
-      durationSeconds: Math.floor((endTime.getTime() - checkInTime.getTime()) / 1000),
-    });
-  }
-
-  return sessions;
 }
 
 function calculateStudySeconds(

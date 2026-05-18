@@ -16,6 +16,7 @@ import {
   formatDateKST,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
+import { extractStudySessions } from '@/lib/study-time';
 
 function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
   return items.reduce(
@@ -2058,7 +2059,24 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
 
   const studentIds = students.map((s) => s.id);
 
-  // 배치 쿼리: 전체 학생 출석 기록 한 번에 조회 (페이지네이션)
+  // 학습일(KST 06:00 ~ 다음날 03:00) 단위 집계.
+  // 입력은 YYYY-MM-DD(또는 'T...'가 붙은 형태) 양식의 시작/종료 학습일.
+  const startStudyDate = (startDate.split('T')[0] ?? startDate).slice(0, 10);
+  const endStudyDate = (endDate.split('T')[0] ?? endDate).slice(0, 10);
+  const queryStart = getStudyDayBounds(startStudyDate).start;
+  const queryEnd = getStudyDayBounds(endStudyDate).end;
+
+  // 학습일 목록 (YYYY-MM-DD) 열거
+  const studyDates: string[] = [];
+  for (
+    let d = new Date(`${startStudyDate}T00:00:00.000Z`);
+    d.getTime() <= new Date(`${endStudyDate}T00:00:00.000Z`).getTime();
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    studyDates.push(d.toISOString().slice(0, 10));
+  }
+
+  // 배치 쿼리: 학습일 경계를 모두 포함하도록 timestamp 범위 확장
   let allExportAttendance: { student_id: string; type: string; timestamp: string }[] = [];
   {
     const baseQ = () =>
@@ -2066,8 +2084,8 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
         .from('attendance')
         .select('student_id, type, timestamp')
         .in('student_id', studentIds)
-        .gte('timestamp', startDate)
-        .lte('timestamp', endDate)
+        .gte('timestamp', queryStart.toISOString())
+        .lte('timestamp', queryEnd.toISOString())
         .order('timestamp', { ascending: true });
     let from = 0;
     const PAGE = 1000;
@@ -2082,80 +2100,59 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
 
   const attendanceByStudent = groupById(allExportAttendance);
 
-  const results = [];
+  const formatHHMM = (d: Date) =>
+    d.toLocaleTimeString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  const results: Array<{
+    날짜: string;
+    좌석번호: number | string;
+    이름: string;
+    입실시간: string;
+    퇴실시간: string;
+    학습시간: string;
+  }> = [];
 
   for (const student of students) {
     const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
     const attendance = attendanceByStudent[student.id] ?? [];
 
-    const dailyData: {
-      [key: string]: { checkIn: string | null; checkOut: string | null; studyMinutes: number };
-    } = {};
+    for (const dateStr of studyDates) {
+      const { start, end } = getStudyDayBounds(dateStr);
+      const dayAttendance = attendance
+        .filter((r) => {
+          const t = new Date(r.timestamp);
+          return t >= start && t <= end;
+        })
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    let currentCheckIn: Date | null = null;
-    let currentDate = '';
+      if (dayAttendance.length === 0) continue;
 
-    for (const record of attendance) {
-      const timestamp = new Date(record.timestamp);
-      const date = timestamp.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD in KST
+      const sessions = extractStudySessions(dayAttendance, end);
+      const studySeconds = sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+      const studyMinutes = Math.floor(studySeconds / 60);
 
-      if (!dailyData[date]) {
-        dailyData[date] = { checkIn: null, checkOut: null, studyMinutes: 0 };
-      }
+      const firstCheckIn = dayAttendance.find((r) => r.type === 'check_in');
+      const lastCheckOut = [...dayAttendance].reverse().find((r) => r.type === 'check_out');
 
-      switch (record.type) {
-        case 'check_in':
-          if (!dailyData[date].checkIn) {
-            dailyData[date].checkIn = timestamp.toLocaleTimeString('ko-KR', {
-              timeZone: 'Asia/Seoul',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-          }
-          currentCheckIn = timestamp;
-          currentDate = date;
-          break;
-        case 'check_out':
-          dailyData[date].checkOut = timestamp.toLocaleTimeString('ko-KR', {
-            timeZone: 'Asia/Seoul',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          if (currentCheckIn && currentDate === date) {
-            dailyData[date].studyMinutes += Math.floor(
-              (timestamp.getTime() - currentCheckIn.getTime()) / 60000,
-            );
-          }
-          currentCheckIn = null;
-          break;
-        case 'break_start':
-          if (currentCheckIn && currentDate === date) {
-            dailyData[date].studyMinutes += Math.floor(
-              (timestamp.getTime() - currentCheckIn.getTime()) / 60000,
-            );
-          }
-          currentCheckIn = null;
-          break;
-        case 'break_end':
-          currentCheckIn = timestamp;
-          currentDate = date;
-          break;
-      }
-    }
-
-    for (const [date, data] of Object.entries(dailyData)) {
       results.push({
-        날짜: date,
+        날짜: dateStr,
         좌석번호: student.seat_number || '',
         이름: profile?.name || '',
-        입실시간: data.checkIn || '',
-        퇴실시간: data.checkOut || '',
-        학습시간: `${Math.floor(data.studyMinutes / 60)}시간 ${data.studyMinutes % 60}분`,
+        입실시간: firstCheckIn ? formatHHMM(new Date(firstCheckIn.timestamp)) : '',
+        퇴실시간: lastCheckOut ? formatHHMM(new Date(lastCheckOut.timestamp)) : '',
+        학습시간: `${Math.floor(studyMinutes / 60)}시간 ${studyMinutes % 60}분`,
       });
     }
   }
 
-  return results.sort((a, b) => a.날짜.localeCompare(b.날짜));
+  return results.sort((a, b) => {
+    if (a.날짜 !== b.날짜) return a.날짜.localeCompare(b.날짜);
+    return Number(a.좌석번호 || 0) - Number(b.좌석번호 || 0);
+  });
 }
 
 // 몰입도 데이터 조회 (엑셀 다운로드용)
