@@ -61,7 +61,8 @@
           "payco",
           "cloudpay"
         ]
-      }
+      },
+      "appleTeamId": "99739S8N7K"
     },
     "android": {
       "package": "com.rootstudy.app",
