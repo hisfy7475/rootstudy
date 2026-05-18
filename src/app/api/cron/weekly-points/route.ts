@@ -233,7 +233,10 @@ export async function GET(request: Request) {
     rewarded: number;
     penalized: number;
     neutral: number; // 투트랙: 중간 (상벌점 없음)
-    skipped: number;
+    skipped: number; // = skippedAlreadyProcessed + skippedNoBranchOrType + skippedJoinedAfterWeek (외부 호환 alias)
+    skippedAlreadyProcessed: number;
+    skippedNoBranchOrType: number;
+    skippedJoinedAfterWeek: number;
     errors: string[];
   } = {
     processed: 0,
@@ -241,6 +244,9 @@ export async function GET(request: Request) {
     penalized: 0,
     neutral: 0,
     skipped: 0,
+    skippedAlreadyProcessed: 0,
+    skippedNoBranchOrType: 0,
+    skippedJoinedAfterWeek: 0,
     errors: [],
   };
 
@@ -271,7 +277,8 @@ export async function GET(request: Request) {
       `,
       )
       .not('student_type_id', 'is', null)
-      .is('profiles.withdrawn_at', null);
+      .is('profiles.withdrawn_at', null)
+      .eq('profiles.is_approved', true);
 
     if (studentsError) {
       throw new Error(`Failed to fetch students: ${studentsError.message}`);
@@ -332,13 +339,32 @@ export async function GET(request: Request) {
       // 이미 처리된 경우 스킵
       if (processedSet.has(student.id)) {
         results.skipped++;
+        results.skippedAlreadyProcessed++;
         continue;
       }
 
       const branchId = branchMap.get(student.id);
       if (!branchId || !student.student_type_id) {
         results.skipped++;
+        results.skippedNoBranchOrType++;
         continue;
+      }
+
+      // 정산 대상 주차가 끝난 뒤(예: 같은 날 새벽~오전) 가입한 학생은
+      // 그 주차에 학생이 아니었으므로 정산 자체에서 제외.
+      // 예) 월요일 09:00 KST cron 직전(00:00~09:00) 가입자의 "지난주" 정산 누락 처리.
+      const joinedAt = joinedAtMap.get(student.id);
+      if (joinedAt !== undefined && joinedAt >= lastWeekEnd) {
+        results.skipped++;
+        results.skippedJoinedAfterWeek++;
+        continue;
+      }
+      // created_at이 null인 학생은 시드/마이그레이션 등 이상 데이터 가능성.
+      // 현재 production에 0건이지만 미래 감지를 위해 로그만 남김(기존 로직으로 흘림).
+      if (joinedAt === undefined) {
+        console.warn(
+          `weekly-points: student ${student.id} has null created_at, treated as legacy`,
+        );
       }
 
       try {
