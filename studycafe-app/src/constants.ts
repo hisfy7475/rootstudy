@@ -1,14 +1,24 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
 
-const extra = (Constants.expoConfig?.extra ?? {}) as { webBaseUrl?: string };
+const PROD_WEB = 'https://www.rootstudy.co.kr';
+const DEV_WEB_PORT = 3000;
 
 function resolveWebBaseUrl(): string {
-  const raw = extra.webBaseUrl ?? 'https://www.rootstudy.co.kr';
-  if (Platform.OS === 'ios' && raw.includes('10.0.2.2')) {
-    return raw.replace('10.0.2.2', 'localhost');
+  const fromExtra = (Constants.expoConfig?.extra as { webBaseUrl?: string } | undefined)
+    ?.webBaseUrl;
+  if (fromExtra) {
+    return fromExtra.replace(/\/$/, '');
   }
-  return raw;
+
+  if (__DEV__) {
+    const hostUri = Constants.expoConfig?.hostUri ?? '';
+    const host = typeof hostUri === 'string' ? hostUri.split(':')[0] : '';
+    if (host) {
+      return `http://${host}:${DEV_WEB_PORT}`;
+    }
+  }
+
+  return PROD_WEB;
 }
 
 export const WEB_BASE_URL: string = resolveWebBaseUrl();

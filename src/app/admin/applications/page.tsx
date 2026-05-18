@@ -9,7 +9,7 @@ import { parseListParams } from '@/lib/list-params';
 import { ApplicationsClient } from './applications-client';
 
 const FILTER_KEYS = ['domain', 'status', 'from', 'to', 'q', 'branchId'] as const;
-const SORT_KEYS = ['applied_at', 'amount'] as const;
+const SORT_KEYS = ['applied_at', 'amount', 'service_start_date'] as const;
 
 const VALID_DOMAINS: UnifiedAppDomain[] = ['meal', 'exam', 'mentoring'];
 const VALID_STATUSES: UnifiedAppStatus[] = [
@@ -38,7 +38,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
   }
 
   const params = parseListParams(raw, {
-    defaultSort: 'applied_at',
+    defaultSort: 'service_start_date',
     defaultDir: 'desc',
     defaultPageSize: 20,
     sortAllowlist: SORT_KEYS,

@@ -20,15 +20,15 @@ export interface UnifiedAppFilters {
   status?: UnifiedAppStatus;
   /** 슈퍼관리자 전용. 일반 관리자는 입력 무시되고 자기 branch_id 강제. */
   branchId?: string;
-  /** KST yyyy-MM-dd. applied_at 기준 그날 00:00 KST 이상. */
+  /** yyyy-MM-dd. 이용 기간이 검색 범위와 겹치는지 판정 (lower bound 포함). */
   fromDate?: string;
-  /** KST yyyy-MM-dd. applied_at 기준 다음날 00:00 KST 미만. */
+  /** yyyy-MM-dd. 이용 기간이 검색 범위와 겹치는지 판정 (upper bound 포함). */
   toDate?: string;
   /** 학생 이름·전화 ilike */
   q?: string;
   page: number;
   pageSize: number;
-  sort: 'applied_at' | 'amount';
+  sort: 'applied_at' | 'amount' | 'service_start_date';
   dir: 'asc' | 'desc';
 }
 
@@ -50,6 +50,14 @@ export interface UnifiedAppRow {
   meta: Record<string, unknown>;
   /** 신청 시점 좌석 (트리거가 자동 채움). 학생이 좌석 이동·퇴원해도 신청 당시 좌석 보존. */
   seat_number_snapshot: number | null;
+  /** 이용일 시작 (meal/exam: product_start_date, mentoring: slot.date). */
+  service_start_date: string;
+  /** 이용일 종료 (meal/exam: product_end_date, mentoring: slot.date 와 동일). */
+  service_end_date: string;
+  /** 이용 시작 시간 (mentoring 만 채워짐, meal/exam 은 NULL). HH:mm:ss. */
+  service_start_time: string | null;
+  /** 이용 종료 시간 (mentoring 만 채워짐, meal/exam 은 NULL). HH:mm:ss. */
+  service_end_time: string | null;
   // hydration 필드
   student_name: string | null;
   student_phone: string | null;
@@ -89,21 +97,6 @@ function buildDetailHref(domain: UnifiedAppDomain, itemId: string): string {
   if (domain === 'meal') return `/admin/meals/${itemId}/orders`;
   if (domain === 'exam') return `/admin/mock-exams/${itemId}/orders`;
   return `/admin/mentoring/slots/${itemId}`;
-}
-
-/**
- * KST yyyy-MM-dd → ISO8601 (KST 자정).
- * gte/lt 비교에 사용. PostgreSQL 이 timestamptz 비교 시 자동으로 UTC 로 변환한다.
- */
-function kstDateToIso(date: string, addDays = 0): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  if (addDays === 0) return `${date}T00:00:00+09:00`;
-  // KST 다음날 자정: Date 객체를 KST 자정으로 만들고 +1일.
-  const [y, m, d] = date.split('-').map(Number);
-  const utcMidnightKst = Date.UTC(y, m - 1, d) - 9 * 60 * 60 * 1000;
-  const next = new Date(utcMidnightKst + addDays * 24 * 60 * 60 * 1000);
-  // ISO 출력 시 +00:00 으로 표현되지만 의미는 KST(addDays)일 자정과 동일.
-  return next.toISOString();
 }
 
 type UnifiedAppDbRow = Omit<
@@ -252,13 +245,12 @@ export async function getUnifiedApplicationsForAdmin(
   if (effectiveBranchId) query = query.eq('branch_id', effectiveBranchId);
   if (filters.domain) query = query.eq('domain', filters.domain);
   if (filters.status) query = query.eq('status_normalized', filters.status);
-  if (filters.fromDate) {
-    const iso = kstDateToIso(filters.fromDate, 0);
-    if (iso) query = query.gte('applied_at', iso);
+  // 이용 기간 "겹침" 의미: service_start_date <= toDate AND service_end_date >= fromDate
+  if (filters.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)) {
+    query = query.gte('service_end_date', filters.fromDate);
   }
-  if (filters.toDate) {
-    const iso = kstDateToIso(filters.toDate, 1);
-    if (iso) query = query.lt('applied_at', iso);
+  if (filters.toDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.toDate)) {
+    query = query.lte('service_start_date', filters.toDate);
   }
   if (studentIds) query = query.in('student_id', studentIds);
 
@@ -305,13 +297,12 @@ export async function exportUnifiedApplicationsForAdmin(
     if (effectiveBranchId) query = query.eq('branch_id', effectiveBranchId);
     if (filters.domain) query = query.eq('domain', filters.domain);
     if (filters.status) query = query.eq('status_normalized', filters.status);
-    if (filters.fromDate) {
-      const iso = kstDateToIso(filters.fromDate, 0);
-      if (iso) query = query.gte('applied_at', iso);
+    // 이용 기간 "겹침" 의미: service_start_date <= toDate AND service_end_date >= fromDate
+    if (filters.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)) {
+      query = query.gte('service_end_date', filters.fromDate);
     }
-    if (filters.toDate) {
-      const iso = kstDateToIso(filters.toDate, 1);
-      if (iso) query = query.lt('applied_at', iso);
+    if (filters.toDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.toDate)) {
+      query = query.lte('service_start_date', filters.toDate);
     }
     if (studentIds) query = query.in('student_id', studentIds);
 

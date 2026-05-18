@@ -1,28 +1,15 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-const PROD_WEB = 'https://www.rootstudy.co.kr';
-const DEV_WEB = 'http://localhost:3000';
-
-function resolveWebBaseUrl(): string {
+function resolveWebBaseUrl(): string | undefined {
   const fromEnv = process.env.EXPO_PUBLIC_WEB_BASE_URL?.trim();
-  if (fromEnv) {
-    return fromEnv.replace(/\/$/, '');
-  }
-  if (process.env.EAS_BUILD === 'true') {
-    return PROD_WEB;
-  }
-  if (process.env.NODE_ENV === 'production') {
-    return PROD_WEB;
-  }
-  return DEV_WEB;
+  return fromEnv ? fromEnv.replace(/\/$/, '') : undefined;
 }
 
-export default ({ config }: ConfigContext): ExpoConfig => {
+const buildExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
   const webBaseUrl = resolveWebBaseUrl();
-  const extra =
-    typeof config.extra === 'object' && config.extra !== null
-      ? { ...config.extra, webBaseUrl }
-      : { webBaseUrl };
+  const baseExtra =
+    typeof config.extra === 'object' && config.extra !== null ? config.extra : {};
+  const extra = webBaseUrl ? { ...baseExtra, webBaseUrl } : { ...baseExtra };
 
   const ios = config.ios ?? {};
   const android = config.android ?? {};
@@ -61,3 +48,5 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
   } as ExpoConfig;
 };
+
+export default buildExpoConfig;
