@@ -103,6 +103,18 @@ function formatAmount(amount: number | null | undefined): string {
   return `${amount.toLocaleString('ko-KR')}원`;
 }
 
+function formatServiceDate(row: UnifiedAppRow): string {
+  const m = row.meta as Record<string, unknown>;
+  if (row.domain === 'mentoring') {
+    const d = m.slot_date as string | null | undefined;
+    return d ?? '—';
+  }
+  const start = m.product_start_date as string | null | undefined;
+  const end = m.product_end_date as string | null | undefined;
+  if (!start || !end) return '—';
+  return start === end ? start : `${start} ~ ${end}`;
+}
+
 function describeSubCategory(domain: UnifiedAppDomain, raw: string | null): string {
   if (!raw) return '';
   if (domain === 'meal') return MEAL_SUBCATEGORY_LABEL[raw] ?? raw;
@@ -344,6 +356,7 @@ export function ApplicationsClient({
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>좌석</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>학생</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>내역</th>
+                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>이용일자</th>
                 <th className='px-3 py-2 text-right font-medium whitespace-nowrap'>금액</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>결제일</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>상세</th>
@@ -352,7 +365,7 @@ export function ApplicationsClient({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className='text-muted-foreground px-3 py-8 text-center'>
+                  <td colSpan={10} className='text-muted-foreground px-3 py-8 text-center'>
                     조건에 맞는 신청 내역이 없습니다.
                   </td>
                 </tr>
@@ -419,6 +432,7 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
         </div>
       </td>
       <td className='px-3 py-2 align-top'>{itemDisplay}</td>
+      <td className='px-3 py-2 align-top text-xs whitespace-nowrap'>{formatServiceDate(row)}</td>
       <td className='px-3 py-2 text-right align-top whitespace-nowrap'>
         {formatAmount(row.amount)}
       </td>
@@ -454,6 +468,7 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
     신청자: r.user_name ?? '',
     내역: r.item_name ?? '',
     세부유형: describeSubCategory(r.domain, r.sub_category),
+    이용일자: formatServiceDate(r),
     금액: r.amount ?? '',
     결제일: formatDateTime(r.paid_at),
     취소사유:
