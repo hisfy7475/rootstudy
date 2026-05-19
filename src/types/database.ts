@@ -1017,6 +1017,7 @@ export interface Database {
           focus_avg: number | null;
           study_feedback: string | null;
           guidance_notes: string | null;
+          mentoring_letter: string | null;
           admin_notes: string | null;
           parent_summary: string | null;
           branch_id: string | null;
@@ -1031,6 +1032,7 @@ export interface Database {
           focus_avg?: number | null;
           study_feedback?: string | null;
           guidance_notes?: string | null;
+          mentoring_letter?: string | null;
           admin_notes?: string | null;
           parent_summary?: string | null;
           branch_id?: string | null;
@@ -1045,6 +1047,7 @@ export interface Database {
           focus_avg?: number | null;
           study_feedback?: string | null;
           guidance_notes?: string | null;
+          mentoring_letter?: string | null;
           admin_notes?: string | null;
           parent_summary?: string | null;
           branch_id?: string | null;
