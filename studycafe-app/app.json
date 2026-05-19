@@ -7,13 +7,22 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "plugins": [
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 240,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "android": {
+            "image": "./assets/splash-icon-android.png",
+            "imageWidth": 360,
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff"
+          }
+        }
+      ],
       [
         "expo-notifications",
         {
@@ -31,7 +40,6 @@
       ]
     ],
     "ios": {
-      "icon": "./assets/icon-ios.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.rootstudy.app",
       "associatedDomains": [
@@ -90,7 +98,8 @@
         }
       ],
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "extra": {
