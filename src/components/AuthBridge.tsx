@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { isNativeApp } from '@/lib/utils';
 import { onNativeMessage, postToNative, type NativeToWebMessage } from '@/lib/native-bridge';
+import { clearRememberCookie, readRememberCookie } from '@/lib/remember-me';
 
 /**
  * 네이티브 WebView 전용: Supabase 세션 ↔ SecureStore 동기화, SESSION_INJECT 처리.
@@ -21,6 +22,8 @@ export function AuthBridge() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
+        // 다음 로그인에서 기본값(ON) 재선택될 수 있도록 정리한다.
+        clearRememberCookie();
         postToNative({ type: 'LOGOUT', payload: {} });
         return;
       }
@@ -29,11 +32,14 @@ export function AuthBridge() {
         (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
         session
       ) {
+        // TOKEN_REFRESHED 시점마다 쿠키를 재독해 사용자 선택을 일관 반영한다.
+        const remember = readRememberCookie();
         postToNative({
           type: 'LOGIN_SUCCESS',
           payload: {
             access_token: session.access_token,
             refresh_token: session.refresh_token,
+            remember,
           },
         });
       }

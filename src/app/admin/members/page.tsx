@@ -9,6 +9,7 @@ import { getAllBranches } from '@/lib/actions/branch';
 import { getStudentTypes } from '@/lib/actions/student-type';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
+import type { ParentSortField } from '@/lib/actions/admin';
 import type { StudentTypeFilterValue } from './members-client';
 import { MembersClient } from './members-client';
 
@@ -20,6 +21,7 @@ interface PageProps {
     tab?: string;
     studentType?: string;
     approval?: string;
+    parentLink?: string;
     q?: string;
     page?: string;
     size?: string;
@@ -56,15 +58,34 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
       ? raw.approval
       : 'all';
 
-  // 학생 탭: sort/dir 화이트리스트 적용
-  const parsed = parseListParams(raw, {
-    defaultSort: 'created_at',
-    defaultDir: 'desc',
-    defaultPageSize: 30,
-    sortAllowlist: ['seat_number', 'name', 'branch_name', 'created_at'] as const,
-    filterAllowlist: ['approval', 'studentType'] as const,
-    pageSizeChoices: [20, 30, 50, 100],
-  });
+  const parentLink: 'all' | 'unlinked' | 'linked' =
+    raw.parentLink === 'unlinked' || raw.parentLink === 'linked' ? raw.parentLink : 'all';
+
+  // 탭별 sort/dir 화이트리스트. 학부모 탭은 자녀 기반 키 3종을 추가로 허용한다.
+  const parsed =
+    tab === 'parents'
+      ? parseListParams(raw, {
+          defaultSort: 'created_at',
+          defaultDir: 'desc',
+          defaultPageSize: 30,
+          sortAllowlist: [
+            'name',
+            'created_at',
+            'child_seat',
+            'child_name',
+            'child_branch',
+          ] as const,
+          filterAllowlist: [] as const,
+          pageSizeChoices: [20, 30, 50, 100],
+        })
+      : parseListParams(raw, {
+          defaultSort: 'created_at',
+          defaultDir: 'desc',
+          defaultPageSize: 30,
+          sortAllowlist: ['seat_number', 'name', 'branch_name', 'created_at'] as const,
+          filterAllowlist: ['approval', 'studentType', 'parentLink'] as const,
+          pageSizeChoices: [20, 30, 50, 100],
+        });
 
   const [branches, studentTypes] = await Promise.all([getAllBranches(), getStudentTypes()]);
 
@@ -93,7 +114,8 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
           pageSize: parsed.pageSize,
           approval: approval === 'all' ? undefined : approval,
           studentType: initialStudentTypeFilter === 'all' ? undefined : initialStudentTypeFilter,
-          sort: parsed.sort,
+          parentLink: parentLink === 'all' ? undefined : parentLink,
+          sort: parsed.sort as 'seat_number' | 'name' | 'branch_name' | 'created_at',
           dir: parsed.dir,
         })
       : { rows: [], total: 0, page: parsed.page, pageSize: parsed.pageSize };
@@ -105,6 +127,8 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
           q: parsed.q,
           page: parsed.page,
           pageSize: parsed.pageSize,
+          sort: parsed.sort as ParentSortField,
+          dir: parsed.dir,
         })
       : { rows: [], total: 0, page: parsed.page, pageSize: parsed.pageSize };
 
@@ -135,6 +159,7 @@ export default async function MembersManagementPage({ searchParams }: PageProps)
       branchId={branchId}
       tab={tab}
       approval={approval}
+      parentLinkFilter={parentLink}
       studentTypeFilter={initialStudentTypeFilter}
       q={parsed.q}
       aggregates={aggregates}

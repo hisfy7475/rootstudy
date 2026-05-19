@@ -2340,6 +2340,8 @@ export interface MembersAggregates {
   studentTypeAll: number;
   unassignedStudentCount: number;
   studentTypeCounts: Record<string, number>;
+  // 학부모 미가입 학생 수 — q + approval + studentType 적용 (학부모 가입을 안 한 자녀가 있는 학생)
+  unlinkedParentCount: number;
 }
 
 export async function getMembersAggregates({
@@ -2430,7 +2432,20 @@ export async function getMembersAggregates({
   const { data: baseData, count: studentTotalCount, error: baseErr } = await baseQuery;
   if (baseErr) console.error('Error fetching members aggregates baseline:', baseErr);
 
+  // 학부모 미가입 학생 식별: baseline 학생 ID 중 parent_student_links 에 매칭이 없는 학생.
+  // 학부모 탭 칩 카운트와 실제 필터 결과 행수가 일치하도록 동일한 차집합 정의를 쓴다.
+  const baselineStudentIds = ((baseData ?? []) as unknown as { id: string }[]).map((r) => r.id);
+  let linkedSet: Set<string> = new Set();
+  if (baselineStudentIds.length > 0) {
+    const { data: linkRows } = await adminClient
+      .from('parent_student_links')
+      .select('student_id')
+      .in('student_id', baselineStudentIds);
+    linkedSet = new Set(((linkRows ?? []) as { student_id: string }[]).map((r) => r.student_id));
+  }
+
   type BaseRow = {
+    id: string;
     is_approved: boolean;
     is_rejected: boolean | null;
     student_profiles:
@@ -2441,9 +2456,11 @@ export async function getMembersAggregates({
   const rows = ((baseData ?? []) as unknown as BaseRow[]).map((r) => {
     const sp = Array.isArray(r.student_profiles) ? r.student_profiles[0] : r.student_profiles;
     return {
+      id: r.id,
       is_approved: r.is_approved,
       is_rejected: !!r.is_rejected,
       student_type_id: sp?.student_type_id ?? null,
+      is_linked: linkedSet.has(r.id),
     };
   });
 
@@ -2484,6 +2501,15 @@ export async function getMembersAggregates({
     else studentTypeCounts[r.student_type_id] = (studentTypeCounts[r.student_type_id] ?? 0) + 1;
   }
 
+  // 학부모 미가입 그룹 — approval + studentType 적용 (parentLink 자기 무시).
+  // 학생 탭 필터 칩에 노출되는 카운트로, getMembersList 의 parentLink='unlinked' 결과 수와 일치해야 한다.
+  let unlinkedParentCount = 0;
+  for (const r of rows) {
+    if (!matchesApproval(r)) continue;
+    if (!matchesStudentType(r)) continue;
+    if (!r.is_linked) unlinkedParentCount += 1;
+  }
+
   return {
     studentTotal: studentTotalCount ?? 0,
     parentTotal,
@@ -2492,6 +2518,7 @@ export async function getMembersAggregates({
     studentTypeAll,
     unassignedStudentCount,
     studentTypeCounts,
+    unlinkedParentCount,
   };
 }
 
@@ -2521,6 +2548,8 @@ export async function getMembersList(params: {
   pageSize?: number;
   approval?: 'pending' | 'approved' | 'rejected';
   studentType?: 'unassigned' | string;
+  /** 학부모 가입 여부 필터. 'unlinked'=학부모 미가입, 'linked'=가입됨. 미지정=전체. */
+  parentLink?: 'unlinked' | 'linked';
   sort?: 'seat_number' | 'name' | 'branch_name' | 'created_at';
   dir?: 'asc' | 'desc';
 }): Promise<{ rows: MemberListRow[]; total: number; page: number; pageSize: number }> {
@@ -2567,6 +2596,31 @@ export async function getMembersList(params: {
     query = query.is('student_profiles.student_type_id', null);
   } else if (params.studentType) {
     query = query.eq('student_profiles.student_type_id', params.studentType);
+  }
+
+  // 학부모 가입 여부 필터. parent_student_links 매칭을 admin client 로 한 번 조회해
+  // linked/unlinked 학생 ID 차집합을 메인 쿼리에 in() 적용한다 (aggregates 와 동일 정의).
+  if (params.parentLink) {
+    const adminForLinks = createAdminClient();
+    const { data: linkRows } = await adminForLinks
+      .from('parent_student_links')
+      .select('student_id');
+    const linkedIds = [
+      ...new Set(((linkRows ?? []) as { student_id: string }[]).map((r) => r.student_id)),
+    ];
+    if (params.parentLink === 'unlinked') {
+      if (linkedIds.length === 0) {
+        // 모든 학생이 미연결 — 별도 필터 불필요
+      } else {
+        // PostgREST in.() not 필터: linkedIds 에 없는 학생만
+        query = query.not('id', 'in', `(${linkedIds.join(',')})`);
+      }
+    } else if (params.parentLink === 'linked') {
+      if (linkedIds.length === 0) {
+        return { rows: [], total: 0, page, pageSize };
+      }
+      query = query.in('id', linkedIds);
+    }
   }
 
   switch (params.sort) {
@@ -2693,18 +2747,58 @@ export interface ParentListRow {
   }[];
 }
 
-// 학부모 탭 — name/email 검색 + 페이지네이션. 학생명 검색은 placeholder 가
+/**
+ * 학부모 탭 정렬 키.
+ *  - name, created_at: PostgREST order().range() 경로 (페이지 단위 정렬).
+ *  - child_*: 자녀 다수일 때 SQL 단일 컬럼 정렬이 부정확하므로 메모리 정렬 → slice.
+ *
+ * 현재 운영 학부모 모수가 수백명 기준이라 메모리 정렬로 충분. 2,000명을
+ * 넘어가면 캐시/Materialized View 도입을 재검토해야 한다.
+ */
+export type ParentSortField = 'name' | 'created_at' | 'child_seat' | 'child_name' | 'child_branch';
+
+const koCollator = new Intl.Collator('ko');
+
+function parentLinkChildBranchKey(students: ParentListRow['students']): string {
+  const branches = [...new Set(students.map((s) => s.branchName).filter(Boolean))] as string[];
+  if (branches.length === 0) return '';
+  return [...branches].sort(koCollator.compare)[0];
+}
+
+function parentLinkChildNameKey(students: ParentListRow['students']): string {
+  const names = students.map((s) => s.name).filter((n) => n && n !== '이름 없음');
+  if (names.length === 0) return '';
+  return [...names].sort(koCollator.compare)[0];
+}
+
+function parentLinkChildSeatKey(students: ParentListRow['students']): number {
+  // NULL/0(미배정)은 무한대로 치환 — asc/desc 모두 값 있는 행이 먼저 오게 한다.
+  // 표시 로직 ({s.seatNumber ? `${s.seatNumber}번` : '-'})과 일관되게 0도 미배정으로 본다.
+  const seats = students
+    .map((s) => s.seatNumber)
+    .filter((n): n is number => typeof n === 'number' && n > 0);
+  if (seats.length === 0) return Infinity;
+  return Math.min(...seats);
+}
+
+// 학부모 탭 — name/email 검색 + 정렬 + 페이지네이션. 학생명 검색은 placeholder 가
 // 'name/email' 만 약속하므로 의도적으로 제외 (단순화 트레이드오프).
 export async function getParentsList(params: {
   branchId?: string | null;
   q?: string;
   page?: number;
   pageSize?: number;
+  sort?: ParentSortField;
+  dir?: 'asc' | 'desc';
 }): Promise<{ rows: ParentListRow[]; total: number; page: number; pageSize: number }> {
   const adminClient = createAdminClient();
   const page = Math.max(1, params.page ?? 1);
   const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 30;
   const offset = (page - 1) * pageSize;
+  const sort: ParentSortField = params.sort ?? 'created_at';
+  const dir: 'asc' | 'desc' = params.dir ?? 'desc';
+  const ascending = dir === 'asc';
+  const isMemorySort = sort === 'child_seat' || sort === 'child_name' || sort === 'child_branch';
 
   let allowedParentIds: string[] | null = null;
   if (params.branchId) {
@@ -2728,8 +2822,17 @@ export async function getParentsList(params: {
     .from('profiles')
     .select('*', { count: 'exact' })
     .eq('user_type', 'parent')
-    .is('withdrawn_at', null)
-    .order('created_at', { ascending: false });
+    .is('withdrawn_at', null);
+
+  // 정렬 키별 분기.
+  //   - 경로 A (PostgREST): name/created_at → DB 정렬 + range 슬라이스.
+  //   - 경로 B (메모리): child_* → 전체 학부모를 받아 자녀 정렬 키로 정렬 후 slice.
+  if (!isMemorySort) {
+    parentQuery = parentQuery.order(sort, { ascending });
+  } else {
+    // 메모리 정렬 경로에서도 동순위 안정성을 위해 created_at 보조키.
+    parentQuery = parentQuery.order('created_at', { ascending: false });
+  }
 
   if (allowedParentIds !== null) {
     parentQuery = parentQuery.in('id', allowedParentIds);
@@ -2741,7 +2844,9 @@ export async function getParentsList(params: {
     parentQuery = parentQuery.or(`name.ilike.%${pat}%,email.ilike.%${pat}%`);
   }
 
-  parentQuery = parentQuery.range(offset, offset + pageSize - 1);
+  if (!isMemorySort) {
+    parentQuery = parentQuery.range(offset, offset + pageSize - 1);
+  }
 
   const { data: parents, count, error } = await parentQuery;
   if (error || !parents) {
@@ -2789,7 +2894,7 @@ export async function getParentsList(params: {
     linksByParent[link.parent_id] = arr;
   }
 
-  const rows: ParentListRow[] = parents.map((parent) => {
+  let rows: ParentListRow[] = parents.map((parent) => {
     const links = linksByParent[parent.id as string] ?? [];
     const students = links.map((link) => {
       const student = Array.isArray(link.student) ? link.student[0] : link.student;
@@ -2810,6 +2915,14 @@ export async function getParentsList(params: {
         branchName: branch?.name ?? null,
       };
     });
+    // 행 내부 자녀 정렬: seatNumber asc, name asc (좌석번호 없는 자녀는 뒤).
+    // 학생번호·학생명 두 컬럼이 같은 자녀 인덱스로 매핑되어야 하므로 항상 동일 순서.
+    students.sort((a, b) => {
+      const sa = a.seatNumber ?? Infinity;
+      const sb = b.seatNumber ?? Infinity;
+      if (sa !== sb) return sa - sb;
+      return koCollator.compare(a.name, b.name);
+    });
     return {
       id: parent.id as string,
       email: parent.email as string,
@@ -2820,6 +2933,33 @@ export async function getParentsList(params: {
       students,
     };
   });
+
+  // 메모리 정렬 경로: 자녀 키로 정렬 후 페이지 슬라이스.
+  if (isMemorySort) {
+    const keyOf =
+      sort === 'child_seat'
+        ? (r: ParentListRow) => parentLinkChildSeatKey(r.students)
+        : sort === 'child_name'
+          ? (r: ParentListRow) => parentLinkChildNameKey(r.students)
+          : (r: ParentListRow) => parentLinkChildBranchKey(r.students);
+    rows.sort((a, b) => {
+      const ka = keyOf(a);
+      const kb = keyOf(b);
+      // 빈값/Infinity는 desc/asc 모두 뒤로 보낸다 (값 있는 행을 먼저 보여주는 게 자연스러움).
+      const emptyA = ka === '' || ka === Infinity;
+      const emptyB = kb === '' || kb === Infinity;
+      if (emptyA !== emptyB) return emptyA ? 1 : -1;
+      if (emptyA && emptyB) return 0;
+      let cmp: number;
+      if (typeof ka === 'number' && typeof kb === 'number') {
+        cmp = ka - kb;
+      } else {
+        cmp = koCollator.compare(String(ka), String(kb));
+      }
+      return ascending ? cmp : -cmp;
+    });
+    rows = rows.slice(offset, offset + pageSize);
+  }
 
   return { rows, total: count ?? 0, page, pageSize };
 }

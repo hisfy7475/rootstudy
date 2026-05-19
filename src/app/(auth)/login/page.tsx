@@ -9,17 +9,35 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { signIn } from '../actions';
+import { setRememberCookie } from '@/lib/remember-me';
 
 export default function LoginPage() {
   const router = useRouter();
+  // 입력값을 controlled state로 관리. React 19의 form action 자동 reset에도
+  // input은 state가 truth source라 초기화되지 않아 로그인 실패 시 입력값이 보존된다.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  // 기본값은 항상 ON. 이전 선택을 기억하지 않아 직전 OFF 사용자가 모르고 자동로그인되는 사고를 막는다.
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSubmit() {
     setIsLoading(true);
     setError(null);
 
-    const result = await signIn(formData);
+    // signIn 호출 전에 쿠키를 set해야 서버 액션 → 미들웨어 응답에서 Supabase 쿠키
+    // 영속성 분기가 일관되게 적용된다.
+    setRememberCookie(rememberMe);
+
+    // state를 truth source로 직접 FormData 구성. <form action>이 아닌 onSubmit을 쓰는 이유는
+    // React 19의 form action 자동 reset이 controlled checkbox 상태(rememberMe)까지
+    // 초기화시키는 동작이 있어 입력값 보존을 깨뜨리기 때문이다.
+    const fd = new FormData();
+    fd.set('email', email);
+    fd.set('password', password);
+
+    const result = await signIn(fd);
 
     if (result.success) {
       router.push('/');
@@ -55,7 +73,13 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={handleSubmit} className='space-y-4'>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+            className='space-y-4'
+          >
             <div className='relative'>
               <Mail className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
               <Input
@@ -65,6 +89,9 @@ export default function LoginPage() {
                 className='pl-12'
                 required
                 disabled={isLoading}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete='email'
               />
             </div>
             <div className='relative'>
@@ -76,8 +103,23 @@ export default function LoginPage() {
                 className='pl-12'
                 required
                 disabled={isLoading}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete='current-password'
               />
             </div>
+
+            <label className='flex cursor-pointer items-center gap-2 text-sm select-none'>
+              <input
+                type='checkbox'
+                name='rememberMe'
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={isLoading}
+                className='text-primary focus:ring-primary/30 h-4 w-4 rounded border-gray-300 focus:ring-2'
+              />
+              <span className='text-text'>자동로그인 유지</span>
+            </label>
 
             {error && (
               <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>

@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { generateParentCode } from '@/lib/utils';
 
@@ -257,6 +258,11 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
+  // 자동로그인 선택값 정리. 다음 로그인에서 기본값(ON)으로 재선택될 수 있게 한다.
+  // path를 명시하지 않으면 호출 URL 기준의 path로 삭제되어, 이전 ON 로그인 시
+  // 클라이언트가 Path=/로 set한 영구쿠키를 못 지우는 케이스가 생긴다.
+  const store = await cookies();
+  store.set('wstudy_remember', '', { path: '/', maxAge: 0 });
   redirect('/login');
 }
 

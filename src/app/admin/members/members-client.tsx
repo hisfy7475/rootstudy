@@ -145,7 +145,10 @@ interface StudentDetail {
 export type StudentTypeFilterValue = 'all' | 'unassigned' | string;
 
 type ApprovalFilter = 'all' | 'pending' | 'approved' | 'rejected';
-type SortField = 'seat_number' | 'name' | 'branch_name' | 'created_at';
+type ParentLinkFilter = 'all' | 'unlinked' | 'linked';
+type StudentSortField = 'seat_number' | 'name' | 'branch_name' | 'created_at';
+type ParentSortField = 'name' | 'created_at' | 'child_seat' | 'child_name' | 'child_branch';
+type SortField = StudentSortField | ParentSortField;
 
 interface MembersClientProps {
   students: Member[];
@@ -164,6 +167,7 @@ interface MembersClientProps {
   studentTypeFilter?: StudentTypeFilterValue;
   tab?: Tab;
   approval?: ApprovalFilter;
+  parentLinkFilter?: ParentLinkFilter;
   q?: string;
   aggregates: MembersAggregates;
   /** 현재 로그인한 어드민이 슈퍼관리자인지. 슈퍼 전용 액션·UI 게이트에 사용. */
@@ -193,6 +197,7 @@ export function MembersClient({
   studentTypeFilter = 'all',
   tab: activeTab = 'students',
   approval: studentFilter = 'all',
+  parentLinkFilter = 'all',
   aggregates,
   currentIsSuperAdmin,
 }: MembersClientProps) {
@@ -231,7 +236,7 @@ export function MembersClient({
   const handleTabChange = useCallback(
     (next: Tab) => {
       setSelectedStudent(null);
-      // 탭 전환 시 q/page/sort/dir/approval/studentType 모두 초기화 — 탭별 의미가 다름
+      // 탭 전환 시 q/page/sort/dir/approval/studentType/parentLink 모두 초기화 — 탭별 의미가 다름
       patchUrl({
         tab: next,
         page: null,
@@ -239,7 +244,15 @@ export function MembersClient({
         dir: null,
         approval: null,
         studentType: null,
+        parentLink: null,
       });
+    },
+    [patchUrl],
+  );
+
+  const handleParentLinkFilterChange = useCallback(
+    (v: ParentLinkFilter) => {
+      patchUrl({ parentLink: v === 'all' ? null : v, page: null });
     },
     [patchUrl],
   );
@@ -285,7 +298,7 @@ export function MembersClient({
   );
 
   // 정렬 토글 — 같은 컬럼 클릭 시 방향 토글, 다른 컬럼은 asc 시작
-  const handleSort = (field: 'seat_number' | 'name' | 'branch_name') => {
+  const handleSort = (field: SortField) => {
     let nextDir: 'asc' | 'desc' = 'asc';
     if (sort === field) {
       nextDir = dir === 'asc' ? 'desc' : 'asc';
@@ -293,7 +306,7 @@ export function MembersClient({
     patchUrl({ sort: field, dir: nextDir, page: null });
   };
 
-  const renderSortIcon = (field: 'seat_number' | 'name' | 'branch_name') => {
+  const renderSortIcon = (field: SortField) => {
     if (sort !== field) {
       return <ArrowUpDown className='text-text-muted h-3.5 w-3.5' />;
     }
@@ -677,6 +690,24 @@ export function MembersClient({
                   </option>
                 ))}
               </select>
+            </div>
+            {/* 학부모 가입 여부 필터 — '미가입'만 토글 (linked 는 기본 동작과 동일하니 생략) */}
+            <div className='flex flex-wrap items-center gap-2'>
+              <span className='text-text-muted text-sm whitespace-nowrap'>학부모</span>
+              <button
+                onClick={() =>
+                  handleParentLinkFilterChange(parentLinkFilter === 'unlinked' ? 'all' : 'unlinked')
+                }
+                className={cn(
+                  'flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  parentLinkFilter === 'unlinked'
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-orange-50 text-orange-700 hover:bg-orange-100',
+                )}
+              >
+                <UserMinus className='h-3.5 w-3.5' />
+                학부모 미가입 ({aggregates.unlinkedParentCount})
+              </button>
             </div>
           </div>
         )}
@@ -1165,114 +1196,192 @@ export function MembersClient({
           </Card>
         ) : (
           /* 학부모 목록 테이블 */
-          <Card className='overflow-hidden'>
-            <div className='overflow-x-auto'>
-              <table className='w-full text-xs'>
-                <thead className='border-b border-gray-100 bg-gray-50'>
-                  <tr>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>이름</th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
-                      연결된 학생
-                    </th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>지점</th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
-                      이메일
-                    </th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
-                      전화번호
-                    </th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
-                      가입일
-                    </th>
-                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600'>
-                      관리
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className='divide-y divide-gray-100'>
-                  {parents.length === 0 ? (
+          <>
+            {aggregates.unlinkedParentCount > 0 && (
+              <button
+                onClick={() => {
+                  // 학생 탭으로 이동 + 학부모 미가입 필터 자동 적용
+                  patchUrl({
+                    tab: 'students',
+                    parentLink: 'unlinked',
+                    page: null,
+                    sort: null,
+                    dir: null,
+                    approval: null,
+                    studentType: null,
+                  });
+                }}
+                className='mb-3 flex w-full items-center justify-between rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 transition-colors hover:bg-orange-100'
+              >
+                <span className='flex items-center gap-1.5'>
+                  <UserMinus className='h-4 w-4' />
+                  학부모가 가입하지 않은 학생 {aggregates.unlinkedParentCount}명
+                </span>
+                <span className='text-xs'>학생 탭에서 보기 ›</span>
+              </button>
+            )}
+            <Card className='overflow-hidden'>
+              <div className='overflow-x-auto'>
+                <table className='w-full text-xs'>
+                  <thead className='border-b border-gray-100 bg-gray-50'>
                     <tr>
-                      <td colSpan={7} className='px-2 py-6 text-center text-xs text-gray-500'>
-                        학부모가 없습니다.
-                      </td>
+                      <th
+                        className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                        onClick={() => handleSort('name')}
+                      >
+                        <div className='flex items-center gap-0.5'>
+                          이름
+                          {renderSortIcon('name')}
+                        </div>
+                      </th>
+                      <th
+                        className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                        onClick={() => handleSort('child_seat')}
+                      >
+                        <div className='flex items-center gap-0.5'>
+                          학생번호
+                          {renderSortIcon('child_seat')}
+                        </div>
+                      </th>
+                      <th
+                        className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                        onClick={() => handleSort('child_name')}
+                      >
+                        <div className='flex items-center gap-0.5'>
+                          학생명
+                          {renderSortIcon('child_name')}
+                        </div>
+                      </th>
+                      <th
+                        className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                        onClick={() => handleSort('child_branch')}
+                      >
+                        <div className='flex items-center gap-0.5'>
+                          지점
+                          {renderSortIcon('child_branch')}
+                        </div>
+                      </th>
+                      <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
+                        이메일
+                      </th>
+                      <th className='px-2 py-2 text-left text-xs font-medium text-gray-600'>
+                        전화번호
+                      </th>
+                      <th
+                        className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                        onClick={() => handleSort('created_at')}
+                      >
+                        <div className='flex items-center gap-0.5'>
+                          가입일
+                          {renderSortIcon('created_at')}
+                        </div>
+                      </th>
+                      <th className='px-2 py-2 text-center text-xs font-medium text-gray-600'>
+                        관리
+                      </th>
                     </tr>
-                  ) : (
-                    parents.map((parent) => (
-                      <tr key={parent.id} className='hover:bg-gray-50'>
-                        <td className='px-2 py-1.5'>
-                          <div className='flex items-center gap-1.5'>
-                            <div className='bg-secondary/10 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full'>
-                              <UserCheck className='text-secondary h-3 w-3' />
-                            </div>
-                            <span className='font-medium'>{parent.name}</span>
-                          </div>
-                        </td>
-                        <td className='px-2 py-1.5'>
-                          {!parent.students || parent.students.length === 0 ? (
-                            <span className='text-gray-400'>미연결</span>
-                          ) : (
-                            <div className='flex flex-wrap gap-0.5'>
-                              {parent.students.map((student) => (
-                                <span
-                                  key={student.id}
-                                  className='bg-primary/10 text-primary inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px]'
-                                >
-                                  {student.seatNumber && (
-                                    <span className='text-primary/70'>{student.seatNumber}번</span>
-                                  )}
-                                  {student.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className='px-2 py-1.5'>
-                          {!parent.students || parent.students.length === 0 ? (
-                            <span className='text-gray-400'>-</span>
-                          ) : (
-                            <div className='flex flex-wrap gap-0.5'>
-                              {[
-                                ...new Set(
-                                  parent.students.map((s) => s.branchName).filter(Boolean),
-                                ),
-                              ].map((branchName) => (
-                                <span
-                                  key={branchName}
-                                  className='inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700'
-                                >
-                                  <Building2 className='h-2.5 w-2.5 flex-shrink-0' />
-                                  {branchName}
-                                </span>
-                              ))}
-                              {parent.students.every((s) => !s.branchName) && (
-                                <span className='text-gray-400'>-</span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td className='px-2 py-1.5 text-gray-600'>{parent.email}</td>
-                        <td className='px-2 py-1.5'>{parent.phone || '-'}</td>
-                        <td className='px-2 py-1.5 text-gray-500'>
-                          {formatDate(parent.created_at)}
-                        </td>
-                        <td className='px-2 py-1.5 text-center'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => handleOpenDeleteModal(parent, 'parent')}
-                            disabled={loading}
-                            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                          >
-                            <UserMinus className='h-3 w-3' />
-                          </Button>
+                  </thead>
+                  <tbody className='divide-y divide-gray-100'>
+                    {parents.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className='px-2 py-6 text-center text-xs text-gray-500'>
+                          학부모가 없습니다.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                    ) : (
+                      parents.map((parent) => {
+                        const hasChildren = parent.students && parent.students.length > 0;
+                        // 학생번호·학생명 컬럼은 같은 자녀 배열 인덱스로 map하여 같은 행 위치에 매핑된다.
+                        // 자녀 정렬은 서버에서 seatNumber asc, name asc로 이미 처리됨.
+                        const uniqueBranches = hasChildren
+                          ? ([
+                              ...new Set(parent.students.map((s) => s.branchName).filter(Boolean)),
+                            ] as string[])
+                          : [];
+                        return (
+                          <tr key={parent.id} className='align-top hover:bg-gray-50'>
+                            <td className='px-2 py-1.5'>
+                              <div className='flex items-center gap-1.5'>
+                                <div className='bg-secondary/10 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full'>
+                                  <UserCheck className='text-secondary h-3 w-3' />
+                                </div>
+                                <span className='font-medium'>{parent.name}</span>
+                              </div>
+                            </td>
+                            <td className='px-2 py-1.5'>
+                              {!hasChildren ? (
+                                <span className='text-gray-400'>-</span>
+                              ) : (
+                                <div className='flex flex-col gap-0.5'>
+                                  {parent.students.map((s, i) => (
+                                    <span
+                                      key={`${parent.id}-seat-${i}`}
+                                      className='bg-primary/10 text-primary inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium'
+                                    >
+                                      {s.seatNumber ? `${s.seatNumber}번` : '-'}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className='px-2 py-1.5'>
+                              {!hasChildren ? (
+                                <span className='text-gray-400'>-</span>
+                              ) : (
+                                <div className='flex flex-col gap-0.5'>
+                                  {parent.students.map((s, i) => (
+                                    <span
+                                      key={`${parent.id}-name-${i}`}
+                                      className='inline-flex items-center rounded px-1.5 py-0.5 text-[10px]'
+                                    >
+                                      {s.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className='px-2 py-1.5'>
+                              {!hasChildren || uniqueBranches.length === 0 ? (
+                                <span className='text-gray-400'>-</span>
+                              ) : (
+                                <div className='flex flex-wrap gap-0.5'>
+                                  {uniqueBranches.map((branchName) => (
+                                    <span
+                                      key={branchName}
+                                      className='inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700'
+                                    >
+                                      <Building2 className='h-2.5 w-2.5 flex-shrink-0' />
+                                      {branchName}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className='px-2 py-1.5 text-gray-600'>{parent.email}</td>
+                            <td className='px-2 py-1.5'>{parent.phone || '-'}</td>
+                            <td className='px-2 py-1.5 text-gray-500'>
+                              {formatDate(parent.created_at)}
+                            </td>
+                            <td className='px-2 py-1.5 text-center'>
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                onClick={() => handleOpenDeleteModal(parent, 'parent')}
+                                disabled={loading}
+                                className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+                              >
+                                <UserMinus className='h-3 w-3' />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </>
         )}
 
         {/* 페이지네이션 — 활성 탭 서버 total 기준 */}

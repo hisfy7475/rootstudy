@@ -15,6 +15,12 @@ export type SecureTokenStoreApi = {
   /** 동기 접근용 최신 세션 (load 완료 후 갱신) */
   sessionRef: MutableRefObject<StoredSession | null>;
   saveSession: (accessToken: string, refreshToken: string) => Promise<void>;
+  /**
+   * 자동로그인 OFF 케이스용. SecureStore에는 저장하지 않고 메모리(sessionRef)만 갱신.
+   * 앱 실행 중 채팅 업로드 등 토큰이 필요한 동작은 정상 동작하되, 앱 재실행 시
+   * 자동 복원되지 않는다.
+   */
+  saveEphemeral: (accessToken: string, refreshToken: string) => void;
   clearSession: () => Promise<void>;
   getSession: () => Promise<StoredSession | null>;
 };
@@ -56,6 +62,16 @@ export function useSecureTokenStore(): SecureTokenStoreApi {
     await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(payload));
   }, []);
 
+  const saveEphemeral = useCallback((accessToken: string, refreshToken: string) => {
+    // 자동로그인 OFF — SecureStore에는 쓰지 않고 메모리만 갱신.
+    // 이전에 SecureStore에 남아 있을 수 있는 토큰을 비동기 정리하여,
+    // 앱이 정상 종료(=process 죽음)되면 다음 부팅 때 자동 복원되지 않게 한다.
+    sessionRef.current = { access_token: accessToken, refresh_token: refreshToken };
+    void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {
+      /* 항목 없음 등 — 무시 */
+    });
+  }, []);
+
   const clearSession = useCallback(async () => {
     sessionRef.current = null;
     try {
@@ -65,5 +81,5 @@ export function useSecureTokenStore(): SecureTokenStoreApi {
     }
   }, []);
 
-  return { ready, sessionRef, saveSession, clearSession, getSession };
+  return { ready, sessionRef, saveSession, saveEphemeral, clearSession, getSession };
 }
