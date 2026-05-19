@@ -941,15 +941,6 @@ export async function getMealProducts(
     result.push({ ...r, variants });
   }
 
-  result.sort((a, b) => {
-    if (category === 'meal') {
-      const am = a.meal_type ?? '';
-      const bm = b.meal_type ?? '';
-      if (am !== bm) return am.localeCompare(bm);
-    }
-    return a.name.localeCompare(b.name);
-  });
-
   return result;
 }
 
