@@ -510,7 +510,7 @@ export function AdminChatClient({
               showBackButton
             />
           ) : (
-            <div className='text-text-muted flex h-full flex-col items-center justify-center'>
+            <div className='text-text-muted flex h-full w-full flex-col items-center justify-center'>
               <MessageCircle className='mb-4 h-16 w-16 opacity-30' />
               <p className='text-lg'>채팅방을 선택해주세요</p>
               <p className='mt-1 text-sm'>

@@ -4,6 +4,7 @@ import { useState, useEffect, useTransition, useCallback, useMemo } from 'react'
 import { StudentInfoCard } from '@/components/parent/student-info-card';
 import { StudentStatusCard } from '@/components/parent/student-status-card';
 import { WeeklyStudyProgress } from '@/components/student/weekly-study-progress';
+import { ParentPointsCard } from '@/components/parent/parent-points-card';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +64,12 @@ interface StudentData {
   pendingSchedules: number;
   weeklyProgress: WeeklyProgressData;
   weeklyGoals: WeeklyGoalDay[];
+  // 단계 7 학부모용 분기 표시
+  penaltyQuarter?: number;
+  penaltyThreshold?: number;
+  quarterEnd?: string | null;
+  withdrawalReviewAt?: string | null;
+  rewardBalance?: number;
 }
 
 interface PendingScheduleWithStudent extends StudentAbsenceSchedule {
@@ -323,6 +330,9 @@ export function ParentDashboardClient({
               achieved: g.achieved,
             }))}
           />
+
+          {/* 단계 7: 분기 누적 벌점 + 상점 잔액 */}
+          {data.penaltyThreshold !== undefined && <ParentPointsCard data={data} />}
         </div>
       ))}
 

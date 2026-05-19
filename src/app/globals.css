@@ -1,17 +1,17 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
   /* 색상 팔레트 */
-  --color-primary: #7C9FF5;
-  --color-secondary: #F5A7B8;
-  --color-accent: #A7D7A7;
-  --color-background: #FAFBFC;
-  --color-card: #FFFFFF;
+  --color-primary: #7c9ff5;
+  --color-secondary: #f5a7b8;
+  --color-accent: #a7d7a7;
+  --color-background: #fafbfc;
+  --color-card: #ffffff;
   --color-text: #374151;
-  --color-text-muted: #9CA3AF;
-  --color-success: #86EFAC;
-  --color-warning: #FDE68A;
-  --color-error: #FCA5A5;
+  --color-text-muted: #9ca3af;
+  --color-success: #86efac;
+  --color-warning: #fde68a;
+  --color-error: #fca5a5;
 }
 
 @theme inline {
@@ -26,12 +26,23 @@
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-error: var(--color-error);
-  
+
   /* Pretendard 폰트 */
-  --font-pretendard: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --font-pretendard:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto,
+    'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic',
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
 }
 
 /* 기본 스타일 */
+html,
+body {
+  /* iOS WKWebView 의 rubber-band over-scroll 차단.
+     채팅 페이지처럼 fixed wrapper 로 콘텐츠가 viewport 에 딱 맞는 화면에서
+     손가락 제스처가 native scroll 로 빠져 페이지 전체가 끌려 내려가는 현상을 막는다. */
+  overscroll-behavior: none;
+}
+
 body {
   background-color: var(--color-background);
   color: var(--color-text);
@@ -95,9 +106,11 @@ html {
   animation: slide-up 0.3s ease-out;
 }
 
-/* Safe area padding (노치 기기·네이티브 WebView 대응, viewport-fit: cover 필요) */
+/* Safe area padding (노치 기기·네이티브 WebView 대응, viewport-fit: cover 필요)
+   - 웹(safe-area=0): 0 → bottom-nav 의 py-3 와 위/아래 여백 대칭
+   - iOS(safe-area≈34px): ≈10px → 홈 인디케이터와 충돌 직전까지 축소 */
 .pb-safe {
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 1.5rem));
 }
 
 .pt-safe {
@@ -116,12 +129,15 @@ html {
 /* 인쇄 (관리자 몰입도 리포트 등) */
 @page {
   size: A4 portrait;
-  margin: 10mm 12mm;
+  margin: 10mm;
 }
 
 @media print {
-  body {
-    background: white !important;
+  html,
+  body,
+  /* admin/parent/student layout root 의 bg-background 가 인쇄 페이지 마진 안쪽으로 새는 것을 방지 */
+  .bg-background {
+    background: #ffffff !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -132,19 +148,49 @@ html {
   .admin-bulk-print-suppress {
     display: none !important;
   }
-  .print-report {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    padding: 0 !important;
-    max-width: none !important;
+  /* 신규 인쇄 컴포넌트 — 인라인 style 과 함께 보강 (specificity 약한 클래스 폴백) */
+  .print-report-page {
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
   }
-  .print-report > * {
+  .print-report-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+    background: #ffffff !important;
+  }
+  .print-report-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #ffffff !important;
+  }
+  /* 차트 카드 자체의 화면용 큰 padding·shadow·radius·배경 을 인쇄에서 축소·백색화 */
+  .print-report-card > * {
+    box-shadow: none !important;
+    padding: 8px !important;
+    border-radius: 6px !important;
+    border: 1px solid #e5e7eb !important;
+    background: #ffffff !important;
+  }
+  /* 상담 텍스트 블록 (인라인 style 위주이지만 폴백) */
+  .print-report-text-block {
+    background: #ffffff !important;
+  }
+  /* 상담 텍스트 블록 안의 단락은 단락 단위로만 break 회피 */
+  .print-text-section {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .print-text-body {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .print-page-break {
-    break-before: page;
-    page-break-before: always;
+}
+
+/* 화면(인쇄 외)에서는 인쇄 전용 페이지 숨김 */
+@media not print {
+  .print-only {
+    display: none !important;
   }
 }

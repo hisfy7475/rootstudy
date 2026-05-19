@@ -12,6 +12,14 @@
     {
       "path": "/api/cron/daily-reset",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/quarterly-reset",
+      "schedule": "30 15 * * *"
+    },
+    {
+      "path": "/api/cron/kakao-retry",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

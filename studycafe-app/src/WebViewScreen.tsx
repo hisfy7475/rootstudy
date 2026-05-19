@@ -55,7 +55,8 @@ export default function WebViewScreen() {
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
 
-  const { ready: secureReady, sessionRef, saveSession, clearSession } = useSecureTokenStore();
+  const { ready: secureReady, sessionRef, saveSession, saveEphemeral, clearSession } =
+    useSecureTokenStore();
 
   const setWebUriStable = useCallback((uri: string) => {
     setWebUri((prev) => (prev === uri ? prev : uri));
@@ -280,7 +281,12 @@ export default function WebViewScreen() {
 
       switch (msg.type) {
         case "LOGIN_SUCCESS":
-          void saveSession(msg.payload.access_token, msg.payload.refresh_token);
+          // remember가 명시적 false면 SecureStore 비저장(메모리만). 미지정/true는 기존 영구 저장 경로.
+          if (msg.payload.remember === false) {
+            saveEphemeral(msg.payload.access_token, msg.payload.refresh_token);
+          } else {
+            void saveSession(msg.payload.access_token, msg.payload.refresh_token);
+          }
           break;
         case "LOGOUT":
           void clearSession();
@@ -300,7 +306,7 @@ export default function WebViewScreen() {
           break;
       }
     },
-    [sendPushTokenToWeb, saveSession, clearSession, handlePickImage, handlePickFile],
+    [sendPushTokenToWeb, saveSession, saveEphemeral, clearSession, handlePickImage, handlePickFile],
   );
 
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

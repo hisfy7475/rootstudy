@@ -5,7 +5,9 @@ import { StudentChatClient } from './chat-client';
 
 export default async function StudentChatPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect('/login');
@@ -21,12 +23,13 @@ export default async function StudentChatPage() {
   // 채팅방 조회/생성
   const roomResult = await getMyChatRoom();
 
-  if (roomResult.error || !roomResult.data) {
+  if ('error' in roomResult || !('data' in roomResult) || !roomResult.data) {
+    const errMsg = 'error' in roomResult ? roomResult.error : undefined;
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center text-text-muted">
-          <p className="text-lg">채팅방을 불러올 수 없습니다.</p>
-          <p className="text-sm mt-2">{roomResult.error}</p>
+      <div className='flex min-h-[60vh] items-center justify-center'>
+        <div className='text-text-muted text-center'>
+          <p className='text-lg'>채팅방을 불러올 수 없습니다.</p>
+          <p className='mt-2 text-sm'>{errMsg}</p>
         </div>
       </div>
     );

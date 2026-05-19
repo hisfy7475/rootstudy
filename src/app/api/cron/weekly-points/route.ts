@@ -233,10 +233,11 @@ export async function GET(request: Request) {
     rewarded: number;
     penalized: number;
     neutral: number; // 투트랙: 중간 (상벌점 없음)
-    skipped: number; // = skippedAlreadyProcessed + skippedNoBranchOrType + skippedJoinedAfterWeek (외부 호환 alias)
+    skipped: number;
     skippedAlreadyProcessed: number;
     skippedNoBranchOrType: number;
     skippedJoinedAfterWeek: number;
+    skippedNoCheckIn: number;
     errors: string[];
   } = {
     processed: 0,
@@ -247,6 +248,7 @@ export async function GET(request: Request) {
     skippedAlreadyProcessed: 0,
     skippedNoBranchOrType: 0,
     skippedJoinedAfterWeek: 0,
+    skippedNoCheckIn: 0,
     errors: [],
   };
 
@@ -257,15 +259,17 @@ export async function GET(request: Request) {
     const { endExclusive: lastWeekEnd } = getCalendarWeekBoundsKST(weekStartStr);
     const weekDates = getWeekDateStringsFromMondayKST(weekStartStr);
 
-    // 3. 모든 학생 조회 (타입/지점/가입일 포함, 퇴원생 제외)
+    // 3. 모든 학생 조회 (타입/지점/가입일/첫등원일 포함, 퇴원생 제외)
     //    퇴원 시점이 정산 대상 주 중간이더라도 그 주의 신규 정산에서 제외한다.
     //    이미 처리된 기존 weekly_point_history 행은 그대로 보존된다.
+    //    first_check_in_at 은 머터리얼라이즈 컬럼(attendance INSERT 트리거로 자동 세팅).
     const { data: students, error: studentsError } = await supabase
       .from('student_profiles')
       .select(
         `
         id,
         student_type_id,
+        first_check_in_at,
         student_types (
           weekly_goal_hours
         ),
@@ -292,10 +296,13 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. 학생별 지점 정보 및 가입일 매핑 (조인 결과 재사용)
+    // 4. 학생별 지점 정보·가입일·첫등원일 매핑 (조인 결과 재사용)
+    //    신규생 면제 판정은 first_check_in_at 기준. created_at(가입일) 은
+    //    정산 주 이후 가입자 skip 안전망 용도로만 남김.
     const studentIds = students.map((s) => s.id);
     const branchMap = new Map<string, string>();
     const joinedAtMap = new Map<string, Date>();
+    const firstCheckInMap = new Map<string, Date | null>();
     students.forEach((s) => {
       const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
       if (p?.branch_id) {
@@ -304,6 +311,7 @@ export async function GET(request: Request) {
       if (p?.created_at) {
         joinedAtMap.set(s.id, new Date(p.created_at));
       }
+      firstCheckInMap.set(s.id, s.first_check_in_at ? new Date(s.first_check_in_at) : null);
     });
 
     // 5. 이미 처리된 학생 확인
@@ -350,21 +358,24 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // 정산 대상 주차가 끝난 뒤(예: 같은 날 새벽~오전) 가입한 학생은
-      // 그 주차에 학생이 아니었으므로 정산 자체에서 제외.
-      // 예) 월요일 09:00 KST cron 직전(00:00~09:00) 가입자의 "지난주" 정산 누락 처리.
+      // 정산 대상 주차가 끝난 뒤(예: 같은 날 새벽~오전) 가입한 학생은 정산 제외 (안전망).
       const joinedAt = joinedAtMap.get(student.id);
       if (joinedAt !== undefined && joinedAt >= lastWeekEnd) {
         results.skipped++;
         results.skippedJoinedAfterWeek++;
         continue;
       }
-      // created_at이 null인 학생은 시드/마이그레이션 등 이상 데이터 가능성.
-      // 현재 production에 0건이지만 미래 감지를 위해 로그만 남김(기존 로직으로 흘림).
       if (joinedAt === undefined) {
-        console.warn(
-          `weekly-points: student ${student.id} has null created_at, treated as legacy`,
-        );
+        console.warn(`weekly-points: student ${student.id} has null created_at, treated as legacy`);
+      }
+
+      // 단계 6: 첫 등원일이 없는(미등원) 학생은 정산 자체 skip.
+      // — 가입만 하고 안 나온 학생에게 최소시간 미달 벌점을 부과하는 건 불공정.
+      const firstCheckIn = firstCheckInMap.get(student.id);
+      if (!firstCheckIn) {
+        results.skipped++;
+        results.skippedNoCheckIn++;
+        continue;
       }
 
       try {
@@ -396,10 +407,9 @@ export async function GET(request: Request) {
         const isGoalAchieved = totalStudyMinutes >= goalMinutes;
         const isBelowMinimum = minimumMinutes > 0 && totalStudyMinutes < minimumMinutes;
 
-        // 해당 주차에 가입한 신규 학생은 최소시간 미달 벌점 면제
-        const joinedAt = joinedAtMap.get(student.id);
-        const isNewThisWeek =
-          joinedAt !== undefined && joinedAt >= lastWeekStart && joinedAt < lastWeekEnd;
+        // 단계 6: 첫 등원일 기준 신규생 면제 — 정산 주 안에 첫 등원한 학생은 벌점 면제.
+        // (가입일 기준 면제는 가입만 하고 안 나온 학생도 면제하는 비합리적 결과를 만들기에 변경.)
+        const isNewThisWeek = firstCheckIn >= lastWeekStart && firstCheckIn < lastWeekEnd;
         const applyPenalty = isBelowMinimum && !isNewThisWeek;
 
         // 투트랙: 목표 달성 → 상점, 최소 미달 → 벌점, 중간 → 없음
@@ -421,8 +431,9 @@ export async function GET(request: Request) {
           reason = `주간 최소시간 미달 (${studyHours}시간/${minimumHours}시간 미만)`;
           notificationTitle = '주간 최소시간 미달로 벌점이 부여되었습니다';
         } else if (isNewThisWeek && isBelowMinimum) {
-          // 신규 학생 첫 주 최소 미달 → 벌점 면제
-          reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간, 신규 등록 면제)`;
+          // 신규 학생 첫 주 최소 미달 → 벌점 면제 (첫 등원일 기준)
+          const firstCheckInStr = formatDateKST(firstCheckIn);
+          reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간, 첫 등원 ${firstCheckInStr} 신규 적응 기간 면제)`;
         } else {
           // 중간 → 상벌점 없음
           reason = `주간 학습 (${studyHours}시간, 목표: ${goalHours}시간, 최소: ${minimumHours}시간)`;
@@ -441,6 +452,7 @@ export async function GET(request: Request) {
               amount: pointAmount,
               reason,
               is_auto: true,
+              event_kind: 'auto_weekly',
             })
             .select('id')
             .single();

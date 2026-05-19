@@ -15,16 +15,11 @@ function formatHeader(dateStr: string): string {
 function compareItems(a: OrderVariantCardItem, b: OrderVariantCardItem): number {
   const dateDiff = a.variant.product_start_date.localeCompare(b.variant.product_start_date);
   if (dateDiff !== 0) return dateDiff;
-  // lunch 먼저 → dinner
-  const am = a.product.meal_type ?? '';
-  const bm = b.product.meal_type ?? '';
-  const mealDiff = am.localeCompare(bm);
-  if (mealDiff !== 0) return mealDiff;
-  // recurring 먼저
-  if (a.variant.kind !== b.variant.kind) {
-    return a.variant.kind === 'recurring' ? -1 : 1;
-  }
-  return a.product.name.localeCompare(b.product.name, 'ko');
+  // 같은 이용일자 그룹 내: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
+  const productDiff = a.product.created_at.localeCompare(b.product.created_at);
+  if (productDiff !== 0) return productDiff;
+  // 동일 상품의 여러 variant: variant 생성 순서
+  return a.variant.created_at.localeCompare(b.variant.created_at);
 }
 
 function groupByDate(items: OrderVariantCardItem[]): Array<[string, OrderVariantCardItem[]]> {

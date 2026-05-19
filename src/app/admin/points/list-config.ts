@@ -15,7 +15,7 @@ export const POINTS_HISTORY_LIST_CONFIG: ListParamsConfig<
   pageSizeChoices: [20, 50, 100] as const,
 };
 
-export const POINTS_TABS = ['overview', 'history', 'rules'] as const;
+export const POINTS_TABS = ['overview', 'history', 'rules', 'review', 'redemptions'] as const;
 export type PointsTab = (typeof POINTS_TABS)[number];
 
 export function parseTab(value: string | undefined | null): PointsTab {

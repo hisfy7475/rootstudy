@@ -1,0 +1,95 @@
+'use client';
+
+import { Card } from '@/components/ui/card';
+import { Award, TrendingDown, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface ParentPointsCardData {
+  penaltyQuarter?: number;
+  penaltyThreshold?: number;
+  quarterEnd?: string | null;
+  withdrawalReviewAt?: string | null;
+  rewardBalance?: number;
+}
+
+/** 단계 7: 학부모 대시보드 자녀 카드 내 분기 누적 벌점·상점 잔액 표시 */
+export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
+  const penaltyQuarter = data.penaltyQuarter ?? 0;
+  const threshold = data.penaltyThreshold ?? 30;
+  const balance = data.rewardBalance ?? 0;
+  const inReview = !!data.withdrawalReviewAt;
+
+  let dDay: number | null = null;
+  let quarterEndLabel = '';
+  if (data.quarterEnd) {
+    const end = new Date(data.quarterEnd);
+    const now = new Date();
+    dDay = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    quarterEndLabel = end.toLocaleDateString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      month: 'long',
+      day: 'numeric',
+    });
+  }
+
+  return (
+    <div className='space-y-3'>
+      {inReview && (
+        <Card className='border-red-200 bg-red-50 p-3'>
+          <div className='flex items-start gap-2'>
+            <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-600' />
+            <div className='space-y-0.5'>
+              <p className='text-sm font-bold text-red-700'>면담이 필요합니다</p>
+              <p className='text-xs text-red-600'>
+                자녀가 분기 벌점 30점에 도달했습니다. 원장이 곧 직접 연락드립니다.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className='grid grid-cols-2 gap-3'>
+        {/* 상점 잔액 */}
+        <Card className='p-3'>
+          <div className='mb-1 flex items-center gap-2'>
+            <div className='flex h-7 w-7 items-center justify-center rounded-lg bg-green-100'>
+              <Award className='h-4 w-4 text-green-600' />
+            </div>
+            <p className='text-text-muted text-xs'>상점 잔액</p>
+          </div>
+          <p className='text-xl font-bold text-green-600'>{balance}</p>
+        </Card>
+
+        {/* 분기 벌점 */}
+        <Card
+          className={cn(
+            'p-3',
+            penaltyQuarter >= 25
+              ? 'border-red-200 bg-red-50'
+              : penaltyQuarter >= 10
+                ? 'bg-orange-50'
+                : '',
+          )}
+        >
+          <div className='mb-1 flex items-center gap-2'>
+            <div className='flex h-7 w-7 items-center justify-center rounded-lg bg-red-100'>
+              <TrendingDown className='h-4 w-4 text-red-500' />
+            </div>
+            <p className='text-text-muted text-xs'>분기 벌점</p>
+          </div>
+          <p
+            className={cn('text-xl font-bold', penaltyQuarter >= 25 ? 'text-red-600' : 'text-text')}
+          >
+            {penaltyQuarter}
+            <span className='text-text-muted text-xs'>/{threshold}</span>
+          </p>
+          {quarterEndLabel && (
+            <p className='text-text-muted text-[10px]'>
+              {quarterEndLabel} 초기화 (D-{dDay})
+            </p>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}

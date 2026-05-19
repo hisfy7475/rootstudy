@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { revalidatePath } from 'next/cache';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import {
@@ -683,6 +684,74 @@ export async function deleteAbsenceSchedule(
   revalidatePath('/admin/schedules');
   revalidatePath('/admin/attendance');
   return { success: true };
+}
+
+// 부재 스케줄 일괄 삭제 (어드민 전용 — 호출자 지점 학생의 스케줄만 처리)
+export async function deleteAbsenceSchedules(
+  ids: string[],
+): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+  if (!ids || ids.length === 0) {
+    return { success: false, error: '삭제할 일정을 선택해주세요.' };
+  }
+
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { success: false, error: '삭제 권한이 없습니다.' };
+
+  const supabase = await createClient();
+
+  // student_absence_schedules.student_id → profiles.id. 관계 힌트 의존을 피해 2단계 조회.
+  const { data: scheduleRows, error: schedErr } = await supabase
+    .from('student_absence_schedules')
+    .select('id, student_id')
+    .in('id', ids);
+  if (schedErr) {
+    console.error('Error fetching schedule rows for bulk delete:', schedErr);
+    return { success: false, error: schedErr.message };
+  }
+  const fetched = scheduleRows ?? [];
+  if (fetched.length === 0) {
+    return { success: false, error: '대상 일정을 찾을 수 없습니다.' };
+  }
+
+  let allowedIds: string[];
+  if (ctx.branchId === null) {
+    // 슈퍼관리자 — 전 지점 통과
+    allowedIds = fetched.map((r) => r.id);
+  } else {
+    const studentIds = Array.from(new Set(fetched.map((r) => r.student_id)));
+    const { data: branchStudents, error: profErr } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('id', studentIds)
+      .eq('branch_id', ctx.branchId);
+    if (profErr) {
+      console.error('Error scoping students by branch for bulk delete:', profErr);
+      return { success: false, error: profErr.message };
+    }
+    const allowedStudentSet = new Set((branchStudents ?? []).map((p) => p.id));
+    allowedIds = fetched.filter((r) => allowedStudentSet.has(r.student_id)).map((r) => r.id);
+  }
+
+  if (allowedIds.length === 0) {
+    return { success: false, error: '삭제할 권한이 있는 일정이 없습니다.' };
+  }
+
+  const adminClient = createAdminClient();
+  const { error, count } = await adminClient
+    .from('student_absence_schedules')
+    .delete({ count: 'exact' })
+    .in('id', allowedIds);
+
+  if (error) {
+    console.error('Error bulk-deleting absence schedules:', error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath('/student/schedule');
+  revalidatePath('/parent/schedule');
+  revalidatePath('/admin/schedules');
+  revalidatePath('/admin/attendance');
+  return { success: true, deletedCount: count ?? allowedIds.length };
 }
 
 // 부재 스케줄 활성/비활성 토글

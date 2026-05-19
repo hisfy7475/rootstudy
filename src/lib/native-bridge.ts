@@ -14,7 +14,12 @@ export type NativeToWebMessage =
   | { type: 'DEEP_LINK'; payload: { path: string } };
 
 export type WebToNativeMessage =
-  | { type: 'LOGIN_SUCCESS'; payload: { access_token: string; refresh_token: string } }
+  | {
+      type: 'LOGIN_SUCCESS';
+      // remember: 자동로그인 유지 여부. false면 네이티브는 SecureStore에 저장하지 않고
+      // 메모리(sessionRef)에만 보관하여 앱 재실행 시 자동 복원을 막는다.
+      payload: { access_token: string; refresh_token: string; remember?: boolean };
+    }
   | { type: 'LOGOUT'; payload: Record<string, never> }
   | { type: 'PICK_IMAGE'; payload: { source: 'camera' | 'gallery'; roomId: string } }
   | { type: 'PICK_FILE'; payload: { roomId: string } }

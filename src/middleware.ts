@@ -26,13 +26,26 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          // 자동로그인 유지 옵션. wstudy_remember=0 이면 Supabase 쿠키를 세션쿠키로
+          // 발급해 브라우저 종료 시 만료시킨다. 토큰 갱신 시점마다 본 분기가 다시
+          // 동작하므로 미들웨어가 영속성 일관성의 핵심 지점이다.
+          // 보안 옵션(httpOnly/secure/sameSite/path/domain)은 반드시 보존.
+          const remember = request.cookies.get('wstudy_remember')?.value !== '0';
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({
             request,
           });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            if (remember) {
+              supabaseResponse.cookies.set(name, value, options);
+            } else {
+              // 세션쿠키로 발급. 보안 옵션은 보존하고 maxAge/expires만 제거.
+              const rest = { ...(options ?? {}) };
+              delete (rest as { maxAge?: number }).maxAge;
+              delete (rest as { expires?: Date }).expires;
+              supabaseResponse.cookies.set(name, value, rest);
+            }
+          });
         },
       },
     },

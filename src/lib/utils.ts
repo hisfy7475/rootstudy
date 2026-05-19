@@ -206,6 +206,63 @@ export function getStudyDayBounds(studyDate: Date | string): { start: Date; end:
 }
 
 /**
+ * KST 기준 현재 분기 시작 시각 반환
+ *
+ * 분기 경계: 3/1, 6/1, 9/1, 12/1 00:00 KST
+ * 1·2월은 직전 12/1 시작 (회계연도 12월 시작)
+ *
+ * SQL 측 get_current_quarter_start_kst() / get_quarter_start_for_kst() 와 결과 동일.
+ */
+export function getQuarterStartForDateKST(date: Date = new Date()): Date {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  const year = kst.getUTCFullYear();
+  const month = kst.getUTCMonth() + 1; // 1..12
+
+  let qYear: number;
+  let qMonth: number;
+  if (month >= 3 && month <= 5) {
+    qYear = year;
+    qMonth = 3;
+  } else if (month >= 6 && month <= 8) {
+    qYear = year;
+    qMonth = 6;
+  } else if (month >= 9 && month <= 11) {
+    qYear = year;
+    qMonth = 9;
+  } else if (month === 12) {
+    qYear = year;
+    qMonth = 12;
+  } else {
+    qYear = year - 1;
+    qMonth = 12;
+  }
+
+  const mm = String(qMonth).padStart(2, '0');
+  return new Date(`${qYear}-${mm}-01T00:00:00+09:00`);
+}
+
+/**
+ * KST 기준 현재 시각의 분기 시작
+ */
+export function getCurrentQuarterStartKST(now: Date = new Date()): Date {
+  return getQuarterStartForDateKST(now);
+}
+
+/**
+ * 다음 분기 시작 시각 (D-Day 계산용)
+ *
+ * 현 분기 시작 + 95일은 반드시 다음 분기에 속하므로,
+ * 그 시점의 분기 시작을 다시 계산해 정확한 KST 자정 정렬을 보장한다.
+ * (setUTCMonth(+3) 은 KST 자정과 어긋날 수 있어 사용하지 않는다.)
+ */
+export function getNextQuarterStartKST(now: Date = new Date()): Date {
+  const current = getCurrentQuarterStartKST(now);
+  const inNextQuarter = new Date(current.getTime() + 95 * 24 * 60 * 60 * 1000);
+  return getQuarterStartForDateKST(inNextQuarter);
+}
+
+/**
  * 주의 시작일(월요일) 반환
  *
  * @param date - 기준 날짜 (기본값: 현재 날짜)

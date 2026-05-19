@@ -1,4 +1,5 @@
 import { getStudentsForReport } from '@/lib/actions/report';
+import { getAllBranches } from '@/lib/actions/branch';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { formatDateKST, getWeekStart } from '@/lib/utils';
 import { AdminReportClient } from './report-client';
@@ -14,7 +15,10 @@ export default async function AdminReportPage() {
   }
 
   // 슈퍼관리자(branchId === null)는 전 지점 학생.
-  const students = await getStudentsForReport(ctx.branchId ?? undefined);
+  const [students, branches] = await Promise.all([
+    getStudentsForReport(ctx.branchId ?? undefined),
+    ctx.isSuperAdmin ? getAllBranches() : Promise.resolve([]),
+  ]);
   const weekStartStr = formatDateKST(getWeekStart());
 
   return (
@@ -22,6 +26,8 @@ export default async function AdminReportPage() {
       students={students}
       initialWeekStart={weekStartStr}
       branchId={ctx.branchId}
+      isSuperAdmin={ctx.isSuperAdmin}
+      branches={branches.map((b) => ({ id: b.id, name: b.name }))}
     />
   );
 }

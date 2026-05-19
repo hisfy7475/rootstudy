@@ -11,7 +11,9 @@ interface PageProps {
 export default async function ParentChatPage({ searchParams }: PageProps) {
   const { childId } = await searchParams;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect('/login');
@@ -22,21 +24,20 @@ export default async function ParentChatPage({ searchParams }: PageProps) {
 
   if (linkedStudents.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center text-text-muted">
-          <p className="text-lg">연결된 학생이 없습니다.</p>
-          <p className="text-sm mt-2">학생 코드로 자녀를 연결해주세요.</p>
+      <div className='flex min-h-[60vh] items-center justify-center'>
+        <div className='text-text-muted text-center'>
+          <p className='text-lg'>연결된 학생이 없습니다.</p>
+          <p className='mt-2 text-sm'>학생 코드로 자녀를 연결해주세요.</p>
         </div>
       </div>
     );
   }
 
   // 선택된 자녀 ID 결정 (URL 파라미터 또는 첫 번째 자녀)
-  const selectedChildId = (childId && linkedStudents.some(s => s.id === childId))
-    ? childId
-    : linkedStudents[0].id;
+  const selectedChildId =
+    childId && linkedStudents.some((s) => s.id === childId) ? childId : linkedStudents[0].id;
 
-  const selectedStudent = linkedStudents.find(s => s.id === selectedChildId);
+  const selectedStudent = linkedStudents.find((s) => s.id === selectedChildId);
   const studentName = selectedStudent?.name || '알 수 없음';
 
   // 학부모 본인 이름 조회
@@ -49,12 +50,13 @@ export default async function ParentChatPage({ searchParams }: PageProps) {
   // 선택된 자녀의 채팅방 조회/생성
   const roomResult = await getMyChatRoom(selectedChildId);
 
-  if (roomResult.error || !roomResult.data) {
+  if ('error' in roomResult || !('data' in roomResult) || !roomResult.data) {
+    const errMsg = 'error' in roomResult ? roomResult.error : undefined;
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center text-text-muted">
-          <p className="text-lg">채팅방을 불러올 수 없습니다.</p>
-          <p className="text-sm mt-2">{roomResult.error}</p>
+      <div className='flex min-h-[60vh] items-center justify-center'>
+        <div className='text-text-muted text-center'>
+          <p className='text-lg'>채팅방을 불러올 수 없습니다.</p>
+          <p className='mt-2 text-sm'>{errMsg}</p>
         </div>
       </div>
     );

@@ -14,6 +14,11 @@ const buildExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
   const ios = config.ios ?? {};
   const android = config.android ?? {};
 
+  // EAS 빌드: file secret(GOOGLE_SERVICES_JSON)이 절대 경로로 주입됨.
+  // 로컬 빌드: studycafe-app/google-services.json(gitignored) 사용.
+  const googleServicesFile =
+    process.env.GOOGLE_SERVICES_JSON?.trim() || './google-services.json';
+
   return {
     ...config,
     extra,
@@ -26,6 +31,7 @@ const buildExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       ...android,
+      googleServicesFile,
       intentFilters: [
         {
           action: 'VIEW',

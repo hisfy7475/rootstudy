@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { sendPushToUser, sendPushToUsers } from '@/lib/push';
 import { revalidatePath } from 'next/cache';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
@@ -50,8 +50,16 @@ async function resolveNotificationBranchId(
 // 학생 알림 관련
 // ============================================
 
-// 학생 알림 목록 조회
-export async function getStudentNotifications(limit: number = 50) {
+// 학생 알림 목록 조회 (페이지네이션 + 타입 필터 옵션).
+// 기존 인자 없는 호출은 limit 50, offset 0 으로 동작한다.
+export async function getStudentNotifications(
+  opts: {
+    limit?: number;
+    offset?: number;
+    excludeTypes?: NotificationType[];
+  } = {},
+) {
+  const { limit = 50, offset = 0, excludeTypes } = opts;
   const supabase = await createClient();
 
   const {
@@ -59,18 +67,28 @@ export async function getStudentNotifications(limit: number = 50) {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data } = await supabase
+  let query = supabase
     .from('student_notifications')
     .select('*')
     .eq('student_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .range(offset, offset + limit - 1);
 
+  if (excludeTypes && excludeTypes.length > 0) {
+    query = query.not('type', 'in', `(${excludeTypes.map((t) => `"${t}"`).join(',')})`);
+  }
+
+  const { data } = await query;
   return data || [];
 }
 
-// 읽지 않은 알림 수 조회
-export async function getUnreadNotificationCount() {
+// 읽지 않은 알림 수 조회. excludeTypes 로 뱃지 카운트용 chat 제외 등 지원.
+export async function getUnreadNotificationCount(
+  opts: {
+    excludeTypes?: NotificationType[];
+  } = {},
+) {
+  const { excludeTypes } = opts;
   const supabase = await createClient();
 
   const {
@@ -78,12 +96,17 @@ export async function getUnreadNotificationCount() {
   } = await supabase.auth.getUser();
   if (!user) return 0;
 
-  const { count } = await supabase
+  let query = supabase
     .from('student_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('student_id', user.id)
     .eq('is_read', false);
 
+  if (excludeTypes && excludeTypes.length > 0) {
+    query = query.not('type', 'in', `(${excludeTypes.map((t) => `"${t}"`).join(',')})`);
+  }
+
+  const { count } = await query;
   return count || 0;
 }
 
@@ -167,8 +190,13 @@ interface CreateUserNotificationParams {
 }
 
 // 범용 알림 생성 (앱 내 알림)
+//
+// invariant: 알림 INSERT는 시스템 이벤트의 부산물이므로 admin client(service role)로 처리한다.
+// 호출자(메시지 송신자) auth 컨텍스트의 RLS에 막혀 silent fail 되던 회귀를 차단하기 위함.
+// SELECT/UPDATE/DELETE는 본인 한정으로 user client + RLS 유지(보안 경계 보존).
+// admin client는 helper 내부에서만 생성/사용 — export하거나 인자로 받지 않는다.
 export async function createUserNotification(params: CreateUserNotificationParams) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase.from('user_notifications').insert({
     user_id: params.userId,
@@ -182,7 +210,7 @@ export async function createUserNotification(params: CreateUserNotificationParam
     if (error.code === '23503') {
       return { error: 'user_not_found' };
     }
-    console.error('Error creating user notification:', error);
+    console.error('[notification][insert-failed] user_notifications', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
 
@@ -196,8 +224,15 @@ export async function createUserNotification(params: CreateUserNotificationParam
   return { success: true };
 }
 
-// 범용 알림 목록 조회
-export async function getUserNotifications(limit: number = 50) {
+// 범용 알림 목록 조회 (페이지네이션 + 타입 필터 옵션).
+export async function getUserNotifications(
+  opts: {
+    limit?: number;
+    offset?: number;
+    excludeTypes?: NotificationType[];
+  } = {},
+) {
+  const { limit = 50, offset = 0, excludeTypes } = opts;
   const supabase = await createClient();
 
   const {
@@ -205,18 +240,28 @@ export async function getUserNotifications(limit: number = 50) {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data } = await supabase
+  let query = supabase
     .from('user_notifications')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .range(offset, offset + limit - 1);
 
+  if (excludeTypes && excludeTypes.length > 0) {
+    query = query.not('type', 'in', `(${excludeTypes.map((t) => `"${t}"`).join(',')})`);
+  }
+
+  const { data } = await query;
   return data || [];
 }
 
-// 범용 읽지 않은 알림 수 조회
-export async function getUnreadUserNotificationCount() {
+// 범용 읽지 않은 알림 수 조회. excludeTypes 로 뱃지 카운트용 chat 제외 등 지원.
+export async function getUnreadUserNotificationCount(
+  opts: {
+    excludeTypes?: NotificationType[];
+  } = {},
+) {
+  const { excludeTypes } = opts;
   const supabase = await createClient();
 
   const {
@@ -224,12 +269,17 @@ export async function getUnreadUserNotificationCount() {
   } = await supabase.auth.getUser();
   if (!user) return 0;
 
-  const { count } = await supabase
+  let query = supabase
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('is_read', false);
 
+  if (excludeTypes && excludeTypes.length > 0) {
+    query = query.not('type', 'in', `(${excludeTypes.map((t) => `"${t}"`).join(',')})`);
+  }
+
+  const { count } = await query;
   return count || 0;
 }
 
@@ -280,8 +330,9 @@ export async function markAllUserNotificationsAsRead() {
 }
 
 // 학생 알림 생성 (앱 내 알림)
+// invariant: createUserNotification 위 주석 참조 — INSERT는 admin client.
 export async function createStudentNotification(params: CreateNotificationParams) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase.from('student_notifications').insert({
     student_id: params.studentId,
@@ -292,7 +343,7 @@ export async function createStudentNotification(params: CreateNotificationParams
   });
 
   if (error) {
-    console.error('Error creating notification:', error);
+    console.error('[notification][insert-failed] student_notifications', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
 
@@ -307,11 +358,12 @@ export async function createStudentNotification(params: CreateNotificationParams
 }
 
 // 다수 학생에게 알림 생성
+// invariant: createUserNotification 위 주석 참조 — INSERT는 admin client.
 export async function createBulkStudentNotifications(
   studentIds: string[],
   notification: Omit<CreateNotificationParams, 'studentId'>,
 ) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const notifications = studentIds.map((studentId) => ({
     student_id: studentId,
@@ -324,7 +376,7 @@ export async function createBulkStudentNotifications(
   const { error } = await supabase.from('student_notifications').insert(notifications);
 
   if (error) {
-    console.error('Error creating bulk notifications:', error);
+    console.error('[notification][insert-failed] student_notifications bulk', error);
     return { error: '알림 생성에 실패했습니다.' };
   }
 
@@ -611,6 +663,45 @@ export async function sendKakaoAlimtalkToParents(
 }
 
 // 특정 학부모에게 알림톡 발송 (단일)
+/**
+ * 백로그 6: critical 학부모 알림톡 발송 (실패 시 큐에 enqueue).
+ * - 일반 sendKakaoAlimtalkToParent 와 동일한 발송 경로지만 실패 시 kakao_retry_queue 에 enqueue.
+ * - 호출처: 25/30점 도달, 상품권 발급 등 critical 카테고리.
+ */
+export async function sendKakaoAlimtalkToParentCritical(params: {
+  parentId: string;
+  studentId: string;
+  message: string;
+  category: string; // 'penalty_warn25' | 'penalty_threshold30' | 'redemption_issued' | ...
+  type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+}): Promise<{ success: boolean; error?: string; enqueued?: boolean }> {
+  const result = await sendKakaoAlimtalkToParent({
+    parentId: params.parentId,
+    studentId: params.studentId,
+    message: params.message,
+    type: params.type,
+  });
+
+  if (!result.success) {
+    // 발송 실패 → 큐에 enqueue (서비스 롤 client)
+    const adminClient = createAdminClient();
+    const { error: enqueueError } = await adminClient.from('kakao_retry_queue').insert({
+      parent_id: params.parentId,
+      student_id: params.studentId,
+      message: params.message,
+      category: params.category,
+      next_attempt_at: new Date(Date.now() + 5 * 60_000).toISOString(), // 5분 후
+      last_error: result.error ?? null,
+    });
+    if (enqueueError) {
+      console.error('[kakao-retry] enqueue failed:', enqueueError);
+    }
+    return { ...result, enqueued: !enqueueError };
+  }
+
+  return result;
+}
+
 export async function sendKakaoAlimtalkToParent(params: {
   parentId: string;
   studentId?: string;

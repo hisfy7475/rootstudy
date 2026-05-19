@@ -9,11 +9,13 @@ import {
   uploadChatImage,
   uploadChatFile,
   getOlderMessages,
+  deleteMessage,
   type ChatFileAttachment,
 } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
 import { isNativeApp, randomUUID } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface ChatRoomProps {
   roomId: string;
@@ -171,6 +173,7 @@ export function ChatRoom({
               is_read_by_parent: payload.new.is_read_by_parent,
               is_read_by_admin: payload.new.is_read_by_admin,
               created_at: payload.new.created_at,
+              deleted_at: payload.new.deleted_at ?? null,
             };
 
             // optimistic 메시지의 id 가 곧 서버 row 의 id (clientId 가 PK).
@@ -184,6 +187,40 @@ export function ChatRoom({
             if (senderId !== currentUserId) {
               markAsRead(roomId);
             }
+          },
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'chat_messages',
+            filter: `room_id=eq.${roomId}`,
+          },
+          (payload) => {
+            const next = payload.new as {
+              id: string;
+              deleted_at: string | null;
+            };
+            // markAsRead 로 인한 잦은 UPDATE 이벤트는 무시하고
+            // deleted_at 변경만 반영해 메시지 본문/첨부를 비운다.
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === next.id);
+              if (idx < 0) return prev;
+              const cur = prev[idx];
+              if ((cur.deleted_at ?? null) === (next.deleted_at ?? null)) return prev;
+              const updated = [...prev];
+              updated[idx] = {
+                ...cur,
+                content: '',
+                image_url: null,
+                file_url: null,
+                file_name: null,
+                file_type: null,
+                deleted_at: next.deleted_at ?? null,
+              };
+              return updated;
+            });
           },
         )
         .subscribe((status, err) => {
@@ -254,6 +291,7 @@ export function ChatRoom({
         is_read_by_parent: currentUserType === 'parent',
         is_read_by_admin: currentUserType === 'admin',
         created_at: new Date().toISOString(),
+        deleted_at: null,
       };
       setMessages((prev) => [...prev, optimisticMessage]);
 
@@ -387,6 +425,7 @@ export function ChatRoom({
         is_read_by_parent: currentUserType === 'parent',
         is_read_by_admin: currentUserType === 'admin',
         created_at: new Date().toISOString(),
+        deleted_at: null,
       };
 
       setMessages((prev) => [...prev, optimisticMessage]);
@@ -409,6 +448,39 @@ export function ChatRoom({
       }
     },
     [roomId, currentUserId, currentUserName, currentUserType],
+  );
+
+  // 메시지 삭제 (본인 5분 이내). optimistic 으로 즉시 deleted_at 세팅 후
+  // 서버 실패 시 롤백. 성공 시 Realtime UPDATE 가 멱등 보강.
+  const handleDelete = useCallback(
+    async (messageId: string) => {
+      const target = messages.find((m) => m.id === messageId);
+      if (!target) return;
+      const snapshot = { ...target };
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                content: '',
+                image_url: null,
+                file_url: null,
+                file_name: null,
+                file_type: null,
+                deleted_at: new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+
+      const result = await deleteMessage(messageId);
+      if (result.error) {
+        setMessages((prev) => prev.map((m) => (m.id === messageId ? snapshot : m)));
+        toast.error(result.error);
+      }
+    },
+    [messages],
   );
 
   return (
@@ -441,6 +513,7 @@ export function ChatRoom({
         hasMore={hasMore}
         isLoadingMore={isLoadingMore}
         onLoadMore={handleLoadMore}
+        onDelete={handleDelete}
       />
 
       {/* 입력창 */}

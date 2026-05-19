@@ -101,6 +101,14 @@ export interface Database {
           caps_id: string | null;
           caps_id_set_at: string | null;
           created_at: string;
+          withdrawal_review_at: string | null;
+          withdrawal_review_reason: string | null;
+          threshold_consumed_in_quarter_at: string | null;
+          first_check_in_at: string | null;
+          last_warned_at_10: string | null;
+          last_warned_at_20: string | null;
+          last_warned_at_25: string | null;
+          policy_acknowledged_at: string | null;
         };
         Insert: {
           id: string;
@@ -111,6 +119,14 @@ export interface Database {
           caps_id?: string | null;
           caps_id_set_at?: string | null;
           created_at?: string;
+          withdrawal_review_at?: string | null;
+          withdrawal_review_reason?: string | null;
+          threshold_consumed_in_quarter_at?: string | null;
+          first_check_in_at?: string | null;
+          last_warned_at_10?: string | null;
+          last_warned_at_20?: string | null;
+          last_warned_at_25?: string | null;
+          policy_acknowledged_at?: string | null;
         };
         Update: {
           id?: string;
@@ -121,6 +137,14 @@ export interface Database {
           caps_id?: string | null;
           caps_id_set_at?: string | null;
           created_at?: string;
+          withdrawal_review_at?: string | null;
+          withdrawal_review_reason?: string | null;
+          threshold_consumed_in_quarter_at?: string | null;
+          first_check_in_at?: string | null;
+          last_warned_at_10?: string | null;
+          last_warned_at_20?: string | null;
+          last_warned_at_25?: string | null;
+          policy_acknowledged_at?: string | null;
         };
       };
       student_types: {
@@ -509,6 +533,18 @@ export interface Database {
           reason: string;
           is_auto: boolean;
           created_at: string;
+          preset_id: string | null;
+          preset_type: 'reward' | 'penalty' | null;
+          event_kind:
+            | 'manual'
+            | 'manual_cancel'
+            | 'auto_weekly'
+            | 'auto_daily_focus'
+            | 'auto_late'
+            | 'auto_early'
+            | 'reset_on_threshold'
+            | 'reset_on_threshold_revert'
+            | 'redeem';
         };
         Insert: {
           id?: string;
@@ -519,6 +555,18 @@ export interface Database {
           reason: string;
           is_auto?: boolean;
           created_at?: string;
+          preset_id?: string | null;
+          preset_type?: 'reward' | 'penalty' | null;
+          event_kind?:
+            | 'manual'
+            | 'manual_cancel'
+            | 'auto_weekly'
+            | 'auto_daily_focus'
+            | 'auto_late'
+            | 'auto_early'
+            | 'reset_on_threshold'
+            | 'reset_on_threshold_revert'
+            | 'redeem';
         };
         Update: {
           id?: string;
@@ -529,6 +577,126 @@ export interface Database {
           reason?: string;
           is_auto?: boolean;
           created_at?: string;
+          preset_id?: string | null;
+          preset_type?: 'reward' | 'penalty' | null;
+          event_kind?:
+            | 'manual'
+            | 'manual_cancel'
+            | 'auto_weekly'
+            | 'auto_daily_focus'
+            | 'auto_late'
+            | 'auto_early'
+            | 'reset_on_threshold'
+            | 'reset_on_threshold_revert'
+            | 'redeem';
+        };
+      };
+      reward_redemptions: {
+        Row: {
+          id: string;
+          student_id: string;
+          status: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          points_used: number;
+          voucher_amount: number | null;
+          voucher_code: string | null;
+          voucher_note: string | null;
+          trigger: 'student_request' | 'threshold_auto';
+          requested_at: string;
+          issued_at: string | null;
+          issued_by: string | null;
+          rejected_at: string | null;
+          rejected_by: string | null;
+          rejected_reason: string | null;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          status?: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          points_used?: number;
+          voucher_amount?: number | null;
+          voucher_code?: string | null;
+          voucher_note?: string | null;
+          trigger?: 'student_request' | 'threshold_auto';
+          requested_at?: string;
+          issued_at?: string | null;
+          issued_by?: string | null;
+          rejected_at?: string | null;
+          rejected_by?: string | null;
+          rejected_reason?: string | null;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          status?: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          points_used?: number;
+          voucher_amount?: number | null;
+          voucher_code?: string | null;
+          voucher_note?: string | null;
+          trigger?: 'student_request' | 'threshold_auto';
+          requested_at?: string;
+          issued_at?: string | null;
+          issued_by?: string | null;
+          rejected_at?: string | null;
+          rejected_by?: string | null;
+          rejected_reason?: string | null;
+        };
+      };
+      daily_focus_evaluations: {
+        Row: {
+          id: string;
+          student_id: string;
+          study_date: string;
+          study_minutes: number;
+          unclassified_minutes: number;
+          is_weekday: boolean;
+          granted: boolean;
+          granted_reason: string | null;
+          point_id: string | null;
+          evaluated_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          study_date: string;
+          study_minutes?: number;
+          unclassified_minutes?: number;
+          is_weekday: boolean;
+          granted?: boolean;
+          granted_reason?: string | null;
+          point_id?: string | null;
+          evaluated_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          study_date?: string;
+          study_minutes?: number;
+          unclassified_minutes?: number;
+          is_weekday?: boolean;
+          granted?: boolean;
+          granted_reason?: string | null;
+          point_id?: string | null;
+          evaluated_at?: string;
+        };
+      };
+      policy_acknowledgements: {
+        Row: {
+          id: string;
+          user_id: string;
+          policy_version: string;
+          acknowledged_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          policy_version: string;
+          acknowledged_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          policy_version?: string;
+          acknowledged_at?: string;
         };
       };
       schedules: {
@@ -599,6 +767,8 @@ export interface Database {
           is_read_by_admin: boolean;
           created_at: string;
           client_message_id: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
         };
         Insert: {
           id?: string;
@@ -615,6 +785,8 @@ export interface Database {
           is_read_by_admin?: boolean;
           created_at?: string;
           client_message_id?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
         };
         Update: {
           id?: string;
@@ -631,6 +803,37 @@ export interface Database {
           is_read_by_admin?: boolean;
           created_at?: string;
           client_message_id?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+      };
+      chat_message_templates: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          content: string;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          content: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          content?: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
         };
       };
       notifications: {
@@ -1017,6 +1220,7 @@ export interface Database {
           focus_avg: number | null;
           study_feedback: string | null;
           guidance_notes: string | null;
+          mentoring_letter: string | null;
           admin_notes: string | null;
           parent_summary: string | null;
           branch_id: string | null;
@@ -1031,6 +1235,7 @@ export interface Database {
           focus_avg?: number | null;
           study_feedback?: string | null;
           guidance_notes?: string | null;
+          mentoring_letter?: string | null;
           admin_notes?: string | null;
           parent_summary?: string | null;
           branch_id?: string | null;
@@ -1045,6 +1250,7 @@ export interface Database {
           focus_avg?: number | null;
           study_feedback?: string | null;
           guidance_notes?: string | null;
+          mentoring_letter?: string | null;
           admin_notes?: string | null;
           parent_summary?: string | null;
           branch_id?: string | null;
@@ -1462,7 +1668,56 @@ export interface Database {
           reward_total: number;
           penalty_total: number;
           net_total: number;
+          reward_lifetime: number;
+          reward_redeemed: number;
+          reward_burnt: number;
+          penalty_quarter: number;
         }[];
+      };
+      get_current_quarter_start_kst: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
+      get_quarter_start_for_kst: {
+        Args: { p_at: string };
+        Returns: string;
+      };
+      handle_penalty_threshold: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      give_penalty_with_threshold_check: {
+        Args: {
+          p_student_id: string;
+          p_admin_id: string;
+          p_amount: number;
+          p_reason: string;
+          p_preset_id?: string | null;
+          p_event_kind?: string;
+        };
+        Returns: unknown;
+      };
+      cancel_withdrawal_review: {
+        Args: { p_student_id: string; p_restore_reward?: boolean };
+        Returns: unknown;
+      };
+      issue_redemption: {
+        Args: {
+          p_redemption_id: string;
+          p_admin_id: string;
+          p_voucher_amount: number;
+          p_voucher_code: string;
+          p_voucher_note?: string | null;
+        };
+        Returns: unknown;
+      };
+      request_redemption: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      preview_penalty: {
+        Args: { p_student_id: string; p_amount: number };
+        Returns: unknown;
       };
       focus_weekly_summary: {
         Args: { p_branch_id: string; p_week_start: string };

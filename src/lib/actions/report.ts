@@ -67,7 +67,10 @@ export interface CounselingReportData {
   studyFeedback: string;
   /** 인쇄용 전체 문단(DB/기본 템플릿 기준). 미지정 시 클라이언트에서 focusAvg로 보완 */
   studyFeedbackFull: string;
+  /** "상담/멘토링 레터" 본문(과거 향후지도계획 컬럼 재사용). 자유 서술, 자동 채움 없음. */
   guidanceNotes: string;
+  /** "상담/멘토링 레터" 추가 메모/첨언. 자유 서술, 자동 채움 없음. */
+  mentoringLetter: string;
   adminNotes: string | null;
   parentSummary: string;
   /** 몰입도 단계 라벨(표시용) */
@@ -296,7 +299,7 @@ async function resolveCounselingAutoFill(
     return {
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
       studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
-      guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
+      guidanceNotes: '',
       parentSummary: COUNSELING_TEMPLATES.getParentSummary(studentName, null, studyHoursWeekly),
       scoreLabel: '',
     };
@@ -322,7 +325,6 @@ async function resolveCounselingAutoFill(
     }
   }
 
-  const guidanceNotes = COUNSELING_TEMPLATES.getGuidanceNotes(weeklyFocusAvg);
   const parentSummary = COUNSELING_TEMPLATES.buildParentSummaryWithFeedback(
     studentName,
     weeklyFocusAvg,
@@ -334,7 +336,7 @@ async function resolveCounselingAutoFill(
   return {
     studyFeedback: shortText,
     studyFeedbackFull: fullText,
-    guidanceNotes,
+    guidanceNotes: '',
     parentSummary,
     scoreLabel: label,
   };
@@ -593,6 +595,7 @@ export async function getImmersionReportData(
       studyFeedback: counselingRow.study_feedback ?? '',
       studyFeedbackFull: auto.studyFeedbackFull,
       guidanceNotes: counselingRow.guidance_notes ?? '',
+      mentoringLetter: counselingRow.mentoring_letter ?? '',
       adminNotes: counselingRow.admin_notes,
       parentSummary: counselingRow.parent_summary ?? '',
       scoreLabel: auto.scoreLabel,
@@ -610,7 +613,8 @@ export async function getImmersionReportData(
       focusAvg: weeklyFocusAvg,
       studyFeedback: auto.studyFeedback,
       studyFeedbackFull: auto.studyFeedbackFull,
-      guidanceNotes: auto.guidanceNotes,
+      guidanceNotes: '',
+      mentoringLetter: '',
       adminNotes: null,
       parentSummary: auto.parentSummary,
       scoreLabel: auto.scoreLabel,
@@ -803,7 +807,8 @@ export async function getCounselingReport(
       focusAvg: null,
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
       studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
-      guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
+      guidanceNotes: '',
+      mentoringLetter: '',
       adminNotes: null,
       parentSummary: '',
       scoreLabel: '',
@@ -823,7 +828,8 @@ export async function getCounselingReport(
       focusAvg: null,
       studyFeedback: COUNSELING_TEMPLATES.getStudyFeedback(null),
       studyFeedbackFull: COUNSELING_TEMPLATES.getStudyFeedbackFull(null),
-      guidanceNotes: COUNSELING_TEMPLATES.getGuidanceNotes(null),
+      guidanceNotes: '',
+      mentoringLetter: '',
       adminNotes: null,
       parentSummary: '',
       scoreLabel: '',
@@ -886,6 +892,7 @@ export async function getCounselingReport(
       studyFeedback: row.study_feedback ?? '',
       studyFeedbackFull: auto.studyFeedbackFull,
       guidanceNotes: row.guidance_notes ?? '',
+      mentoringLetter: row.mentoring_letter ?? '',
       adminNotes: row.admin_notes,
       parentSummary: row.parent_summary ?? '',
       scoreLabel: auto.scoreLabel,
@@ -955,7 +962,8 @@ export async function getCounselingReport(
     focusAvg,
     studyFeedback: auto.studyFeedback,
     studyFeedbackFull: auto.studyFeedbackFull,
-    guidanceNotes: auto.guidanceNotes,
+    guidanceNotes: '',
+    mentoringLetter: '',
     adminNotes: null,
     parentSummary: auto.parentSummary,
     scoreLabel: auto.scoreLabel,
@@ -968,6 +976,7 @@ export async function saveCounselingReport(params: {
   focusAvg: number | null;
   studyFeedback: string;
   guidanceNotes: string;
+  mentoringLetter: string;
   adminNotes: string;
   parentSummary: string;
 }): Promise<{ success: boolean; error?: string }> {
@@ -995,6 +1004,7 @@ export async function saveCounselingReport(params: {
       focus_avg: params.focusAvg,
       study_feedback: params.studyFeedback,
       guidance_notes: params.guidanceNotes,
+      mentoring_letter: params.mentoringLetter || null,
       admin_notes: params.adminNotes || null,
       parent_summary: params.parentSummary,
       updated_at: new Date().toISOString(),
@@ -1008,6 +1018,8 @@ export async function saveCounselingReport(params: {
   }
 
   revalidatePath('/admin/report');
+  revalidatePath('/parent/report');
+  revalidatePath('/student/report');
   return { success: true };
 }
 

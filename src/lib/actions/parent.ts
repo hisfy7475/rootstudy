@@ -44,6 +44,12 @@ export interface StudentDashboardData {
   pendingSchedules: number;
   weeklyProgress: WeeklyProgressData;
   weeklyGoals: WeeklyGoalDay[];
+  // 단계 7: 분기 표시
+  penaltyQuarter: number;
+  penaltyThreshold: number;
+  quarterEnd: string | null;
+  withdrawalReviewAt: string | null;
+  rewardBalance: number;
 }
 
 // 연결된 모든 학생 정보 조회 (1:N)
@@ -268,19 +274,53 @@ export async function getParentDashboardData(): Promise<{
     };
   }
 
+  const { getCurrentQuarterStartKST, getNextQuarterStartKST } = await import('@/lib/utils');
+  const { PENALTY_RULES } = await import('@/lib/constants');
+  const quarterStart = getCurrentQuarterStartKST();
+  const quarterEnd = getNextQuarterStartKST();
+
   // 모든 자녀의 데이터를 병렬로 조회
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
   const studentsData = await Promise.all(
     linkedStudents.map(async (student) => {
-      const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] =
-        await Promise.all([
-          getStudentStatus(student.id, { forParentView: true }),
-          getStudentStudyTime(student.id),
-          getStudentCurrentSubject(student.id),
-          getStudentTodayFocus(student.id),
-          getWeeklyProgress(student.id),
-          getWeeklyGoals(student.id),
-        ]);
+      const [
+        status,
+        studyTime,
+        currentSubject,
+        todayFocus,
+        weeklyProgressData,
+        weeklyGoalsData,
+        quarterPoints,
+        rewardPoints,
+        profile,
+      ] = await Promise.all([
+        getStudentStatus(student.id, { forParentView: true }),
+        getStudentStudyTime(student.id),
+        getStudentCurrentSubject(student.id),
+        getStudentTodayFocus(student.id),
+        getWeeklyProgress(student.id),
+        getWeeklyGoals(student.id),
+        // 분기 누적 벌점 — 학부모 RLS 로 직접 SELECT (parent_student_links 정책)
+        (await createClient())
+          .from('points')
+          .select('amount')
+          .eq('student_id', student.id)
+          .eq('type', 'penalty')
+          .gte('created_at', quarterStart.toISOString()),
+        (await createClient())
+          .from('points')
+          .select('amount')
+          .eq('student_id', student.id)
+          .eq('type', 'reward'),
+        (await createClient())
+          .from('student_profiles')
+          .select('withdrawal_review_at')
+          .eq('id', student.id)
+          .maybeSingle(),
+      ]);
+
+      const penaltyQuarter = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+      const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
       return {
         student,
@@ -293,6 +333,11 @@ export async function getParentDashboardData(): Promise<{
         pendingSchedules: 0,
         weeklyProgress: weeklyProgressData,
         weeklyGoals: weeklyGoalsData,
+        penaltyQuarter,
+        penaltyThreshold: PENALTY_RULES.withdrawAt,
+        quarterEnd: quarterEnd.toISOString(),
+        withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
+        rewardBalance,
       };
     }),
   );
@@ -316,16 +361,47 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     };
   }
 
+  const { getCurrentQuarterStartKST: getQS, getNextQuarterStartKST: getQE } =
+    await import('@/lib/utils');
+  const { PENALTY_RULES: PR } = await import('@/lib/constants');
+  const qStart = getQS();
+  const qEnd = getQE();
+  const supabase = await createClient();
+
   // 학부모 뷰에서는 외출 상태를 퇴실로 표시
-  const [status, studyTime, currentSubject, todayFocus, weeklyProgressData, weeklyGoalsData] =
-    await Promise.all([
-      getStudentStatus(student.id, { forParentView: true }),
-      getStudentStudyTime(student.id),
-      getStudentCurrentSubject(student.id),
-      getStudentTodayFocus(student.id),
-      getWeeklyProgress(student.id),
-      getWeeklyGoals(student.id),
-    ]);
+  const [
+    status,
+    studyTime,
+    currentSubject,
+    todayFocus,
+    weeklyProgressData,
+    weeklyGoalsData,
+    quarterPoints,
+    rewardPoints,
+    profile,
+  ] = await Promise.all([
+    getStudentStatus(student.id, { forParentView: true }),
+    getStudentStudyTime(student.id),
+    getStudentCurrentSubject(student.id),
+    getStudentTodayFocus(student.id),
+    getWeeklyProgress(student.id),
+    getWeeklyGoals(student.id),
+    supabase
+      .from('points')
+      .select('amount')
+      .eq('student_id', student.id)
+      .eq('type', 'penalty')
+      .gte('created_at', qStart.toISOString()),
+    supabase.from('points').select('amount').eq('student_id', student.id).eq('type', 'reward'),
+    supabase
+      .from('student_profiles')
+      .select('withdrawal_review_at')
+      .eq('id', student.id)
+      .maybeSingle(),
+  ]);
+
+  const penaltyQuarter = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+  const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
   const studentData: StudentDashboardData = {
     student,
@@ -338,6 +414,11 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     pendingSchedules: 0,
     weeklyProgress: weeklyProgressData,
     weeklyGoals: weeklyGoalsData,
+    penaltyQuarter,
+    penaltyThreshold: PR.withdrawAt,
+    quarterEnd: qEnd.toISOString(),
+    withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
+    rewardBalance,
   };
 
   return {

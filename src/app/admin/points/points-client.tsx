@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import {
   givePoints,
+  giveRewardBatch,
   getAllPointsHistory,
   createRewardPreset,
   deleteRewardPreset,
@@ -49,6 +50,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PointsTab } from './list-config';
+import { WithdrawalReviewTab } from './withdrawal-review-tab';
+import { RedemptionQueueTab } from './redemption-queue-tab';
 
 function SortIcon({
   sortKey,
@@ -81,6 +84,31 @@ interface Student {
   name: string;
 }
 
+interface ReviewQueueRow {
+  studentId: string;
+  name: string;
+  seatNumber: number | null;
+  reviewAt: string | null;
+  reviewReason: string | null;
+  consumedAt: string | null;
+  penaltyQuarter: number;
+  lastPenalty: { reason: string; amount: number; createdAt: string } | null;
+  protectedRedemptionCount: number;
+}
+
+interface RedemptionQueueRow {
+  id: string;
+  student_id: string;
+  status: string;
+  points_used: number;
+  voucher_amount: number | null;
+  voucher_code: string | null;
+  trigger: string;
+  requested_at: string;
+  issued_at: string | null;
+  profiles?: { name?: string; branch_id?: string } | { name?: string; branch_id?: string }[] | null;
+}
+
 interface PointsClientProps {
   activeTab: PointsTab;
   initialOverview: PointsOverview[];
@@ -90,6 +118,8 @@ interface PointsClientProps {
   branchId: string | null;
   initialRewardPresets: RewardPreset[];
   initialPenaltyPresets: PenaltyPreset[];
+  initialReviewQueue: ReviewQueueRow[];
+  initialRedemptionQueue: RedemptionQueueRow[];
 }
 
 type SortDir = 'asc' | 'desc';
@@ -103,6 +133,8 @@ export function PointsClient({
   branchId,
   initialRewardPresets,
   initialPenaltyPresets,
+  initialReviewQueue,
+  initialRedemptionQueue,
 }: PointsClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -141,8 +173,9 @@ export function PointsClient({
   const [expandedHistoryPage, setExpandedHistoryPage] = useState(0);
   const [expandedLoading, setExpandedLoading] = useState(false);
 
-  // 부여 폼 상태
-  const [selectedStudent, setSelectedStudent] = useState<string>('');
+  // 부여 폼 상태 — 학생은 Set 으로 다중 선택. 단건 부여는 size === 1 케이스.
+  // 벌점은 임계치 RPC 가 학생별 트랜잭션이어야 안전해 다중 부여 비대상 — UI 에서 단건 강제.
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
   const [studentSearchText, setStudentSearchText] = useState<string>('');
   const [showStudentDropdown, setShowStudentDropdown] = useState(false);
   const [pointType, setPointType] = useState<'reward' | 'penalty'>('reward');
@@ -224,16 +257,40 @@ export function PointsClient({
       )
     : students;
 
-  function handleSelectStudent(studentId: string) {
-    setSelectedStudent(studentId);
-    const student = students.find((s) => s.id === studentId);
-    setStudentSearchText(student ? `${student.seatNumber || '-'}번 ${student.name}` : '');
-    setShowStudentDropdown(false);
+  function toggleSelectStudent(studentId: string) {
+    setSelectedStudentIds((prev) => {
+      // 벌점은 단건만 — 토글이지만 다른 선택이 있으면 교체.
+      if (pointType === 'penalty') {
+        return prev.has(studentId) ? new Set() : new Set([studentId]);
+      }
+      const next = new Set(prev);
+      if (next.has(studentId)) next.delete(studentId);
+      else next.add(studentId);
+      return next;
+    });
+  }
+
+  function clearSelectedStudents() {
+    setSelectedStudentIds(new Set());
+  }
+
+  function setPointTypeWithGuard(nextType: 'reward' | 'penalty') {
+    setPointType(nextType);
+    setReason('');
+    setAmount('1');
+    // 벌점 전환 시 다중 선택을 첫 1명으로 trim (Set 의 insertion order)
+    if (nextType === 'penalty') {
+      setSelectedStudentIds((prev) => {
+        if (prev.size <= 1) return prev;
+        const first = prev.values().next().value;
+        return first ? new Set([first]) : new Set();
+      });
+    }
   }
 
   function resetForm() {
     setShowAddForm(false);
-    setSelectedStudent('');
+    setSelectedStudentIds(new Set());
     setStudentSearchText('');
     setShowStudentDropdown(false);
     setPointType('reward');
@@ -242,14 +299,44 @@ export function PointsClient({
     setAdditionalNote('');
   }
 
-  function showSuccess(message: string) {
+  function showSuccess(message: string, durationMs: number = 2000) {
     setSuccessMessage(message);
-    setTimeout(() => setSuccessMessage(null), 2000);
+    setTimeout(() => setSuccessMessage(null), durationMs);
+  }
+
+  // 다중 토스트용 부가 표기 (중복/미매칭/실패 합쳐 한 줄)
+  function formatBatchExtras(parts: {
+    duplicateCount: number;
+    unmatchedCount: number;
+    failedCount: number;
+    duplicateNames?: string[];
+    unmatchedNames?: string[];
+  }): string {
+    const segs: string[] = [];
+    if (parts.duplicateCount > 0) {
+      const sample = parts.duplicateNames?.slice(0, 3).join(', ');
+      segs.push(
+        `중복 ${parts.duplicateCount}건${sample ? ` (${sample}${(parts.duplicateNames?.length ?? 0) > 3 ? ' 외' : ''})` : ''}`,
+      );
+    }
+    if (parts.unmatchedCount > 0) {
+      const sample = parts.unmatchedNames?.slice(0, 3).join(', ');
+      segs.push(
+        `미매칭 ${parts.unmatchedCount}건${sample ? ` (${sample}${(parts.unmatchedNames?.length ?? 0) > 3 ? ' 외' : ''})` : ''}`,
+      );
+    }
+    if (parts.failedCount > 0) segs.push(`실패 ${parts.failedCount}건`);
+    return segs.length > 0 ? ` · ${segs.join(' · ')}` : '';
   }
 
   async function handleSubmit() {
-    if (!selectedStudent || !amount || !reason) {
-      alert('모든 필드를 입력해주세요.');
+    const ids = Array.from(selectedStudentIds);
+    if (ids.length === 0 || !amount || !reason) {
+      alert('학생, 점수, 사유를 모두 입력해주세요.');
+      return;
+    }
+    if (pointType === 'penalty' && ids.length > 1) {
+      alert('벌점은 한 명씩만 부여 가능합니다.');
       return;
     }
     const pointAmount = parseInt(amount);
@@ -264,21 +351,43 @@ export function PointsClient({
     const presetId = hasNote ? null : findPresetId(pointType, reason);
     setLoading(true);
     try {
-      const result = await givePoints(
-        selectedStudent,
-        pointType,
-        pointAmount,
-        finalReason,
-        false,
+      if (ids.length === 1) {
+        const result = await givePoints(
+          ids[0],
+          pointType,
+          pointAmount,
+          finalReason,
+          false,
+          presetId,
+        );
+        if (result.error) {
+          alert(result.error);
+        } else if (result.success) {
+          showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
+          resetForm();
+          refreshData();
+        }
+        return;
+      }
+      // 다중 상점 일괄 부여
+      const result = await giveRewardBatch({
+        studentIds: ids,
+        amount: pointAmount,
+        reason: finalReason,
         presetId,
-      );
+      });
       if (result.error) {
         alert(result.error);
-      } else if (result.success) {
-        showSuccess(`${pointType === 'reward' ? '상점' : '벌점'} ${pointAmount}점 부여 완료`);
-        resetForm();
-        refreshData();
+        return;
       }
+      const extras = formatBatchExtras(result);
+      if (result.successCount === 0) {
+        alert(`부여된 학생이 없습니다${extras}`);
+        return;
+      }
+      showSuccess(`${result.successCount}명에게 상점 ${pointAmount}점 부여 완료${extras}`, 4000);
+      resetForm();
+      refreshData();
     } catch (e) {
       console.error('Failed to give points:', e);
     } finally {
@@ -501,9 +610,8 @@ export function PointsClient({
   }
 
   function handleOpenFormForStudent(studentId: string) {
-    const student = students.find((s) => s.id === studentId);
-    setSelectedStudent(studentId);
-    setStudentSearchText(student ? `${student.seatNumber || '-'}번 ${student.name}` : '');
+    setSelectedStudentIds(new Set([studentId]));
+    setStudentSearchText('');
     setPointType('reward');
     setAmount('1');
     setReason('');
@@ -676,11 +784,29 @@ export function PointsClient({
           { value: 'overview', label: '학생별 현황' },
           { value: 'history', label: '상벌점 내역' },
           { value: 'rules', label: '상벌점 규정' },
+          {
+            value: 'review',
+            label: `퇴원 검토${initialReviewQueue.length > 0 ? ` (${initialReviewQueue.length})` : ''}`,
+          },
+          {
+            value: 'redemptions',
+            label: `상품권 큐${initialRedemptionQueue.length > 0 ? ` (${initialRedemptionQueue.length})` : ''}`,
+          },
         ]}
         activeValue={activeTab}
         pathname={pathname}
         searchParams={new URLSearchParams(sp.toString())}
       />
+
+      {/* 퇴원 검토 큐 탭 */}
+      {activeTab === 'review' && (
+        <WithdrawalReviewTab queue={initialReviewQueue} onRefresh={refreshData} />
+      )}
+
+      {/* 상품권 발급 큐 탭 */}
+      {activeTab === 'redemptions' && (
+        <RedemptionQueueTab queue={initialRedemptionQueue} onRefresh={refreshData} />
+      )}
 
       {/* 상벌점 부여 폼 */}
       {showAddForm && (
@@ -693,14 +819,32 @@ export function PointsClient({
           </div>
 
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
-            {/* 학생 검색 */}
-            <div>
-              <label className='mb-2 block text-sm font-medium'>학생</label>
+            {/* 학생 검색 — reward 는 다중, penalty 는 단건 토글 */}
+            <div className='md:col-span-2 lg:col-span-2'>
+              <div className='mb-2 flex items-center justify-between'>
+                <label className='block text-sm font-medium'>
+                  학생
+                  {pointType === 'reward' && selectedStudentIds.size > 0 && (
+                    <span className='text-text-muted ml-2 text-xs font-normal'>
+                      선택 {selectedStudentIds.size}명
+                    </span>
+                  )}
+                </label>
+                {selectedStudentIds.size > 0 && (
+                  <button
+                    type='button'
+                    onClick={clearSelectedStudents}
+                    className='text-text-muted text-xs hover:text-gray-700'
+                  >
+                    전체 해제
+                  </button>
+                )}
+              </div>
               <div className='relative'>
                 <div
                   className={cn(
                     'focus-within:ring-primary/50 flex items-center rounded-xl border border-gray-200 px-3 py-2 focus-within:ring-2',
-                    selectedStudent && 'border-primary/50 bg-primary/5',
+                    selectedStudentIds.size > 0 && 'border-primary/50 bg-primary/5',
                   )}
                 >
                   <Search className='mr-2 h-4 w-4 flex-shrink-0 text-gray-400' />
@@ -709,21 +853,19 @@ export function PointsClient({
                     value={studentSearchText}
                     onChange={(e) => {
                       setStudentSearchText(e.target.value);
-                      setSelectedStudent('');
                       setShowStudentDropdown(true);
                     }}
                     onFocus={() => setShowStudentDropdown(true)}
                     onBlur={() => setTimeout(() => setShowStudentDropdown(false), 150)}
-                    placeholder='이름 또는 좌석번호...'
+                    placeholder={
+                      pointType === 'reward' ? '이름 검색 (다중 선택)' : '이름 또는 좌석번호...'
+                    }
                     className='flex-1 bg-transparent text-sm outline-none'
                   />
                   {studentSearchText && (
                     <button
                       type='button'
-                      onClick={() => {
-                        setStudentSearchText('');
-                        setSelectedStudent('');
-                      }}
+                      onClick={() => setStudentSearchText('')}
                       className='text-gray-400 hover:text-gray-600'
                     >
                       <X className='h-4 w-4' />
@@ -735,27 +877,69 @@ export function PointsClient({
                     {filteredStudentsForSearch.length === 0 ? (
                       <div className='px-4 py-3 text-sm text-gray-500'>검색 결과 없음</div>
                     ) : (
-                      filteredStudentsForSearch.map((student) => (
-                        <button
-                          key={student.id}
-                          type='button'
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => handleSelectStudent(student.id)}
-                          className={cn(
-                            'w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-50',
-                            selectedStudent === student.id && 'bg-primary/10',
-                          )}
-                        >
-                          <span className='text-primary font-semibold'>
-                            {student.seatNumber || '-'}번
-                          </span>{' '}
-                          {student.name}
-                        </button>
-                      ))
+                      filteredStudentsForSearch.map((student) => {
+                        const checked = selectedStudentIds.has(student.id);
+                        return (
+                          <button
+                            key={student.id}
+                            type='button'
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              toggleSelectStudent(student.id);
+                              if (pointType === 'penalty') {
+                                setShowStudentDropdown(false);
+                                setStudentSearchText('');
+                              }
+                            }}
+                            className={cn(
+                              'flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors hover:bg-gray-50',
+                              checked && 'bg-primary/10',
+                            )}
+                          >
+                            {pointType === 'reward' &&
+                              (checked ? (
+                                <CheckSquare className='text-primary h-4 w-4 flex-shrink-0' />
+                              ) : (
+                                <Square className='h-4 w-4 flex-shrink-0 text-gray-400' />
+                              ))}
+                            <span>
+                              <span className='text-primary font-semibold'>
+                                {student.seatNumber || '-'}번
+                              </span>{' '}
+                              {student.name}
+                            </span>
+                          </button>
+                        );
+                      })
                     )}
                   </div>
                 )}
               </div>
+              {selectedStudentIds.size > 0 && (
+                <div className='mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto'>
+                  {Array.from(selectedStudentIds).map((id) => {
+                    const s = students.find((x) => x.id === id);
+                    if (!s) return null;
+                    return (
+                      <span
+                        key={id}
+                        className='border-primary/30 bg-primary/5 text-primary inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs'
+                      >
+                        <span className='font-semibold'>{s.seatNumber || '-'}번</span>
+                        <span>{s.name}</span>
+                        <button
+                          type='button'
+                          onClick={() => toggleSelectStudent(id)}
+                          className='hover:text-primary/70 ml-0.5'
+                          aria-label={`${s.name} 선택 해제`}
+                        >
+                          <X className='h-3 w-3' />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* 유형 선택 */}
@@ -768,11 +952,7 @@ export function PointsClient({
                     'flex-1',
                     pointType === 'reward' && 'bg-green-600 hover:bg-green-700',
                   )}
-                  onClick={() => {
-                    setPointType('reward');
-                    setReason('');
-                    setAmount('1');
-                  }}
+                  onClick={() => setPointTypeWithGuard('reward')}
                 >
                   <Plus className='mr-1 h-4 w-4' />
                   상점
@@ -780,11 +960,7 @@ export function PointsClient({
                 <Button
                   variant={pointType === 'penalty' ? 'default' : 'outline'}
                   className={cn('flex-1', pointType === 'penalty' && 'bg-red-600 hover:bg-red-700')}
-                  onClick={() => {
-                    setPointType('penalty');
-                    setReason('');
-                    setAmount('1');
-                  }}
+                  onClick={() => setPointTypeWithGuard('penalty')}
                 >
                   <Minus className='mr-1 h-4 w-4' />
                   벌점

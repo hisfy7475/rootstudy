@@ -1,21 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { CounselingReportData } from '@/lib/actions/report';
+
+export interface CounselingReportCardSavePayload {
+  studyFeedback: string;
+  guidanceNotes: string;
+  mentoringLetter: string;
+  adminNotes: string;
+  parentSummary: string;
+}
 
 export interface CounselingReportCardProps {
   counseling: CounselingReportData;
   studentName: string;
   studentTypeName: string | null;
   editable?: boolean;
-  onSave?: (data: {
-    studyFeedback: string;
-    guidanceNotes: string;
-    adminNotes: string;
-    parentSummary: string;
-  }) => void;
+  onSave?: (data: CounselingReportCardSavePayload) => void;
   /** 관리자: 템플릿 재적용. 인자는 입력 중인 관리자 메모(폼 상태 유지) */
   onReapplyTemplate?: (currentAdminNotes: string) => void | Promise<void>;
 }
@@ -30,163 +33,172 @@ export function CounselingReportCard({
 }: CounselingReportCardProps) {
   const [studyFeedback, setStudyFeedback] = useState(counseling.studyFeedback);
   const [guidanceNotes, setGuidanceNotes] = useState(counseling.guidanceNotes);
+  const [mentoringLetter, setMentoringLetter] = useState(counseling.mentoringLetter);
   const [adminNotes, setAdminNotes] = useState(counseling.adminNotes ?? '');
   const [parentSummary, setParentSummary] = useState(counseling.parentSummary);
 
-  useEffect(() => {
-    setStudyFeedback(counseling.studyFeedback);
-    setGuidanceNotes(counseling.guidanceNotes);
-    setAdminNotes(counseling.adminNotes ?? '');
-    setParentSummary(counseling.parentSummary);
-  }, [
+  // 부모로부터 새 counseling prop 이 내려오면(학생/주차 변경, 템플릿 재적용 등)
+  // 폼 state 를 다시 동기화한다. React 19 권장 패턴: useEffect 대신 render 중에
+  // 이전 prop snapshot 과 비교 후 setState 호출.
+  const counselingSig = [
     counseling.studyFeedback,
     counseling.guidanceNotes,
-    counseling.adminNotes,
+    counseling.mentoringLetter,
+    counseling.adminNotes ?? '',
     counseling.parentSummary,
-    counseling.studyFeedbackFull,
-    counseling.scoreLabel,
-    counseling.focusAvg,
-  ]);
+  ].join('\x00');
+  const [prevCounselingSig, setPrevCounselingSig] = useState(counselingSig);
+  if (counselingSig !== prevCounselingSig) {
+    setPrevCounselingSig(counselingSig);
+    setStudyFeedback(counseling.studyFeedback);
+    setGuidanceNotes(counseling.guidanceNotes);
+    setMentoringLetter(counseling.mentoringLetter);
+    setAdminNotes(counseling.adminNotes ?? '');
+    setParentSummary(counseling.parentSummary);
+  }
 
-  const focusLabel =
-    counseling.focusAvg !== null
-      ? `평균 ${counseling.focusAvg}점`
-      : '미측정';
+  const focusLabel = counseling.focusAvg !== null ? `평균 ${counseling.focusAvg}점` : '미측정';
 
   const stageLabel = counseling.scoreLabel?.trim();
-  const fullForPrint =
-    counseling.studyFeedbackFull?.trim() || counseling.studyFeedback;
+  const showGuidanceNotes = editable || counseling.guidanceNotes.trim() !== '';
+  const showMentoringLetter = editable || counseling.mentoringLetter.trim() !== '';
+  const adminNotesText = counseling.adminNotes ?? '';
+  const showAdminNotes = editable || adminNotesText.trim() !== '';
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <h3 className="text-lg font-semibold text-text">상담 리포트</h3>
+      <CardHeader className='pb-2'>
+        <h3 className='text-text text-lg font-semibold'>상담 리포트</h3>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-2xl bg-gray-50 px-4 py-3 text-sm text-text">
+      <CardContent className='space-y-4'>
+        <div className='text-text rounded-2xl bg-gray-50 px-4 py-3 text-sm'>
           <p>
-            <span className="text-text-muted">학생명:</span>{' '}
-            <span className="font-medium">{studentName}</span>
-            <span className="mx-2 text-text-muted">·</span>
-            <span className="text-text-muted">학년:</span>{' '}
-            <span className="font-medium">{studentTypeName ?? '—'}</span>
+            <span className='text-text-muted'>학생명:</span>{' '}
+            <span className='font-medium'>{studentName}</span>
+            <span className='text-text-muted mx-2'>·</span>
+            <span className='text-text-muted'>학년:</span>{' '}
+            <span className='font-medium'>{studentTypeName ?? '—'}</span>
           </p>
-          <p className="mt-2">
-            <span className="text-text-muted">몰입도 평가:</span>{' '}
-            <span className="font-medium">{focusLabel}</span>
-            {stageLabel ? (
-              <span className="text-text-muted">
-                {' '}
-                ({stageLabel})
-              </span>
-            ) : null}
+          <p className='mt-2'>
+            <span className='text-text-muted'>몰입도 평가:</span>{' '}
+            <span className='font-medium'>{focusLabel}</span>
+            {stageLabel ? <span className='text-text-muted'> ({stageLabel})</span> : null}
           </p>
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-text-muted">학습 태도</p>
+          <p className='text-text-muted mb-1.5 text-xs font-semibold'>학습 태도</p>
           {editable ? (
             <textarea
               value={studyFeedback}
               onChange={(e) => setStudyFeedback(e.target.value)}
               rows={3}
-              className="print:hidden w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+              className='bg-card text-text focus:ring-primary/30 w-full resize-y rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2'
             />
           ) : (
-            <p className="whitespace-pre-wrap text-sm text-text print:hidden">
-              {studyFeedback}
-            </p>
+            <p className='text-text text-sm whitespace-pre-wrap'>{studyFeedback}</p>
           )}
-          <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
-            {fullForPrint}
-          </p>
         </div>
 
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-text-muted">향후 지도 계획</p>
-          {editable ? (
-            <textarea
-              value={guidanceNotes}
-              onChange={(e) => setGuidanceNotes(e.target.value)}
-              rows={3}
-              className="print:hidden w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          ) : (
-            <p className="whitespace-pre-wrap text-sm text-text print:hidden">
-              {guidanceNotes}
-            </p>
-          )}
-          <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
-            {guidanceNotes}
-          </p>
-        </div>
-
-        {editable ? (
+        {showGuidanceNotes && (
           <div>
-            <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 추가 메모</p>
-            <textarea
-              value={adminNotes}
-              onChange={(e) => setAdminNotes(e.target.value)}
-              rows={2}
-              className="w-full resize-y rounded-2xl border border-gray-200 bg-card px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
-            />
+            <p className='text-text-muted mb-1.5 text-xs font-semibold'>상담/멘토링 레터</p>
+            {editable ? (
+              <textarea
+                value={guidanceNotes}
+                onChange={(e) => setGuidanceNotes(e.target.value)}
+                rows={4}
+                maxLength={2000}
+                placeholder='이번 주 상담·멘토링 코멘트를 입력하세요.'
+                className='bg-card text-text focus:ring-primary/30 w-full resize-y rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2'
+              />
+            ) : (
+              <p className='text-text text-sm whitespace-pre-wrap'>{guidanceNotes}</p>
+            )}
           </div>
-        ) : (
-          counseling.adminNotes && (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold text-text-muted">관리자 추가 메모</p>
-              <p className="whitespace-pre-wrap text-sm text-text">{counseling.adminNotes}</p>
-            </div>
-          )
+        )}
+
+        {showMentoringLetter && (
+          <div>
+            <p className='text-text-muted mb-1.5 text-xs font-semibold'>추가 메모/첨언</p>
+            {editable ? (
+              <textarea
+                value={mentoringLetter}
+                onChange={(e) => setMentoringLetter(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder='상담/멘토링 레터에 덧붙일 추가 메모를 입력하세요.'
+                className='bg-card text-text focus:ring-primary/30 w-full resize-y rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2'
+              />
+            ) : (
+              <p className='text-text text-sm whitespace-pre-wrap'>{mentoringLetter}</p>
+            )}
+          </div>
+        )}
+
+        {showAdminNotes && (
+          <div>
+            <p className='text-text-muted mb-1.5 text-xs font-semibold'>관리자 추가 메모</p>
+            {editable ? (
+              <textarea
+                value={adminNotes}
+                onChange={(e) => setAdminNotes(e.target.value)}
+                rows={2}
+                className='bg-card text-text focus:ring-primary/30 w-full resize-y rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2'
+              />
+            ) : (
+              <p className='text-text text-sm whitespace-pre-wrap'>{adminNotesText}</p>
+            )}
+          </div>
         )}
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-text-muted">학부모 상담 요약</p>
-          <div className="rounded-2xl bg-primary/10 px-4 py-3">
+          <p className='text-text-muted mb-1.5 text-xs font-semibold'>학부모 상담 요약</p>
+          <div className='bg-primary/10 rounded-2xl px-4 py-3'>
             {editable ? (
               <textarea
                 value={parentSummary}
                 onChange={(e) => setParentSummary(e.target.value)}
                 rows={4}
-                className="print:hidden w-full resize-y rounded-xl border border-primary/20 bg-card/80 px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+                className='border-primary/20 bg-card/80 text-text focus:ring-primary/30 w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2'
               />
             ) : (
-              <p className="whitespace-pre-wrap text-sm text-text print:hidden">
-                {parentSummary}
-              </p>
+              <p className='text-text text-sm whitespace-pre-wrap'>{parentSummary}</p>
             )}
-            <p className="hidden whitespace-pre-wrap text-sm text-text print:block">
-              {parentSummary}
-            </p>
           </div>
         </div>
 
-        {editable && onReapplyTemplate && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full rounded-xl"
-            onClick={() => void onReapplyTemplate(adminNotes)}
-          >
-            템플릿 다시 적용
-          </Button>
-        )}
+        {editable && (onReapplyTemplate || onSave) && (
+          <div className='flex flex-col gap-2 sm:flex-row'>
+            {onReapplyTemplate && (
+              <Button
+                type='button'
+                variant='outline'
+                className='w-full rounded-xl sm:flex-1'
+                onClick={() => void onReapplyTemplate(adminNotes)}
+              >
+                템플릿 다시 적용
+              </Button>
+            )}
 
-        {editable && onSave && (
-          <Button
-            type="button"
-            className="w-full"
-            onClick={() =>
-              onSave({
-                studyFeedback,
-                guidanceNotes,
-                adminNotes,
-                parentSummary,
-              })
-            }
-          >
-            저장
-          </Button>
+            {onSave && (
+              <Button
+                type='button'
+                className='w-full sm:flex-1'
+                onClick={() =>
+                  onSave({
+                    studyFeedback,
+                    guidanceNotes,
+                    mentoringLetter,
+                    adminNotes,
+                    parentSummary,
+                  })
+                }
+              >
+                저장
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

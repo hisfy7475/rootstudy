@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { copyText } from '@/lib/clipboard';
 import Image from 'next/image';
-import { Copy, FileText, X } from 'lucide-react';
+import { Copy, FileText, MoreVertical, Trash2, X } from 'lucide-react';
+import { useLongPress } from '@/lib/hooks/use-long-press';
 
 interface ChatMessageItemProps {
   id: string;
@@ -17,6 +18,8 @@ interface ChatMessageItemProps {
   senderType: 'student' | 'parent' | 'admin' | string;
   createdAt: string;
   isOwn: boolean;
+  deletedAt?: string | null;
+  onDelete?: (id: string) => void;
 }
 
 const senderTypeLabels: Record<string, string> = {
@@ -31,7 +34,10 @@ const senderTypeColors: Record<string, string> = {
   admin: 'text-accent',
 };
 
+const DELETE_WINDOW_MS = 5 * 60 * 1000;
+
 export function ChatMessageItem({
+  id,
   content,
   imageUrl,
   fileUrl,
@@ -41,9 +47,16 @@ export function ChatMessageItem({
   senderType,
   createdAt,
   isOwn,
+  deletedAt,
+  onDelete,
 }: ChatMessageItemProps) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [copiedHint, setCopiedHint] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // lazy initializer로 mount 시점에 한 번만 Date.now() 호출 (렌더 중 impure call 회피)
+  const [now, setNow] = useState<number>(() => Date.now());
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const timeString = new Date(createdAt).toLocaleTimeString('ko-KR', {
     timeZone: 'Asia/Seoul',
     hour: 'numeric',
@@ -53,9 +66,36 @@ export function ChatMessageItem({
   const typeLabel = senderTypeLabels[senderType] || senderType;
   const typeColor = senderTypeColors[senderType] || 'text-gray-500';
 
-  // 명시적 복사 버튼: user gesture 컨텍스트에서 직접 호출되어
-  // iOS WKWebView 의 user activation 제약을 피한다 (이전엔 setTimeout 콜백
-  // 안에서 navigator.clipboard 를 호출해 활성화 토큰이 사라졌다).
+  const createdMs = new Date(createdAt).getTime();
+  const ageMs = now - createdMs;
+  const canDelete = isOwn && !!onDelete && !deletedAt && ageMs < DELETE_WINDOW_MS;
+
+  // 5분 만료 자동 갱신: 윈도우 종료 시점에 now 를 갱신해 ⋮ 자동 숨김.
+  useEffect(() => {
+    if (!isOwn || deletedAt) return;
+    const remaining = DELETE_WINDOW_MS - (Date.now() - createdMs);
+    if (remaining <= 0 || remaining > DELETE_WINDOW_MS) return;
+    const t = setTimeout(() => setNow(Date.now()), remaining + 100);
+    return () => clearTimeout(t);
+  }, [isOwn, deletedAt, createdMs]);
+
+  // 메뉴 외부 클릭/ESC 시 닫기
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen]);
+
   const handleCopy = useCallback(async () => {
     const text = content.trim();
     if (!text) return;
@@ -68,7 +108,46 @@ export function ChatMessageItem({
     }
   }, [content]);
 
+  const openMenu = useCallback(() => {
+    if (!canDelete) return;
+    setMenuOpen(true);
+  }, [canDelete]);
+
+  const longPressHandlers = useLongPress({ onLongPress: openMenu });
+
+  const handleDelete = useCallback(() => {
+    setMenuOpen(false);
+    if (!onDelete) return;
+    if (!window.confirm('이 메시지를 삭제하시겠습니까?')) return;
+    onDelete(id);
+  }, [id, onDelete]);
+
   const hasText = !!content;
+
+  // 삭제된 메시지: 자리 표시자 (대화 맥락은 유지)
+  if (deletedAt) {
+    return (
+      <div
+        className={cn(
+          'flex max-w-[80%] flex-col gap-1',
+          isOwn ? 'ml-auto items-end' : 'mr-auto items-start',
+        )}
+      >
+        {!isOwn && (
+          <div className='flex items-center gap-1.5 px-1'>
+            <span className='text-text text-xs font-medium'>{senderName}</span>
+            <span className={cn('text-xs', typeColor)}>({typeLabel})</span>
+          </div>
+        )}
+        <div className={cn('flex items-end gap-2', isOwn && 'flex-row-reverse')}>
+          <div className='text-text-muted rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-sm italic'>
+            삭제된 메시지입니다
+          </div>
+          <span className='text-text-muted flex-shrink-0 text-xs'>{timeString}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -97,7 +176,7 @@ export function ChatMessageItem({
           </div>
         )}
 
-        {/* 메시지 버블 + 시간 + 복사 버튼 */}
+        {/* 메시지 버블 + 시간 + 복사/메뉴 버튼 */}
         <div className={cn('flex items-end gap-2', isOwn && 'flex-row-reverse')}>
           <div
             className={cn(
@@ -105,6 +184,10 @@ export function ChatMessageItem({
               isOwn ? 'bg-primary rounded-br-md text-white' : 'text-text rounded-bl-md bg-gray-100',
               imageUrl || (fileUrl && fileType === 'file') ? 'p-1' : 'px-4 py-2.5',
             )}
+            onTouchStart={canDelete ? longPressHandlers.onTouchStart : undefined}
+            onTouchMove={canDelete ? longPressHandlers.onTouchMove : undefined}
+            onTouchEnd={canDelete ? longPressHandlers.onTouchEnd : undefined}
+            onTouchCancel={canDelete ? longPressHandlers.onTouchCancel : undefined}
           >
             {/* 일반 파일 첨부 */}
             {fileUrl && fileType === 'file' && (
@@ -153,24 +236,64 @@ export function ChatMessageItem({
               </div>
             )}
           </div>
-          {/* 텍스트가 있을 때만 복사 버튼 노출. 데스크톱: hover 시 fade-in,
-              모바일: 항상 옅게 표시(터치 hover 가 일관되지 않음). */}
-          {hasText && (
-            <button
-              type='button'
-              onClick={handleCopy}
-              aria-label='메시지 복사'
-              className={cn(
-                'text-text-muted flex-shrink-0 rounded-full p-1.5',
-                'transition-opacity duration-150',
-                'opacity-40 hover:bg-gray-100 hover:opacity-100',
-                'md:opacity-0 md:group-hover:opacity-100',
-              )}
-            >
-              <Copy className='h-3.5 w-3.5' />
-            </button>
-          )}
-          <span className='text-text-muted flex-shrink-0 text-xs'>{timeString}</span>
+
+          {/* 액션 영역: 복사/⋮/시간을 묶어 텍스트 없는 케이스에서도 정렬 보존 */}
+          <div className='flex items-center gap-1'>
+            {hasText && (
+              <button
+                type='button'
+                onClick={handleCopy}
+                aria-label='메시지 복사'
+                className={cn(
+                  'text-text-muted flex-shrink-0 rounded-full p-1.5',
+                  'transition-opacity duration-150',
+                  'opacity-40 hover:bg-gray-100 hover:opacity-100',
+                  'md:opacity-0 md:group-hover:opacity-100',
+                )}
+              >
+                <Copy className='h-3.5 w-3.5' />
+              </button>
+            )}
+            {canDelete && (
+              <div className='relative' ref={menuRef}>
+                <button
+                  type='button'
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-label='메시지 더보기'
+                  aria-haspopup='menu'
+                  aria-expanded={menuOpen}
+                  className={cn(
+                    'text-text-muted flex-shrink-0 rounded-full p-1.5',
+                    'transition-opacity duration-150',
+                    'opacity-40 hover:bg-gray-100 hover:opacity-100',
+                    'md:opacity-0 md:group-hover:opacity-100',
+                  )}
+                >
+                  <MoreVertical className='h-3.5 w-3.5' />
+                </button>
+                {menuOpen && (
+                  <div
+                    role='menu'
+                    className={cn(
+                      'absolute z-20 mt-1 min-w-[140px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg',
+                      isOwn ? 'right-0' : 'left-0',
+                    )}
+                  >
+                    <button
+                      type='button'
+                      role='menuitem'
+                      onClick={handleDelete}
+                      className='flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50'
+                    >
+                      <Trash2 className='h-4 w-4' />
+                      메시지 삭제
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <span className='text-text-muted flex-shrink-0 text-xs'>{timeString}</span>
+          </div>
         </div>
       </div>
 
