@@ -129,7 +129,29 @@ export const ATTENDANCE_CONFIG = {
 export const PENALTY_RULES = {
   lateCheckIn: { amount: 1, reason: '지각' },
   earlyCheckOut: { amount: 1, reason: '조기퇴실' },
+  // 분기 누적 임계치 (4단계: 관심·주의·경고·검토 진입)
+  warn10: 10,
+  warn20: 20,
+  warn25: 25,
+  withdrawAt: 30,
 } as const;
+
+// 상점 규칙
+export const REWARD_RULES = {
+  /** 상품권 발급 단위 (1건당 차감 점수) */
+  redeemAt: 100,
+  /** 일일 자동 상점 조건: 순공시간 ≥ N 시간 */
+  dailyFocusHours: 3,
+  /** 일일 자동 상점 조건: 미분류 시간 ≤ N 분 (grace) */
+  dailyFocusUnclassifiedGraceMinutes: 5,
+  /** 일일 자동 상점 부여 점수 */
+  dailyFocusAmount: 1,
+  /** 일일 자동 상점 부여 요일 (1=월, 5=금). 주말 캡: 토(6)·일(0) 제외 */
+  dailyFocusWeekdays: [1, 2, 3, 4, 5] as const,
+} as const;
+
+// 정책 버전 (변경 시 학생/학부모에 모달 재노출)
+export const POLICY_VERSION = 'v1' as const;
 
 // 또래 비교 벤치마크 (몰입도 리포트 "동일학년 상위 N% 평균")
 export const PEER_BENCHMARK = {

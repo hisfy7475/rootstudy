@@ -663,6 +663,45 @@ export async function sendKakaoAlimtalkToParents(
 }
 
 // 특정 학부모에게 알림톡 발송 (단일)
+/**
+ * 백로그 6: critical 학부모 알림톡 발송 (실패 시 큐에 enqueue).
+ * - 일반 sendKakaoAlimtalkToParent 와 동일한 발송 경로지만 실패 시 kakao_retry_queue 에 enqueue.
+ * - 호출처: 25/30점 도달, 상품권 발급 등 critical 카테고리.
+ */
+export async function sendKakaoAlimtalkToParentCritical(params: {
+  parentId: string;
+  studentId: string;
+  message: string;
+  category: string; // 'penalty_warn25' | 'penalty_threshold30' | 'redemption_issued' | ...
+  type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+}): Promise<{ success: boolean; error?: string; enqueued?: boolean }> {
+  const result = await sendKakaoAlimtalkToParent({
+    parentId: params.parentId,
+    studentId: params.studentId,
+    message: params.message,
+    type: params.type,
+  });
+
+  if (!result.success) {
+    // 발송 실패 → 큐에 enqueue (서비스 롤 client)
+    const adminClient = createAdminClient();
+    const { error: enqueueError } = await adminClient.from('kakao_retry_queue').insert({
+      parent_id: params.parentId,
+      student_id: params.studentId,
+      message: params.message,
+      category: params.category,
+      next_attempt_at: new Date(Date.now() + 5 * 60_000).toISOString(), // 5분 후
+      last_error: result.error ?? null,
+    });
+    if (enqueueError) {
+      console.error('[kakao-retry] enqueue failed:', enqueueError);
+    }
+    return { ...result, enqueued: !enqueueError };
+  }
+
+  return result;
+}
+
 export async function sendKakaoAlimtalkToParent(params: {
   parentId: string;
   studentId?: string;

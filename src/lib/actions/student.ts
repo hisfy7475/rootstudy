@@ -747,14 +747,52 @@ export async function getWeeklyFocus() {
   return data || [];
 }
 
-// 상벌점 내역 조회
+// 상벌점 내역 조회 (단계 7: 분기 필터 + 잔액·redemption 분해)
+//
+// summary 구조:
+//   reward          — 잔액 (음수 행 포함, invariant: ≥ 0) [기존 호환]
+//   penalty         — 평생 누적 벌점 [기존 호환]
+//   total           — reward - penalty [기존 호환]
+//   rewardBalance   — 잔액 (reward 와 동일, 명확화)
+//   rewardLifetime  — 양수 reward 합 (총 획득)
+//   rewardRedeemed  — 발급 차감 절대값
+//   rewardBurnt     — 30점 도달 소멸 절대값
+//   penaltyQuarter  — KST 현재 분기 누적 벌점
+//   penaltyThreshold — 30 (REWARD_RULES 와 일치 X — PENALTY_RULES.withdrawAt)
+//   quarterStart / quarterEnd — 분기 경계
+//   withdrawalReviewAt — 30점 도달 검토 진입 여부
+//   activeRedemptions — requested/auto_pending/issued 상태 redemption (최근 5건)
 export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
+  const { getCurrentQuarterStartKST, getNextQuarterStartKST } = await import('@/lib/utils');
+  const { PENALTY_RULES } = await import('@/lib/constants');
   const supabase = await createClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { points: [], summary: { reward: 0, penalty: 0, total: 0 } };
+  const emptySummary = {
+    reward: 0,
+    penalty: 0,
+    total: 0,
+    rewardBalance: 0,
+    rewardLifetime: 0,
+    rewardRedeemed: 0,
+    rewardBurnt: 0,
+    penaltyQuarter: 0,
+    penaltyThreshold: PENALTY_RULES.withdrawAt,
+    quarterStart: null as string | null,
+    quarterEnd: null as string | null,
+    withdrawalReviewAt: null as string | null,
+    activeRedemptions: [] as Array<{
+      id: string;
+      status: string;
+      voucher_code: string | null;
+      voucher_amount: number | null;
+      requested_at: string;
+      issued_at: string | null;
+    }>,
+  };
+  if (!user) return { points: [], summary: emptySummary };
 
   let query = supabase
     .from('points')
@@ -766,23 +804,248 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     query = query.eq('type', filter);
   }
 
-  const { data } = await query;
+  const quarterStart = getCurrentQuarterStartKST();
+  const quarterEnd = getNextQuarterStartKST();
 
-  // 총점 계산
+  const [{ data }, { data: profile }, { data: redemptions }] = await Promise.all([
+    query,
+    supabase
+      .from('student_profiles')
+      .select('withdrawal_review_at')
+      .eq('id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('reward_redemptions')
+      .select('id, status, voucher_code, voucher_amount, requested_at, issued_at')
+      .eq('student_id', user.id)
+      .in('status', ['requested', 'auto_pending', 'issued'])
+      .order('requested_at', { ascending: false })
+      .limit(5),
+  ]);
+
   const allPoints = data || [];
-  const reward = allPoints.filter((p) => p.type === 'reward').reduce((sum, p) => sum + p.amount, 0);
-  const penalty = allPoints
-    .filter((p) => p.type === 'penalty')
-    .reduce((sum, p) => sum + p.amount, 0);
+
+  let rewardLifetime = 0;
+  let rewardRedeemed = 0;
+  let rewardBurnt = 0;
+  let rewardBalance = 0;
+  let penaltyLifetime = 0;
+  let penaltyQuarter = 0;
+  for (const p of allPoints) {
+    if (p.type === 'reward') {
+      rewardBalance += p.amount;
+      if (p.event_kind === 'redeem') rewardRedeemed += -p.amount;
+      else if (p.event_kind === 'reset_on_threshold') rewardBurnt += -p.amount;
+      else if (p.amount > 0) rewardLifetime += p.amount;
+    } else if (p.type === 'penalty') {
+      penaltyLifetime += p.amount;
+      if (new Date(p.created_at) >= quarterStart) penaltyQuarter += p.amount;
+    }
+  }
 
   return {
     points: allPoints,
     summary: {
-      reward,
-      penalty,
-      total: reward - penalty,
+      reward: rewardBalance,
+      penalty: penaltyLifetime,
+      total: rewardBalance - penaltyLifetime,
+      rewardBalance,
+      rewardLifetime,
+      rewardRedeemed,
+      rewardBurnt,
+      penaltyQuarter,
+      penaltyThreshold: PENALTY_RULES.withdrawAt,
+      quarterStart: quarterStart.toISOString(),
+      quarterEnd: quarterEnd.toISOString(),
+      withdrawalReviewAt: profile?.withdrawal_review_at ?? null,
+      activeRedemptions: redemptions ?? [],
     },
   };
+}
+
+/** 단계 12: 본인 정책 동의 여부 확인 (v1 기준). 학생/학부모 공용. */
+export async function checkPolicyAcknowledgement(): Promise<{
+  acknowledged: boolean;
+  version: string;
+}> {
+  const { POLICY_VERSION } = await import('@/lib/constants');
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { acknowledged: true, version: POLICY_VERSION };
+
+  const { data } = await supabase
+    .from('policy_acknowledgements')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('policy_version', POLICY_VERSION)
+    .maybeSingle();
+
+  return { acknowledged: !!data, version: POLICY_VERSION };
+}
+
+/** 단계 12: 정책 동의 INSERT. RLS WITH CHECK (user_id = auth.uid()) 로 본인만 허용. */
+export async function acknowledgePolicy(): Promise<{ success: true } | { error: string }> {
+  const { POLICY_VERSION } = await import('@/lib/constants');
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { error } = await supabase
+    .from('policy_acknowledgements')
+    .insert({ user_id: user.id, policy_version: POLICY_VERSION });
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      // 이미 동의함 — silent success
+      return { success: true };
+    }
+    console.error('acknowledgePolicy error:', error);
+    return { error: '정책 동의 처리에 실패했습니다.' };
+  }
+  return { success: true };
+}
+
+/** 단계 9: 오늘 자동 상점 진행도 (학습일 종료 전 실시간 계산) */
+export async function getTodayFocusProgress() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return null;
+  }
+  const { REWARD_RULES } = await import('@/lib/constants');
+
+  const studyDate = getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const [{ data: attendance }, { data: subjects }] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('type, timestamp')
+      .eq('student_id', user.id)
+      .gte('timestamp', start.toISOString())
+      .lte('timestamp', end.toISOString())
+      .order('timestamp', { ascending: true })
+      .limit(2000),
+    supabase
+      .from('subjects')
+      .select('started_at, ended_at')
+      .eq('student_id', user.id)
+      .gte('started_at', start.toISOString())
+      .lte('started_at', end.toISOString())
+      .limit(500),
+  ]);
+
+  // daily-reset 의 calculateUnclassifiedMinutes 와 동일 알고리즘 (현재 시각까지 클램프).
+  const now = new Date();
+  const effectiveEnd = now < end ? now : end;
+  const inSessions: Array<[number, number]> = [];
+  let inStart: number | null = null;
+  for (const a of attendance ?? []) {
+    const t = new Date(a.timestamp).getTime();
+    if (a.type === 'check_in' || a.type === 'break_end') {
+      if (inStart === null) inStart = t;
+    } else if (a.type === 'check_out' || a.type === 'break_start') {
+      if (inStart !== null) {
+        inSessions.push([inStart, t]);
+        inStart = null;
+      }
+    }
+  }
+  if (inStart !== null) inSessions.push([inStart, effectiveEnd.getTime()]);
+
+  const subSessions: Array<[number, number]> = (subjects ?? []).map((s) => [
+    new Date(s.started_at).getTime(),
+    s.ended_at ? new Date(s.ended_at).getTime() : effectiveEnd.getTime(),
+  ]);
+  let classifiedMs = 0;
+  for (const [iStart, iEnd] of inSessions) {
+    for (const [sStart, sEnd] of subSessions) {
+      const overlapStart = Math.max(iStart, sStart);
+      const overlapEnd = Math.min(iEnd, sEnd);
+      if (overlapEnd > overlapStart) classifiedMs += overlapEnd - overlapStart;
+    }
+  }
+  const studyMs = inSessions.reduce((s, [a, b]) => s + (b - a), 0);
+  const studyMinutes = Math.floor(studyMs / 60000);
+  const unclassifiedMinutes = Math.max(0, Math.floor((studyMs - classifiedMs) / 60000));
+
+  // dayStart KST 요일 (월~금 = 평일)
+  const dayStartKst = new Date(start.getTime() + 9 * 60 * 60 * 1000);
+  const dow = dayStartKst.getUTCDay();
+  const isWeekday = (REWARD_RULES.dailyFocusWeekdays as readonly number[]).includes(dow);
+
+  return {
+    studyMinutes,
+    unclassifiedMinutes,
+    targetMinutes: REWARD_RULES.dailyFocusHours * 60,
+    graceMinutes: REWARD_RULES.dailyFocusUnclassifiedGraceMinutes,
+    isWeekday,
+  };
+}
+
+/** 단계 9: 최근 N일 자동 상점 평가 이력 */
+export async function getRecentDailyFocusEvaluations(days: number = 7) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // 어제부터 N-1일 전까지
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setUTCDate(startDate.getUTCDate() - days);
+
+  const { data } = await supabase
+    .from('daily_focus_evaluations')
+    .select('study_date, study_minutes, unclassified_minutes, is_weekday, granted, granted_reason')
+    .eq('student_id', user.id)
+    .gte('study_date', startDate.toISOString().split('T')[0])
+    .order('study_date', { ascending: false })
+    .limit(days);
+  return data ?? [];
+}
+
+/** 학생 본인 상품권 신청 — RPC request_redemption 호출. 단계 10. */
+export async function requestRedemption(): Promise<
+  { success: true; redemptionId: string } | { error: string }
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data, error } = await supabase.rpc('request_redemption', {
+    p_student_id: user.id,
+  });
+  if (error) {
+    console.error('request_redemption error:', error);
+    return { error: '상품권 신청에 실패했습니다.' };
+  }
+
+  const result = data as
+    | { status: 'requested'; redemption_id: string }
+    | { status: 'rejected_insufficient'; balance: number; queue: number; available: number }
+    | { status: 'rejected_in_review' };
+
+  if (result.status === 'rejected_in_review') {
+    return { error: '퇴원 검토 중에는 신청할 수 없습니다.' };
+  }
+  if (result.status === 'rejected_insufficient') {
+    return {
+      error: `사용 가능 상점이 부족합니다. (잔액 ${result.balance}, 대기 ${result.queue}건)`,
+    };
+  }
+
+  // 관리자 사내 알림은 단계 10 (notification.ts) 에서 보강 예정
+  revalidatePath('/student/points');
+  return { success: true, redemptionId: result.redemption_id };
 }
 
 /** 학생 본인 지점의 상·벌점 프리셋(규정) 조회 — 학생 상벌점 화면 하단 표시용 */

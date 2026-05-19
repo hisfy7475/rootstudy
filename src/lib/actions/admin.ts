@@ -29,6 +29,42 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
   );
 }
 
+// 단계 5: 벌점 삭제·취소 후 분기 누적이 30점 미만으로 떨어지면 검토 취소 + 상점 복구.
+// withdrawal_review_at 이 같은 분기에 세팅돼 있을 때만 동작.
+async function maybeRevertWithdrawalReview(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studentId: string,
+): Promise<void> {
+  const { getCurrentQuarterStartKST } = await import('@/lib/utils');
+  const quarterStart = getCurrentQuarterStartKST();
+
+  const [{ data: profile }, { data: penalties }] = await Promise.all([
+    supabase
+      .from('student_profiles')
+      .select('withdrawal_review_at, threshold_consumed_in_quarter_at')
+      .eq('id', studentId)
+      .maybeSingle(),
+    supabase
+      .from('points')
+      .select('amount')
+      .eq('student_id', studentId)
+      .eq('type', 'penalty')
+      .gte('created_at', quarterStart.toISOString()),
+  ]);
+
+  if (!profile?.withdrawal_review_at) return;
+  const consumedAt = profile.threshold_consumed_in_quarter_at;
+  if (!consumedAt || new Date(consumedAt) < quarterStart) return;
+
+  const quarterTotal = (penalties ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+  if (quarterTotal >= 30) return;
+
+  await supabase.rpc('cancel_withdrawal_review', {
+    p_student_id: studentId,
+    p_restore_reward: true,
+  });
+}
+
 /** 교시 HH:MM(:SS)를 해당 학습일(KST) 상의 절대 시각으로 변환 (새벽 시간은 다음날 달력으로 보정) */
 function kstInstantOnStudyDay(dateStr: string, timeHHMM: string): Date {
   const raw = timeHHMM.trim();
@@ -902,31 +938,82 @@ export async function givePoints(
     }
   }
 
-  // preset 지정 시 (student, preset, KST 일자) partial unique index 가 같은 날 중복을 차단.
-  // 표현식 unique index (date_trunc) 는 onConflict 미지원이라 일반 INSERT 후 23505 catch.
-  const { error } = await supabase.from('points').insert({
-    student_id: studentId,
-    admin_id: user.id,
-    type,
-    amount,
-    reason,
-    is_auto: isAuto,
-    preset_id: effectivePresetId,
-    preset_type: effectivePresetType,
-  });
+  // 단계 8: 벌점은 RPC give_penalty_with_threshold_check 로 처리.
+  //   - 임계치 hook (10/20/25/30) + 단계 알림 dedupe + 30점 도달 시 handle_penalty_threshold
+  //   - 모두 단일 트랜잭션 (CAS + 락)
+  // 상점은 기존 INSERT 유지.
+  type ThresholdResult =
+    | {
+        status: 'consumed';
+        balance_before: number;
+        auto_pending_created: number;
+        remainder_burnt: number;
+      }
+    | { status: 'already_consumed_this_quarter' };
+  let warnings: Array<'warn_10' | 'warn_20' | 'warn_25'> = [];
+  let thresholdResult: ThresholdResult | null = null;
 
-  if (error) {
-    // 23505 = unique_violation. KST 일자 중복 차단에 걸린 경우.
-    if ((error as { code?: string }).code === '23505') {
-      return { error: '오늘 이미 같은 항목으로 부여됐습니다.' };
+  if (type === 'penalty') {
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'give_penalty_with_threshold_check',
+      {
+        p_student_id: studentId,
+        p_admin_id: user.id,
+        p_amount: amount,
+        p_reason: reason,
+        p_preset_id: effectivePresetId,
+        p_event_kind: isAuto
+          ? reason === '지각'
+            ? 'auto_late'
+            : reason === '조기퇴실'
+              ? 'auto_early'
+              : 'auto_weekly'
+          : 'manual',
+      },
+    );
+
+    if (rpcError) {
+      if ((rpcError as { code?: string }).code === '23505') {
+        return { error: '오늘 이미 같은 항목으로 부여됐습니다.' };
+      }
+      console.error('give_penalty_with_threshold_check error:', rpcError);
+      return { error: '벌점 부여에 실패했습니다.' };
     }
-    console.error('Error giving points:', error);
-    return { error: '상벌점 부여에 실패했습니다.' };
+    const result = rpcData as {
+      warnings: Array<'warn_10' | 'warn_20' | 'warn_25'>;
+      threshold: ThresholdResult | null;
+    };
+    warnings = result.warnings ?? [];
+    thresholdResult = result.threshold;
+  } else {
+    // 상점은 기존 단순 INSERT (event_kind='manual' 또는 auto_daily_focus 등은 cron 측에서 직접 INSERT)
+    const { error } = await supabase.from('points').insert({
+      student_id: studentId,
+      admin_id: user.id,
+      type,
+      amount,
+      reason,
+      is_auto: isAuto,
+      preset_id: effectivePresetId,
+      preset_type: effectivePresetType,
+      event_kind: isAuto ? 'auto_weekly' : 'manual',
+    });
+    if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        return { error: '오늘 이미 같은 항목으로 부여됐습니다.' };
+      }
+      console.error('Error giving points:', error);
+      return { error: '상벌점 부여에 실패했습니다.' };
+    }
   }
 
   // 학생에게 알림 발송 (자동 부여가 아닌 경우만 - 자동은 student.ts에서 처리)
   if (!isAuto) {
-    const { createStudentNotification, sendKakaoAlimtalkToParent } = await import('./notification');
+    const {
+      createStudentNotification,
+      sendKakaoAlimtalkToParent,
+      sendKakaoAlimtalkToParentCritical,
+    } = await import('./notification');
     await createStudentNotification({
       studentId,
       type: 'point',
@@ -935,40 +1022,322 @@ export async function givePoints(
       link: '/student/points',
     }).catch(console.error);
 
-    // 학부모에게 카카오 알림톡 발송
-    try {
-      const { data: studentProfile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', studentId)
-        .single();
+    // 학부모 알림톡 — dedupe 매트릭스(G 섹션):
+    //   매 벌점마다 알림톡 발송하지 않고, 단계 알림(warn_25/30 reached) 또는 상점만.
+    //   상점은 매번 알림톡, 벌점은 25점/30점 도달 시점에 통합 알림톡 1회.
+    //   25/30 은 critical → 실패 시 큐 enqueue (백로그 6).
+    const shouldSendKakao =
+      type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
+    const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
 
-      const { data: parentLink } = await supabase
-        .from('parent_student_links')
-        .select('parent_id')
-        .eq('student_id', studentId)
-        .limit(1)
-        .maybeSingle();
+    if (shouldSendKakao) {
+      try {
+        const { data: studentProfile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', studentId)
+          .single();
 
-      if (parentLink?.parent_id && studentProfile?.name) {
-        const pointTypeText = type === 'reward' ? '상점' : '벌점';
-        const pointSign = type === 'reward' ? '+' : '-';
-        const alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
-        await sendKakaoAlimtalkToParent({
-          parentId: parentLink.parent_id,
+        const { data: parentLink } = await supabase
+          .from('parent_student_links')
+          .select('parent_id')
+          .eq('student_id', studentId)
+          .limit(1)
+          .maybeSingle();
+
+        if (parentLink?.parent_id && studentProfile?.name) {
+          let alimtalkMessage: string;
+          if (thresholdResult?.status === 'consumed') {
+            const burnt = thresholdResult.remainder_burnt;
+            const protectedCount = thresholdResult.auto_pending_created;
+            const protectedText =
+              protectedCount > 0
+                ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 큐로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
+                : burnt > 0
+                  ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
+                  : '';
+            alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
+          } else if (warnings.includes('warn_25')) {
+            alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
+          } else {
+            const pointTypeText = type === 'reward' ? '상점' : '벌점';
+            const pointSign = type === 'reward' ? '+' : '-';
+            alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
+          }
+          if (isCritical) {
+            const category =
+              thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
+            await sendKakaoAlimtalkToParentCritical({
+              parentId: parentLink.parent_id,
+              studentId,
+              message: alimtalkMessage,
+              category,
+              type: 'point',
+            }).catch(console.error);
+          } else {
+            await sendKakaoAlimtalkToParent({
+              parentId: parentLink.parent_id,
+              studentId,
+              message: alimtalkMessage,
+              type: 'point',
+            }).catch(console.error);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to send kakao alimtalk for points:', err);
+      }
+    }
+
+    // 학생 단계 알림 — 인앱 추가 발송 (warn_10/20/25 별 톤)
+    if (warnings.length > 0) {
+      const warnMessages: Record<(typeof warnings)[number], { title: string; message: string }> = {
+        warn_10: {
+          title: '분기 벌점 10점에 도달했어요',
+          message: '학습 페이스를 조금만 더 신경 써주세요.',
+        },
+        warn_20: {
+          title: '주의 — 분기 벌점 20점 도달',
+          message: '30점 도달 시 보유 상점이 모두 소멸됩니다.',
+        },
+        warn_25: {
+          title: '경고 — 분기 벌점 25점 도달',
+          message: '5점만 더 쌓이면 보유 상점이 소멸되고 퇴원 검토 대상이 됩니다.',
+        },
+      };
+      for (const w of warnings) {
+        const m = warnMessages[w];
+        await createStudentNotification({
           studentId,
-          message: alimtalkMessage,
           type: 'point',
+          title: m.title,
+          message: m.message,
+          link: '/student/points',
         }).catch(console.error);
       }
-    } catch (err) {
-      console.error('Failed to send kakao alimtalk for points:', err);
+    }
+
+    // 30점 도달 학생 인앱 알림
+    if (thresholdResult?.status === 'consumed') {
+      await createStudentNotification({
+        studentId,
+        type: 'point',
+        title: '면담이 필요합니다',
+        message: '원장님께서 곧 안내해드릴게요.',
+        link: '/student/points',
+      }).catch(console.error);
     }
   }
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
-  return { success: true };
+  return { success: true, warnings, threshold: thresholdResult };
+}
+
+// 상점 다중 학생 일괄 부여 — 동일 항목을 N 명에게 한 번에 부여한다.
+//
+// 단건 givePoints 의 reward 분기를 학생 리스트로 확장. 다음을 보장:
+//   - 사전 IN 조회 1회로 profiles / parent_student_links N+1 회피.
+//   - 학생별 branch preset 재매칭. presetId 가 있는데 학생 branch 에서 동일 reason 의
+//     active preset 을 찾지 못하면 preset_id=null 로 INSERT 하지 않고 skip (KST 일자
+//     unique 인덱스가 preset_id IS NOT NULL 조건이라 null INSERT 는 중복 차단을 우회).
+//   - 23505 (오늘 이미 같은 항목) 는 부분 성공 허용 — 학생별 INSERT 직렬 처리.
+//   - 인앱 알림은 createBulkStudentNotifications 단일 호출. 학부모 카카오 알림톡은
+//     fire-and-forget (단건 경로와 동일한 best-effort 정책).
+//
+// 벌점은 임계치 hook 이 학생별로 RPC 트랜잭션을 타야 안전해 이 함수 범위 밖이다.
+export async function giveRewardBatch(params: {
+  studentIds: string[];
+  amount: number;
+  reason: string;
+  presetId: string | null;
+}): Promise<{
+  success: boolean;
+  successCount: number;
+  duplicateCount: number;
+  unmatchedCount: number;
+  failedCount: number;
+  duplicateNames?: string[];
+  unmatchedNames?: string[];
+  error?: string;
+}> {
+  const { studentIds, amount, reason, presetId } = params;
+
+  if (!Array.isArray(studentIds) || studentIds.length === 0) {
+    return {
+      success: false,
+      successCount: 0,
+      duplicateCount: 0,
+      unmatchedCount: 0,
+      failedCount: 0,
+      error: '학생을 선택해주세요.',
+    };
+  }
+  if (!Number.isFinite(amount) || amount < 1) {
+    return {
+      success: false,
+      successCount: 0,
+      duplicateCount: 0,
+      unmatchedCount: 0,
+      failedCount: 0,
+      error: '올바른 점수를 입력해주세요.',
+    };
+  }
+  if (!reason || !reason.trim()) {
+    return {
+      success: false,
+      successCount: 0,
+      duplicateCount: 0,
+      unmatchedCount: 0,
+      failedCount: 0,
+      error: '사유를 입력해주세요.',
+    };
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      success: false,
+      successCount: 0,
+      duplicateCount: 0,
+      unmatchedCount: 0,
+      failedCount: 0,
+      error: '로그인이 필요합니다.',
+    };
+  }
+
+  // 사전 일괄 조회 (N+1 회피)
+  const [profilesRes, linksRes] = await Promise.all([
+    supabase.from('profiles').select('id, name, branch_id').in('id', studentIds),
+    supabase
+      .from('parent_student_links')
+      .select('parent_id, student_id')
+      .in('student_id', studentIds),
+  ]);
+  const profilesById = new Map<string, { name: string; branch_id: string | null }>();
+  for (const p of (profilesRes.data ?? []) as Array<{
+    id: string;
+    name: string | null;
+    branch_id: string | null;
+  }>) {
+    profilesById.set(p.id, { name: p.name ?? '', branch_id: p.branch_id });
+  }
+  // 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
+  const firstParentByStudent = new Map<string, string>();
+  for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
+    if (!firstParentByStudent.has(l.student_id)) {
+      firstParentByStudent.set(l.student_id, l.parent_id);
+    }
+  }
+
+  // 학생별 branch preset 재매칭 — 입력 presetId 가 학생 branch 와 다를 수 있음 (슈퍼관리자)
+  async function resolveRewardPresetForStudent(
+    branchId: string | null,
+    inputPresetId: string,
+  ): Promise<string | null> {
+    if (!branchId) return null;
+    const { data: preset } = await supabase
+      .from('reward_presets')
+      .select('id, branch_id')
+      .eq('id', inputPresetId)
+      .maybeSingle();
+    if (preset && (preset.branch_id as string) === branchId) return inputPresetId;
+    const { data: matched } = await supabase
+      .from('reward_presets')
+      .select('id')
+      .eq('branch_id', branchId)
+      .eq('reason', reason)
+      .eq('is_active', true)
+      .maybeSingle();
+    return (matched?.id as string | undefined) ?? null;
+  }
+
+  const successIds: string[] = [];
+  const duplicateNames: string[] = [];
+  const unmatchedNames: string[] = [];
+  let failedCount = 0;
+
+  for (const studentId of studentIds) {
+    const profile = profilesById.get(studentId);
+    const studentName = profile?.name || '학생';
+
+    let effectivePresetId: string | null = null;
+    let effectivePresetType: 'reward' | null = null;
+
+    if (presetId) {
+      effectivePresetId = await resolveRewardPresetForStudent(profile?.branch_id ?? null, presetId);
+      if (!effectivePresetId) {
+        unmatchedNames.push(studentName);
+        continue;
+      }
+      effectivePresetType = 'reward';
+    }
+
+    const { error } = await supabase.from('points').insert({
+      student_id: studentId,
+      admin_id: user.id,
+      type: 'reward',
+      amount,
+      reason,
+      is_auto: false,
+      preset_id: effectivePresetId,
+      preset_type: effectivePresetType,
+      event_kind: 'manual',
+    });
+
+    if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        duplicateNames.push(studentName);
+      } else {
+        console.error('giveRewardBatch insert error:', error, { studentId });
+        failedCount++;
+      }
+      continue;
+    }
+    successIds.push(studentId);
+  }
+
+  // 알림 발송 — 성공 학생 한정
+  if (successIds.length > 0) {
+    const { createBulkStudentNotifications, sendKakaoAlimtalkToParent } =
+      await import('./notification');
+    await createBulkStudentNotifications(successIds, {
+      type: 'point',
+      title: '상점이 부여되었습니다',
+      message: `${reason} (+${amount}점)`,
+      link: '/student/points',
+    }).catch((e) => console.error('giveRewardBatch bulk notification error:', e));
+
+    // 학부모 알림톡 — fire-and-forget. 단건과 동일한 메시지 포맷.
+    for (const studentId of successIds) {
+      const parentId = firstParentByStudent.get(studentId);
+      const profile = profilesById.get(studentId);
+      if (!parentId || !profile?.name) continue;
+      const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
+      void sendKakaoAlimtalkToParent({
+        parentId,
+        studentId,
+        message: alimtalkMessage,
+        type: 'point',
+      }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
+    }
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+
+  return {
+    success: true,
+    successCount: successIds.length,
+    duplicateCount: duplicateNames.length,
+    unmatchedCount: unmatchedNames.length,
+    failedCount,
+    ...(duplicateNames.length > 0 ? { duplicateNames } : {}),
+    ...(unmatchedNames.length > 0 ? { unmatchedNames } : {}),
+  };
 }
 
 // 상벌점 현황 — points_summary RPC 로 단일 쿼리 집계.
@@ -1115,6 +1484,7 @@ export async function getAllPointsHistory(
 
 // 필터 조건에 매칭되는 모든 상벌점 일괄 삭제 (페이지네이션된 화면에서 "필터 결과 전체 삭제" 용도).
 // branch 격리는 RLS 자동 처리.
+// protected event_kind 는 사전 필터로 제외 + DB BEFORE DELETE 트리거 이중 안전망.
 export async function deletePointsByFilter(params: {
   type?: 'reward' | 'penalty';
   studentId?: string;
@@ -1122,23 +1492,35 @@ export async function deletePointsByFilter(params: {
 }) {
   const supabase = await createClient();
 
-  // 1) 매칭되는 ID 목록 조회 (count 와 deletedCount 정확성 위해)
-  let idsQuery = supabase.from('points').select('id', { count: 'exact', head: false });
+  // 1) 매칭되는 행 조회 (event_kind/type/student_id 포함, count + 학생별 분기 재계산용)
+  let idsQuery = supabase
+    .from('points')
+    .select('id, student_id, type, event_kind', { count: 'exact', head: false });
   if (params.type) idsQuery = idsQuery.eq('type', params.type);
   if (params.studentId) idsQuery = idsQuery.eq('student_id', params.studentId);
   if (params.q && params.q.trim()) {
     const pattern = `%${params.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
     idsQuery = idsQuery.ilike('reason', pattern);
   }
+  // protected event_kind 는 사전 제외 (DB 트리거가 이중 차단하지만 silent skip 위해)
+  idsQuery = idsQuery.not(
+    'event_kind',
+    'in',
+    '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus)',
+  );
 
   const { data: idsData, error: idsError } = await idsQuery.limit(10000);
   if (idsError) {
     return { success: false, error: '대상 조회 실패', deletedCount: 0 };
   }
-  const ids = (idsData ?? []).map((r) => r.id as string);
-  if (ids.length === 0) {
+  const rows = (idsData ?? []) as Array<{ id: string; student_id: string; type: string }>;
+  if (rows.length === 0) {
     return { success: true, deletedCount: 0 };
   }
+  const ids = rows.map((r) => r.id);
+  const penaltyStudentIds = Array.from(
+    new Set(rows.filter((r) => r.type === 'penalty').map((r) => r.student_id)),
+  );
 
   // 2) weekly_point_history 참조 해제 (deletePoints 와 동일 패턴)
   await supabase.from('weekly_point_history').update({ point_id: null }).in('point_id', ids);
@@ -1150,13 +1532,391 @@ export async function deletePointsByFilter(params: {
     return { success: false, error: '삭제 실패', deletedCount: 0 };
   }
 
+  // 4) 영향 받은 학생별 분기 누적 재계산 → 30점 미만이면 자동 검토 취소
+  for (const sid of penaltyStudentIds) {
+    await maybeRevertWithdrawalReview(supabase, sid).catch(console.error);
+  }
+
   revalidatePath('/admin');
   revalidatePath('/admin/points');
   revalidatePath('/admin/notifications');
   return { success: true, deletedCount: ids.length };
 }
 
+// 단계 8: 벌점 부여 dry-run (관리자 confirm 모달용)
+export async function previewPenalty(studentId: string, amount: number) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('preview_penalty', {
+    p_student_id: studentId,
+    p_amount: amount,
+  });
+  if (error) {
+    console.error('preview_penalty error:', error);
+    return { error: '미리보기 실패' };
+  }
+  return {
+    success: true,
+    preview: data as {
+      quarter_total_before: number;
+      quarter_total_after: number;
+      thresholds_reached: number[];
+      reaches_30: boolean;
+      current_balance: number;
+      queue_count: number;
+      protected_auto_pending: number;
+      burnt_estimate: number;
+    },
+  };
+}
+
+// 단계 8: 퇴원 검토 대기 큐 조회 (관리자 화면)
+export async function getWithdrawalReviewQueue(branchId: string | null) {
+  const supabase = await createClient();
+  const { getCurrentQuarterStartKST } = await import('@/lib/utils');
+  const qStart = getCurrentQuarterStartKST();
+
+  let query = supabase
+    .from('student_profiles')
+    .select(
+      `
+      id,
+      seat_number,
+      withdrawal_review_at,
+      withdrawal_review_reason,
+      threshold_consumed_in_quarter_at,
+      profiles!inner (
+        name,
+        branch_id,
+        withdrawn_at
+      )
+    `,
+    )
+    .not('withdrawal_review_at', 'is', null)
+    .is('profiles.withdrawn_at', null)
+    .order('withdrawal_review_at', { ascending: false });
+
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+
+  const { data: students } = await query.limit(200);
+  if (!students || students.length === 0) return [];
+
+  // 학생별 분기 누적 벌점 + 마지막 벌점 + auto_pending 건수 병렬 조회
+  const studentIds = students.map((s) => s.id);
+  const [{ data: penalties }, { data: lastPoints }, { data: pendings }] = await Promise.all([
+    supabase
+      .from('points')
+      .select('student_id, amount')
+      .in('student_id', studentIds)
+      .eq('type', 'penalty')
+      .gte('created_at', qStart.toISOString()),
+    supabase
+      .from('points')
+      .select('student_id, reason, amount, created_at')
+      .in('student_id', studentIds)
+      .eq('type', 'penalty')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('reward_redemptions')
+      .select('student_id, status')
+      .in('student_id', studentIds)
+      .eq('status', 'auto_pending'),
+  ]);
+
+  const penaltyByStudent = new Map<string, number>();
+  for (const p of penalties ?? []) {
+    penaltyByStudent.set(p.student_id, (penaltyByStudent.get(p.student_id) ?? 0) + p.amount);
+  }
+  const lastByStudent = new Map<string, { reason: string; amount: number; createdAt: string }>();
+  for (const p of lastPoints ?? []) {
+    if (!lastByStudent.has(p.student_id)) {
+      lastByStudent.set(p.student_id, {
+        reason: p.reason,
+        amount: p.amount,
+        createdAt: p.created_at,
+      });
+    }
+  }
+  const pendingByStudent = new Map<string, number>();
+  for (const r of pendings ?? []) {
+    pendingByStudent.set(r.student_id, (pendingByStudent.get(r.student_id) ?? 0) + 1);
+  }
+
+  return students.map((s) => {
+    const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+    return {
+      studentId: s.id,
+      name: (profile as { name?: string })?.name ?? '이름 없음',
+      seatNumber: s.seat_number,
+      reviewAt: s.withdrawal_review_at,
+      reviewReason: s.withdrawal_review_reason,
+      consumedAt: s.threshold_consumed_in_quarter_at,
+      penaltyQuarter: penaltyByStudent.get(s.id) ?? 0,
+      lastPenalty: lastByStudent.get(s.id) ?? null,
+      protectedRedemptionCount: pendingByStudent.get(s.id) ?? 0,
+    };
+  });
+}
+
+// 단계 8: 퇴원 검토 확정 (실제 퇴원 처리)
+export async function confirmWithdrawal(studentId: string, reason?: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: profile } = await supabase
+    .from('student_profiles')
+    .select('withdrawal_review_at, withdrawal_review_reason')
+    .eq('id', studentId)
+    .maybeSingle();
+  if (!profile?.withdrawal_review_at) {
+    return { error: '퇴원 검토 대상이 아닙니다.' };
+  }
+
+  const result = await softDeleteUser({
+    userId: studentId,
+    withdrawnBy: user.id,
+    reason: reason ?? profile.withdrawal_review_reason ?? '벌점 30점 도달 (관리자 확정)',
+  });
+
+  if ('error' in result) {
+    return { error: result.error };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true, warning: 'warning' in result ? result.warning : undefined };
+}
+
+// 단계 8: 퇴원 검토 취소 + 옵션 상점 복구
+export async function cancelWithdrawalReviewAction(
+  studentId: string,
+  restoreReward: boolean = true,
+) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_withdrawal_review', {
+    p_student_id: studentId,
+    p_restore_reward: restoreReward,
+  });
+  if (error) {
+    console.error('cancel_withdrawal_review error:', error);
+    return { error: '검토 취소 실패' };
+  }
+  const result = data as
+    | { status: 'cancelled'; restored_reward: number; cancelled_pending: number }
+    | { status: 'not_in_review' };
+
+  if (result.status === 'not_in_review') {
+    return { error: '이미 검토 대상이 아닙니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return {
+    success: true,
+    restoredReward: result.restored_reward,
+    cancelledPending: result.cancelled_pending,
+  };
+}
+
+// 단계 10: 상품권 큐 조회 (관리자 화면)
+export async function getRedemptionQueue(branchId: string | null) {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from('reward_redemptions')
+    .select(
+      `
+      id,
+      student_id,
+      status,
+      points_used,
+      voucher_amount,
+      voucher_code,
+      trigger,
+      requested_at,
+      issued_at,
+      profiles!reward_redemptions_student_id_fkey (
+        name,
+        branch_id
+      )
+    `,
+    )
+    .in('status', ['requested', 'auto_pending'])
+    .order('requested_at', { ascending: true });
+
+  if (branchId) {
+    query = query.eq('profiles.branch_id', branchId);
+  }
+  const { data } = await query.limit(200);
+  return data ?? [];
+}
+
+// 단계 10: 상품권 발급 (RPC issue_redemption 호출 + 알림)
+export async function issueRedemption(params: {
+  redemptionId: string;
+  voucherAmount: number;
+  voucherCode: string;
+  voucherNote?: string;
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data, error } = await supabase.rpc('issue_redemption', {
+    p_redemption_id: params.redemptionId,
+    p_admin_id: user.id,
+    p_voucher_amount: params.voucherAmount,
+    p_voucher_code: params.voucherCode,
+    p_voucher_note: params.voucherNote ?? null,
+  });
+  if (error) {
+    console.error('issue_redemption error:', error);
+    return { error: '상품권 발급 실패' };
+  }
+  const result = data as
+    | { status: 'issued'; student_id: string }
+    | { status: 'rejected_insufficient'; balance: number }
+    | { status: 'not_pending' };
+
+  if (result.status === 'rejected_insufficient') {
+    return { error: `잔액 부족으로 자동 거부되었습니다. (잔액 ${result.balance})` };
+  }
+  if (result.status === 'not_pending') {
+    return { error: '이미 처리된 신청입니다.' };
+  }
+
+  // 학생/학부모 알림
+  const { createStudentNotification, sendKakaoAlimtalkToParent } = await import('./notification');
+  await createStudentNotification({
+    studentId: result.student_id,
+    type: 'point',
+    title: '상품권이 발급되었습니다',
+    message: `${params.voucherAmount.toLocaleString()}원 / 코드: ${params.voucherCode}`,
+    link: '/student/points',
+  }).catch(console.error);
+
+  // 학부모 알림톡
+  try {
+    const { data: parentLink } = await supabase
+      .from('parent_student_links')
+      .select('parent_id')
+      .eq('student_id', result.student_id)
+      .limit(1)
+      .maybeSingle();
+    const { data: studentProfile } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', result.student_id)
+      .single();
+    if (parentLink?.parent_id && studentProfile?.name) {
+      await sendKakaoAlimtalkToParent({
+        parentId: parentLink.parent_id,
+        studentId: result.student_id,
+        message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
+        type: 'point',
+      }).catch(console.error);
+    }
+  } catch (err) {
+    console.error('Failed to send kakao alimtalk for redemption:', err);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true };
+}
+
+// 단계 10: 상품권 신청 거부
+export async function rejectRedemption(params: { redemptionId: string; reason: string }) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data: row } = await supabase
+    .from('reward_redemptions')
+    .select('student_id, status')
+    .eq('id', params.redemptionId)
+    .maybeSingle();
+  if (!row) return { error: '해당 신청을 찾을 수 없습니다.' };
+  if (!['requested', 'auto_pending'].includes(row.status)) {
+    return { error: '이미 처리된 신청입니다.' };
+  }
+
+  const { error } = await supabase
+    .from('reward_redemptions')
+    .update({
+      status: 'rejected',
+      rejected_at: new Date().toISOString(),
+      rejected_by: user.id,
+      rejected_reason: params.reason,
+    })
+    .eq('id', params.redemptionId);
+  if (error) {
+    console.error('rejectRedemption error:', error);
+    return { error: '거부 처리 실패' };
+  }
+
+  const { createStudentNotification } = await import('./notification');
+  await createStudentNotification({
+    studentId: row.student_id,
+    type: 'point',
+    title: '상품권 신청이 거부되었습니다',
+    message: params.reason,
+    link: '/student/points',
+  }).catch(console.error);
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true };
+}
+
+// 상벌점 취소 (append-only) — DB RPC cancel_point 호출.
+// 원본 행은 그대로 두고 음수 amount 행을 event_kind='manual_cancel' 로 INSERT.
+// type='penalty' 취소 시 분기 누적 < 30 자동 검토 취소 + 상점 복구.
+export async function cancelPoint(pointId: string, reason?: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const { data, error } = await supabase.rpc('cancel_point', {
+    p_point_id: pointId,
+    p_admin_id: user.id,
+    p_reason: reason ?? null,
+  });
+
+  if (error) {
+    console.error('cancel_point error:', error);
+    return { error: '상벌점 취소에 실패했습니다.' };
+  }
+
+  const result = data as { status: string; original_id?: string; event_kind?: string };
+  if (result.status === 'not_found') return { error: '해당 내역을 찾을 수 없습니다.' };
+  if (result.status === 'protected') {
+    return { error: `시스템이 자동 생성한 내역(${result.event_kind})은 취소할 수 없습니다.` };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return { success: true };
+}
+
 // 상벌점 내역 삭제 (점수 원상복구)
+//
+// 정책 (단계 5):
+// - event_kind IN ('reset_on_threshold', 'reset_on_threshold_revert', 'redeem',
+//   'manual_cancel', 'auto_daily_focus') 는 DB BEFORE DELETE 트리거가 차단.
+// - 삭제 후 type='penalty' 라면 분기 누적 재계산 → < 30 이면 자동 검토 취소 + 상점 복구.
+// - append-only 정책 권장: 대안 `cancelPoint` (manual_cancel 음수 행 INSERT) 도 제공.
 export async function deletePoint(pointId: string) {
   const supabase = await createClient();
 
@@ -1165,7 +1925,7 @@ export async function deletePoint(pointId: string) {
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  // 삭제 전에 포인트 정보 확인 (알림용)
+  // 삭제 전에 포인트 정보 확인 (알림용 + event_kind 사전 가드)
   const { data: pointData } = await supabase
     .from('points')
     .select(
@@ -1184,6 +1944,19 @@ export async function deletePoint(pointId: string) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
   }
 
+  const protectedKinds = new Set([
+    'reset_on_threshold',
+    'reset_on_threshold_revert',
+    'redeem',
+    'manual_cancel',
+    'auto_daily_focus',
+  ]);
+  if (protectedKinds.has(pointData.event_kind as string)) {
+    return {
+      error: '시스템이 자동 생성한 내역은 삭제할 수 없습니다. 관리자에게 문의해주세요.',
+    };
+  }
+
   // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제 (deletePoints와 동일)
   const { error: clearRefError } = await supabase
     .from('weekly_point_history')
@@ -1199,6 +1972,11 @@ export async function deletePoint(pointId: string) {
   if (error) {
     console.error('Error deleting point:', error);
     return { error: '상벌점 삭제에 실패했습니다.' };
+  }
+
+  // penalty 삭제 시 분기 누적이 30점 미만이 되면 검토 취소 + 상점 복구
+  if (pointData.type === 'penalty') {
+    await maybeRevertWithdrawalReview(supabase, pointData.student_id).catch(console.error);
   }
 
   // 학생과 연결된 학부모 조회
@@ -1226,6 +2004,7 @@ export async function deletePoint(pointId: string) {
 }
 
 // 상벌점 내역 일괄 삭제 (점수 원상복구)
+// protected event_kind 는 사전 필터로 제외.
 export async function deletePoints(pointIds: string[]) {
   const supabase = await createClient();
 
@@ -1238,7 +2017,7 @@ export async function deletePoints(pointIds: string[]) {
     return { error: '삭제할 내역을 선택해주세요.' };
   }
 
-  // 삭제 전에 포인트 정보들 확인 (알림용)
+  // 삭제 전에 포인트 정보들 확인 (알림용 + event_kind 필터)
   const { data: pointsData } = await supabase
     .from('points')
     .select(
@@ -1250,7 +2029,12 @@ export async function deletePoints(pointIds: string[]) {
       )
     `,
     )
-    .in('id', pointIds);
+    .in('id', pointIds)
+    .not(
+      'event_kind',
+      'in',
+      '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus)',
+    );
 
   if (!pointsData || pointsData.length === 0) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
@@ -1293,6 +2077,14 @@ export async function deletePoints(pointIds: string[]) {
       message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
       link: '/student/points',
     }).catch(console.error);
+  }
+
+  // penalty 삭제 시 학생별 분기 재계산 → 30점 미만이면 자동 검토 취소
+  const penaltyStudentIds = Array.from(
+    new Set(pointsData.filter((p) => p.type === 'penalty').map((p) => p.student_id)),
+  );
+  for (const sid of penaltyStudentIds) {
+    await maybeRevertWithdrawalReview(supabase, sid).catch(console.error);
   }
 
   revalidatePath('/admin');

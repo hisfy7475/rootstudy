@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { DAY_CONFIG } from '@/lib/constants';
-import { formatDate, getStudyDate } from '@/lib/utils';
+import { DAY_CONFIG, REWARD_RULES } from '@/lib/constants';
+import { formatDate, getStudyDate, getStudyDayBounds } from '@/lib/utils';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -23,6 +23,192 @@ function getResetTimeUTC(): { hour: number; minute: number } {
     hour: Math.floor(normalizedUtcMinutes / 60),
     minute: normalizedUtcMinutes % 60,
   };
+}
+
+// 단계 9: 미분류 시간 알고리즘 (의사코드 → 구현)
+// 입력: 학습일 attendance 정렬 + subjects (started_at, ended_at)
+// 반환: { studyMinutes, unclassifiedMinutes }
+//   입실_구간: check_in/break_end → check_out/break_start 페어
+//   미분류 = 입실 구간 − (입실 구간 ∩ subjects 구간)
+function calculateUnclassifiedMinutes(
+  attendance: Array<{ type: string; timestamp: string }>,
+  subjects: Array<{ started_at: string; ended_at: string | null }>,
+  studyDayEnd: Date,
+): { studyMinutes: number; unclassifiedMinutes: number } {
+  const inSessions: Array<[number, number]> = [];
+  let inStart: number | null = null;
+  for (const a of attendance) {
+    const t = new Date(a.timestamp).getTime();
+    if (a.type === 'check_in' || a.type === 'break_end') {
+      if (inStart === null) inStart = t;
+    } else if (a.type === 'check_out' || a.type === 'break_start') {
+      if (inStart !== null) {
+        inSessions.push([inStart, t]);
+        inStart = null;
+      }
+    }
+  }
+  if (inStart !== null) inSessions.push([inStart, studyDayEnd.getTime()]);
+
+  const subSessions: Array<[number, number]> = subjects.map((s) => [
+    new Date(s.started_at).getTime(),
+    s.ended_at ? new Date(s.ended_at).getTime() : studyDayEnd.getTime(),
+  ]);
+
+  let classifiedMs = 0;
+  for (const [iStart, iEnd] of inSessions) {
+    for (const [sStart, sEnd] of subSessions) {
+      const overlapStart = Math.max(iStart, sStart);
+      const overlapEnd = Math.min(iEnd, sEnd);
+      if (overlapEnd > overlapStart) classifiedMs += overlapEnd - overlapStart;
+    }
+  }
+
+  const studyMs = inSessions.reduce((s, [a, b]) => s + (b - a), 0);
+  return {
+    studyMinutes: Math.floor(studyMs / 60000),
+    unclassifiedMinutes: Math.max(0, Math.floor((studyMs - classifiedMs) / 60000)),
+  };
+}
+
+// 단계 9: 자동 일일 상점 평가 (전 학생 순회)
+async function evaluateDailyFocus(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  studyDateStr: string,
+): Promise<{ evaluated: number; granted: number; errors: number }> {
+  // 학습일 경계 (KST)
+  const { start: dayStart, end: dayEnd } = getStudyDayBounds(studyDateStr);
+
+  // 요일 캡: 학습일 시작 기준 KST 요일 (월=1, 일=0)
+  // dayStart 는 학습일 06:00 KST = 다음날 21:00 UTC. KST 요일은 dayStart KST date 기준.
+  const dayStartKst = new Date(dayStart.getTime() + 9 * 60 * 60 * 1000);
+  const dow = dayStartKst.getUTCDay(); // 0=일, 1=월, ..., 6=토
+  const isWeekday = (REWARD_RULES.dailyFocusWeekdays as readonly number[]).includes(dow);
+
+  // 활성 학생 조회 + branch_id (preset 매칭용)
+  const { data: students, error: studentsErr } = await supabase
+    .from('student_profiles')
+    .select(
+      `
+      id,
+      profiles!inner (branch_id, withdrawn_at, is_approved)
+    `,
+    )
+    .is('profiles.withdrawn_at', null)
+    .eq('profiles.is_approved', true);
+  if (studentsErr || !students) {
+    console.error('daily-focus evaluateDailyFocus: fetch students failed', studentsErr);
+    return { evaluated: 0, granted: 0, errors: 1 };
+  }
+
+  // branch 별 daily_focus preset id 매핑
+  const { data: presets } = await supabase
+    .from('reward_presets')
+    .select('id, branch_id')
+    .eq('code', 'daily_focus');
+  const presetByBranch = new Map<string, string>(
+    (presets ?? []).map((p) => [p.branch_id as string, p.id as string]),
+  );
+
+  let evaluated = 0;
+  let granted = 0;
+  let errors = 0;
+
+  for (const s of students) {
+    try {
+      const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+      const branchId = (profile as { branch_id?: string })?.branch_id;
+      const presetId = branchId ? presetByBranch.get(branchId) : null;
+
+      const [{ data: attendance }, { data: subjects }] = await Promise.all([
+        supabase
+          .from('attendance')
+          .select('type, timestamp')
+          .eq('student_id', s.id)
+          .gte('timestamp', dayStart.toISOString())
+          .lte('timestamp', dayEnd.toISOString())
+          .order('timestamp', { ascending: true })
+          .limit(2000),
+        supabase
+          .from('subjects')
+          .select('started_at, ended_at')
+          .eq('student_id', s.id)
+          .gte('started_at', dayStart.toISOString())
+          .lte('started_at', dayEnd.toISOString())
+          .limit(500),
+      ]);
+
+      const { studyMinutes, unclassifiedMinutes } = calculateUnclassifiedMinutes(
+        attendance ?? [],
+        subjects ?? [],
+        dayEnd,
+      );
+
+      let didGrant = false;
+      let reason: string | null = null;
+      if (!isWeekday) {
+        reason = '주말 캡 (월~금만 부여)';
+      } else if (studyMinutes < REWARD_RULES.dailyFocusHours * 60) {
+        reason = `학습시간 부족 (${studyMinutes}분 / ${REWARD_RULES.dailyFocusHours * 60}분)`;
+      } else if (unclassifiedMinutes > REWARD_RULES.dailyFocusUnclassifiedGraceMinutes) {
+        reason = `미분류 시간 초과 (${unclassifiedMinutes}분 / ${REWARD_RULES.dailyFocusUnclassifiedGraceMinutes}분)`;
+      } else {
+        didGrant = true;
+      }
+
+      // daily_focus_evaluations UPSERT (멱등)
+      await supabase.from('daily_focus_evaluations').upsert(
+        {
+          student_id: s.id,
+          study_date: studyDateStr,
+          study_minutes: studyMinutes,
+          unclassified_minutes: unclassifiedMinutes,
+          is_weekday: isWeekday,
+          granted: didGrant,
+          granted_reason: reason,
+        },
+        { onConflict: 'student_id,study_date' },
+      );
+
+      if (didGrant && presetId) {
+        // points INSERT — uq_points_daily_preset 인덱스가 중복 차단
+        const { data: point, error: pointErr } = await supabase
+          .from('points')
+          .insert({
+            student_id: s.id,
+            admin_id: null,
+            type: 'reward',
+            amount: REWARD_RULES.dailyFocusAmount,
+            reason: '일일 학습 3시간 + 과목 분류',
+            is_auto: true,
+            event_kind: 'auto_daily_focus',
+            preset_id: presetId,
+            preset_type: 'reward',
+          })
+          .select('id')
+          .maybeSingle();
+
+        if (pointErr && (pointErr as { code?: string }).code !== '23505') {
+          console.error('daily-focus point insert error:', pointErr);
+          errors++;
+        } else if (point) {
+          granted++;
+          // evaluations 에 point_id 연결
+          await supabase
+            .from('daily_focus_evaluations')
+            .update({ point_id: point.id })
+            .eq('student_id', s.id)
+            .eq('study_date', studyDateStr);
+        }
+      }
+      evaluated++;
+    } catch (e) {
+      console.error('daily-focus eval error for student', s.id, e);
+      errors++;
+    }
+  }
+
+  return { evaluated, granted, errors };
 }
 
 export async function GET(request: Request) {
@@ -83,16 +269,14 @@ export async function GET(request: Request) {
 
     let checkOutCount = 0;
     if (studentsToCheckOut.length > 0) {
-      const checkOutRecords = studentsToCheckOut.map(studentId => ({
+      const checkOutRecords = studentsToCheckOut.map((studentId) => ({
         student_id: studentId,
         type: 'check_out',
         timestamp: resetAt,
         source: 'auto_reset',
       }));
 
-      const { error: checkOutError } = await supabase
-        .from('attendance')
-        .insert(checkOutRecords);
+      const { error: checkOutError } = await supabase.from('attendance').insert(checkOutRecords);
 
       if (checkOutError) {
         throw new Error(`Failed to auto checkout students: ${checkOutError.message}`);
@@ -157,13 +341,23 @@ export async function GET(request: Request) {
 
     const phoneSubmissionResetCount = deletedPhones?.length ?? 0;
 
+    // -------------------------------------------------------
+    // 4. 자동 일일 상점 평가 (단계 9)
+    //    - 학습일(어제) 종료 시점 기준
+    //    - 순공시간 ≥ 3시간 + 미분류 ≤ 5분 + 주 5일 캡(월~금)
+    //    - 결과는 daily_focus_evaluations 에 UPSERT (사후 분석용)
+    //    - 부여 시 points INSERT (event_kind='auto_daily_focus', preset='daily_focus')
+    // -------------------------------------------------------
+    const focusResult = await evaluateDailyFocus(supabase, phoneSubmissionStudyDate);
+
     return NextResponse.json({
       success: true,
-      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s), cleared ${phoneSubmissionResetCount} phone submission row(s) for ${phoneSubmissionStudyDate}`,
+      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s), cleared ${phoneSubmissionResetCount} phone submission row(s) for ${phoneSubmissionStudyDate}. Daily focus: ${focusResult.granted} granted, ${focusResult.evaluated} evaluated.`,
       checkOutCount,
       resetCount: count,
       phoneSubmissionResetCount,
       phoneSubmissionStudyDate,
+      dailyFocus: focusResult,
       resetAt,
       resetUTC,
     });
@@ -171,9 +365,6 @@ export async function GET(request: Request) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Daily subject reset cron error:', errorMessage);
 
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
   }
 }

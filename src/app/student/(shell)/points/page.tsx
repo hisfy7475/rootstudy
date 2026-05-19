@@ -1,5 +1,7 @@
 import { getPoints, getPointPresets } from '@/lib/actions/student';
 import { PointsPageClient } from './points-client';
+import { DailyFocusWidget } from '@/components/student/daily-focus-widget';
+import { Last7DaysCalendarStrip } from '@/components/student/last-7-days-calendar-strip';
 
 export default async function PointsPage() {
   const [{ points, summary }, { rewardPresets, penaltyPresets }] = await Promise.all([
@@ -14,14 +16,21 @@ export default async function PointsPage() {
     reason: p.reason,
     isAuto: p.is_auto,
     createdAt: p.created_at,
+    eventKind: p.event_kind,
   }));
 
   return (
-    <PointsPageClient
-      points={formattedPoints}
-      summary={summary}
-      rewardPresets={rewardPresets.map((r) => ({ reason: r.reason, amount: r.amount }))}
-      penaltyPresets={penaltyPresets.map((p) => ({ reason: p.reason, amount: p.amount }))}
-    />
+    <div className='space-y-4'>
+      <div className='space-y-4 px-4 pt-4'>
+        <DailyFocusWidget />
+        <Last7DaysCalendarStrip />
+      </div>
+      <PointsPageClient
+        points={formattedPoints}
+        summary={summary}
+        rewardPresets={rewardPresets.map((r) => ({ reason: r.reason, amount: r.amount }))}
+        penaltyPresets={penaltyPresets.map((p) => ({ reason: p.reason, amount: p.amount }))}
+      />
+    </div>
   );
 }
