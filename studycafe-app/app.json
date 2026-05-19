@@ -31,6 +31,7 @@
       ]
     ],
     "ios": {
+      "icon": "./assets/icon-ios.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.rootstudy.app",
       "associatedDomains": [

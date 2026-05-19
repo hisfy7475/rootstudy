@@ -4032,6 +4032,27 @@ export async function getAttendanceBoard(
 
     const todayPenalty = (penaltyByStudent[student.id] ?? []).reduce((sum, p) => sum + p.amount, 0);
 
+    // 당일 순공시간(분) — 주간 뷰와 동일 알고리즘. 미퇴실은 min(now, todayEnd)까지 누적.
+    let todayStudyMinutes = 0;
+    let tempStart: Date | null = null;
+    for (const record of attendance) {
+      const ts = new Date(record.timestamp);
+      if (record.type === 'check_in' || record.type === 'break_end') {
+        tempStart = ts;
+      } else if (record.type === 'check_out' || record.type === 'break_start') {
+        if (tempStart) {
+          todayStudyMinutes += Math.floor((ts.getTime() - tempStart.getTime()) / 60000);
+          tempStart = null;
+        }
+      }
+    }
+    if (tempStart) {
+      const endMs = Math.min(Date.now(), todayEnd.getTime());
+      if (endMs > tempStart.getTime()) {
+        todayStudyMinutes += Math.floor((endMs - tempStart.getTime()) / 60000);
+      }
+    }
+
     return {
       id: student.id,
       seatNumber: student.seat_number,
@@ -4048,6 +4069,7 @@ export async function getAttendanceBoard(
       avgFocus,
       todayPenalty,
       focusCount: focusScores.length,
+      todayStudyMinutes,
     };
   });
 

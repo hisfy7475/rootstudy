@@ -47,6 +47,7 @@ interface AttendanceStudent {
   avgFocus: number | null;
   todayPenalty: number;
   focusCount: number;
+  todayStudyMinutes: number;
 }
 
 interface WeeklyStudent {
@@ -114,6 +115,14 @@ function formatTime(isoString: string | null): string {
   if (!isoString) return '-';
   const date = new Date(isoString);
   return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// 순공시간 포맷팅 (분 → "X시간 Y분" 또는 "Y분"). 0 이하는 "0분".
+function formatStudyMinutes(mins: number): string {
+  if (mins <= 0) return '0분';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
 }
 
 // 상태 아이콘 및 색상
@@ -201,6 +210,8 @@ export function AttendanceClient({
   const pageNum = Math.max(1, Number.parseInt(sp.get('page') ?? '1', 10) || 1);
   // 서버/클라이언트 렌더 시각이 달라 hydration mismatch 가 발생하므로 마운트 후에만 값 세팅.
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  // 데이터 갱신 시점만 별도 추적해 헤더 라벨이 "분 단위 시계"가 아닌 "실제 fetch 시각"이 되도록 분리.
+  const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
 
   const [total, setTotal] = useState(initialData.total);
   const [globalStats, setGlobalStats] = useState(initialData.stats);
@@ -213,15 +224,28 @@ export function AttendanceClient({
     getWeekMonday(new Date(todayDate + 'T00:00:00+09:00')),
   );
   const [weeklyLoading, setWeeklyLoading] = useState(false);
-  // 주간 뷰 정렬 상태
+  // 주간 뷰 정렬 상태 (key/asc 를 단일 객체로 묶어 nested setState 회피)
   type WeeklySortKey =
     | 'seatNumber'
     | 'name'
     | 'weeklyStudyMinutes'
     | 'totalPenalty'
     | 'totalReward';
-  const [weeklySortKey, setWeeklySortKey] = useState<WeeklySortKey>('seatNumber');
-  const [weeklySortAsc, setWeeklySortAsc] = useState(true);
+  const [weeklySort, setWeeklySort] = useState<{ key: WeeklySortKey; asc: boolean }>({
+    key: 'seatNumber',
+    asc: true,
+  });
+  const weeklySortKey = weeklySort.key;
+  const weeklySortAsc = weeklySort.asc;
+
+  // 일별 뷰 정렬 상태 (key/asc 를 단일 객체로 묶어 nested setState 회피)
+  type DailySortKey = 'seatNumber' | 'name' | 'status';
+  const [dailySort, setDailySort] = useState<{ key: DailySortKey; asc: boolean }>({
+    key: 'seatNumber',
+    asc: true,
+  });
+  const dailySortKey = dailySort.key;
+  const dailySortAsc = dailySort.asc;
 
   // 상태 필터
   const [activeFilter, setActiveFilter] = useState<StatusFilter>(initialStatus);
@@ -270,14 +294,39 @@ export function AttendanceClient({
   }, [weeklyData, weeklySortKey, weeklySortAsc]);
 
   const handleWeeklySort = useCallback((key: WeeklySortKey) => {
-    setWeeklySortKey((prev) => {
-      if (prev === key) {
-        setWeeklySortAsc((asc) => !asc);
-        return prev;
+    setWeeklySort((prev) => (prev.key === key ? { key, asc: !prev.asc } : { key, asc: true }));
+  }, []);
+
+  // 상태 도메인 정렬 키: 입실 → 외출 → 퇴실(입실 기록 O) → 미등원(입실 기록 X)
+  const getStatusSortKey = useCallback((s: AttendanceStudent): number => {
+    if (s.status === 'checked_in') return 0;
+    if (s.status === 'on_break') return 1;
+    if (s.status === 'checked_out' && s.firstCheckInTime) return 2;
+    return 3;
+  }, []);
+
+  // 일별 뷰 정렬된 데이터 — 전체 data 를 정렬 후 페이지 슬라이스 (sortedData.length === data.length).
+  const sortedData = useMemo(() => {
+    const sorted = [...data].sort((a, b) => {
+      if (dailySortKey === 'name') {
+        return dailySortAsc ? a.name.localeCompare(b.name, 'ko') : b.name.localeCompare(a.name, 'ko');
       }
-      setWeeklySortAsc(true);
-      return key;
+      let aVal: number;
+      let bVal: number;
+      if (dailySortKey === 'status') {
+        aVal = getStatusSortKey(a);
+        bVal = getStatusSortKey(b);
+      } else {
+        aVal = a.seatNumber ?? 9999;
+        bVal = b.seatNumber ?? 9999;
+      }
+      return dailySortAsc ? aVal - bVal : bVal - aVal;
     });
+    return sorted;
+  }, [data, dailySortKey, dailySortAsc, getStatusSortKey]);
+
+  const handleDailySort = useCallback((key: DailySortKey) => {
+    setDailySort((prev) => (prev.key === key ? { key, asc: !prev.asc } : { key, asc: true }));
   }, []);
 
   // 학습일 변경 감지 (06:00 KST 전후로 날짜가 바뀌는 경우)
@@ -300,7 +349,10 @@ export function AttendanceClient({
 
   // 마운트 직후 초기값 세팅 + 이후 1분마다 갱신
   useEffect(() => {
-    setCurrentTime(new Date());
+    const now = new Date();
+    setCurrentTime(now);
+    // SSR 초기 데이터는 마운트 시점을 fetch 시각으로 간주.
+    setLastFetchedAt(now);
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
@@ -383,7 +435,7 @@ export function AttendanceClient({
       setData(result.data);
       setTotal(result.total);
       setGlobalStats(result.stats);
-      setCurrentTime(new Date());
+      setLastFetchedAt(new Date());
     } catch (error) {
       console.error('Failed to refresh:', error);
     } finally {
@@ -451,9 +503,9 @@ export function AttendanceClient({
                     {dateTypeName}
                   </span>
                 )}
-                {isToday && currentTime && (
+                {isToday && lastFetchedAt && (
                   <span className='print:hidden'>
-                    (마지막 업데이트: {currentTime.toLocaleTimeString('ko-KR')})
+                    (마지막 업데이트: {lastFetchedAt.toLocaleTimeString('ko-KR')})
                   </span>
                 )}
               </>
@@ -678,17 +730,75 @@ export function AttendanceClient({
               <table className='w-full text-xs'>
                 <thead className='border-b bg-gray-50 print:bg-gray-100'>
                   <tr>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
-                      번호
+                    {/* 번호 (정렬 가능) */}
+                    <th
+                      className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
+                      onClick={() => handleDailySort('seatNumber')}
+                    >
+                      <span className='inline-flex items-center gap-0.5'>
+                        번호
+                        <span className='print:hidden'>
+                          {dailySortKey === 'seatNumber' ? (
+                            dailySortAsc ? (
+                              <ChevronUp className='h-3 w-3' />
+                            ) : (
+                              <ChevronDown className='h-3 w-3' />
+                            )
+                          ) : (
+                            <ChevronsUpDown className='h-3 w-3 text-gray-300' />
+                          )}
+                        </span>
+                      </span>
                     </th>
-                    <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
-                      이름
+                    {/* 이름 (정렬 가능 — 가나다순) */}
+                    <th
+                      className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
+                      onClick={() => handleDailySort('name')}
+                    >
+                      <span className='inline-flex items-center gap-0.5'>
+                        이름
+                        <span className='print:hidden'>
+                          {dailySortKey === 'name' ? (
+                            dailySortAsc ? (
+                              <ChevronUp className='h-3 w-3' />
+                            ) : (
+                              <ChevronDown className='h-3 w-3' />
+                            )
+                          ) : (
+                            <ChevronsUpDown className='h-3 w-3 text-gray-300' />
+                          )}
+                        </span>
+                      </span>
                     </th>
-                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
-                      상태
+                    {/* 상태 (정렬 가능 — 입실 → 외출 → 퇴실 → 미등원) */}
+                    <th
+                      className='cursor-pointer px-2 py-2 text-center text-xs font-medium text-gray-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
+                      onClick={() => handleDailySort('status')}
+                      title='입실 → 외출 → 퇴실(입실 기록 O) → 미등원(입실 기록 X) 순'
+                    >
+                      <span className='inline-flex items-center justify-center gap-0.5'>
+                        상태
+                        <span className='print:hidden'>
+                          {dailySortKey === 'status' ? (
+                            dailySortAsc ? (
+                              <ChevronUp className='h-3 w-3' />
+                            ) : (
+                              <ChevronDown className='h-3 w-3' />
+                            )
+                          ) : (
+                            <ChevronsUpDown className='h-3 w-3 text-gray-300' />
+                          )}
+                        </span>
+                      </span>
                     </th>
-                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] print:whitespace-nowrap'>
                       입실시간
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] print:whitespace-nowrap'>
+                      퇴실시간
+                    </th>
+                    <th className='px-2 py-2 text-center text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px] print:whitespace-nowrap'>
+                      당일 순공
                     </th>
                     <th className='px-2 py-2 text-left text-xs font-medium text-gray-600 print:px-1 print:py-0.5 print:text-[10px]'>
                       부재일정
@@ -704,7 +814,7 @@ export function AttendanceClient({
                 <tbody className='divide-y divide-gray-100'>
                   {loading && data.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className='px-2 py-16 text-center'>
+                      <td colSpan={9} className='px-2 py-16 text-center'>
                         <div className='flex flex-col items-center justify-center gap-3 text-gray-600'>
                           <RefreshCw className='text-primary h-8 w-8 animate-spin' />
                           <span className='text-sm font-medium'>목록을 불러오는 중입니다…</span>
@@ -713,12 +823,12 @@ export function AttendanceClient({
                     </tr>
                   ) : data.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className='px-2 py-6 text-center text-xs text-gray-500'>
+                      <td colSpan={9} className='px-2 py-6 text-center text-xs text-gray-500'>
                         {q ? `"${q}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
-                    data.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE).map((student) => {
+                    sortedData.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE).map((student) => {
                       const statusDisplay = getStatusDisplay(student.status);
                       const StatusIcon = statusDisplay.icon;
                       const isNotArrived =
@@ -768,7 +878,7 @@ export function AttendanceClient({
                           </td>
 
                           {/* 입실시간 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
                             <span
                               className={cn(
                                 student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400',
@@ -778,8 +888,33 @@ export function AttendanceClient({
                             </span>
                           </td>
 
+                          {/* 퇴실시간 — 현 상태가 '퇴실'일 때만 표시 */}
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
+                            {student.status === 'checked_out' && student.lastCheckOutTime ? (
+                              <span className='text-gray-700'>
+                                {formatTime(student.lastCheckOutTime)}
+                              </span>
+                            ) : (
+                              <span className='text-gray-400'>-</span>
+                            )}
+                          </td>
+
+                          {/* 당일 순공시간 */}
+                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
+                            <span
+                              className={cn(
+                                'font-medium',
+                                student.todayStudyMinutes > 0
+                                  ? 'text-blue-600 print:text-black'
+                                  : 'text-gray-400',
+                              )}
+                            >
+                              {formatStudyMinutes(student.todayStudyMinutes)}
+                            </span>
+                          </td>
+
                           {/* 부재일정 */}
-                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
+                          <td className='px-2 py-1.5 print:max-w-[120px] print:truncate print:px-1 print:py-0.5'>
                             {student.absenceSchedules.length > 0 ? (
                               <div className='flex flex-col gap-0.5'>
                                 {student.absenceSchedules.map((schedule) => (
