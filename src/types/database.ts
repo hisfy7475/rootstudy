@@ -599,6 +599,8 @@ export interface Database {
           is_read_by_admin: boolean;
           created_at: string;
           client_message_id: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
         };
         Insert: {
           id?: string;
@@ -615,6 +617,8 @@ export interface Database {
           is_read_by_admin?: boolean;
           created_at?: string;
           client_message_id?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
         };
         Update: {
           id?: string;
@@ -631,6 +635,37 @@ export interface Database {
           is_read_by_admin?: boolean;
           created_at?: string;
           client_message_id?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+      };
+      chat_message_templates: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          content: string;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          content: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          content?: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
         };
       };
       notifications: {

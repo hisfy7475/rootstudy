@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { User, Settings, LogOut, ChevronDown, Bell, Megaphone } from 'lucide-react';
@@ -37,6 +37,25 @@ export function StudentHeader({
     () => isNativeApp(),
     () => false,
   );
+  const headerRef = useRef<HTMLElement>(null);
+
+  // 헤더 실제 높이를 --app-header-height 로 publish.
+  // 이름·뱃지 등으로 줄바꿈이 생겨 키가 커져도 ResizeObserver 가 재발행해
+  // 채팅 wrapper 같은 의존 화면이 자동 보정된다.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => {
+      document.documentElement.style.setProperty('--app-header-height', `${el.offsetHeight}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--app-header-height');
+    };
+  }, []);
 
   // 알림 카운트 realtime — 페이지 표시와 일관되게 모든 type 포함.
   // sidebar.tsx 패턴 — session 을 await + setAuth 한 뒤 subscribe 해야 realtime listener 가
@@ -127,6 +146,7 @@ export function StudentHeader({
 
   return (
     <header
+      ref={headerRef}
       className={cn(
         'bg-background/80 sticky top-0 z-40 border-b border-gray-100 backdrop-blur-lg',
         isNative && 'pt-safe',

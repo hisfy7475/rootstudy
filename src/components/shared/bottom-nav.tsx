@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -75,6 +75,24 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
   const pathname = usePathname();
   const navItems = userType === 'student' ? studentNavItems : parentNavItems;
   const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+  const navRef = useRef<HTMLElement>(null);
+
+  // 하단 탭 실제 높이를 --app-bottom-nav-height 로 publish.
+  // pb-safe + 콘텐츠 패딩이 디바이스마다 다르므로 측정값 기준이 안전.
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const publish = () => {
+      document.documentElement.style.setProperty('--app-bottom-nav-height', `${el.offsetHeight}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--app-bottom-nav-height');
+    };
+  }, []);
 
   useEffect(() => {
     setUnreadChatCount(initialUnreadChatCount);
@@ -115,7 +133,10 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
   }, [userType]);
 
   return (
-    <nav className='bg-card pb-safe fixed right-0 bottom-0 left-0 z-50 border-t border-gray-100 shadow-lg'>
+    <nav
+      ref={navRef}
+      className='bg-card pb-safe fixed right-0 bottom-0 left-0 z-50 border-t border-gray-100 shadow-lg'
+    >
       <div className='mx-auto max-w-lg px-2'>
         <ul className='flex items-center justify-around'>
           {navItems.map((item) => {

@@ -35,6 +35,14 @@
 }
 
 /* 기본 스타일 */
+html,
+body {
+  /* iOS WKWebView 의 rubber-band over-scroll 차단.
+     채팅 페이지처럼 fixed wrapper 로 콘텐츠가 viewport 에 딱 맞는 화면에서
+     손가락 제스처가 native scroll 로 빠져 페이지 전체가 끌려 내려가는 현상을 막는다. */
+  overscroll-behavior: none;
+}
+
 body {
   background-color: var(--color-background);
   color: var(--color-text);

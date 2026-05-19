@@ -19,6 +19,7 @@ export interface ChatMessageData {
   is_read_by_parent: boolean;
   is_read_by_admin: boolean;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 interface ChatMessageListProps {
@@ -27,6 +28,7 @@ interface ChatMessageListProps {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
+  onDelete?: (id: string) => void;
 }
 
 function dateKeyKST(iso: string): string {
@@ -49,6 +51,7 @@ export function ChatMessageList({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  onDelete,
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,11 +74,7 @@ export function ChatMessageList({
     }
 
     if (nextLen > prevLen) {
-      const prepended =
-        prevLen > 0 &&
-        messages[0] &&
-        prev[0] &&
-        messages[0].id !== prev[0].id;
+      const prepended = prevLen > 0 && messages[0] && prev[0] && messages[0].id !== prev[0].id;
 
       if (!prepended) {
         const prevLast = prev[prevLen - 1]?.id;
@@ -118,40 +117,34 @@ export function ChatMessageList({
           handleLoadMore();
         }
       },
-      { root: containerRef.current, threshold: 0.1 }
+      { root: containerRef.current, threshold: 0.1 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore, handleLoadMore]);
 
-  const shouldShowDateDivider = (
-    currentMsg: ChatMessageData,
-    prevMsg: ChatMessageData | null
-  ) => {
+  const shouldShowDateDivider = (currentMsg: ChatMessageData, prevMsg: ChatMessageData | null) => {
     if (!prevMsg) return true;
     return dateKeyKST(currentMsg.created_at) !== dateKeyKST(prevMsg.created_at);
   };
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center text-text-muted">
-          <p className="text-lg mb-2">아직 메시지가 없습니다</p>
-          <p className="text-sm">첫 메시지를 보내보세요!</p>
+      <div className='flex flex-1 items-center justify-center p-4'>
+        <div className='text-text-muted text-center'>
+          <p className='mb-2 text-lg'>아직 메시지가 없습니다</p>
+          <p className='text-sm'>첫 메시지를 보내보세요!</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-y-auto p-4 space-y-3"
-    >
-      <div ref={topSentinelRef} className="h-1" />
+    <div ref={containerRef} className='flex-1 space-y-3 overflow-y-auto p-4'>
+      <div ref={topSentinelRef} className='h-1' />
       {isLoadingMore && (
-        <div className="flex justify-center py-2">
-          <Loader2 className="w-5 h-5 text-text-muted animate-spin" />
+        <div className='flex justify-center py-2'>
+          <Loader2 className='text-text-muted h-5 w-5 animate-spin' />
         </div>
       )}
 
@@ -162,8 +155,8 @@ export function ChatMessageList({
         return (
           <div key={message.id}>
             {showDateDivider && (
-              <div className="flex items-center justify-center my-4">
-                <div className="bg-gray-200 text-text-muted text-xs px-3 py-1 rounded-full">
+              <div className='my-4 flex items-center justify-center'>
+                <div className='text-text-muted rounded-full bg-gray-200 px-3 py-1 text-xs'>
                   {formatDividerLabelKST(message.created_at)}
                 </div>
               </div>
@@ -180,6 +173,8 @@ export function ChatMessageList({
               senderType={message.sender_type}
               createdAt={message.created_at}
               isOwn={message.sender_id === currentUserId}
+              deletedAt={message.deleted_at ?? null}
+              onDelete={onDelete}
             />
           </div>
         );

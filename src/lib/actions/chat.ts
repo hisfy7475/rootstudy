@@ -151,7 +151,8 @@ export async function getStudentUnreadChatCount() {
     .from('chat_messages')
     .select('*', { count: 'exact', head: true })
     .eq('room_id', room.id)
-    .eq('is_read_by_student', false);
+    .eq('is_read_by_student', false)
+    .is('deleted_at', null);
 
   return { count: count || 0 };
 }
@@ -187,7 +188,8 @@ export async function getParentUnreadChatCount() {
     .from('chat_messages')
     .select('*', { count: 'exact', head: true })
     .in('room_id', roomIds)
-    .eq('is_read_by_parent', false);
+    .eq('is_read_by_parent', false)
+    .is('deleted_at', null);
 
   return { count: count || 0 };
 }
@@ -312,6 +314,7 @@ function formatMessages(messages: Array<Record<string, unknown>>) {
       is_read_by_parent: msg.is_read_by_parent as boolean,
       is_read_by_admin: msg.is_read_by_admin as boolean,
       created_at: msg.created_at as string,
+      deleted_at: (msg.deleted_at as string | null | undefined) ?? null,
     };
   });
 }
@@ -780,12 +783,13 @@ export async function markAsRead(roomId: string) {
       return { error: '알 수 없는 사용자 타입입니다.' };
   }
 
-  // 읽지 않은 메시지 업데이트
+  // 읽지 않은 메시지 업데이트 (삭제된 메시지는 카운트/푸시 정합성을 위해 제외)
   const { error } = await supabase
     .from('chat_messages')
     .update({ [updateColumn]: true })
     .eq('room_id', roomId)
-    .eq(updateColumn, false);
+    .eq(updateColumn, false)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error marking as read:', error);
@@ -837,7 +841,8 @@ export async function getUnreadCount(roomId: string) {
     .from('chat_messages')
     .select('*', { count: 'exact', head: true })
     .eq('room_id', roomId)
-    .eq(readColumn, false);
+    .eq(readColumn, false)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error getting unread count:', error);
@@ -896,4 +901,263 @@ export async function getChatRoomInfo(roomId: string) {
       created_at: room.created_at,
     },
   };
+}
+
+// ============================================
+// 메시지 삭제 (본인 발신 + 5분 이내, soft delete)
+// ============================================
+
+const DELETE_WINDOW_MS = 5 * 60 * 1000;
+
+// public Storage URL 에서 bucket 내부 경로를 추출.
+// chat-files 는 ?download=원본파일명 쿼리스트링을 붙이지만 pathname 만 보므로 안전.
+function parseStoragePath(publicUrl: string, bucket: string): string | null {
+  try {
+    const url = new URL(publicUrl);
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const idx = url.pathname.indexOf(marker);
+    if (idx < 0) return null;
+    return decodeURIComponent(url.pathname.slice(idx + marker.length));
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteMessage(messageId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: '로그인이 필요합니다.' };
+  }
+
+  // 권한·시간 사전 검증 (UX 메시지 명확화 — 최종 권위는 DB 트리거/RLS)
+  const { data: msg, error: fetchError } = await supabase
+    .from('chat_messages')
+    .select('id, sender_id, created_at, deleted_at, image_url, file_url')
+    .eq('id', messageId)
+    .single();
+
+  if (fetchError || !msg) {
+    return { error: '메시지를 찾을 수 없습니다.' };
+  }
+  if (msg.sender_id !== user.id) {
+    return { error: '본인이 보낸 메시지만 삭제할 수 있습니다.' };
+  }
+  if (msg.deleted_at) {
+    return { error: '이미 삭제된 메시지입니다.' };
+  }
+  const ageMs = Date.now() - new Date(msg.created_at as string).getTime();
+  if (ageMs > DELETE_WINDOW_MS) {
+    return { error: '삭제할 수 있는 시간이 지났습니다. (5분 제한)' };
+  }
+
+  // DB 먼저 — 트리거가 컬럼-수준 변경 패턴을 검증
+  const { error: updateError } = await supabase
+    .from('chat_messages')
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: user.id,
+      content: '',
+      image_url: null,
+      file_url: null,
+      file_name: null,
+      file_type: null,
+    })
+    .eq('id', messageId);
+
+  if (updateError) {
+    console.error('Error soft-deleting message:', updateError);
+    return { error: '메시지를 삭제하지 못했습니다.' };
+  }
+
+  // DB 성공 후 Storage 객체 제거. 실패해도 orphan 으로 두고 사용자에겐 성공 응답.
+  const removals: Promise<unknown>[] = [];
+  if (msg.image_url) {
+    const path = parseStoragePath(msg.image_url as string, 'chat-images');
+    if (path) {
+      removals.push(supabase.storage.from('chat-images').remove([path]));
+    }
+  }
+  if (msg.file_url) {
+    const path = parseStoragePath(msg.file_url as string, 'chat-files');
+    if (path) {
+      removals.push(supabase.storage.from('chat-files').remove([path]));
+    }
+  }
+  if (removals.length > 0) {
+    const results = await Promise.allSettled(removals);
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        console.error('Storage remove failed:', r.reason);
+      }
+    }
+  }
+
+  return { success: true };
+}
+
+// ============================================
+// 자주 쓰는 멘트 템플릿 (관리자 한정, 개인별)
+// ============================================
+
+export type ChatMessageTemplate = {
+  id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+async function requireChatTemplateUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' as const };
+  return { supabase, user };
+}
+
+export async function listChatTemplates() {
+  const ctx = await requireChatTemplateUser();
+  if ('error' in ctx) return { error: ctx.error };
+
+  const { data, error } = await ctx.supabase
+    .from('chat_message_templates')
+    .select('*')
+    .eq('user_id', ctx.user.id)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Error listing chat templates:', error);
+    return { error: '템플릿 목록을 가져오지 못했습니다.' };
+  }
+  return { data: (data || []) as ChatMessageTemplate[] };
+}
+
+function sanitizeTemplateInput(title: string, content: string) {
+  const t = title.trim();
+  const c = content.trim();
+  if (t.length === 0 || t.length > 30) {
+    return { error: '제목은 1~30자여야 합니다.' as const };
+  }
+  if (c.length === 0 || c.length > 2000) {
+    return { error: '본문은 1~2000자여야 합니다.' as const };
+  }
+  return { title: t, content: c };
+}
+
+export async function createChatTemplate(input: { title: string; content: string }) {
+  const ctx = await requireChatTemplateUser();
+  if ('error' in ctx) return { error: ctx.error };
+
+  const v = sanitizeTemplateInput(input.title, input.content);
+  if ('error' in v) return { error: v.error };
+
+  // 새 항목은 기본적으로 맨 뒤
+  const { data: maxRow } = await ctx.supabase
+    .from('chat_message_templates')
+    .select('sort_order')
+    .eq('user_id', ctx.user.id)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextOrder = (maxRow?.sort_order ?? -1) + 1;
+
+  const { data, error } = await ctx.supabase
+    .from('chat_message_templates')
+    .insert({
+      user_id: ctx.user.id,
+      title: v.title,
+      content: v.content,
+      sort_order: nextOrder,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.message?.includes('TEMPLATE_LIMIT_EXCEEDED')) {
+      return { error: '템플릿은 최대 30개까지 추가할 수 있습니다.' };
+    }
+    console.error('Error creating chat template:', error);
+    return { error: '템플릿을 추가하지 못했습니다.' };
+  }
+  return { data: data as ChatMessageTemplate };
+}
+
+export async function updateChatTemplate(id: string, patch: { title?: string; content?: string }) {
+  const ctx = await requireChatTemplateUser();
+  if ('error' in ctx) return { error: ctx.error };
+
+  const update: { title?: string; content?: string } = {};
+  if (patch.title !== undefined) {
+    const t = patch.title.trim();
+    if (t.length === 0 || t.length > 30) return { error: '제목은 1~30자여야 합니다.' };
+    update.title = t;
+  }
+  if (patch.content !== undefined) {
+    const c = patch.content.trim();
+    if (c.length === 0 || c.length > 2000) return { error: '본문은 1~2000자여야 합니다.' };
+    update.content = c;
+  }
+  if (Object.keys(update).length === 0) return { success: true };
+
+  const { error } = await ctx.supabase
+    .from('chat_message_templates')
+    .update(update)
+    .eq('id', id)
+    .eq('user_id', ctx.user.id);
+
+  if (error) {
+    console.error('Error updating chat template:', error);
+    return { error: '템플릿을 수정하지 못했습니다.' };
+  }
+  return { success: true };
+}
+
+export async function deleteChatTemplate(id: string) {
+  const ctx = await requireChatTemplateUser();
+  if ('error' in ctx) return { error: ctx.error };
+
+  const { error } = await ctx.supabase
+    .from('chat_message_templates')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', ctx.user.id);
+
+  if (error) {
+    console.error('Error deleting chat template:', error);
+    return { error: '템플릿을 삭제하지 못했습니다.' };
+  }
+  return { success: true };
+}
+
+export async function reorderChatTemplates(orderedIds: string[]) {
+  const ctx = await requireChatTemplateUser();
+  if ('error' in ctx) return { error: ctx.error };
+
+  if (orderedIds.length === 0) return { success: true };
+
+  // 본인 행만 업데이트되도록 user_id 도 같이 거름
+  const updates = orderedIds.map((id, idx) =>
+    ctx.supabase
+      .from('chat_message_templates')
+      .update({ sort_order: idx })
+      .eq('id', id)
+      .eq('user_id', ctx.user.id),
+  );
+
+  const results = await Promise.all(updates);
+  for (const r of results) {
+    if (r.error) {
+      console.error('Error reordering chat templates:', r.error);
+      return { error: '템플릿 순서를 저장하지 못했습니다.' };
+    }
+  }
+  return { success: true };
 }

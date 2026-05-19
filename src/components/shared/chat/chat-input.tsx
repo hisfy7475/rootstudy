@@ -6,6 +6,7 @@ import { cn, isNativeApp, randomUUID } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
 import { CHAT_FILE_ACCEPT, CHAT_FILE_MAX_BYTES, resolveChatFileMime } from '@shared/uploads/chat';
 import Image from 'next/image';
+import { ChatTemplatePopover } from './chat-template-popover';
 
 interface ChatInputProps {
   roomId: string;
@@ -179,6 +180,20 @@ export function ChatInput({
 
   const canSend = (message.trim() || selectedImage || selectedDataFile) && !disabled;
 
+  // 템플릿 선택 시 본문에 채워넣고 textarea 포커스 + 커서 끝으로
+  const insertTemplate = (content: string) => {
+    setMessage((prev) => (prev.trim() ? `${prev}\n${content}` : content));
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+    });
+  };
+
   return (
     <div className='border-t border-gray-200 bg-white p-3'>
       {selectedDataFile && (
@@ -265,6 +280,8 @@ export function ChatInput({
         >
           <Paperclip className='h-5 w-5' />
         </button>
+
+        <ChatTemplatePopover onSelect={insertTemplate} />
 
         <textarea
           ref={textareaRef}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
@@ -44,6 +44,25 @@ export function ParentHeader({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const headerRef = useRef<HTMLElement>(null);
+
+  // 헤더 실제 높이를 --app-header-height 로 publish.
+  // 사용자/자녀 이름이 길어 줄바꿈으로 키가 커지면 ResizeObserver 가 즉시 재발행해
+  // 채팅 wrapper 등 의존 화면이 자동 보정된다.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => {
+      document.documentElement.style.setProperty('--app-header-height', `${el.offsetHeight}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--app-header-height');
+    };
+  }, []);
   // SSR 에서는 false, hydration 후 클라이언트의 navigator.userAgent 기준 값으로 자동 동기화.
   // useEffect + setState 패턴이 React 19 의 set-state-in-effect 룰에 걸리므로 외부 store 로 처리.
   const isNative = useSyncExternalStore(
@@ -163,6 +182,7 @@ export function ParentHeader({
 
   return (
     <header
+      ref={headerRef}
       className={cn(
         'bg-background/80 sticky top-0 z-40 border-b border-gray-100 backdrop-blur-lg',
         isNative && 'pt-safe',

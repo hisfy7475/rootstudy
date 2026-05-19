@@ -130,22 +130,18 @@ export function NotificationsClient({
   const handleMarkAsRead = async (id: string) => {
     const result = await markNotificationAsRead(id);
     if (result.success) {
-      setNotifications((prev) => {
-        const next = prev.map((n) => (n.id === id ? { ...n, is_read: true } : n));
-        setUnreadCount(countUnreadForBadge(next));
-        return next;
-      });
+      const next = notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n));
+      setNotifications(next);
+      setUnreadCount(countUnreadForBadge(next));
     }
   };
 
   const handleMarkAllAsRead = async () => {
     const result = await markAllNotificationsAsRead();
     if (result.success) {
-      setNotifications((prev) => {
-        const next = prev.map((n) => ({ ...n, is_read: true }));
-        setUnreadCount(countUnreadForBadge(next));
-        return next;
-      });
+      const next = notifications.map((n) => ({ ...n, is_read: true }));
+      setNotifications(next);
+      setUnreadCount(countUnreadForBadge(next));
     }
   };
 
