@@ -17,8 +17,14 @@ import {
   Plus,
   X,
   AlertCircle,
+  AlertTriangle,
   Pencil,
   Trash2,
+  CheckSquare,
+  Square,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
 import type { StudentAbsenceSchedule } from '@/types/database';
 import { approvedByCaption, type AbsenceScheduleListItem } from '@/lib/absence-approver-label';
@@ -37,6 +43,7 @@ import {
   rejectAbsenceSchedule,
   updateAbsenceSchedule,
   deleteAbsenceSchedule,
+  deleteAbsenceSchedules,
 } from '@/lib/actions/absence-schedule';
 import { cn } from '@/lib/utils';
 
@@ -79,9 +86,6 @@ export default function SchedulesClient({
   const pathname = usePathname();
   const sp = useSearchParams();
 
-  // 서버 페이지네이션이 적용된 행이 들어옴. 클라 필터링 없음.
-  const schedules = initialSchedules;
-
   const q = sp.get('q') ?? '';
   const filterType = (sp.get('type') as 'recurring' | 'one_time' | null) ?? null;
   const filterActive = (sp.get('active') as 'active' | 'inactive' | null) ?? null;
@@ -90,6 +94,29 @@ export default function SchedulesClient({
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  // 다중 선택 (현재 페이지 한정) — 체크박스는 항상 노출
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  // 정렬 (클라 측, 현재 페이지 한정) — attendance-client 2-state 패턴
+  type ScheduleSortKey = 'created_at' | 'seat_name';
+  const [sort, setSort] = useState<{ key: ScheduleSortKey; asc: boolean }>({
+    key: 'created_at',
+    asc: false,
+  });
+
+  // 서버 페이지네이션이 적용된 행 + 클라 정렬
+  const schedules = useMemo(() => {
+    if (sort.key === 'created_at') return initialSchedules;
+    const dirMul = sort.asc ? 1 : -1;
+    return [...initialSchedules].sort((a, b) => {
+      const aSeat = a.seat_number ?? Number.POSITIVE_INFINITY;
+      const bSeat = b.seat_number ?? Number.POSITIVE_INFINITY;
+      if (aSeat !== bSeat) return (aSeat - bSeat) * dirMul;
+      return (a.student_name ?? '').localeCompare(b.student_name ?? '', 'ko') * dirMul;
+    });
+  }, [initialSchedules, sort]);
 
   // 학생 검색 상태
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
@@ -307,6 +334,50 @@ export default function SchedulesClient({
     });
   };
 
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === schedules.length && schedules.length > 0) {
+        return new Set();
+      }
+      return new Set(schedules.map((s) => s.id));
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setShowBulkDeleteConfirm(false);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    startTransition(async () => {
+      const result = await deleteAbsenceSchedules(Array.from(selectedIds));
+      if (result.success) {
+        clearSelection();
+        router.refresh();
+      } else {
+        alert(result.error || '일괄 삭제에 실패했습니다.');
+      }
+    });
+  };
+
+  const handleSeatNameSort = () => {
+    setSort((prev) =>
+      prev.key === 'seat_name'
+        ? { key: 'seat_name', asc: !prev.asc }
+        : { key: 'seat_name', asc: true },
+    );
+  };
+
   const handleApprove = async (scheduleId: string) => {
     startTransition(async () => {
       const result = await approveAbsenceSchedule(scheduleId);
@@ -395,6 +466,22 @@ export default function SchedulesClient({
           <p className='mt-1 text-gray-500'>학생들의 부재 일정을 관리합니다.</p>
         </div>
         <div className='flex gap-2'>
+          {selectedIds.size > 0 && (
+            <>
+              <Button
+                variant='danger'
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isPending}
+                className='flex items-center gap-2 border-red-500 bg-red-500 hover:bg-red-600'
+              >
+                <Trash2 className='h-4 w-4' />
+                선택 삭제 ({selectedIds.size})
+              </Button>
+              <Button variant='ghost' onClick={clearSelection}>
+                선택 해제
+              </Button>
+            </>
+          )}
           <Button onClick={() => setShowAddModal(true)} className='flex items-center gap-2'>
             <Plus className='h-4 w-4' />
             스케줄 추가
@@ -554,6 +641,34 @@ export default function SchedulesClient({
         ]}
       />
 
+      {/* 일괄 삭제 확인 박스 */}
+      {showBulkDeleteConfirm && (
+        <div className='rounded-xl border border-red-300 bg-red-100 p-4'>
+          <div className='flex items-center gap-3'>
+            <AlertTriangle className='h-5 w-5 flex-shrink-0 text-red-500' />
+            <div className='flex-1'>
+              <p className='font-medium text-red-800'>
+                선택한 {selectedIds.size}건의 부재 스케줄을 삭제하시겠습니까?
+              </p>
+              <p className='mt-1 text-sm text-red-600'>삭제 후 복구할 수 없습니다.</p>
+            </div>
+            <div className='flex gap-2'>
+              <Button
+                size='sm'
+                onClick={handleBulkDelete}
+                disabled={isPending}
+                className='bg-red-500 text-white hover:bg-red-600'
+              >
+                {isPending ? '삭제 중...' : '삭제'}
+              </Button>
+              <Button variant='ghost' size='sm' onClick={() => setShowBulkDeleteConfirm(false)}>
+                취소
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 스케줄 목록 — 출석부와 유사한 컴팩트 테이블 */}
       {schedules.length === 0 ? (
         <Card className='p-6 text-center text-sm text-gray-500'>
@@ -565,9 +680,37 @@ export default function SchedulesClient({
             <table className='w-full text-xs'>
               <thead className='border-b bg-gray-50'>
                 <tr>
+                  <th className='w-8 px-2 py-2 text-left font-medium text-gray-600'>
+                    <button
+                      type='button'
+                      onClick={toggleSelectAllOnPage}
+                      disabled={schedules.length === 0}
+                      className='hover:text-primary inline-flex items-center text-gray-500 disabled:cursor-not-allowed disabled:opacity-50'
+                      aria-label='이 페이지 전체 선택/해제'
+                    >
+                      {selectedIds.size > 0 && selectedIds.size === schedules.length ? (
+                        <CheckSquare className='text-primary h-4 w-4' />
+                      ) : (
+                        <Square className='h-4 w-4' />
+                      )}
+                    </button>
+                  </th>
                   <th className='w-8 px-2 py-2 text-left font-medium text-gray-600'> </th>
                   <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
-                    좌석·이름
+                    <button
+                      type='button'
+                      onClick={handleSeatNameSort}
+                      className='hover:text-primary inline-flex items-center gap-1 font-medium text-gray-600'
+                    >
+                      좌석·이름
+                      {sort.key !== 'seat_name' ? (
+                        <ChevronsUpDown className='h-3 w-3 text-gray-400' />
+                      ) : sort.asc ? (
+                        <ChevronUp className='text-primary h-3 w-3' />
+                      ) : (
+                        <ChevronDown className='text-primary h-3 w-3' />
+                      )}
+                    </button>
                   </th>
                   <th className='px-2 py-2 text-left font-medium text-gray-600'>사유·상태</th>
                   <th className='px-2 py-2 text-left font-medium whitespace-nowrap text-gray-600'>
@@ -593,8 +736,22 @@ export default function SchedulesClient({
                     className={cn(
                       'hover:bg-gray-50',
                       !schedule.is_active && 'bg-gray-50/80 opacity-60',
+                      selectedIds.has(schedule.id) && 'bg-primary/5 hover:bg-primary/10',
                     )}
                   >
+                    <td
+                      className='cursor-pointer px-2 py-1.5 align-middle'
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelectOne(schedule.id);
+                      }}
+                    >
+                      {selectedIds.has(schedule.id) ? (
+                        <CheckSquare className='text-primary h-4 w-4' />
+                      ) : (
+                        <Square className='h-4 w-4 text-gray-400' />
+                      )}
+                    </td>
                     <td className='px-2 py-1.5 align-middle'>
                       <div
                         className={cn(
