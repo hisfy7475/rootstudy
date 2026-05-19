@@ -62,6 +62,7 @@ const parentMorePathPrefixes = [
   '/report',
   '/settings',
   '/announcements',
+  '/notifications',
 ];
 
 interface BottomNavProps {
@@ -81,24 +82,35 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
 
   useEffect(() => {
     const supabase = createClient();
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const fetchUnreadCount = async () => {
       const { count } =
         userType === 'student'
           ? await getStudentUnreadChatCount()
           : await getParentUnreadChatCount();
-      setUnreadChatCount(count);
+      if (!cancelled) setUnreadChatCount(count);
     };
 
-    const channel = supabase
-      .channel('bottom-nav-chat-unread')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
-        fetchUnreadCount();
-      })
-      .subscribe();
+    // 채널명에 userId 를 포함해 단말 내 계정 전환/멀티 컴포넌트 cleanup 충돌을 방지.
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled) return;
+      const channelName = `bottom-nav-chat-unread-${user?.id ?? 'anon'}-${userType}`;
+      channel = supabase
+        .channel(channelName)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
+          fetchUnreadCount();
+        })
+        .subscribe();
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
     };
   }, [userType]);
 

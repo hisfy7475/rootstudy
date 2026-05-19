@@ -19,24 +19,31 @@ export default async function ParentLayout({ children }: LayoutProps) {
 
   let userName: string | undefined;
   let linkedChildren: { id: string; name: string; withdrawnAt: string | null }[] = [];
+  let userId: string | undefined;
+  let initialUnreadNotificationCount = 0;
 
   if (user) {
-    // 학부모 프로필 조회
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', user.id)
-      .single();
+    userId = user.id;
+
+    // 알림 뱃지/페이지 모두 chat type 제외(채팅 탭이 별도 표시) — UX 분리 정책.
+    const [{ data: profile }, students, { count: notifCount }] = await Promise.all([
+      supabase.from('profiles').select('name').eq('id', user.id).single(),
+      getLinkedStudents(),
+      supabase
+        .from('user_notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+        .neq('type', 'chat'),
+    ]);
 
     userName = profile?.name;
-
-    // 연결된 자녀 목록 조회 — 퇴원 자녀도 포함하되 헤더에서 배지로 식별 가능하게 한다.
-    const students = await getLinkedStudents();
     linkedChildren = students.map((s) => ({
       id: s.id,
       name: s.name,
       withdrawnAt: s.withdrawnAt,
     }));
+    initialUnreadNotificationCount = notifCount ?? 0;
   }
 
   const { count: initialUnreadChatCount } = await getParentUnreadChatCount();
@@ -44,7 +51,12 @@ export default async function ParentLayout({ children }: LayoutProps) {
   return (
     <div className='bg-background min-h-screen'>
       <PushTokenListener />
-      <ParentHeader userName={userName} linkedChildren={linkedChildren} />
+      <ParentHeader
+        userName={userName}
+        linkedChildren={linkedChildren}
+        userId={userId}
+        initialUnreadNotificationCount={initialUnreadNotificationCount}
+      />
       <main className='mx-auto max-w-lg pb-24'>{children}</main>
       <BottomNav
         userType='parent'

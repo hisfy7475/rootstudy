@@ -4,10 +4,12 @@ import { useState, useEffect, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { User, Settings, LogOut, ChevronDown, Users, Megaphone } from 'lucide-react';
+import { User, Settings, LogOut, ChevronDown, Users, Megaphone, Bell } from 'lucide-react';
 import { cn, isNativeApp } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
+import { getUnreadUserNotificationCount } from '@/lib/actions/notification';
+import { createClient } from '@/lib/supabase/client';
 
 interface Child {
   id: string;
@@ -19,18 +21,25 @@ interface Child {
 interface ParentHeaderProps {
   userName?: string;
   linkedChildren?: Child[];
+  userId?: string;
   initialUnreadAnnouncementCount?: number;
+  initialUnreadNotificationCount?: number;
 }
 
 export function ParentHeader({
   userName,
   linkedChildren: children = [],
+  userId,
   initialUnreadAnnouncementCount = 0,
+  initialUnreadNotificationCount = 0,
 }: ParentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(
     initialUnreadAnnouncementCount,
+  );
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(
+    initialUnreadNotificationCount,
   );
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -43,26 +52,90 @@ export function ParentHeader({
     () => false,
   );
 
-  // 주기적으로 읽지 않은 공지 수 갱신 (30초마다)
+  // 알림 카운트 realtime — sidebar.tsx 패턴(setAuth 후 subscribe).
   useEffect(() => {
-    const fetchUnreadCount = async () => {
-      try {
-        const count = await getUnreadAnnouncementCount();
-        setUnreadAnnouncementCount(count);
-      } catch (error) {
-        console.error('Failed to fetch unread count:', error);
-      }
+    if (!userId) return;
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const refetch = () => {
+      void getUnreadUserNotificationCount({ excludeTypes: ['chat'] })
+        .then(setUnreadNotificationCount)
+        .catch((e) => console.error('[parent-header] unread notif refetch', e));
     };
 
-    // 초기 로드
-    if (initialUnreadAnnouncementCount === 0) {
-      fetchUnreadCount();
-    }
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+      channel = supabase
+        .channel(`parent-header-notif-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_notifications',
+            filter: `user_id=eq.${userId}`,
+          },
+          refetch,
+        )
+        .subscribe();
+    })();
 
-    // 주기적 갱신
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [initialUnreadAnnouncementCount]);
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // 공지 카운트 realtime.
+  useEffect(() => {
+    if (!userId) return;
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const refetch = () => {
+      void getUnreadAnnouncementCount()
+        .then(setUnreadAnnouncementCount)
+        .catch((e) => console.error('[parent-header] unread announce refetch', e));
+    };
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+      channel = supabase
+        .channel(`parent-header-announce-${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, refetch)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'announcement_reads',
+            filter: `user_id=eq.${userId}`,
+          },
+          refetch,
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   // URL에서 childId를 읽어서 선택된 자녀 결정 — 활성 자녀를 우선 선택.
   const activeChildren = children.filter((c) => !c.withdrawnAt);
@@ -117,6 +190,19 @@ export function ParentHeader({
             {unreadAnnouncementCount > 0 && (
               <span className='bg-primary absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs font-bold text-white'>
                 {unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount}
+              </span>
+            )}
+          </Link>
+
+          {/* 알림 아이콘 */}
+          <Link
+            href='/parent/notifications'
+            className='relative rounded-xl p-2 transition-all hover:bg-gray-100 active:scale-90 active:bg-gray-200'
+          >
+            <Bell className='text-text-muted h-5 w-5' />
+            {unreadNotificationCount > 0 && (
+              <span className='absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white'>
+                {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
               </span>
             )}
           </Link>

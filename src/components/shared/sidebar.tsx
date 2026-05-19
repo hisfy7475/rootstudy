@@ -9,6 +9,7 @@ import { SignOutForm } from '@/components/SignOutForm';
 import { useSidebar } from './sidebar-context';
 import { createClient } from '@/lib/supabase/client';
 import { getAdminUnreadChatCount } from '@/lib/actions/chat';
+import { getUnreadUserNotificationCount } from '@/lib/actions/notification';
 import {
   LayoutDashboard,
   Brain,
@@ -73,19 +74,26 @@ interface SidebarProps {
   basePath?: string;
   branchName?: string | null;
   isSuperAdmin?: boolean;
+  userId?: string;
   initialUnreadChatCount?: number;
+  initialUnreadNotificationCount?: number;
 }
 
 export function Sidebar({
   basePath = '',
   branchName,
   isSuperAdmin = false,
+  userId,
   initialUnreadChatCount = 0,
+  initialUnreadNotificationCount = 0,
 }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
   const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(
+    initialUnreadNotificationCount,
+  );
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   // 메뉴 노출 가시화. requireSuperAdmin 항목은 최고 관리자에게만 표시.
@@ -96,6 +104,11 @@ export function Sidebar({
   }, [initialUnreadChatCount]);
 
   useEffect(() => {
+    setUnreadNotificationCount(initialUnreadNotificationCount);
+  }, [initialUnreadNotificationCount]);
+
+  useEffect(() => {
+    if (!userId) return;
     const supabase = createClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
@@ -119,7 +132,7 @@ export function Sidebar({
       if (cancelled) return;
 
       channel = supabase
-        .channel('sidebar-chat-unread')
+        .channel(`admin-sidebar-chat-${userId}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'chat_messages' },
@@ -141,7 +154,50 @@ export function Sidebar({
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userId]);
+
+  // 알림 카운트 realtime (chat type 은 채팅 뱃지와 중복 노이즈 방지 위해 제외).
+  // sidebar.tsx 위 chat realtime 과 동일 패턴 — setAuth 후 subscribe.
+  useEffect(() => {
+    if (!userId) return;
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const refetch = () => {
+      void getUnreadUserNotificationCount({ excludeTypes: ['chat'] })
+        .then(setUnreadNotificationCount)
+        .catch((e) => console.error('[Sidebar] unread notif refetch', e));
+    };
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+      channel = supabase
+        .channel(`admin-sidebar-notif-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_notifications',
+            filter: `user_id=eq.${userId}`,
+          },
+          refetch,
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   // 경로 변경 시 모바일 메뉴 닫기
   useEffect(() => {
@@ -204,8 +260,13 @@ export function Sidebar({
             const isActive =
               pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));
             const Icon = item.icon;
-            const isChatItem = item.href === '/chat';
-            const showBadge = isChatItem && unreadChatCount > 0;
+            const badgeCount =
+              item.href === '/chat'
+                ? unreadChatCount
+                : item.href === '/notifications'
+                  ? unreadNotificationCount
+                  : 0;
+            const showBadge = badgeCount > 0;
             return (
               <li key={item.href}>
                 <Link
@@ -221,7 +282,7 @@ export function Sidebar({
                   <span className='text-sm'>{item.label}</span>
                   {showBadge && (
                     <span className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs leading-none font-bold text-white'>
-                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                      {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
                 </Link>
@@ -357,8 +418,13 @@ export function Sidebar({
               const isActive =
                 pathname === fullPath || (item.href !== '' && pathname.startsWith(fullPath));
               const Icon = item.icon;
-              const isChatItem = item.href === '/chat';
-              const showBadge = isChatItem && unreadChatCount > 0;
+              const badgeCount =
+                item.href === '/chat'
+                  ? unreadChatCount
+                  : item.href === '/notifications'
+                    ? unreadNotificationCount
+                    : 0;
+              const showBadge = badgeCount > 0;
 
               return (
                 <li key={item.href}>
@@ -377,7 +443,7 @@ export function Sidebar({
                       <Icon className='h-5 w-5' />
                       {showBadge && collapsed && (
                         <span className='absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] leading-none font-bold text-white'>
-                          {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                          {badgeCount > 99 ? '99+' : badgeCount}
                         </span>
                       )}
                     </div>
@@ -386,7 +452,7 @@ export function Sidebar({
                         <span className='text-sm whitespace-nowrap'>{item.label}</span>
                         {showBadge && (
                           <span className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs leading-none font-bold text-white'>
-                            {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                            {badgeCount > 99 ? '99+' : badgeCount}
                           </span>
                         )}
                       </>

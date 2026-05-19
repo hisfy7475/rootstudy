@@ -32,7 +32,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     }
   }
 
-  const { count: initialUnreadChatCount } = await getAdminUnreadChatCount();
+  // 알림 뱃지는 chat type 제외(채팅 메뉴 뱃지가 별도 표시) — UX 분리 정책.
+  const [{ count: initialUnreadChatCount }, notifResult] = await Promise.all([
+    getAdminUnreadChatCount(),
+    user
+      ? supabase
+          .from('user_notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_read', false)
+          .neq('type', 'chat')
+      : Promise.resolve({ count: 0 as number | null }),
+  ]);
+  const initialUnreadNotificationCount = notifResult.count ?? 0;
 
   return (
     <SidebarProvider>
@@ -41,7 +53,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           basePath='/admin'
           branchName={branchName}
           isSuperAdmin={isSuperAdmin}
+          userId={user?.id}
           initialUnreadChatCount={initialUnreadChatCount}
+          initialUnreadNotificationCount={initialUnreadNotificationCount}
         />
         <SidebarMain>{children}</SidebarMain>
       </div>

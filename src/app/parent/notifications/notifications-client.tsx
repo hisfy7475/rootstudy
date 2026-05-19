@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-  getStudentNotifications,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
+  getUserNotifications,
+  markUserNotificationAsRead,
+  markAllUserNotificationsAsRead,
 } from '@/lib/actions/notification';
 import {
   Bell,
@@ -24,9 +24,9 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
-interface StudentNotification {
+interface UserNotification {
   id: string;
-  student_id: string;
+  user_id: string;
   type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
   title: string;
   message: string;
@@ -35,15 +35,15 @@ interface StudentNotification {
   created_at: string;
 }
 
-interface NotificationsClientProps {
-  initialNotifications: StudentNotification[];
+interface ParentNotificationsClientProps {
+  initialNotifications: UserNotification[];
   initialUnreadCount: number;
   userId: string | null;
   pageSize: number;
 }
 
 // 페이지 표시와 일관: 모든 type의 unread 를 카운트.
-function countUnreadForBadge(items: StudentNotification[]): number {
+function countUnreadForBadge(items: UserNotification[]): number {
   return items.filter((n) => !n.is_read).length;
 }
 
@@ -96,13 +96,13 @@ const typeConfig = {
   },
 };
 
-export function NotificationsClient({
+export function ParentNotificationsClient({
   initialNotifications,
   initialUnreadCount,
   userId,
   pageSize,
-}: NotificationsClientProps) {
-  const [notifications, setNotifications] = useState<StudentNotification[]>(initialNotifications);
+}: ParentNotificationsClientProps) {
+  const [notifications, setNotifications] = useState<UserNotification[]>(initialNotifications);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialNotifications.length >= pageSize);
@@ -112,13 +112,13 @@ export function NotificationsClient({
   const refreshNotifications = async () => {
     setLoading(true);
     try {
-      const data = await getStudentNotifications({
+      const data = await getUserNotifications({
         limit: pageSize,
         offset: 0,
         excludeTypes: ['chat'],
       });
-      setNotifications(data as StudentNotification[]);
-      setUnreadCount(countUnreadForBadge(data as StudentNotification[]));
+      setNotifications(data as UserNotification[]);
+      setUnreadCount(countUnreadForBadge(data as UserNotification[]));
       setHasMore(data.length >= pageSize);
     } catch (error) {
       console.error('Failed to refresh:', error);
@@ -128,7 +128,7 @@ export function NotificationsClient({
   };
 
   const handleMarkAsRead = async (id: string) => {
-    const result = await markNotificationAsRead(id);
+    const result = await markUserNotificationAsRead(id);
     if (result.success) {
       setNotifications((prev) => {
         const next = prev.map((n) => (n.id === id ? { ...n, is_read: true } : n));
@@ -139,7 +139,7 @@ export function NotificationsClient({
   };
 
   const handleMarkAllAsRead = async () => {
-    const result = await markAllNotificationsAsRead();
+    const result = await markAllUserNotificationsAsRead();
     if (result.success) {
       setNotifications((prev) => {
         const next = prev.map((n) => ({ ...n, is_read: true }));
@@ -149,8 +149,7 @@ export function NotificationsClient({
     }
   };
 
-  // realtime: 본인 student_notifications INSERT/UPDATE 시 목록과 카운트 동기화.
-  // sidebar.tsx 패턴 — setAuth 후 subscribe.
+  // realtime — sidebar.tsx 패턴(setAuth 후 subscribe).
   useEffect(() => {
     if (!userId) return;
     const supabase = createClient();
@@ -166,18 +165,18 @@ export function NotificationsClient({
       }
       if (cancelled) return;
       channel = supabase
-        .channel(`student-notif-page-${userId}`)
+        .channel(`parent-notif-page-${userId}`)
         .on(
           'postgres_changes',
           {
             event: '*',
             schema: 'public',
-            table: 'student_notifications',
-            filter: `student_id=eq.${userId}`,
+            table: 'user_notifications',
+            filter: `user_id=eq.${userId}`,
           },
           (payload) => {
             // chat type 은 페이지에서 제외(채팅 탭이 별도 표시).
-            const newRow = payload.new as StudentNotification | undefined;
+            const newRow = payload.new as UserNotification | undefined;
             if (newRow?.type === 'chat') return;
             setNotifications((prev) => {
               let next = prev;
@@ -205,21 +204,20 @@ export function NotificationsClient({
     };
   }, [userId]);
 
-  // 무한 스크롤: sentinel 이 화면에 들어오면 다음 페이지 fetch.
+  // 무한 스크롤
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const data = await getStudentNotifications({
+      const data = await getUserNotifications({
         limit: pageSize,
         offset: notifications.length,
         excludeTypes: ['chat'],
       });
-      const rows = data as StudentNotification[];
+      const rows = data as UserNotification[];
       setNotifications((prev) => {
         const existing = new Set(prev.map((n) => n.id));
-        const merged = [...prev, ...rows.filter((r) => !existing.has(r.id))];
-        return merged;
+        return [...prev, ...rows.filter((r) => !existing.has(r.id))];
       });
       setHasMore(rows.length >= pageSize);
     } catch (error) {
@@ -260,11 +258,10 @@ export function NotificationsClient({
     });
   };
 
-  // 그룹화: 오늘, 이번 주, 이전
   const groupedNotifications = {
-    today: [] as StudentNotification[],
-    thisWeek: [] as StudentNotification[],
-    older: [] as StudentNotification[],
+    today: [] as UserNotification[],
+    thisWeek: [] as UserNotification[],
+    older: [] as UserNotification[],
   };
 
   const now = new Date();
@@ -285,7 +282,6 @@ export function NotificationsClient({
 
   return (
     <div className='space-y-4 p-4'>
-      {/* 헤더 */}
       <div className='flex items-center justify-between'>
         <div>
           <h1 className='text-xl font-bold'>알림</h1>
@@ -306,7 +302,6 @@ export function NotificationsClient({
         </div>
       </div>
 
-      {/* 알림 목록 */}
       {notifications.length === 0 ? (
         <Card className='p-8 text-center'>
           <Bell className='mx-auto mb-3 h-12 w-12 text-gray-300' />
@@ -314,7 +309,6 @@ export function NotificationsClient({
         </Card>
       ) : (
         <div className='space-y-6'>
-          {/* 오늘 */}
           {groupedNotifications.today.length > 0 && (
             <div>
               <h2 className='text-text-muted mb-2 px-1 text-sm font-medium'>오늘</h2>
@@ -330,8 +324,6 @@ export function NotificationsClient({
               </div>
             </div>
           )}
-
-          {/* 이번 주 */}
           {groupedNotifications.thisWeek.length > 0 && (
             <div>
               <h2 className='text-text-muted mb-2 px-1 text-sm font-medium'>이번 주</h2>
@@ -347,8 +339,6 @@ export function NotificationsClient({
               </div>
             </div>
           )}
-
-          {/* 이전 */}
           {groupedNotifications.older.length > 0 && (
             <div>
               <h2 className='text-text-muted mb-2 px-1 text-sm font-medium'>이전</h2>
@@ -364,7 +354,6 @@ export function NotificationsClient({
               </div>
             </div>
           )}
-
           {hasMore && (
             <div ref={sentinelRef} className='flex h-8 items-center justify-center'>
               {loadingMore && <RefreshCw className='text-text-muted h-4 w-4 animate-spin' />}
@@ -381,7 +370,7 @@ function NotificationItem({
   onMarkAsRead,
   formatDate,
 }: {
-  notification: StudentNotification;
+  notification: UserNotification;
   onMarkAsRead: (id: string) => void;
   formatDate: (dateStr: string) => string;
 }) {

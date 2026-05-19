@@ -8,23 +8,28 @@ import { cn, isNativeApp } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
 import { getUnreadNotificationCount } from '@/lib/actions/notification';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
+import { createClient } from '@/lib/supabase/client';
 
 interface StudentHeaderProps {
   userName?: string;
   seatNumber?: number;
+  userId?: string;
   initialUnreadCount?: number;
   initialUnreadAnnouncementCount?: number;
 }
 
-export function StudentHeader({ 
-  userName, 
-  seatNumber, 
+export function StudentHeader({
+  userName,
+  seatNumber,
+  userId,
   initialUnreadCount = 0,
   initialUnreadAnnouncementCount = 0,
 }: StudentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
-  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(initialUnreadAnnouncementCount);
+  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(
+    initialUnreadAnnouncementCount,
+  );
   // SSR 에서는 false, hydration 후 클라이언트의 navigator.userAgent 기준 값으로 자동 동기화.
   // useEffect + setState 패턴이 React 19 의 set-state-in-effect 룰에 걸리므로 외부 store 로 처리.
   const isNative = useSyncExternalStore(
@@ -33,60 +38,122 @@ export function StudentHeader({
     () => false,
   );
 
-  // 주기적으로 읽지 않은 알림/공지 수 갱신 (30초마다)
+  // 알림 카운트 realtime — 페이지 표시와 일관되게 모든 type 포함.
+  // sidebar.tsx 패턴 — session 을 await + setAuth 한 뒤 subscribe 해야 realtime listener 가
+  // 'authenticated' 로 등록되어 RLS SELECT 가 통과되고 postgres_changes 이벤트가 도달한다.
   useEffect(() => {
-    const fetchUnreadCounts = async () => {
-      try {
-        const [notificationCount, announcementCount] = await Promise.all([
-          getUnreadNotificationCount(),
-          getUnreadAnnouncementCount(),
-        ]);
-        setUnreadCount(notificationCount);
-        setUnreadAnnouncementCount(announcementCount);
-      } catch (error) {
-        console.error('Failed to fetch unread counts:', error);
-      }
+    if (!userId) return;
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const refetch = () => {
+      void getUnreadNotificationCount({ excludeTypes: ['chat'] })
+        .then(setUnreadCount)
+        .catch((e) => console.error('[student-header] unread notif refetch', e));
     };
 
-    // 초기 로드
-    if (initialUnreadCount === 0 || initialUnreadAnnouncementCount === 0) {
-      fetchUnreadCounts();
-    }
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+      channel = supabase
+        .channel(`student-header-notif-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'student_notifications',
+            filter: `student_id=eq.${userId}`,
+          },
+          refetch,
+        )
+        .subscribe();
+    })();
 
-    // 주기적 갱신
-    const interval = setInterval(fetchUnreadCounts, 30000);
-    return () => clearInterval(interval);
-  }, [initialUnreadCount, initialUnreadAnnouncementCount]);
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // 공지 카운트 realtime (announcements INSERT + announcement_reads 읽음 처리).
+  useEffect(() => {
+    if (!userId) return;
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const refetch = () => {
+      void getUnreadAnnouncementCount()
+        .then(setUnreadAnnouncementCount)
+        .catch((e) => console.error('[student-header] unread announce refetch', e));
+    };
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+      channel = supabase
+        .channel(`student-header-announce-${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, refetch)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'announcement_reads',
+            filter: `user_id=eq.${userId}`,
+          },
+          refetch,
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   return (
     <header
       className={cn(
-        'sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-100',
-        isNative && 'pt-safe'
+        'bg-background/80 sticky top-0 z-40 border-b border-gray-100 backdrop-blur-lg',
+        isNative && 'pt-safe',
       )}
     >
-      <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+      <div className='mx-auto flex max-w-lg items-center justify-between px-4 py-3'>
         {/* 로고/타이틀 */}
-        <Link href="/student" className="flex items-center">
+        <Link href='/student' className='flex items-center'>
           <Image
-            src="/logo.png"
-            alt="WHEVER STUDY route"
+            src='/logo.png'
+            alt='WHEVER STUDY route'
             width={120}
             height={48}
-            className="object-contain"
+            className='object-contain'
           />
         </Link>
 
         {/* 공지/알림 아이콘 & 프로필 드롭다운 */}
-        <div className="flex items-center gap-2">
+        <div className='flex items-center gap-2'>
           {/* 공지사항 아이콘 */}
           <Link
-            href="/student/announcements"
-            className="relative p-2 rounded-xl hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all"
+            href='/student/announcements'
+            className='relative rounded-xl p-2 transition-all hover:bg-gray-100 active:scale-90 active:bg-gray-200'
           >
-            <Megaphone className="w-5 h-5 text-text-muted" />
+            <Megaphone className='text-text-muted h-5 w-5' />
             {unreadAnnouncementCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-primary text-white text-xs font-bold rounded-full px-1">
+              <span className='bg-primary absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs font-bold text-white'>
                 {unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount}
               </span>
             )}
@@ -94,83 +161,82 @@ export function StudentHeader({
 
           {/* 알림 아이콘 */}
           <Link
-            href="/student/notifications"
-            className="relative p-2 rounded-xl hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all"
+            href='/student/notifications'
+            className='relative rounded-xl p-2 transition-all hover:bg-gray-100 active:scale-90 active:bg-gray-200'
           >
-            <Bell className="w-5 h-5 text-text-muted" />
+            <Bell className='text-text-muted h-5 w-5' />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full px-1">
+              <span className='absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white'>
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
           </Link>
 
           {/* 프로필 드롭다운 */}
-          <div className="relative">
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={cn(
-              'flex items-center gap-2 px-3 py-2 rounded-xl transition-all',
-              'hover:bg-gray-100 active:scale-95 active:bg-gray-200',
-              isMenuOpen && 'bg-gray-100'
-            )}
-          >
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <User className="w-4 h-4 text-primary" />
-            </div>
-            {userName && (
-              <div className="text-left hidden sm:block">
-                <p className="text-sm font-medium text-text">{userName}</p>
-                {seatNumber != null && (
-                  <p className="text-xs text-text-muted">좌석 {seatNumber}</p>
-                )}
+          <div className='relative'>
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className={cn(
+                'flex items-center gap-2 rounded-xl px-3 py-2 transition-all',
+                'hover:bg-gray-100 active:scale-95 active:bg-gray-200',
+                isMenuOpen && 'bg-gray-100',
+              )}
+            >
+              <div className='bg-primary/10 flex h-8 w-8 items-center justify-center rounded-full'>
+                <User className='text-primary h-4 w-4' />
               </div>
-            )}
-            <ChevronDown className={cn(
-              'w-4 h-4 text-text-muted transition-transform',
-              isMenuOpen && 'rotate-180'
-            )} />
-          </button>
-
-          {/* 드롭다운 메뉴 */}
-          {isMenuOpen && (
-            <>
-              {/* 오버레이 */}
-              <div 
-                className="fixed inset-0 z-40"
-                onClick={() => setIsMenuOpen(false)}
-              />
-              
-              {/* 메뉴 */}
-              <div className="absolute right-0 top-full mt-2 w-48 bg-card rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
-                <div className="px-4 py-2 border-b border-gray-100 sm:hidden">
-                  <p className="font-medium text-text">{userName || '사용자'}</p>
+              {userName && (
+                <div className='hidden text-left sm:block'>
+                  <p className='text-text text-sm font-medium'>{userName}</p>
                   {seatNumber != null && (
-                    <p className="text-xs text-text-muted mt-0.5">좌석 {seatNumber}</p>
+                    <p className='text-text-muted text-xs'>좌석 {seatNumber}</p>
                   )}
                 </div>
-                
-                <Link
-                  href="/student/settings"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                >
-                  <Settings className="w-4 h-4 text-text-muted" />
-                  <span className="text-sm text-text">설정</span>
-                </Link>
-                
-                <SignOutForm>
-                  <button
-                    type="submit"
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors w-full text-left"
+              )}
+              <ChevronDown
+                className={cn(
+                  'text-text-muted h-4 w-4 transition-transform',
+                  isMenuOpen && 'rotate-180',
+                )}
+              />
+            </button>
+
+            {/* 드롭다운 메뉴 */}
+            {isMenuOpen && (
+              <>
+                {/* 오버레이 */}
+                <div className='fixed inset-0 z-40' onClick={() => setIsMenuOpen(false)} />
+
+                {/* 메뉴 */}
+                <div className='bg-card absolute top-full right-0 z-50 mt-2 w-48 rounded-2xl border border-gray-100 py-2 shadow-lg'>
+                  <div className='border-b border-gray-100 px-4 py-2 sm:hidden'>
+                    <p className='text-text font-medium'>{userName || '사용자'}</p>
+                    {seatNumber != null && (
+                      <p className='text-text-muted mt-0.5 text-xs'>좌석 {seatNumber}</p>
+                    )}
+                  </div>
+
+                  <Link
+                    href='/student/settings'
+                    onClick={() => setIsMenuOpen(false)}
+                    className='flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-gray-50 active:bg-gray-100'
                   >
-                    <LogOut className="w-4 h-4 text-red-500" />
-                    <span className="text-sm text-red-500">로그아웃</span>
-                  </button>
-                </SignOutForm>
-              </div>
-            </>
-          )}
+                    <Settings className='text-text-muted h-4 w-4' />
+                    <span className='text-text text-sm'>설정</span>
+                  </Link>
+
+                  <SignOutForm>
+                    <button
+                      type='submit'
+                      className='flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100'
+                    >
+                      <LogOut className='h-4 w-4 text-red-500' />
+                      <span className='text-sm text-red-500'>로그아웃</span>
+                    </button>
+                  </SignOutForm>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
