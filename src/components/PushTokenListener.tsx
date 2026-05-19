@@ -59,6 +59,14 @@ export function PushTokenListener() {
     };
 
     window.addEventListener('message', handler);
+
+    // 마운트 시점에 네이티브에 현재 토큰 재전송을 요청한다.
+    // (로그인 페이지에서 이미 토큰이 dispatch된 뒤 student/parent 영역으로 진입한 경우 복구)
+    const rn = (window as unknown as {
+      ReactNativeWebView?: { postMessage: (s: string) => void };
+    }).ReactNativeWebView;
+    rn?.postMessage(JSON.stringify({ type: 'REQUEST_PUSH_TOKEN', payload: {} }));
+
     return () => window.removeEventListener('message', handler);
   }, []);
 
