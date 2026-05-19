@@ -8,6 +8,7 @@ import {
   closeConnection,
 } from '@/lib/caps/client';
 import type { CapsGate } from '@/lib/caps/types';
+import { sendPushToUsers } from '@/lib/push';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -221,6 +222,116 @@ export async function GET(request: Request) {
             .update({ is_current: false, ended_at: endedAt })
             .eq('student_id', studentId)
             .eq('is_current', true);
+        }
+
+        // 입실/퇴실 푸시 알림 + 알림 내역 적재 (학생 본인 + 연결된 학부모)
+        try {
+          const notifStudentIds = [...new Set(newRecords.map((r) => r.student_id))];
+
+          const { data: studentProfiles } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', notifStudentIds);
+          const studentNameMap = new Map<string, string>();
+          studentProfiles?.forEach((p) => studentNameMap.set(p.id, p.name || ''));
+
+          const { data: parentLinks } = await supabase
+            .from('parent_student_links')
+            .select('student_id, parent_id')
+            .in('student_id', notifStudentIds);
+          const studentToParents = new Map<string, string[]>();
+          parentLinks?.forEach((l) => {
+            const arr = studentToParents.get(l.student_id) || [];
+            arr.push(l.parent_id);
+            studentToParents.set(l.student_id, arr);
+          });
+
+          const kstTimeFormatter = new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+
+          const studentNotifInserts: {
+            student_id: string;
+            type: 'system';
+            title: string;
+            message: string;
+          }[] = [];
+          const userNotifInserts: {
+            user_id: string;
+            type: 'system';
+            title: string;
+            message: string;
+          }[] = [];
+          const pushGroups = new Map<string, { title: string; body: string; userIds: string[] }>();
+
+          for (const r of newRecords) {
+            const studentName = studentNameMap.get(r.student_id) || '학생';
+            const timeLabel = kstTimeFormatter.format(new Date(r.timestamp));
+            const action = r.type === 'check_in' ? '입실' : '퇴실';
+
+            const studentTitle = `${action} 알림`;
+            const studentMessage = `${action}했습니다 (${timeLabel})`;
+            studentNotifInserts.push({
+              student_id: r.student_id,
+              type: 'system',
+              title: studentTitle,
+              message: studentMessage,
+            });
+            const studentKey = `s\u0000${studentTitle}\u0000${studentMessage}`;
+            const sg = pushGroups.get(studentKey);
+            if (sg) sg.userIds.push(r.student_id);
+            else
+              pushGroups.set(studentKey, {
+                title: studentTitle,
+                body: studentMessage,
+                userIds: [r.student_id],
+              });
+
+            const parentIds = studentToParents.get(r.student_id) || [];
+            if (parentIds.length > 0) {
+              const parentTitle = `${action} 알림`;
+              const parentMessage = `${studentName} 학생이 ${action}했습니다 (${timeLabel})`;
+              for (const pid of parentIds) {
+                userNotifInserts.push({
+                  user_id: pid,
+                  type: 'system',
+                  title: parentTitle,
+                  message: parentMessage,
+                });
+              }
+              const parentKey = `p\u0000${parentTitle}\u0000${parentMessage}`;
+              const pg = pushGroups.get(parentKey);
+              if (pg) pg.userIds.push(...parentIds);
+              else
+                pushGroups.set(parentKey, {
+                  title: parentTitle,
+                  body: parentMessage,
+                  userIds: [...parentIds],
+                });
+            }
+          }
+
+          if (studentNotifInserts.length > 0) {
+            const { error: snErr } = await supabase
+              .from('student_notifications')
+              .insert(studentNotifInserts);
+            if (snErr) console.error('[caps-sync] student_notifications insert', snErr);
+          }
+          if (userNotifInserts.length > 0) {
+            const { error: unErr } = await supabase
+              .from('user_notifications')
+              .insert(userNotifInserts);
+            if (unErr) console.error('[caps-sync] user_notifications insert', unErr);
+          }
+
+          await Promise.allSettled(
+            [...pushGroups.values()].map((g) => sendPushToUsers(g.userIds, g.title, g.body)),
+          );
+        } catch (notifError) {
+          console.error('[caps-sync] attendance notification error', notifError);
         }
       }
     }
