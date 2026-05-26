@@ -148,6 +148,8 @@ export const REWARD_RULES = {
   dailyFocusAmount: 1,
   /** 일일 자동 상점 부여 요일 (1=월, 5=금). 주말 캡: 토(6)·일(0) 제외 */
   dailyFocusWeekdays: [1, 2, 3, 4, 5] as const,
+  /** 미분류 자투리 임계값 (초). 과목 전환 phantom gap 및 진짜 1분 미만 갭을 카운트에서 제외. */
+  dailyFocusMinSegmentSeconds: 60,
 } as const;
 
 // 정책 버전 (변경 시 학생/학부모에 모달 재노출)
