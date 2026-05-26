@@ -103,6 +103,9 @@ export interface Database {
           created_at: string;
           withdrawal_review_at: string | null;
           withdrawal_review_reason: string | null;
+          withdrawal_required_at: string | null;
+          withdrawal_required_reason: string | null;
+          penalty_offset_in_quarter_total: number;
           threshold_consumed_in_quarter_at: string | null;
           first_check_in_at: string | null;
           last_warned_at_10: string | null;
@@ -121,6 +124,9 @@ export interface Database {
           created_at?: string;
           withdrawal_review_at?: string | null;
           withdrawal_review_reason?: string | null;
+          withdrawal_required_at?: string | null;
+          withdrawal_required_reason?: string | null;
+          penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
           last_warned_at_10?: string | null;
@@ -139,6 +145,9 @@ export interface Database {
           created_at?: string;
           withdrawal_review_at?: string | null;
           withdrawal_review_reason?: string | null;
+          withdrawal_required_at?: string | null;
+          withdrawal_required_reason?: string | null;
+          penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
           last_warned_at_10?: string | null;
@@ -544,7 +553,9 @@ export interface Database {
             | 'auto_early'
             | 'reset_on_threshold'
             | 'reset_on_threshold_revert'
-            | 'redeem';
+            | 'redeem'
+            | 'offset_against_penalty'
+            | 'offset_against_penalty_revert';
         };
         Insert: {
           id?: string;
@@ -566,7 +577,9 @@ export interface Database {
             | 'auto_early'
             | 'reset_on_threshold'
             | 'reset_on_threshold_revert'
-            | 'redeem';
+            | 'redeem'
+            | 'offset_against_penalty'
+            | 'offset_against_penalty_revert';
         };
         Update: {
           id?: string;
@@ -588,7 +601,9 @@ export interface Database {
             | 'auto_early'
             | 'reset_on_threshold'
             | 'reset_on_threshold_revert'
-            | 'redeem';
+            | 'redeem'
+            | 'offset_against_penalty'
+            | 'offset_against_penalty_revert';
         };
       };
       reward_redemptions: {
@@ -1753,6 +1768,7 @@ export interface Database {
           reward_lifetime: number;
           reward_redeemed: number;
           reward_burnt: number;
+          reward_offset: number;
           penalty_quarter: number;
         }[];
       };

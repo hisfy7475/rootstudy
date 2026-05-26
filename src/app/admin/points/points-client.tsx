@@ -88,10 +88,17 @@ interface ReviewQueueRow {
   studentId: string;
   name: string;
   seatNumber: number | null;
+  kind: 'review' | 'required';
   reviewAt: string | null;
   reviewReason: string | null;
   consumedAt: string | null;
+  requiredAt: string | null;
+  requiredReason: string | null;
+  markedAt: string | null;
+  markedReason: string | null;
   penaltyQuarter: number;
+  penaltyQuarterRaw: number;
+  penaltyOffsetInQuarter: number;
   lastPenalty: { reason: string; amount: number; createdAt: string } | null;
   protectedRedemptionCount: number;
 }
@@ -119,6 +126,7 @@ interface PointsClientProps {
   initialRewardPresets: RewardPreset[];
   initialPenaltyPresets: PenaltyPreset[];
   initialReviewQueue: ReviewQueueRow[];
+  initialRequiredQueue: ReviewQueueRow[];
   initialRedemptionQueue: RedemptionQueueRow[];
 }
 
@@ -134,6 +142,7 @@ export function PointsClient({
   initialRewardPresets,
   initialPenaltyPresets,
   initialReviewQueue,
+  initialRequiredQueue,
   initialRedemptionQueue,
 }: PointsClientProps) {
   const router = useRouter();
@@ -786,7 +795,11 @@ export function PointsClient({
           { value: 'rules', label: '상벌점 규정' },
           {
             value: 'review',
-            label: `퇴원 검토${initialReviewQueue.length > 0 ? ` (${initialReviewQueue.length})` : ''}`,
+            label: `퇴원 검토/강제 퇴원${
+              initialReviewQueue.length + initialRequiredQueue.length > 0
+                ? ` (${initialReviewQueue.length + initialRequiredQueue.length})`
+                : ''
+            }`,
           },
           {
             value: 'redemptions',
@@ -798,9 +811,13 @@ export function PointsClient({
         searchParams={new URLSearchParams(sp.toString())}
       />
 
-      {/* 퇴원 검토 큐 탭 */}
+      {/* 퇴원 검토/강제 퇴원 큐 탭 */}
       {activeTab === 'review' && (
-        <WithdrawalReviewTab queue={initialReviewQueue} onRefresh={refreshData} />
+        <WithdrawalReviewTab
+          reviewQueue={initialReviewQueue}
+          requiredQueue={initialRequiredQueue}
+          onRefresh={refreshData}
+        />
       )}
 
       {/* 상품권 발급 큐 탭 */}

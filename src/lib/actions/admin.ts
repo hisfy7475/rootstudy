@@ -29,8 +29,9 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
   );
 }
 
-// 단계 5: 벌점 삭제·취소 후 분기 누적이 30점 미만으로 떨어지면 검토 취소 + 상점 복구.
-// withdrawal_review_at 이 같은 분기에 세팅돼 있을 때만 동작.
+// 단계 5: 벌점 삭제·취소 후 분기 net 누적이 30점 미만으로 떨어지면 검토/강제 퇴원 대상 해제.
+// withdrawal_review_at 또는 withdrawal_required_at 둘 중 하나라도 마크되어 있어야 동작.
+// 신규 정책: net 누적 = raw SUM − penalty_offset_in_quarter_total.
 async function maybeRevertWithdrawalReview(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studentId: string,
@@ -41,7 +42,9 @@ async function maybeRevertWithdrawalReview(
   const [{ data: profile }, { data: penalties }] = await Promise.all([
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, threshold_consumed_in_quarter_at')
+      .select(
+        'withdrawal_review_at, withdrawal_required_at, threshold_consumed_in_quarter_at, penalty_offset_in_quarter_total',
+      )
       .eq('id', studentId)
       .maybeSingle(),
     supabase
@@ -52,12 +55,12 @@ async function maybeRevertWithdrawalReview(
       .gte('created_at', quarterStart.toISOString()),
   ]);
 
-  if (!profile?.withdrawal_review_at) return;
-  const consumedAt = profile.threshold_consumed_in_quarter_at;
-  if (!consumedAt || new Date(consumedAt) < quarterStart) return;
+  if (!profile?.withdrawal_review_at && !profile?.withdrawal_required_at) return;
 
-  const quarterTotal = (penalties ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
-  if (quarterTotal >= 30) return;
+  const raw = (penalties ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+  const offset = profile.penalty_offset_in_quarter_total ?? 0;
+  const net = raw - offset;
+  if (net >= 30) return;
 
   await supabase.rpc('cancel_withdrawal_review', {
     p_student_id: studentId,
@@ -941,15 +944,26 @@ export async function givePoints(
   // 단계 8: 벌점은 RPC give_penalty_with_threshold_check 로 처리.
   //   - 임계치 hook (10/20/25/30) + 단계 알림 dedupe + 30점 도달 시 handle_penalty_threshold
   //   - 모두 단일 트랜잭션 (CAS + 락)
+  // 신규 정책 (2026-05): 30점 도달 시 1:1 상계 또는 강제 퇴원 대상 마크.
   // 상점은 기존 INSERT 유지.
   type ThresholdResult =
     | {
-        status: 'consumed';
-        balance_before: number;
-        auto_pending_created: number;
-        remainder_burnt: number;
+        status: 'offset';
+        offset_amount: number;
+        reward_after: number;
+        penalty_after_net: number;
+        will_require_withdrawal: false;
+        protected_queue_count: number;
       }
-    | { status: 'already_consumed_this_quarter' };
+    | {
+        status: 'withdrawal_required';
+        offset_amount: 0;
+        reward_after: number;
+        penalty_after_net: number;
+        will_require_withdrawal: true;
+        protected_queue_count: number;
+      }
+    | { status: 'not_a_student' };
   let warnings: Array<'warn_10' | 'warn_20' | 'warn_25'> = [];
   let thresholdResult: ThresholdResult | null = null;
 
@@ -1093,11 +1107,12 @@ export async function givePoints(
         },
         warn_20: {
           title: '주의 — 분기 벌점 20점 도달',
-          message: '30점 도달 시 보유 상점이 모두 소멸됩니다.',
+          message: '30점 도달 시 보유 상점과 1:1 상계됩니다.',
         },
         warn_25: {
           title: '경고 — 분기 벌점 25점 도달',
-          message: '5점만 더 쌓이면 보유 상점이 소멸되고 퇴원 검토 대상이 됩니다.',
+          message:
+            '5점만 더 쌓이면 보유 상점과 상계됩니다. 상점이 부족하면 강제 퇴원 대상이 됩니다.',
         },
       };
       for (const w of warnings) {
@@ -1112,13 +1127,22 @@ export async function givePoints(
       }
     }
 
-    // 30점 도달 학생 인앱 알림
-    if (thresholdResult?.status === 'consumed') {
+    // 30점 도달 학생 인앱 알림 — 상계/강제 퇴원 대상 분기
+    if (thresholdResult?.status === 'offset') {
       await createStudentNotification({
         studentId,
         type: 'point',
-        title: '면담이 필요합니다',
-        message: '원장님께서 곧 안내해드릴게요.',
+        title: '벌점 30점 도달 — 상점과 상계되었습니다',
+        message: `상점 ${thresholdResult.offset_amount}점이 벌점과 상계되었습니다. 잔존 벌점 ${thresholdResult.penalty_after_net}점.`,
+        link: '/student/points',
+      }).catch(console.error);
+    } else if (thresholdResult?.status === 'withdrawal_required') {
+      await createStudentNotification({
+        studentId,
+        type: 'point',
+        title: '면담이 필요합니다 — 강제 퇴원 대상',
+        message:
+          '가용 상점이 없어 강제 퇴원 대상으로 마크되었습니다. 원장님께서 곧 안내해드릴게요.',
         link: '/student/points',
       }).catch(console.error);
     }
@@ -1556,6 +1580,7 @@ export async function deletePointsByFilter(params: {
 }
 
 // 단계 8: 벌점 부여 dry-run (관리자 confirm 모달용)
+// 신규 정책: 30점 도달 시 1:1 상계 또는 강제 퇴원 대상 마크.
 export async function previewPenalty(studentId: string, amount: number) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('preview_penalty', {
@@ -1569,23 +1594,40 @@ export async function previewPenalty(studentId: string, amount: number) {
   return {
     success: true,
     preview: data as {
-      quarter_total_before: number;
-      quarter_total_after: number;
+      quarter_total_before: number; // net
+      quarter_total_after: number; // net
       thresholds_reached: number[];
       reaches_30: boolean;
       current_balance: number;
       queue_count: number;
+      /** @deprecated 구 정책 호환. 항상 0. */
       protected_auto_pending: number;
+      /** @deprecated 구 정책 호환. 항상 0. */
       burnt_estimate: number;
+      offset_estimate: number;
+      reward_after_offset: number;
+      penalty_after_offset_net: number;
+      will_require_withdrawal: boolean;
     },
   };
 }
 
-// 단계 8: 퇴원 검토 대기 큐 조회 (관리자 화면)
-export async function getWithdrawalReviewQueue(branchId: string | null) {
+// 단계 8: 퇴원 검토 대기 + 강제 퇴원 대상 큐 조회 (관리자 화면)
+// - kind='review'  : 구 정책 withdrawal_review_at 마크 학생 (점진 폐기)
+// - kind='required': 신규 정책 withdrawal_required_at 마크 학생
+export type WithdrawalQueueKind = 'review' | 'required';
+
+export async function getWithdrawalReviewQueue(
+  branchId: string | null,
+  kind: WithdrawalQueueKind = 'review',
+) {
   const supabase = await createClient();
   const { getCurrentQuarterStartKST } = await import('@/lib/utils');
   const qStart = getCurrentQuarterStartKST();
+
+  const markColumn = kind === 'review' ? 'withdrawal_review_at' : 'withdrawal_required_at';
+  const reasonColumn =
+    kind === 'review' ? 'withdrawal_review_reason' : 'withdrawal_required_reason';
 
   let query = supabase
     .from('student_profiles')
@@ -1595,7 +1637,10 @@ export async function getWithdrawalReviewQueue(branchId: string | null) {
       seat_number,
       withdrawal_review_at,
       withdrawal_review_reason,
+      withdrawal_required_at,
+      withdrawal_required_reason,
       threshold_consumed_in_quarter_at,
+      penalty_offset_in_quarter_total,
       profiles!inner (
         name,
         branch_id,
@@ -1603,9 +1648,9 @@ export async function getWithdrawalReviewQueue(branchId: string | null) {
       )
     `,
     )
-    .not('withdrawal_review_at', 'is', null)
+    .not(markColumn, 'is', null)
     .is('profiles.withdrawn_at', null)
-    .order('withdrawal_review_at', { ascending: false });
+    .order(markColumn, { ascending: false });
 
   if (branchId) {
     query = query.eq('profiles.branch_id', branchId);
@@ -1614,7 +1659,6 @@ export async function getWithdrawalReviewQueue(branchId: string | null) {
   const { data: students } = await query.limit(200);
   if (!students || students.length === 0) return [];
 
-  // 학생별 분기 누적 벌점 + 마지막 벌점 + auto_pending 건수 병렬 조회
   const studentIds = students.map((s) => s.id);
   const [{ data: penalties }, { data: lastPoints }, { data: pendings }] = await Promise.all([
     supabase
@@ -1629,16 +1673,17 @@ export async function getWithdrawalReviewQueue(branchId: string | null) {
       .in('student_id', studentIds)
       .eq('type', 'penalty')
       .order('created_at', { ascending: false }),
+    // 보호 큐 = requested + auto_pending 둘 다
     supabase
       .from('reward_redemptions')
       .select('student_id, status')
       .in('student_id', studentIds)
-      .eq('status', 'auto_pending'),
+      .in('status', ['requested', 'auto_pending']),
   ]);
 
-  const penaltyByStudent = new Map<string, number>();
+  const penaltyRawByStudent = new Map<string, number>();
   for (const p of penalties ?? []) {
-    penaltyByStudent.set(p.student_id, (penaltyByStudent.get(p.student_id) ?? 0) + p.amount);
+    penaltyRawByStudent.set(p.student_id, (penaltyRawByStudent.get(p.student_id) ?? 0) + p.amount);
   }
   const lastByStudent = new Map<string, { reason: string; amount: number; createdAt: string }>();
   for (const p of lastPoints ?? []) {
@@ -1657,21 +1702,39 @@ export async function getWithdrawalReviewQueue(branchId: string | null) {
 
   return students.map((s) => {
     const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+    const raw = penaltyRawByStudent.get(s.id) ?? 0;
+    const offset = s.penalty_offset_in_quarter_total ?? 0;
     return {
       studentId: s.id,
       name: (profile as { name?: string })?.name ?? '이름 없음',
       seatNumber: s.seat_number,
+      kind,
+      // 구 정책 필드 (호환)
       reviewAt: s.withdrawal_review_at,
       reviewReason: s.withdrawal_review_reason,
       consumedAt: s.threshold_consumed_in_quarter_at,
-      penaltyQuarter: penaltyByStudent.get(s.id) ?? 0,
+      // 신규 정책 필드
+      requiredAt: s.withdrawal_required_at,
+      requiredReason: s.withdrawal_required_reason,
+      // 표시용
+      markedAt: (kind === 'review' ? s.withdrawal_review_at : s.withdrawal_required_at) as
+        | string
+        | null,
+      markedReason: (kind === 'review'
+        ? s.withdrawal_review_reason
+        : s.withdrawal_required_reason) as string | null,
+      _reasonColumn: reasonColumn, // debug 용
+      penaltyQuarterRaw: raw,
+      penaltyQuarter: raw - offset, // net
+      penaltyOffsetInQuarter: offset,
       lastPenalty: lastByStudent.get(s.id) ?? null,
       protectedRedemptionCount: pendingByStudent.get(s.id) ?? 0,
     };
   });
 }
 
-// 단계 8: 퇴원 검토 확정 (실제 퇴원 처리)
+// 단계 8: 퇴원 검토/강제 퇴원 대상 확정 (실제 퇴원 처리)
+// 구 정책(withdrawal_review_at) 또는 신규 정책(withdrawal_required_at) 둘 중 하나 이상 마크된 학생만 처리.
 export async function confirmWithdrawal(studentId: string, reason?: string) {
   const supabase = await createClient();
   const {
@@ -1681,17 +1744,23 @@ export async function confirmWithdrawal(studentId: string, reason?: string) {
 
   const { data: profile } = await supabase
     .from('student_profiles')
-    .select('withdrawal_review_at, withdrawal_review_reason')
+    .select(
+      'withdrawal_review_at, withdrawal_review_reason, withdrawal_required_at, withdrawal_required_reason',
+    )
     .eq('id', studentId)
     .maybeSingle();
-  if (!profile?.withdrawal_review_at) {
-    return { error: '퇴원 검토 대상이 아닙니다.' };
+  if (!profile?.withdrawal_review_at && !profile?.withdrawal_required_at) {
+    return { error: '퇴원 검토/강제 퇴원 대상이 아닙니다.' };
   }
 
   const result = await softDeleteUser({
     userId: studentId,
     withdrawnBy: user.id,
-    reason: reason ?? profile.withdrawal_review_reason ?? '벌점 30점 도달 (관리자 확정)',
+    reason:
+      reason ??
+      profile.withdrawal_required_reason ??
+      profile.withdrawal_review_reason ??
+      '벌점 30점 도달 (관리자 확정)',
   });
 
   if ('error' in result) {
@@ -1701,6 +1770,43 @@ export async function confirmWithdrawal(studentId: string, reason?: string) {
   revalidatePath('/admin');
   revalidatePath('/admin/points');
   return { success: true, warning: 'warning' in result ? result.warning : undefined };
+}
+
+// 신규 정책: 강제 퇴원 대상 마크 취소 (재원 유지). 상계 자체는 보존.
+export async function cancelRequiredWithdrawal(studentId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_withdrawal_review', {
+    p_student_id: studentId,
+    p_restore_reward: true,
+  });
+  if (error) {
+    console.error('cancel_required_withdrawal error:', error);
+    return { error: '강제 퇴원 대상 취소 실패' };
+  }
+  const result = data as
+    | {
+        status: 'cancelled';
+        cleared_review: boolean;
+        cleared_required: boolean;
+        restored_reward: number;
+        cancelled_pending: number;
+      }
+    | { status: 'not_in_review' }
+    | { status: 'not_a_student' };
+
+  if (result.status === 'not_in_review' || result.status === 'not_a_student') {
+    return { error: '이미 대상이 아닙니다.' };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return {
+    success: true,
+    clearedReview: result.cleared_review,
+    clearedRequired: result.cleared_required,
+    restoredReward: result.restored_reward,
+    cancelledPending: result.cancelled_pending,
+  };
 }
 
 // 단계 8: 퇴원 검토 취소 + 옵션 상점 복구
@@ -1718,10 +1824,17 @@ export async function cancelWithdrawalReviewAction(
     return { error: '검토 취소 실패' };
   }
   const result = data as
-    | { status: 'cancelled'; restored_reward: number; cancelled_pending: number }
-    | { status: 'not_in_review' };
+    | {
+        status: 'cancelled';
+        cleared_review: boolean;
+        cleared_required: boolean;
+        restored_reward: number;
+        cancelled_pending: number;
+      }
+    | { status: 'not_in_review' }
+    | { status: 'not_a_student' };
 
-  if (result.status === 'not_in_review') {
+  if (result.status === 'not_in_review' || result.status === 'not_a_student') {
     return { error: '이미 검토 대상이 아닙니다.' };
   }
 

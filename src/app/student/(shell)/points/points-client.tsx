@@ -25,11 +25,15 @@ interface PointsSummary {
   rewardLifetime: number;
   rewardRedeemed: number;
   rewardBurnt: number;
-  penaltyQuarter: number;
+  rewardOffset: number;
+  penaltyQuarter: number; // net
+  penaltyQuarterRaw: number;
+  penaltyOffsetInQuarter: number;
   penaltyThreshold: number;
   quarterStart: string | null;
   quarterEnd: string | null;
   withdrawalReviewAt: string | null;
+  withdrawalRequiredAt: string | null;
   activeRedemptions: Array<{
     id: string;
     status: string;
@@ -92,6 +96,8 @@ export function PointsPageClient({
   ).length;
   const progressInCycle = balance % 100;
   const inReview = summary.withdrawalReviewAt !== null;
+  const inRequired = summary.withdrawalRequiredAt !== null;
+  const blocked = inReview || inRequired;
 
   return (
     <div className='space-y-6 p-4'>
@@ -109,8 +115,24 @@ export function PointsPageClient({
         <PolicyHelpButton />
       </div>
 
-      {/* 퇴원 검토 경고 배너 */}
-      {inReview && (
+      {/* 강제 퇴원 대상 배너 (신규 정책 — 최우선 표시) */}
+      {inRequired && (
+        <Card className='border-red-300 bg-red-100 p-4'>
+          <div className='flex items-start gap-3'>
+            <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-red-600' />
+            <div className='space-y-1'>
+              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 마크되었습니다</p>
+              <p className='text-xs text-red-700'>
+                벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다. 원장님께서 곧
+                안내해 드릴게요.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 퇴원 검토 경고 배너 (구 정책 호환) */}
+      {inReview && !inRequired && (
         <Card className='border-red-200 bg-red-50 p-4'>
           <div className='flex items-start gap-3'>
             <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-red-500' />
@@ -153,6 +175,7 @@ export function PointsPageClient({
           <p className='text-text-muted mt-2 text-[10px]'>
             획득 {summary.rewardLifetime} · 사용 {summary.rewardRedeemed}
             {summary.rewardBurnt > 0 ? ` · 소멸 ${summary.rewardBurnt}` : ''}
+            {summary.rewardOffset > 0 ? ` · 상계 ${summary.rewardOffset}` : ''}
           </p>
         </Card>
 
@@ -202,18 +225,26 @@ export function PointsPageClient({
             <p className='text-text-muted text-[10px]'>
               {quarterEndLabel ? `${quarterEndLabel}까지 D-${dDay}` : ''}
             </p>
+            {summary.penaltyOffsetInQuarter > 0 && (
+              <p className='text-text-muted text-[10px]'>
+                원본 {summary.penaltyQuarterRaw}점 − 상계 {summary.penaltyOffsetInQuarter}점 = 잔존{' '}
+                {summary.penaltyQuarter}점
+              </p>
+            )}
           </div>
-          {/* 25점 이상 사전 경고 */}
-          {summary.penaltyQuarter >= 20 && balance > 0 && !inReview && (
+          {/* 20점 이상 사전 경고 */}
+          {summary.penaltyQuarter >= 20 && !blocked && (
             <p className='mt-2 text-[10px] font-medium text-red-600'>
-              ⚠ 30점 도달 시 보유 상점 {balance}점 소멸
+              {balance > 0
+                ? `⚠ 30점 도달 시 보유 상점 ${balance}점과 1:1 상계됩니다`
+                : '⚠ 30점 도달 시 가용 상점이 없으면 강제 퇴원 대상이 됩니다'}
             </p>
           )}
         </Card>
       </div>
 
-      {/* 상품권 자동 발급 안내 — 검토 진입 아닐 때 */}
-      {!inReview && (
+      {/* 상품권 자동 발급 안내 — 검토 진입/강제 퇴원 대상 아닐 때 */}
+      {!blocked && (
         <Card className='border-blue-200 bg-blue-50 p-3'>
           <div className='flex items-start gap-2'>
             <Gift className='mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600' />

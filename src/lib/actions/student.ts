@@ -754,11 +754,15 @@ export async function getWeeklyFocus() {
 //   rewardBalance   — 잔액 (reward 와 동일, 명확화)
 //   rewardLifetime  — 양수 reward 합 (총 획득)
 //   rewardRedeemed  — 발급 차감 절대값
-//   rewardBurnt     — 30점 도달 소멸 절대값
-//   penaltyQuarter  — KST 현재 분기 누적 벌점
-//   penaltyThreshold — 30 (REWARD_RULES 와 일치 X — PENALTY_RULES.withdrawAt)
+//   rewardBurnt     — 30점 도달 소멸 절대값 (구 정책)
+//   rewardOffset    — 30점 도달 1:1 상계 절대값 (신규 정책)
+//   penaltyQuarterRaw  — KST 현재 분기 부여된 벌점 합 (raw)
+//   penaltyQuarter     — net (raw − penalty_offset_in_quarter_total). 임계 판정용.
+//   penaltyOffsetInQuarter — 분기 내 상계된 벌점 누계
+//   penaltyThreshold — 30 (PENALTY_RULES.withdrawAt)
 //   quarterStart / quarterEnd — 분기 경계
-//   withdrawalReviewAt — 30점 도달 검토 진입 여부
+//   withdrawalReviewAt — 구 정책 검토 진입 여부
+//   withdrawalRequiredAt — 신규 정책 강제 퇴원 대상 마크 여부
 //   activeRedemptions — requested/auto_pending/issued 상태 redemption (최근 5건)
 export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   const { getCurrentQuarterStartKST, getNextQuarterStartKST } = await import('@/lib/utils');
@@ -776,11 +780,15 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     rewardLifetime: 0,
     rewardRedeemed: 0,
     rewardBurnt: 0,
+    rewardOffset: 0,
+    penaltyQuarterRaw: 0,
     penaltyQuarter: 0,
+    penaltyOffsetInQuarter: 0,
     penaltyThreshold: PENALTY_RULES.withdrawAt,
     quarterStart: null as string | null,
     quarterEnd: null as string | null,
     withdrawalReviewAt: null as string | null,
+    withdrawalRequiredAt: null as string | null,
     activeRedemptions: [] as Array<{
       id: string;
       status: string;
@@ -809,7 +817,7 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     query,
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at')
+      .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -826,20 +834,25 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   let rewardLifetime = 0;
   let rewardRedeemed = 0;
   let rewardBurnt = 0;
+  let rewardOffset = 0;
   let rewardBalance = 0;
   let penaltyLifetime = 0;
-  let penaltyQuarter = 0;
+  let penaltyQuarterRaw = 0;
   for (const p of allPoints) {
     if (p.type === 'reward') {
       rewardBalance += p.amount;
       if (p.event_kind === 'redeem') rewardRedeemed += -p.amount;
       else if (p.event_kind === 'reset_on_threshold') rewardBurnt += -p.amount;
+      else if (p.event_kind === 'offset_against_penalty') rewardOffset += -p.amount;
       else if (p.amount > 0) rewardLifetime += p.amount;
     } else if (p.type === 'penalty') {
       penaltyLifetime += p.amount;
-      if (new Date(p.created_at) >= quarterStart) penaltyQuarter += p.amount;
+      if (new Date(p.created_at) >= quarterStart) penaltyQuarterRaw += p.amount;
     }
   }
+
+  const penaltyOffsetInQuarter = profile?.penalty_offset_in_quarter_total ?? 0;
+  const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
 
   return {
     points: allPoints,
@@ -851,11 +864,15 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
       rewardLifetime,
       rewardRedeemed,
       rewardBurnt,
+      rewardOffset,
+      penaltyQuarterRaw,
       penaltyQuarter,
+      penaltyOffsetInQuarter,
       penaltyThreshold: PENALTY_RULES.withdrawAt,
       quarterStart: quarterStart.toISOString(),
       quarterEnd: quarterEnd.toISOString(),
       withdrawalReviewAt: profile?.withdrawal_review_at ?? null,
+      withdrawalRequiredAt: profile?.withdrawal_required_at ?? null,
       activeRedemptions: redemptions ?? [],
     },
   };
