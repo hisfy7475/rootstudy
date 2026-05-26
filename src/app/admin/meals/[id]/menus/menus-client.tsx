@@ -14,6 +14,7 @@ import {
 } from '@/lib/actions/meal';
 import type { MealMenu } from '@/types/database';
 import { ImagePlus, Loader2, Trash2, X } from 'lucide-react';
+import { MenuConflictModal } from './menu-conflict-modal';
 
 function enumerateMealDates(start: string, end: string): string[] {
   const out: string[] = [];
@@ -58,10 +59,7 @@ interface AdminMealMenusClientProps {
 
 export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusClientProps) {
   const range = useMemo(() => variantUnionRange(product.variants), [product.variants]);
-  const dates = useMemo(
-    () => (range ? enumerateMealDates(range.start, range.end) : []),
-    [range],
-  );
+  const dates = useMemo(() => (range ? enumerateMealDates(range.start, range.end) : []), [range]);
 
   const initialMap = useMemo(() => {
     const m = new Map<string, RowState>();
@@ -86,6 +84,10 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [deletingImageDate, setDeletingImageDate] = useState<string | null>(null);
+  const [pendingConflict, setPendingConflict] = useState<{
+    date: string;
+    conflicts: Array<{ product_id: string; product_name: string }>;
+  } | null>(null);
 
   const updateText = (date: string, text: string) => {
     setRows((prev) => {
@@ -118,7 +120,8 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
     });
   };
 
-  const saveDate = async (date: string) => {
+  const saveDate = async (date: string, opts?: { force?: boolean }) => {
+    if (pendingConflict && !opts?.force) return;
     const row = rows.get(date);
     const text = (row?.text ?? '').trim();
     if (!text) {
@@ -129,10 +132,15 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
     setFlash(null);
 
     // 1) 메뉴 텍스트 저장
-    const res = await upsertMealMenu(product.id, date, text);
+    const res = await upsertMealMenu(product.id, date, text, { force: opts?.force });
     if (res.error) {
       setSavingDate(null);
       setFlash({ type: 'err', text: res.error });
+      return;
+    }
+    if (res.warning) {
+      setSavingDate(null);
+      setPendingConflict({ date, conflicts: res.warning.conflicts });
       return;
     }
 
@@ -369,7 +377,7 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
               <Button
                 type='button'
                 size='sm'
-                disabled={isBusy || !isDirty || !hasContent}
+                disabled={isBusy || !isDirty || !hasContent || pendingConflict !== null}
                 onClick={() => saveDate(date)}
               >
                 {isBusy ? <Loader2 className='size-4 animate-spin' /> : '저장'}
@@ -378,6 +386,19 @@ export function AdminMealMenusClient({ product, initialMenus }: AdminMealMenusCl
           );
         })}
       </div>
+
+      {pendingConflict && (
+        <MenuConflictModal
+          date={pendingConflict.date}
+          conflicts={pendingConflict.conflicts}
+          onCancel={() => setPendingConflict(null)}
+          onConfirm={() => {
+            const { date } = pendingConflict;
+            setPendingConflict(null);
+            void saveDate(date, { force: true });
+          }}
+        />
+      )}
     </div>
   );
 }

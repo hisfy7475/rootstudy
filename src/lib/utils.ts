@@ -66,6 +66,14 @@ export function getTodayKST(): string {
 }
 
 /**
+ * YYYY-MM-DD → YY.MM.DD 단축 표기.
+ * DB date 컬럼이 ISO 문자열로 내려오는 것을 가정하고 슬라이싱으로 변환.
+ */
+export function formatYmdShort(ymd: string): string {
+  return `${ymd.slice(2, 4)}.${ymd.slice(5, 7)}.${ymd.slice(8, 10)}`;
+}
+
+/**
  * 일회성 부재 일정이 KST 달력 기준으로 이미 지났는지 (학생·학부모 리스트에서 제외할 때 사용)
  */
 export function isPastOneTimeAbsenceSchedule(
@@ -335,6 +343,35 @@ const NATIVE_APP_UA = 'RootStudyApp';
 export function isNativeApp(userAgent?: string | null): boolean {
   const ua = userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return ua.includes(NATIVE_APP_UA);
+}
+
+export type NativeAppVersion = { major: number; minor: number };
+
+/**
+ * UA의 `RootStudyApp/<major>.<minor>` 패턴에서 버전을 추출.
+ * 네이티브 앱이 아니거나 파싱 실패 시 null.
+ * 멘토링 첨부 등 신버전 전용 기능을 구버전 앱에서 가드할 때 사용.
+ */
+export function getNativeAppVersion(userAgent?: string | null): NativeAppVersion | null {
+  const ua = userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : '');
+  const m = ua.match(/RootStudyApp\/(\d+)\.(\d+)/);
+  if (!m) return null;
+  const major = parseInt(m[1] ?? '', 10);
+  const minor = parseInt(m[2] ?? '', 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return null;
+  return { major, minor };
+}
+
+/** 네이티브 앱 버전이 (major, minor) 이상인지 비교. UA에 버전이 없으면 false (보수적). */
+export function isNativeAppAtLeast(
+  major: number,
+  minor: number,
+  userAgent?: string | null,
+): boolean {
+  const v = getNativeAppVersion(userAgent);
+  if (!v) return false;
+  if (v.major !== major) return v.major > major;
+  return v.minor >= minor;
 }
 
 /** KST 기준 멘토링 슬롯 시작 시각 (ms) */
