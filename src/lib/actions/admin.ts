@@ -1011,16 +1011,11 @@ export async function givePoints(
   if (!isAuto) {
     const {
       createStudentNotification,
+      notifyPointsGranted,
       sendKakaoAlimtalkToParent,
       sendKakaoAlimtalkToParentCritical,
     } = await import('./notification');
-    await createStudentNotification({
-      studentId,
-      type: 'point',
-      title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-      message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-      link: '/student/points',
-    }).catch(console.error);
+    await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
 
     // 학부모 알림톡 — dedupe 매트릭스(G 섹션):
     //   매 벌점마다 알림톡 발송하지 않고, 단계 알림(warn_25/30 reached) 또는 상점만.
@@ -1302,16 +1297,21 @@ export async function giveRewardBatch(params: {
 
   // 알림 발송 — 성공 학생 한정
   if (successIds.length > 0) {
-    const { createBulkStudentNotifications, sendKakaoAlimtalkToParent } =
-      await import('./notification');
-    await createBulkStudentNotifications(successIds, {
-      type: 'point',
-      title: '상점이 부여되었습니다',
-      message: `${reason} (+${amount}점)`,
-      link: '/student/points',
-    }).catch((e) => console.error('giveRewardBatch bulk notification error:', e));
+    const { notifyPointsGranted, sendKakaoAlimtalkToParent } = await import('./notification');
 
-    // 학부모 알림톡 — fire-and-forget. 단건과 동일한 메시지 포맷.
+    // 학생 + 모든 학부모 앱 푸시 — fire-and-forget. 학생 이름 매핑 활용해 N+1 회피.
+    for (const studentId of successIds) {
+      const profile = profilesById.get(studentId);
+      notifyPointsGranted({
+        studentId,
+        type: 'reward',
+        amount,
+        reason,
+        studentName: profile?.name || undefined,
+      }).catch((e) => console.error('giveRewardBatch notifyPointsGranted error:', e));
+    }
+
+    // 학부모 카카오 알림톡 — 기존 정책 유지 (첫 학부모에게만 발송).
     for (const studentId of successIds) {
       const parentId = firstParentByStudent.get(studentId);
       const profile = profilesById.get(studentId);
@@ -5418,15 +5418,23 @@ export async function givePointsBatch(
     return { error: '일괄 상벌점 부여에 실패했습니다.' };
   }
 
-  // 알림 발송 (비동기로 처리)
-  const { createStudentNotification } = await import('./notification');
+  // 알림 발송 — 학생 이름 사전 일괄 조회로 N+1 회피, fire-and-forget.
+  const { notifyPointsGranted } = await import('./notification');
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, name')
+    .in('id', studentIds);
+  const nameById = new Map<string, string>();
+  for (const p of (profiles ?? []) as Array<{ id: string; name: string | null }>) {
+    nameById.set(p.id, p.name ?? '');
+  }
   for (const studentId of studentIds) {
-    createStudentNotification({
+    notifyPointsGranted({
       studentId,
-      type: 'point',
-      title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-      message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-      link: '/student/points',
+      type,
+      amount,
+      reason,
+      studentName: nameById.get(studentId) || undefined,
     }).catch(console.error);
   }
 

@@ -391,6 +391,68 @@ export async function createBulkStudentNotifications(
 }
 
 // ============================================
+// 상/벌점 부과 알림 (학생 + 모든 학부모 일괄)
+// ============================================
+
+// 진입점: givePoints / givePointsBatch / giveRewardBatch / giveAutoPoints /
+//        weekly-points cron / daily-reset cron 6곳에서 호출.
+// 학생 본인 + 연결된 모든 학부모에게 앱 알림 + 푸시 동시 발송.
+// 카카오 알림톡은 호출자가 별도 정책으로 발송하며 이 함수는 관여하지 않는다.
+export async function notifyPointsGranted(params: {
+  studentId: string;
+  type: 'reward' | 'penalty';
+  amount: number;
+  reason: string;
+  studentName?: string; // 호출자가 보유 시 전달 — N+1 회피
+}): Promise<void> {
+  const supabase = createAdminClient();
+
+  let studentName = params.studentName;
+  if (!studentName) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', params.studentId)
+      .maybeSingle();
+    studentName = data?.name ?? '학생';
+  }
+
+  const { data: parentLinks } = await supabase
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', params.studentId);
+  const parentIds = (parentLinks ?? []).map((l) => l.parent_id as string);
+
+  const sign = params.type === 'penalty' ? '-' : '+';
+  const title = params.type === 'reward' ? '상점이 부여되었습니다' : '벌점이 부여되었습니다';
+  const message = `${studentName} 학생, ${params.reason} (${sign}${params.amount}점)`;
+
+  const tasks: Promise<unknown>[] = [
+    createStudentNotification({
+      studentId: params.studentId,
+      type: 'point',
+      title,
+      message,
+      link: '/student/points',
+    }),
+  ];
+
+  for (const parentId of parentIds) {
+    tasks.push(
+      createUserNotification({
+        userId: parentId,
+        type: 'point',
+        title,
+        message,
+        link: '/parent',
+      }),
+    );
+  }
+
+  await Promise.allSettled(tasks);
+}
+
+// ============================================
 // 채널 분기 알림 발송 (통합)
 // ============================================
 

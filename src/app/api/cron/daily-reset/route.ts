@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { DAY_CONFIG, REWARD_RULES } from '@/lib/constants';
 import { formatDate, getStudyDate, getStudyDayBounds } from '@/lib/utils';
+import { notifyPointsGranted } from '@/lib/actions/notification';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -91,7 +92,7 @@ async function evaluateDailyFocus(
     .select(
       `
       id,
-      profiles!inner (branch_id, withdrawn_at, is_approved)
+      profiles!inner (name, branch_id, withdrawn_at, is_approved)
     `,
     )
     .is('profiles.withdrawn_at', null)
@@ -118,6 +119,7 @@ async function evaluateDailyFocus(
     try {
       const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
       const branchId = (profile as { branch_id?: string })?.branch_id;
+      const studentName = (profile as { name?: string | null })?.name ?? undefined;
       const presetId = branchId ? presetByBranch.get(branchId) : null;
 
       const [{ data: attendance }, { data: subjects }] = await Promise.all([
@@ -199,6 +201,15 @@ async function evaluateDailyFocus(
             .update({ point_id: point.id })
             .eq('student_id', s.id)
             .eq('study_date', studyDateStr);
+
+          // 학생 + 모든 학부모 앱 알림 + 푸시 (fire-and-forget)
+          notifyPointsGranted({
+            studentId: s.id,
+            type: 'reward',
+            amount: REWARD_RULES.dailyFocusAmount,
+            reason: '일일 학습 3시간 + 과목 분류',
+            studentName,
+          }).catch((e) => console.error('[daily-focus] notifyPointsGranted', e));
         }
       }
       evaluated++;

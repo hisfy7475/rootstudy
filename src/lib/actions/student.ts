@@ -6,7 +6,7 @@ import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
 import { getMandatoryTime } from './date-type';
 import { isInAbsencePeriod } from './absence-schedule';
 import { PENALTY_RULES } from '@/lib/constants';
-import { createStudentNotification } from './notification';
+import { notifyPointsGranted } from './notification';
 import {
   getRewardPresets,
   getPenaltyPresets,
@@ -64,14 +64,8 @@ async function giveAutoPoints(
     return { error: '자동 벌점 부여에 실패했습니다.' };
   }
 
-  // 학생에게 알림 발송
-  await createStudentNotification({
-    studentId,
-    type: 'point',
-    title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-    message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-    link: '/student/points',
-  }).catch(console.error);
+  // 학생 + 모든 학부모 앱 알림 + 푸시 발송
+  await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
 
   return { success: true };
 }
