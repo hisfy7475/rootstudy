@@ -45,3 +45,9 @@ fcm-service-account*.json
 # generated native folders
 /ios
 /android
+
+# Local Expo modules — gradle/cmake build artifacts only (source code is tracked)
+modules/**/build/
+modules/**/.gradle/
+modules/**/.cxx/
+modules/**/*.iml

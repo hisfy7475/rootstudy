@@ -19,9 +19,12 @@ const buildExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
   const googleServicesFile =
     process.env.GOOGLE_SERVICES_JSON?.trim() || './google-services.json';
 
+  const existingPlugins = Array.isArray(config.plugins) ? config.plugins : [];
+
   return {
     ...config,
     extra,
+    plugins: [...existingPlugins, './plugins/with-android-payment-queries'],
     ios: {
       ...ios,
       associatedDomains: [

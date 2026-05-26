@@ -56,6 +56,44 @@ export function truncateBytesForEucKr(text: string, maxBytes: number): string {
  * ASCII 바이트로 전송한다. wire format 은 Uint8Array 와 동일.
  * 한글 value 의 바이트만 EUC-KR 로 인코딩한 후 percent-encoding 한다.
  */
+/**
+ * NICEPay 가 EUC-KR 로 보낸 application/x-www-form-urlencoded 응답 body 를 파싱.
+ *
+ * 표준 Request#formData() 는 UTF-8 로 디코드하므로 한글 ResultMsg/AuthResultMsg 가
+ * U+FFFD 시퀀스로 손상됨. raw bytes 를 받아 percent-encoded 바이트 그대로 EUC-KR 디코드 한다.
+ */
+export function parseEucKrFormBody(buf: Uint8Array): URLSearchParams {
+  const text = Buffer.from(buf).toString('latin1'); // 모든 바이트를 1:1 매핑하기 위함
+  const out = new URLSearchParams();
+  if (!text) return out;
+  for (const part of text.split('&')) {
+    if (!part) continue;
+    const eq = part.indexOf('=');
+    const rawKey = eq >= 0 ? part.slice(0, eq) : part;
+    const rawVal = eq >= 0 ? part.slice(eq + 1) : '';
+    out.append(decodePercentEucKr(rawKey), decodePercentEucKr(rawVal.replace(/\+/g, ' ')));
+  }
+  return out;
+}
+
+function decodePercentEucKr(s: string): string {
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x25 /* % */ && i + 2 < s.length) {
+      const hex = s.slice(i + 1, i + 3);
+      const n = parseInt(hex, 16);
+      if (Number.isFinite(n)) {
+        bytes.push(n);
+        i += 2;
+        continue;
+      }
+    }
+    bytes.push(c & 0xff);
+  }
+  return iconv.decode(Buffer.from(bytes), 'euc-kr');
+}
+
 export function encodeFormUrlEucKr(params: Record<string, string>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(params)) {

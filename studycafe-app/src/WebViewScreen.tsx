@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   Keyboard,
   Platform,
@@ -32,6 +33,7 @@ import {
   WebToNativeMessage,
 } from "./utils/bridge";
 import { resolveDeepLinkToWebUri } from "./utils/deepLink";
+import { dispatchExternal } from "./utils/intentDispatcher";
 import { shouldOpenExternalAppForUrl } from "./utils/schemes";
 
 function urlLooksLikeLoginPage(url: string): boolean {
@@ -412,6 +414,17 @@ export default function WebViewScreen() {
     }, 15000);
   }, [clearLoadingTimer, hideSplashOnce]);
 
+  // 외부 결제 앱에서 우리 앱으로 복귀 시 stale spinner 정리.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        clearLoadingTimer();
+        setIsLoading(false);
+      }
+    });
+    return () => sub.remove();
+  }, [clearLoadingTimer]);
+
   const handleRetryLoad = useCallback(() => {
     setLoadError(null);
     setIsLoading(true);
@@ -436,21 +449,32 @@ export default function WebViewScreen() {
           source={{ uri: webUri }}
           style={styles.webview}
           applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
+          // intent://, kakaopay:// 등 모든 스킴이 onShouldStartLoadWithRequest로 흐르도록 화이트리스트 확장.
+          // 기본값(http/https)만 두면 외부 스킴이 RN-WebView 내부 Linking으로 가로채여 우리 디스패처가 호출되지 않음.
+          originWhitelist={["*"]}
           onShouldStartLoadWithRequest={(req) => {
             const url = req.url;
             if (shouldOpenExternalAppForUrl(url)) {
-              void Linking.openURL(url).catch((e) => {
-                console.warn("[WebViewScreen] open external URL failed:", url, e);
+              void dispatchExternal(url).then((res) => {
+                if (!res.handled) {
+                  console.warn(
+                    "[WebViewScreen] external dispatch failed:",
+                    url,
+                    res.reason,
+                  );
+                }
+                // 외부 앱 전환 또는 실패 모두에서 stale spinner 정리.
                 setIsLoading(false);
                 clearLoadingTimer();
-                if (webViewRef.current && canGoBack) {
-                  webViewRef.current.goBack();
-                }
               });
               return false;
             }
             return true;
           }}
+          mixedContentMode='always'
+          setSupportMultipleWindows={false}
+          cacheEnabled
+          cacheMode='LOAD_DEFAULT'
           onMessage={handleMessage}
           onNavigationStateChange={(navState) => {
             setCanGoBack(navState.canGoBack);

@@ -184,8 +184,10 @@ export function PayClient({
           <input type='hidden' name='EdiDate' value={paymentInit.ediDate} />
           <input type='hidden' name='SignData' value={paymentInit.signData} />
           {/* 네이티브 앱(WebView)에서 결제 시, 카드사 앱 이탈 후 우리 앱으로 복귀하기 위한 scheme.
-              NICEPay v3 공식 필드명은 WapUrl (AppScheme 아님). 미설정 시 NICEPay가 외부 브라우저로 fallback. */}
+              NICEPay v3 공식 필드명은 WapUrl (AppScheme 아님). 미설정 시 NICEPay가 외부 브라우저로 fallback.
+              IspCancelUrl 은 ISP/페이북 결제에서 사용자가 취소했을 때 복귀할 URL — 공식 가이드상 WebView 환경에서 필수. */}
           {appScheme && <input type='hidden' name='WapUrl' value={appScheme} />}
+          {appScheme && <input type='hidden' name='IspCancelUrl' value={appScheme} />}
         </form>
       ) : null}
 

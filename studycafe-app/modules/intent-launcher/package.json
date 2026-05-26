@@ -1,0 +1,7 @@
+{
+  "name": "rootstudy-intent-launcher",
+  "version": "1.0.0",
+  "description": "안드로이드 Intent.parseUri 디스패치 (NICEPay 등 외부 결제 앱 호출용)",
+  "main": "src/index.ts",
+  "private": true
+}
