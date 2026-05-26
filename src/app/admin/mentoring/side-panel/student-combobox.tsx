@@ -115,7 +115,7 @@ export function StudentCombobox({
       {open && query.trim().length >= 2 && (
         <ul
           id={listId}
-          className='bg-popover absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border p-1 shadow-md'
+          className='absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg'
         >
           {visibleResults.length === 0 && !pending ? (
             <li className='text-muted-foreground px-3 py-2 text-sm'>검색 결과가 없습니다.</li>
@@ -130,7 +130,7 @@ export function StudentCombobox({
                     setOpen(false);
                   }}
                   className={cn(
-                    'hover:bg-muted block w-full rounded-lg px-3 py-2 text-left text-sm',
+                    'block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100',
                   )}
                 >
                   <p className='font-medium'>{s.name}</p>
