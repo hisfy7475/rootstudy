@@ -46,6 +46,8 @@ next-env.d.ts
 /.cursor
 /.migration
 .00_manager/key/
+# .00_manager 폴더 백업본 (실수 방지)
+/.00_manager*.zip
 supabase/.temp/
 
 # Claude Code
