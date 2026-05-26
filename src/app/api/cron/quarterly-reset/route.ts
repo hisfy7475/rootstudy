@@ -8,12 +8,13 @@ import { createClient } from '@supabase/supabase-js';
  * 매일 KST 00:30 (= UTC 15:30) 발사 → 오늘이 KST 분기 첫날이면 처리.
  *
  * 처리 내용:
- * - withdrawal_review_at IS NOT NULL 인 학생의 검토 상태 해제 (NULL 로)
+ * - withdrawal_review_at / withdrawal_required_at IS NOT NULL 인 학생의 마크 해제 (NULL 로)
  *   (단, profiles.withdrawn_at 이 이미 세팅된 학생은 그대로 — 확정 퇴원 상태 유지)
- * - threshold_consumed_in_quarter_at 리셋 (invariant 3 — 같은 분기 1회 제한 해제)
+ * - threshold_consumed_in_quarter_at 리셋 (구 정책 호환 — 같은 분기 1회 제한 해제)
  * - last_warned_at_10/20/25 리셋 (새 분기에 단계 알림 재발사 가능)
+ * - penalty_offset_in_quarter_total 0 으로 리셋 (신규 정책 — 분기 누적 상계 누계 초기화)
  *
- * 멱등: 분기 첫날이 아니면 no-op. 분기 첫날에도 이미 NULL 인 행은 영향 없음.
+ * 멱등: 분기 첫날이 아니면 no-op. 분기 첫날에도 이미 NULL/0 인 행은 영향 없음.
  */
 
 function getSupabaseAdmin() {
@@ -48,18 +49,21 @@ export async function GET(request: Request) {
 
   const supabase = getSupabaseAdmin();
 
-  // 1) 검토 상태 해제 — 확정 퇴원자 제외
+  // 1) 검토/강제 퇴원 마크 해제 — 확정 퇴원자 제외
   const { data: resetReviewRows, error: resetReviewError } = await supabase
     .from('student_profiles')
     .update({
       withdrawal_review_at: null,
       withdrawal_review_reason: null,
+      withdrawal_required_at: null,
+      withdrawal_required_reason: null,
       threshold_consumed_in_quarter_at: null,
+      penalty_offset_in_quarter_total: 0,
       last_warned_at_10: null,
       last_warned_at_20: null,
       last_warned_at_25: null,
     })
-    .not('withdrawal_review_at', 'is', null)
+    .or('withdrawal_review_at.not.is.null,withdrawal_required_at.not.is.null')
     .select('id, profiles!inner(withdrawn_at)');
 
   if (resetReviewError) {
@@ -74,17 +78,18 @@ export async function GET(request: Request) {
       return !(p as { withdrawn_at?: string | null })?.withdrawn_at;
     }) ?? [];
 
-  // 2) 검토 상태가 없지만 threshold_consumed 또는 last_warned 가 남아있는 학생도 리셋
+  // 2) 검토/강제 퇴원 마크가 없지만 분기 상태가 남아있는 학생도 리셋
   const { error: resetMiscError } = await supabase
     .from('student_profiles')
     .update({
       threshold_consumed_in_quarter_at: null,
+      penalty_offset_in_quarter_total: 0,
       last_warned_at_10: null,
       last_warned_at_20: null,
       last_warned_at_25: null,
     })
     .or(
-      'threshold_consumed_in_quarter_at.not.is.null,last_warned_at_10.not.is.null,last_warned_at_20.not.is.null,last_warned_at_25.not.is.null',
+      'threshold_consumed_in_quarter_at.not.is.null,penalty_offset_in_quarter_total.gt.0,last_warned_at_10.not.is.null,last_warned_at_20.not.is.null,last_warned_at_25.not.is.null',
     );
 
   if (resetMiscError) {

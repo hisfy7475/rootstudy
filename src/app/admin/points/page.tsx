@@ -33,28 +33,37 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
   const tab = parseTab(typeof raw.tab === 'string' ? raw.tab : undefined);
   const params = parseListParams(raw, POINTS_HISTORY_LIST_CONFIG);
 
-  const [overview, history, students, rewardPresets, penaltyPresets, reviewQueue, redemptionQueue] =
-    await Promise.all([
-      getPointsOverview({ branchId }),
-      getAllPointsHistory({
-        branchId,
-        page: params.page,
-        pageSize: params.pageSize,
-        q: params.q,
-        sort: params.sort,
-        dir: params.dir,
-        type:
-          params.filters.type === 'reward' || params.filters.type === 'penalty'
-            ? params.filters.type
-            : undefined,
-        studentId: params.filters.studentId,
-      }),
-      getAllStudents('all', branchId),
-      getRewardPresets(branchId),
-      getPenaltyPresets(branchId),
-      getWithdrawalReviewQueue(branchId),
-      getRedemptionQueue(branchId),
-    ]);
+  const [
+    overview,
+    history,
+    students,
+    rewardPresets,
+    penaltyPresets,
+    reviewQueue,
+    requiredQueue,
+    redemptionQueue,
+  ] = await Promise.all([
+    getPointsOverview({ branchId }),
+    getAllPointsHistory({
+      branchId,
+      page: params.page,
+      pageSize: params.pageSize,
+      q: params.q,
+      sort: params.sort,
+      dir: params.dir,
+      type:
+        params.filters.type === 'reward' || params.filters.type === 'penalty'
+          ? params.filters.type
+          : undefined,
+      studentId: params.filters.studentId,
+    }),
+    getAllStudents('all', branchId),
+    getRewardPresets(branchId),
+    getPenaltyPresets(branchId),
+    getWithdrawalReviewQueue(branchId, 'review'),
+    getWithdrawalReviewQueue(branchId, 'required'),
+    getRedemptionQueue(branchId),
+  ]);
 
   return (
     <PointsClient
@@ -66,6 +75,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
       initialRewardPresets={rewardPresets}
       initialPenaltyPresets={penaltyPresets}
       initialReviewQueue={reviewQueue}
+      initialRequiredQueue={requiredQueue}
       initialRedemptionQueue={redemptionQueue}
     />
   );

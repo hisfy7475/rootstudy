@@ -28,21 +28,32 @@ export default function PointsPolicyPage() {
         <ul className='text-text-muted space-y-1.5 text-sm'>
           <li>· {PENALTY_RULES.warn10}점 도달 — 관심 안내 (인앱)</li>
           <li>· {PENALTY_RULES.warn20}점 도달 — 주의 (인앱)</li>
-          <li>· {PENALTY_RULES.warn25}점 도달 — 경고 (인앱 + 학부모 알림톡)</li>
+          <li>· {PENALTY_RULES.warn25}점 도달 — 경고 (인앱)</li>
           <li className='font-medium text-red-600'>
-            · {PENALTY_RULES.withdrawAt}점 도달 — 퇴원 검토 진입 + 보유 상점 소멸
+            · {PENALTY_RULES.withdrawAt}점 도달 — 보유 상점과 1:1 상계 (상점 부족 시 강제 퇴원 대상)
           </li>
         </ul>
       </Card>
 
       <Card className='space-y-3 border-red-200 bg-red-50/50 p-4'>
-        <h2 className='text-base font-bold text-red-700'>③ 30점 도달 시 보유 상점 소멸</h2>
+        <h2 className='text-base font-bold text-red-700'>③ 30점 도달 시 1:1 상계</h2>
         <p className='text-text text-sm'>
-          분기 누적 벌점이 30점에 도달하면 보유한 상점이 모두 소멸됩니다. 단, 100점 단위로 모인
-          상점은 자동으로 상품권 발급 대기에 등록되어 보호됩니다.
+          분기 누적 벌점이 30점에 도달하면 보유한 가용 상점과 1:1로 상계됩니다. 양쪽에서 작은 값만큼
+          동시에 차감되며, 상점이 부족하면 강제 퇴원 대상으로 자동 마크됩니다.
         </p>
         <p className='text-text-muted text-xs'>
-          예: 보유 상점 250점 + 30점 도달 → 100점 × 2건은 상품권 발급 대기로 보호, 잔여 50점은 소멸.
+          예시 ① 상점 14 + 벌점 30 → 양쪽 14씩 차감 → 상점 0 / 잔존 벌점 16
+          <br />
+          예시 ② 상점 50 + 벌점 30 → 양쪽 30씩 차감 → 상점 20 / 벌점 0
+          <br />
+          예시 ③ 상점 0 + 벌점 30 → 차감 불가 → 강제 퇴원 대상 마크
+        </p>
+        <p className='text-text-muted text-xs'>
+          ※ 이미 상품권 발급 대기에 등록된 100점 단위(신청 + 자동 대기)는 상계 대상에서 보호됩니다.
+          잔여 상점에서만 차감됩니다.
+        </p>
+        <p className='text-text-muted text-xs'>
+          ※ 상계 후 잔존 벌점은 다음 분기 시작 시 함께 초기화됩니다.
         </p>
       </Card>
 
@@ -87,7 +98,8 @@ export default function PointsPolicyPage() {
           <div>
             <p className='text-text font-semibold'>Q. 30점에 도달하면 바로 퇴원되나요?</p>
             <p className='text-text-muted'>
-              자동 퇴원이 아니라 관리자의 검토 대상이 되며, 면담 후 결정됩니다.
+              자동 퇴원이 아니라 보유 상점과 1:1 상계 후, 가용 상점이 없으면 강제 퇴원 대상으로
+              마크됩니다. 실제 퇴원은 관리자가 면담 후 직접 실행합니다.
             </p>
           </div>
           <div>
@@ -95,8 +107,8 @@ export default function PointsPolicyPage() {
               Q. 100점이 넘어도 상품권을 신청하지 않으면 어떻게 되나요?
             </p>
             <p className='text-text-muted'>
-              잔여 상점은 그대로 보존됩니다. 단, 30점 도달 시 100점 단위만 보호되고 잔여는 소멸되니
-              100점 도달 시 빠른 신청을 권장합니다.
+              상점 100점 단위는 자동으로 발급 대기에 등록되므로 별도 신청이 필요 없습니다. 30점 도달
+              시 발급 대기 상점은 상계 대상에서 보호되며, 잔여(100점 미만) 상점만 상계됩니다.
             </p>
           </div>
         </div>

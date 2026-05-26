@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { Award, AlertTriangle, Zap, Gift, Flame, RotateCcw, Ban } from 'lucide-react';
+import { Award, AlertTriangle, Zap, Gift, Flame, RotateCcw, Ban, Scale } from 'lucide-react';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
@@ -62,6 +62,28 @@ function getEventVisual(point: PointRecord): {
       labelText: '상점 복구',
       labelColor: 'text-emerald-700',
       amountColor: 'text-emerald-600',
+      amountPrefix: '+',
+    };
+  }
+  if (kind === 'offset_against_penalty') {
+    return {
+      icon: <Scale className='h-5 w-5 text-purple-600' />,
+      bgRow: 'bg-purple-50',
+      bgIcon: 'bg-purple-100',
+      labelText: '벌점 상계',
+      labelColor: 'text-purple-700',
+      amountColor: 'text-purple-600',
+      amountPrefix: '',
+    };
+  }
+  if (kind === 'offset_against_penalty_revert') {
+    return {
+      icon: <RotateCcw className='h-5 w-5 text-purple-600' />,
+      bgRow: 'bg-purple-50',
+      bgIcon: 'bg-purple-100',
+      labelText: '상계 취소',
+      labelColor: 'text-purple-700',
+      amountColor: 'text-purple-600',
       amountPrefix: '+',
     };
   }

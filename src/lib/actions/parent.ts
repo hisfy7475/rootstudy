@@ -45,10 +45,13 @@ export interface StudentDashboardData {
   weeklyProgress: WeeklyProgressData;
   weeklyGoals: WeeklyGoalDay[];
   // 단계 7: 분기 표시
-  penaltyQuarter: number;
+  penaltyQuarter: number; // net (raw − offset). 임계 판정용.
+  penaltyQuarterRaw: number; // 원본 합계 (표시 보조)
+  penaltyOffsetInQuarter: number; // 분기 내 상계 누계
   penaltyThreshold: number;
   quarterEnd: string | null;
   withdrawalReviewAt: string | null;
+  withdrawalRequiredAt: string | null;
   rewardBalance: number;
 }
 
@@ -314,12 +317,14 @@ export async function getParentDashboardData(): Promise<{
           .eq('type', 'reward'),
         (await createClient())
           .from('student_profiles')
-          .select('withdrawal_review_at')
+          .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
           .eq('id', student.id)
           .maybeSingle(),
       ]);
 
-      const penaltyQuarter = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+      const penaltyQuarterRaw = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+      const penaltyOffsetInQuarter = profile.data?.penalty_offset_in_quarter_total ?? 0;
+      const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
       const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
       return {
@@ -334,9 +339,12 @@ export async function getParentDashboardData(): Promise<{
         weeklyProgress: weeklyProgressData,
         weeklyGoals: weeklyGoalsData,
         penaltyQuarter,
+        penaltyQuarterRaw,
+        penaltyOffsetInQuarter,
         penaltyThreshold: PENALTY_RULES.withdrawAt,
         quarterEnd: quarterEnd.toISOString(),
         withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
+        withdrawalRequiredAt: profile.data?.withdrawal_required_at ?? null,
         rewardBalance,
       };
     }),
@@ -395,12 +403,14 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     supabase.from('points').select('amount').eq('student_id', student.id).eq('type', 'reward'),
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at')
+      .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
       .eq('id', student.id)
       .maybeSingle(),
   ]);
 
-  const penaltyQuarter = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+  const penaltyQuarterRaw = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
+  const penaltyOffsetInQuarter = profile.data?.penalty_offset_in_quarter_total ?? 0;
+  const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
   const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
   const studentData: StudentDashboardData = {
@@ -415,9 +425,12 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     weeklyProgress: weeklyProgressData,
     weeklyGoals: weeklyGoalsData,
     penaltyQuarter,
+    penaltyQuarterRaw,
+    penaltyOffsetInQuarter,
     penaltyThreshold: PR.withdrawAt,
     quarterEnd: qEnd.toISOString(),
     withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
+    withdrawalRequiredAt: profile.data?.withdrawal_required_at ?? null,
     rewardBalance,
   };
 

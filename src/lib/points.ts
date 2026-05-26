@@ -10,10 +10,12 @@ import { REWARD_RULES } from './constants';
  *
  * 잔액 계산 규칙:
  * - reward 잔액 = SUM(points.amount WHERE type='reward')
- *   양수 행: reward 부여 / reset_on_threshold_revert
- *   음수 행: redeem / reset_on_threshold / manual_cancel
+ *   양수 행: reward 부여 / reset_on_threshold_revert / offset_against_penalty_revert
+ *   음수 행: redeem / reset_on_threshold / manual_cancel / offset_against_penalty
  * - 가용 잔액 = 잔액 − 큐(requested+auto_pending) × 100
- * - 분기 누적 벌점 = SUM(amount WHERE type='penalty' AND created_at >= 분기시작)
+ * - 분기 누적 벌점 (raw) = SUM(amount WHERE type='penalty' AND created_at >= 분기시작)
+ * - 분기 누적 벌점 (net) = raw − student_profiles.penalty_offset_in_quarter_total
+ *   (신규 정책: 30점 도달 시 1:1 상계로 차감된 누계 반영)
  */
 
 // =============================================
@@ -58,8 +60,8 @@ export async function getAvailableBalance(
   };
 }
 
-/** KST 현재 분기 누적 벌점 */
-export async function getCurrentQuarterPenalty(
+/** KST 현재 분기 누적 벌점 (raw — 상계 차감 전) */
+export async function getCurrentQuarterPenaltyRaw(
   supabase: SupabaseClient,
   studentId: string,
   quarterStart: Date,
@@ -71,11 +73,35 @@ export async function getCurrentQuarterPenalty(
     .eq('type', 'penalty')
     .gte('created_at', quarterStart.toISOString());
   if (error) {
-    console.error('getCurrentQuarterPenalty error:', error);
+    console.error('getCurrentQuarterPenaltyRaw error:', error);
     return 0;
   }
   return (data ?? []).reduce((sum, p) => sum + (p.amount ?? 0), 0);
 }
+
+/**
+ * KST 현재 분기 누적 벌점 (net — 상계 차감 후, 임계 판정용)
+ * = raw SUM − student_profiles.penalty_offset_in_quarter_total
+ */
+export async function getCurrentQuarterPenaltyNet(
+  supabase: SupabaseClient,
+  studentId: string,
+  quarterStart: Date,
+): Promise<number> {
+  const [raw, { data: profile }] = await Promise.all([
+    getCurrentQuarterPenaltyRaw(supabase, studentId, quarterStart),
+    supabase
+      .from('student_profiles')
+      .select('penalty_offset_in_quarter_total')
+      .eq('id', studentId)
+      .maybeSingle(),
+  ]);
+  const offset = profile?.penalty_offset_in_quarter_total ?? 0;
+  return raw - offset;
+}
+
+/** @deprecated raw 누적이 필요한 경우 getCurrentQuarterPenaltyRaw 사용. 임계 판정은 net 사용. */
+export const getCurrentQuarterPenalty = getCurrentQuarterPenaltyRaw;
 
 // =============================================
 // Critical RPC 래퍼
@@ -83,14 +109,24 @@ export async function getCurrentQuarterPenalty(
 
 export type ThresholdResult =
   | {
-      status: 'consumed';
-      balance_before: number;
-      auto_pending_created: number;
-      remainder_burnt: number;
+      status: 'offset';
+      offset_amount: number;
+      reward_after: number;
+      penalty_after_net: number;
+      will_require_withdrawal: false;
+      protected_queue_count: number;
     }
-  | { status: 'already_consumed_this_quarter' };
+  | {
+      status: 'withdrawal_required';
+      offset_amount: 0;
+      reward_after: number;
+      penalty_after_net: number;
+      will_require_withdrawal: true;
+      protected_queue_count: number;
+    }
+  | { status: 'not_a_student' };
 
-/** 30점 도달 처리 (단일 트랜잭션 RPC) */
+/** 30점 도달 처리 (단일 트랜잭션 RPC) — 신규 정책: 1:1 상계 또는 강제 퇴원 대상 마크 */
 export async function handlePenaltyThreshold(
   supabase: SupabaseClient,
   studentId: string,
@@ -180,14 +216,25 @@ export async function issueRedemption(
 }
 
 export type PenaltyPreview = {
+  /** net 분기 누적 (raw − offset) */
   quarter_total_before: number;
   quarter_total_after: number;
   thresholds_reached: number[];
   reaches_30: boolean;
   current_balance: number;
   queue_count: number;
+  /** @deprecated 구 정책 호환용. 항상 0. */
   protected_auto_pending: number;
+  /** @deprecated 구 정책 호환용. 항상 0. */
   burnt_estimate: number;
+  /** 신규 정책: 상계 예상 금액 */
+  offset_estimate: number;
+  /** 신규 정책: 상계 후 상점 잔액 */
+  reward_after_offset: number;
+  /** 신규 정책: 상계 후 net 분기 누적 벌점 */
+  penalty_after_offset_net: number;
+  /** 신규 정책: 가용 상점 0 + 30점 도달 여부 */
+  will_require_withdrawal: boolean;
 };
 
 /** 벌점 부여 dry-run (관리자 confirm 모달용) */

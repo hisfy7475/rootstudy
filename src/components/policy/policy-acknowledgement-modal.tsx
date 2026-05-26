@@ -71,7 +71,8 @@ export function PolicyAcknowledgementModal({
                 분기 벌점 {PENALTY_RULES.withdrawAt}점 도달 시
               </p>
               <p className='text-text-muted text-xs'>
-                보유 상점이 소멸되고 퇴원 검토 대상이 됩니다. (100점 단위는 상품권 발급 대기로 보호)
+                보유 상점과 1:1 상계됩니다. 가용 상점이 없으면 강제 퇴원 대상으로 마크되며, 관리자
+                면담 후 처리됩니다. (발급 대기 상점은 상계 대상에서 보호)
               </p>
             </div>
           </div>
@@ -83,7 +84,7 @@ export function PolicyAcknowledgementModal({
               단계별 안내가 발송됩니다.
             </li>
             <li>· 신규생은 첫 등원 주 최소시간 미달 벌점이 면제됩니다.</li>
-            <li>· 상품권은 학생이 직접 신청 → 관리자가 발급합니다.</li>
+            <li>· 상품권은 상점 100점 달성 시 자동으로 발급 대기에 등록됩니다.</li>
           </ul>
 
           <Link

@@ -5,19 +5,25 @@ import { Award, TrendingDown, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ParentPointsCardData {
-  penaltyQuarter?: number;
+  penaltyQuarter?: number; // net
+  penaltyQuarterRaw?: number;
+  penaltyOffsetInQuarter?: number;
   penaltyThreshold?: number;
   quarterEnd?: string | null;
   withdrawalReviewAt?: string | null;
+  withdrawalRequiredAt?: string | null;
   rewardBalance?: number;
 }
 
 /** 단계 7: 학부모 대시보드 자녀 카드 내 분기 누적 벌점·상점 잔액 표시 */
 export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
   const penaltyQuarter = data.penaltyQuarter ?? 0;
+  const penaltyOffsetInQuarter = data.penaltyOffsetInQuarter ?? 0;
+  const penaltyQuarterRaw = data.penaltyQuarterRaw ?? penaltyQuarter + penaltyOffsetInQuarter;
   const threshold = data.penaltyThreshold ?? 30;
   const balance = data.rewardBalance ?? 0;
   const inReview = !!data.withdrawalReviewAt;
+  const inRequired = !!data.withdrawalRequiredAt;
 
   let dDay: number | null = null;
   let quarterEndLabel = '';
@@ -34,14 +40,30 @@ export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
 
   return (
     <div className='space-y-3'>
-      {inReview && (
+      {inRequired && (
+        <Card className='border-red-300 bg-red-100 p-3'>
+          <div className='flex items-start gap-2'>
+            <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-700' />
+            <div className='space-y-0.5'>
+              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 마크되었습니다</p>
+              <p className='text-xs text-red-700'>
+                자녀가 벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다. 원장이 곧
+                직접 연락드립니다.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+      {inReview && !inRequired && (
         <Card className='border-red-200 bg-red-50 p-3'>
           <div className='flex items-start gap-2'>
             <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-600' />
             <div className='space-y-0.5'>
               <p className='text-sm font-bold text-red-700'>면담이 필요합니다</p>
               <p className='text-xs text-red-600'>
-                자녀가 분기 벌점 30점에 도달했습니다. 원장이 곧 직접 연락드립니다.
+                {penaltyOffsetInQuarter > 0
+                  ? `자녀가 벌점 30점에 도달하여 상점 ${penaltyOffsetInQuarter}점과 상계되었습니다. 잔존 벌점 ${penaltyQuarter}점.`
+                  : '자녀가 분기 벌점 30점에 도달했습니다. 원장이 곧 직접 연락드립니다.'}
               </p>
             </div>
           </div>
@@ -83,6 +105,11 @@ export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
             {penaltyQuarter}
             <span className='text-text-muted text-xs'>/{threshold}</span>
           </p>
+          {penaltyOffsetInQuarter > 0 && (
+            <p className='text-text-muted text-[10px]'>
+              원본 {penaltyQuarterRaw} − 상계 {penaltyOffsetInQuarter}
+            </p>
+          )}
           {quarterEndLabel && (
             <p className='text-text-muted text-[10px]'>
               {quarterEndLabel} 초기화 (D-{dDay})
