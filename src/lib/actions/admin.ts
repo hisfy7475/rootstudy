@@ -1011,82 +1011,78 @@ export async function givePoints(
   if (!isAuto) {
     const {
       createStudentNotification,
-      sendKakaoAlimtalkToParent,
-      sendKakaoAlimtalkToParentCritical,
+      notifyPointsGranted,
+      // [알림톡 비활성화 2026-05-26]
+      // sendKakaoAlimtalkToParent,
+      // sendKakaoAlimtalkToParentCritical,
     } = await import('./notification');
-    await createStudentNotification({
-      studentId,
-      type: 'point',
-      title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-      message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-      link: '/student/points',
-    }).catch(console.error);
+    await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
 
-    // 학부모 알림톡 — dedupe 매트릭스(G 섹션):
+    // [알림톡 비활성화 2026-05-26] 학부모 알림톡 — dedupe 매트릭스(G 섹션):
     //   매 벌점마다 알림톡 발송하지 않고, 단계 알림(warn_25/30 reached) 또는 상점만.
     //   상점은 매번 알림톡, 벌점은 25점/30점 도달 시점에 통합 알림톡 1회.
     //   25/30 은 critical → 실패 시 큐 enqueue (백로그 6).
-    const shouldSendKakao =
-      type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-    const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-
-    if (shouldSendKakao) {
-      try {
-        const { data: studentProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', studentId)
-          .single();
-
-        const { data: parentLink } = await supabase
-          .from('parent_student_links')
-          .select('parent_id')
-          .eq('student_id', studentId)
-          .limit(1)
-          .maybeSingle();
-
-        if (parentLink?.parent_id && studentProfile?.name) {
-          let alimtalkMessage: string;
-          if (thresholdResult?.status === 'consumed') {
-            const burnt = thresholdResult.remainder_burnt;
-            const protectedCount = thresholdResult.auto_pending_created;
-            const protectedText =
-              protectedCount > 0
-                ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 큐로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
-                : burnt > 0
-                  ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
-                  : '';
-            alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
-          } else if (warnings.includes('warn_25')) {
-            alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
-          } else {
-            const pointTypeText = type === 'reward' ? '상점' : '벌점';
-            const pointSign = type === 'reward' ? '+' : '-';
-            alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
-          }
-          if (isCritical) {
-            const category =
-              thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
-            await sendKakaoAlimtalkToParentCritical({
-              parentId: parentLink.parent_id,
-              studentId,
-              message: alimtalkMessage,
-              category,
-              type: 'point',
-            }).catch(console.error);
-          } else {
-            await sendKakaoAlimtalkToParent({
-              parentId: parentLink.parent_id,
-              studentId,
-              message: alimtalkMessage,
-              type: 'point',
-            }).catch(console.error);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to send kakao alimtalk for points:', err);
-      }
-    }
+    // const shouldSendKakao =
+    //   type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
+    // const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
+    //
+    // if (shouldSendKakao) {
+    //   try {
+    //     const { data: studentProfile } = await supabase
+    //       .from('profiles')
+    //       .select('name')
+    //       .eq('id', studentId)
+    //       .single();
+    //
+    //     const { data: parentLink } = await supabase
+    //       .from('parent_student_links')
+    //       .select('parent_id')
+    //       .eq('student_id', studentId)
+    //       .limit(1)
+    //       .maybeSingle();
+    //
+    //     if (parentLink?.parent_id && studentProfile?.name) {
+    //       let alimtalkMessage: string;
+    //       if (thresholdResult?.status === 'consumed') {
+    //         const burnt = thresholdResult.remainder_burnt;
+    //         const protectedCount = thresholdResult.auto_pending_created;
+    //         const protectedText =
+    //           protectedCount > 0
+    //             ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 대기로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
+    //             : burnt > 0
+    //               ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
+    //               : '';
+    //         alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
+    //       } else if (warnings.includes('warn_25')) {
+    //         alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
+    //       } else {
+    //         const pointTypeText = type === 'reward' ? '상점' : '벌점';
+    //         const pointSign = type === 'reward' ? '+' : '-';
+    //         alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
+    //       }
+    //       if (isCritical) {
+    //         const category =
+    //           thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
+    //         await sendKakaoAlimtalkToParentCritical({
+    //           parentId: parentLink.parent_id,
+    //           studentId,
+    //           message: alimtalkMessage,
+    //           category,
+    //           type: 'point',
+    //         }).catch(console.error);
+    //       } else {
+    //         await sendKakaoAlimtalkToParent({
+    //           parentId: parentLink.parent_id,
+    //           studentId,
+    //           message: alimtalkMessage,
+    //           type: 'point',
+    //         }).catch(console.error);
+    //       }
+    //     }
+    //   } catch (err) {
+    //     console.error('Failed to send kakao alimtalk for points:', err);
+    //   }
+    // }
 
     // 학생 단계 알림 — 인앱 추가 발송 (warn_10/20/25 별 톤)
     if (warnings.length > 0) {
@@ -1210,12 +1206,13 @@ export async function giveRewardBatch(params: {
   }
 
   // 사전 일괄 조회 (N+1 회피)
-  const [profilesRes, linksRes] = await Promise.all([
+  // [알림톡 비활성화 2026-05-26] parent_student_links 조회는 알림톡 발송용이었으므로 제거
+  const [profilesRes] = await Promise.all([
     supabase.from('profiles').select('id, name, branch_id').in('id', studentIds),
-    supabase
-      .from('parent_student_links')
-      .select('parent_id, student_id')
-      .in('student_id', studentIds),
+    // supabase
+    //   .from('parent_student_links')
+    //   .select('parent_id, student_id')
+    //   .in('student_id', studentIds),
   ]);
   const profilesById = new Map<string, { name: string; branch_id: string | null }>();
   for (const p of (profilesRes.data ?? []) as Array<{
@@ -1225,13 +1222,13 @@ export async function giveRewardBatch(params: {
   }>) {
     profilesById.set(p.id, { name: p.name ?? '', branch_id: p.branch_id });
   }
-  // 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
-  const firstParentByStudent = new Map<string, string>();
-  for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
-    if (!firstParentByStudent.has(l.student_id)) {
-      firstParentByStudent.set(l.student_id, l.parent_id);
-    }
-  }
+  // [알림톡 비활성화 2026-05-26] 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
+  // const firstParentByStudent = new Map<string, string>();
+  // for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
+  //   if (!firstParentByStudent.has(l.student_id)) {
+  //     firstParentByStudent.set(l.student_id, l.parent_id);
+  //   }
+  // }
 
   // 학생별 branch preset 재매칭 — 입력 presetId 가 학생 branch 와 다를 수 있음 (슈퍼관리자)
   async function resolveRewardPresetForStudent(
@@ -1302,28 +1299,34 @@ export async function giveRewardBatch(params: {
 
   // 알림 발송 — 성공 학생 한정
   if (successIds.length > 0) {
-    const { createBulkStudentNotifications, sendKakaoAlimtalkToParent } =
-      await import('./notification');
-    await createBulkStudentNotifications(successIds, {
-      type: 'point',
-      title: '상점이 부여되었습니다',
-      message: `${reason} (+${amount}점)`,
-      link: '/student/points',
-    }).catch((e) => console.error('giveRewardBatch bulk notification error:', e));
+    // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
+    const { notifyPointsGranted } = await import('./notification');
 
-    // 학부모 알림톡 — fire-and-forget. 단건과 동일한 메시지 포맷.
+    // 학생 + 모든 학부모 앱 푸시 — fire-and-forget. 학생 이름 매핑 활용해 N+1 회피.
     for (const studentId of successIds) {
-      const parentId = firstParentByStudent.get(studentId);
       const profile = profilesById.get(studentId);
-      if (!parentId || !profile?.name) continue;
-      const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
-      void sendKakaoAlimtalkToParent({
-        parentId,
+      notifyPointsGranted({
         studentId,
-        message: alimtalkMessage,
-        type: 'point',
-      }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
+        type: 'reward',
+        amount,
+        reason,
+        studentName: profile?.name || undefined,
+      }).catch((e) => console.error('giveRewardBatch notifyPointsGranted error:', e));
     }
+
+    // [알림톡 비활성화 2026-05-26] 학부모 카카오 알림톡 — 기존 정책 유지 (첫 학부모에게만 발송).
+    // for (const studentId of successIds) {
+    //   const parentId = firstParentByStudent.get(studentId);
+    //   const profile = profilesById.get(studentId);
+    //   if (!parentId || !profile?.name) continue;
+    //   const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
+    //   void sendKakaoAlimtalkToParent({
+    //     parentId,
+    //     studentId,
+    //     message: alimtalkMessage,
+    //     type: 'point',
+    //   }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
+    // }
   }
 
   revalidatePath('/admin');
@@ -1419,63 +1422,59 @@ export interface PointsHistoryResult {
   pageSize: number;
 }
 
+// 검색 q 는 "사유 OR 학생 이름" 부분 일치. SQL RPC 로 단일 쿼리 처리.
+// branch 격리는 RLS (admin 정책) 가 자동 처리.
 export async function getAllPointsHistory(
   params: PointsHistoryParams,
 ): Promise<PointsHistoryResult> {
   const supabase = await createClient();
   const { page, pageSize, q, sort, dir, type, studentId } = params;
-  const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
-  const to = from + pageSize - 1;
+  const offset = Math.max(0, (Math.max(1, page) - 1) * pageSize);
 
-  let query = supabase
-    .from('points')
-    .select(
-      `
-      *,
-      student:student_id (
-        seat_number,
-        profiles!inner (name)
-      ),
-      admin:admin_id (name)
-    `,
-      { count: 'exact' },
-    )
-    .order(sort, { ascending: dir === 'asc' })
-    .range(from, to);
+  const { data, error } = await supabase.rpc('search_points_history', {
+    p_q: q && q.trim() ? q.trim() : null,
+    p_type: type ?? null,
+    p_student_id: studentId ?? null,
+    p_sort: sort,
+    p_dir: dir,
+    p_offset: offset,
+    p_limit: pageSize,
+  });
 
-  if (type) query = query.eq('type', type);
-  if (studentId) query = query.eq('student_id', studentId);
-  if (q && q.trim()) {
-    // q 는 사유 텍스트 부분 일치
-    const pattern = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    query = query.ilike('reason', pattern);
-  }
-
-  const { data, count, error } = await query;
   if (error) {
     console.error('[getAllPointsHistory]', error);
     return { rows: [], total: 0, page: 1, pageSize };
   }
 
-  const rows = (data || []).map((p): PointsHistoryRow => {
-    const studentProfile = Array.isArray(p.student?.profiles)
-      ? p.student?.profiles[0]
-      : p.student?.profiles;
-    return {
-      id: p.id,
-      student_id: p.student_id,
-      type: p.type,
-      amount: p.amount,
-      reason: p.reason,
-      is_auto: p.is_auto,
-      created_at: p.created_at,
-      studentName: studentProfile?.name || '이름 없음',
-      studentSeatNumber: p.student?.seat_number ?? null,
-      adminName: p.admin?.name || '시스템',
-    };
-  });
+  const list = (data ?? []) as Array<{
+    id: string;
+    student_id: string;
+    admin_id: string | null;
+    type: 'reward' | 'penalty';
+    amount: number;
+    reason: string;
+    is_auto: boolean;
+    created_at: string;
+    student_name: string;
+    student_seat_number: number | null;
+    admin_name: string | null;
+    total_count: number;
+  }>;
 
-  const total = count ?? 0;
+  const rows: PointsHistoryRow[] = list.map((r) => ({
+    id: r.id,
+    student_id: r.student_id,
+    type: r.type,
+    amount: r.amount,
+    reason: r.reason,
+    is_auto: r.is_auto,
+    created_at: r.created_at,
+    studentName: r.student_name || '이름 없음',
+    studentSeatNumber: r.student_seat_number,
+    adminName: r.admin_name || '시스템',
+  }));
+
+  const total = list[0]?.total_count ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
   const clampedPage = total === 0 ? 1 : Math.min(Math.max(1, page), lastPage);
 
@@ -1493,14 +1492,27 @@ export async function deletePointsByFilter(params: {
   const supabase = await createClient();
 
   // 1) 매칭되는 행 조회 (event_kind/type/student_id 포함, count + 학생별 분기 재계산용)
+  // 검색 q 는 "사유 OR 학생 이름" 부분 일치. 학생 이름 매칭은 profiles 에서 ID 후보를
+  // 먼저 가져와 student_id IN (...) 조건으로 결합.
   let idsQuery = supabase
     .from('points')
     .select('id, student_id, type, event_kind', { count: 'exact', head: false });
   if (params.type) idsQuery = idsQuery.eq('type', params.type);
   if (params.studentId) idsQuery = idsQuery.eq('student_id', params.studentId);
   if (params.q && params.q.trim()) {
-    const pattern = `%${params.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    idsQuery = idsQuery.ilike('reason', pattern);
+    const raw = params.q.trim();
+    const pattern = `%${raw.replace(/[\\%_]/g, '\\$&')}%`;
+    const { data: nameMatched } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('user_type', 'student')
+      .ilike('name', pattern);
+    const matchedIds = (nameMatched ?? []).map((p) => p.id);
+    if (matchedIds.length > 0) {
+      idsQuery = idsQuery.or(`reason.ilike.${pattern},student_id.in.(${matchedIds.join(',')})`);
+    } else {
+      idsQuery = idsQuery.ilike('reason', pattern);
+    }
   }
   // protected event_kind 는 사전 제외 (DB 트리거가 이중 차단하지만 silent skip 위해)
   idsQuery = idsQuery.not(
@@ -1792,7 +1804,8 @@ export async function issueRedemption(params: {
   }
 
   // 학생/학부모 알림
-  const { createStudentNotification, sendKakaoAlimtalkToParent } = await import('./notification');
+  // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
+  const { createStudentNotification } = await import('./notification');
   await createStudentNotification({
     studentId: result.student_id,
     type: 'point',
@@ -1801,30 +1814,30 @@ export async function issueRedemption(params: {
     link: '/student/points',
   }).catch(console.error);
 
-  // 학부모 알림톡
-  try {
-    const { data: parentLink } = await supabase
-      .from('parent_student_links')
-      .select('parent_id')
-      .eq('student_id', result.student_id)
-      .limit(1)
-      .maybeSingle();
-    const { data: studentProfile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', result.student_id)
-      .single();
-    if (parentLink?.parent_id && studentProfile?.name) {
-      await sendKakaoAlimtalkToParent({
-        parentId: parentLink.parent_id,
-        studentId: result.student_id,
-        message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
-        type: 'point',
-      }).catch(console.error);
-    }
-  } catch (err) {
-    console.error('Failed to send kakao alimtalk for redemption:', err);
-  }
+  // [알림톡 비활성화 2026-05-26] 학부모 알림톡
+  // try {
+  //   const { data: parentLink } = await supabase
+  //     .from('parent_student_links')
+  //     .select('parent_id')
+  //     .eq('student_id', result.student_id)
+  //     .limit(1)
+  //     .maybeSingle();
+  //   const { data: studentProfile } = await supabase
+  //     .from('profiles')
+  //     .select('name')
+  //     .eq('id', result.student_id)
+  //     .single();
+  //   if (parentLink?.parent_id && studentProfile?.name) {
+  //     await sendKakaoAlimtalkToParent({
+  //       parentId: parentLink.parent_id,
+  //       studentId: result.student_id,
+  //       message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
+  //       type: 'point',
+  //     }).catch(console.error);
+  //   }
+  // } catch (err) {
+  //   console.error('Failed to send kakao alimtalk for redemption:', err);
+  // }
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
@@ -2447,6 +2460,24 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
     .eq('id', studentId);
 
   if (error) {
+    // UNIQUE 위반 — 누가 점유 중인지 안내. 탈퇴자/타 지점도 잡으려고 admin client 사용.
+    if (error.code === '23505' && normalizedCapsId) {
+      const adminClient = createAdminClient();
+      const { data: holder } = await adminClient
+        .from('student_profiles')
+        .select('id, profiles!inner(name, withdrawn_at)')
+        .eq('caps_id', normalizedCapsId)
+        .maybeSingle();
+
+      if (holder) {
+        const profile = (
+          holder as unknown as { profiles: { name: string; withdrawn_at: string | null } }
+        ).profiles;
+        const label = profile.withdrawn_at ? `탈퇴된 학생(${profile.name})` : profile.name;
+        throw new Error(`CAPS ID ${normalizedCapsId}은(는) 이미 ${label}이(가) 사용 중입니다.`);
+      }
+      throw new Error(`CAPS ID ${normalizedCapsId}은(는) 이미 사용 중입니다.`);
+    }
     console.error('Error updating CAPS ID:', error);
     throw new Error(error.message);
   }
@@ -5418,15 +5449,23 @@ export async function givePointsBatch(
     return { error: '일괄 상벌점 부여에 실패했습니다.' };
   }
 
-  // 알림 발송 (비동기로 처리)
-  const { createStudentNotification } = await import('./notification');
+  // 알림 발송 — 학생 이름 사전 일괄 조회로 N+1 회피, fire-and-forget.
+  const { notifyPointsGranted } = await import('./notification');
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, name')
+    .in('id', studentIds);
+  const nameById = new Map<string, string>();
+  for (const p of (profiles ?? []) as Array<{ id: string; name: string | null }>) {
+    nameById.set(p.id, p.name ?? '');
+  }
   for (const studentId of studentIds) {
-    createStudentNotification({
+    notifyPointsGranted({
       studentId,
-      type: 'point',
-      title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-      message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-      link: '/student/points',
+      type,
+      amount,
+      reason,
+      studentName: nameById.get(studentId) || undefined,
     }).catch(console.error);
   }
 

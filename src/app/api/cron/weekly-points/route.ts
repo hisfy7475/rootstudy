@@ -6,6 +6,7 @@ import {
   getCalendarWeekBoundsKST,
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
+import { notifyPointsGranted } from '@/lib/actions/notification';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -274,6 +275,7 @@ export async function GET(request: Request) {
           weekly_goal_hours
         ),
         profiles!inner (
+          name,
           branch_id,
           created_at,
           withdrawn_at
@@ -303,6 +305,7 @@ export async function GET(request: Request) {
     const branchMap = new Map<string, string>();
     const joinedAtMap = new Map<string, Date>();
     const firstCheckInMap = new Map<string, Date | null>();
+    const nameMap = new Map<string, string>();
     students.forEach((s) => {
       const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
       if (p?.branch_id) {
@@ -310,6 +313,9 @@ export async function GET(request: Request) {
       }
       if (p?.created_at) {
         joinedAtMap.set(s.id, new Date(p.created_at));
+      }
+      if (p?.name) {
+        nameMap.set(s.id, p.name);
       }
       firstCheckInMap.set(s.id, s.first_check_in_at ? new Date(s.first_check_in_at) : null);
     });
@@ -416,20 +422,17 @@ export async function GET(request: Request) {
         let pointType: 'reward' | 'penalty' | null = null;
         let pointAmount = 0;
         let reason = '';
-        let notificationTitle = '';
 
         if (isGoalAchieved) {
           // 목표 달성 → 상점
           pointType = 'reward';
           pointAmount = rewardPoints;
           reason = `주간 목표 달성 (${studyHours}시간/${goalHours}시간)`;
-          notificationTitle = '주간 목표 달성! 상점이 부여되었습니다';
         } else if (applyPenalty) {
           // 최소 미달 → 벌점
           pointType = 'penalty';
           pointAmount = minimumPenaltyPoints;
           reason = `주간 최소시간 미달 (${studyHours}시간/${minimumHours}시간 미만)`;
-          notificationTitle = '주간 최소시간 미달로 벌점이 부여되었습니다';
         } else if (isNewThisWeek && isBelowMinimum) {
           // 신규 학생 첫 주 최소 미달 → 벌점 면제 (첫 등원일 기준)
           const firstCheckInStr = formatDateKST(firstCheckIn);
@@ -463,14 +466,14 @@ export async function GET(request: Request) {
           }
           pointId = point.id;
 
-          // 알림 생성 (상벌점이 있는 경우만)
-          await supabase.from('student_notifications').insert({
-            student_id: student.id,
-            type: 'point',
-            title: notificationTitle,
-            message: reason,
-            link: '/student/points',
-          });
+          // 학생 + 모든 학부모 앱 알림 + 푸시 (fire-and-forget). 헬퍼가 표준 title 생성.
+          notifyPointsGranted({
+            studentId: student.id,
+            type: pointType,
+            amount: pointAmount,
+            reason,
+            studentName: nameMap.get(student.id),
+          }).catch((e) => console.error('[weekly-points] notifyPointsGranted', e));
         }
 
         // weekly_point_history에 기록 (모든 경우)

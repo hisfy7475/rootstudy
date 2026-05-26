@@ -144,6 +144,10 @@ export type MealProductCreateInput = {
   description: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
   variant: VariantInput;
+  /** 모의고사 옵션 그룹 (category='exam' 일 때만 의미 있음). */
+  optionGroups?: MockExamOptionGroupInput[];
+  /** 슈퍼관리자 전용: 등록할 지점. 일반 admin 은 입력 무시되고 ctx.branchId 가 강제됨. */
+  branchId?: string;
 };
 
 export interface MealProductsListParams {
@@ -234,12 +238,18 @@ export async function createMealProduct(
   const validationErr = validateVariantInput(variantInput);
   if (validationErr) return { error: validationErr };
 
-  // create_meal_product_with_variant RPC 는 호출자의 home branch_id 와 일치해야 통과.
-  // 슈퍼관리자는 RPC 가드도 우회되지만, branch_id 가 NULL 이면 인서트가 NOT NULL 에 걸리므로 막음.
-  if (!ctx.branchId) return { error: '지점이 지정되지 않았습니다.' };
+  // 등록할 지점 결정.
+  // - 슈퍼관리자: input.branchId 명시 필수 (폼의 지점 셀렉트에서 받음). RPC 가 존재 여부 검증.
+  // - 일반 admin: ctx.branchId 강제 (input.branchId 는 무시).
+  const targetBranchId = ctx.isSuperAdmin ? input.branchId?.trim() || '' : ctx.branchId;
+  if (!targetBranchId) {
+    return ctx.isSuperAdmin
+      ? { error: '등록할 지점을 선택해 주세요.' }
+      : { error: '지점이 지정되지 않았습니다.' };
+  }
 
   const { data, error } = await supabase.rpc('create_meal_product_with_variant', {
-    p_branch_id: ctx.branchId,
+    p_branch_id: targetBranchId,
     p_name: input.name.trim(),
     p_category: category,
     p_meal_type: category === 'exam' ? null : (input.meal_type ?? null),
@@ -262,6 +272,16 @@ export async function createMealProduct(
   }
 
   const row = data[0] as { product_id: string; variant_id: string };
+
+  // 모의고사 옵션 그룹 동기화 (RPC 별도 호출). 실패 시 보상 삭제.
+  if (category === 'exam' && input.optionGroups && input.optionGroups.length > 0) {
+    const optionsRes = await upsertMockExamOptionGroups(row.product_id, input.optionGroups);
+    if (optionsRes.error) {
+      await supabase.from('meal_products').delete().eq('id', row.product_id);
+      return { error: optionsRes.error };
+    }
+  }
+
   revalidatePath(adminBasePath(category));
   return { data: row };
 }
@@ -498,6 +518,8 @@ export type ProductAndVariantUpdateInput = {
     meal_type?: 'lunch' | 'dinner' | null;
   };
   variant: VariantInput;
+  /** 모의고사 옵션 그룹 (category='exam' 일 때만 사용). undefined 면 옵션 갱신을 건너뜀. */
+  optionGroups?: MockExamOptionGroupInput[];
 };
 
 export async function updateMealProductAndVariant(
@@ -544,6 +566,14 @@ export async function updateMealProductAndVariant(
     .eq('id', productId)
     .maybeSingle();
   const category = (cat?.category ?? 'meal') as ProductCategory;
+
+  // 모의고사 옵션 그룹 동기화 (전달된 경우만).
+  if (category === 'exam' && input.optionGroups !== undefined) {
+    const optionsRes = await upsertMockExamOptionGroups(productId, input.optionGroups);
+    if (optionsRes.error) {
+      return { error: optionsRes.error };
+    }
+  }
 
   const adminBase = adminBasePath(category);
   revalidatePath(adminBase);
@@ -1466,7 +1496,7 @@ async function findOverlappingActiveOrders(
 export async function createMealOrder(
   variantId: string,
   studentId: string,
-  options?: { force?: boolean },
+  options?: { force?: boolean; optionSelections?: MockExamOptionSelectionInput[] },
 ): Promise<CreateMealOrderResult> {
   const supabase = await createClient();
   const {
@@ -1585,6 +1615,15 @@ export async function createMealOrder(
     }
   }
 
+  // 모의고사: 옵션 그룹이 있으면 학생 선택 검증 후 스냅샷 생성.
+  // 식사는 옵션 시스템을 쓰지 않으므로 null 저장.
+  let optionSelectionsSnapshot: MockExamOptionSelectionSnapshot[] | null = null;
+  if (product.category === 'exam') {
+    const snap = await buildOptionSelectionSnapshots(product.id, options?.optionSelections ?? []);
+    if (snap.error) return { error: snap.error };
+    optionSelectionsSnapshot = snap.data && snap.data.length > 0 ? snap.data : null;
+  }
+
   const orderId = product.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
   const { data: inserted, error: insertErr } = await supabase
     .from('meal_orders')
@@ -1595,6 +1634,7 @@ export async function createMealOrder(
       order_id: orderId,
       amount: v.price,
       status: 'pending',
+      option_selections: optionSelectionsSnapshot,
     })
     .select()
     .single();
@@ -1977,4 +2017,253 @@ export async function deleteMealMenuImage(
   revalidatePath(`${parentBasePath('meal')}/${productId}`);
 
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// 모의고사 옵션 그룹/옵션 (mock_exam_option_groups, mock_exam_options)
+// ---------------------------------------------------------------------------
+
+export type MockExamOptionGroup = {
+  id: string;
+  product_id: string;
+  name: string;
+  sort_order: number;
+  is_required: boolean;
+  status: 'active' | 'inactive';
+  created_at: string;
+  updated_at: string;
+};
+
+export type MockExamOption = {
+  id: string;
+  group_id: string;
+  name: string;
+  sort_order: number;
+  status: 'active' | 'inactive';
+  created_at: string;
+  updated_at: string;
+};
+
+export type MockExamOptionGroupWithOptions = MockExamOptionGroup & {
+  options: MockExamOption[];
+};
+
+/** 옵션 그룹/옵션 입력. id 가 비어있으면 신규, 있으면 수정. */
+export type MockExamOptionInput = {
+  id?: string | null;
+  name: string;
+  sort_order?: number;
+  status?: 'active' | 'inactive';
+};
+
+export type MockExamOptionGroupInput = {
+  id?: string | null;
+  name: string;
+  sort_order?: number;
+  is_required?: boolean;
+  status?: 'active' | 'inactive';
+  options: MockExamOptionInput[];
+};
+
+/** 학생/부모가 결제 시 그룹별로 한 개씩 선택해 보내는 값. */
+export type MockExamOptionSelectionInput = {
+  group_id: string;
+  option_id: string;
+};
+
+/** meal_orders.option_selections 컬럼에 저장되는 스냅샷. */
+export type MockExamOptionSelectionSnapshot = {
+  group_id: string;
+  group_name: string;
+  option_id: string;
+  option_name: string;
+};
+
+/**
+ * 옵션 그룹 + 그룹별 옵션 조회. status='active' 만 노출하는 학생용과
+ * inactive 포함 전체를 반환하는 관리자용 두 모드 지원.
+ */
+export async function getMockExamOptionGroups(
+  productId: string,
+  opts?: { includeInactive?: boolean },
+): Promise<MockExamOptionGroupWithOptions[]> {
+  const supabase = await createClient();
+  const includeInactive = opts?.includeInactive ?? false;
+
+  let groupQ = supabase
+    .from('mock_exam_option_groups')
+    .select('*')
+    .eq('product_id', productId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (!includeInactive) groupQ = groupQ.eq('status', 'active');
+
+  const { data: groups, error: gErr } = await groupQ;
+  if (gErr || !groups) {
+    logPostgrestQueryError('[getMockExamOptionGroups:groups]', gErr);
+    return [];
+  }
+  if (groups.length === 0) return [];
+
+  const groupIds = (groups as MockExamOptionGroup[]).map((g) => g.id);
+
+  let optQ = supabase
+    .from('mock_exam_options')
+    .select('*')
+    .in('group_id', groupIds)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (!includeInactive) optQ = optQ.eq('status', 'active');
+
+  const { data: options, error: oErr } = await optQ;
+  if (oErr) {
+    logPostgrestQueryError('[getMockExamOptionGroups:options]', oErr);
+    return [];
+  }
+
+  const byGroup = new Map<string, MockExamOption[]>();
+  for (const o of (options ?? []) as MockExamOption[]) {
+    const arr = byGroup.get(o.group_id) ?? [];
+    arr.push(o);
+    byGroup.set(o.group_id, arr);
+  }
+
+  return (groups as MockExamOptionGroup[]).map((g) => ({
+    ...g,
+    options: byGroup.get(g.id) ?? [],
+  }));
+}
+
+/**
+ * 옵션 그룹/옵션 일괄 동기화. upsert_mock_exam_option_groups RPC 호출.
+ * 입력에 없는 기존 그룹/옵션은 status='inactive' 로 마킹된다 (soft delete).
+ */
+export async function upsertMockExamOptionGroups(
+  productId: string,
+  groups: MockExamOptionGroupInput[],
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  // 클라이언트 입력에 sort_order 가 비어 있으면 배열 순서대로 자동 할당.
+  const payload = groups.map((g, gi) => ({
+    id: g.id ?? null,
+    name: g.name.trim(),
+    sort_order: g.sort_order ?? gi,
+    is_required: g.is_required ?? true,
+    status: g.status ?? 'active',
+    options: g.options.map((o, oi) => ({
+      id: o.id ?? null,
+      name: o.name.trim(),
+      sort_order: o.sort_order ?? oi,
+      status: o.status ?? 'active',
+    })),
+  }));
+
+  const { error } = await supabase.rpc('upsert_mock_exam_option_groups', {
+    p_product_id: productId,
+    p_groups: payload,
+  });
+
+  if (error) {
+    logPostgrestQueryError('[upsertMockExamOptionGroups]', error);
+    const raw = (error.message ?? '').replace(/^ERROR:\s*/i, '').trim();
+    return { error: raw || '옵션 저장에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+
+/**
+ * 여러 상품의 옵션 그룹/옵션을 한 번에 조회해 productId 별로 묶인 Map 으로 반환.
+ * 관리자 목록 페이지 등 N+1 회피용. active 만 포함.
+ */
+export async function getMockExamOptionGroupsByProducts(
+  productIds: string[],
+): Promise<Record<string, MockExamOptionGroupWithOptions[]>> {
+  const result: Record<string, MockExamOptionGroupWithOptions[]> = {};
+  if (productIds.length === 0) return result;
+
+  const supabase = await createClient();
+
+  const { data: groups, error: gErr } = await supabase
+    .from('mock_exam_option_groups')
+    .select('*')
+    .in('product_id', productIds)
+    .eq('status', 'active')
+    .order('sort_order', { ascending: true });
+  if (gErr || !groups || groups.length === 0) return result;
+
+  const groupIds = (groups as MockExamOptionGroup[]).map((g) => g.id);
+
+  const { data: options, error: oErr } = await supabase
+    .from('mock_exam_options')
+    .select('*')
+    .in('group_id', groupIds)
+    .eq('status', 'active')
+    .order('sort_order', { ascending: true });
+  if (oErr) return result;
+
+  const optionsByGroup = new Map<string, MockExamOption[]>();
+  for (const o of (options ?? []) as MockExamOption[]) {
+    const arr = optionsByGroup.get(o.group_id) ?? [];
+    arr.push(o);
+    optionsByGroup.set(o.group_id, arr);
+  }
+
+  for (const g of groups as MockExamOptionGroup[]) {
+    const arr = result[g.product_id] ?? [];
+    arr.push({ ...g, options: optionsByGroup.get(g.id) ?? [] });
+    result[g.product_id] = arr;
+  }
+
+  return result;
+}
+
+/**
+ * 학생 결제 시 선택한 옵션값을 검증하고, name 까지 포함한 스냅샷 배열을 생성.
+ * - product 의 active 필수 그룹이 모두 선택되었는지 검증
+ * - 옵션은 해당 그룹에 속하고 active 인지 검증
+ */
+export async function buildOptionSelectionSnapshots(
+  productId: string,
+  selections: MockExamOptionSelectionInput[] | null | undefined,
+): Promise<{ data?: MockExamOptionSelectionSnapshot[]; error?: string }> {
+  const groups = await getMockExamOptionGroups(productId, { includeInactive: false });
+
+  if (groups.length === 0) {
+    // 옵션 없는 상품 → 빈 배열로 처리
+    return { data: [] };
+  }
+
+  const selectionByGroup = new Map<string, string>();
+  for (const s of selections ?? []) {
+    if (!s.group_id || !s.option_id) continue;
+    selectionByGroup.set(s.group_id, s.option_id);
+  }
+
+  const snapshots: MockExamOptionSelectionSnapshot[] = [];
+
+  for (const g of groups) {
+    const picked = selectionByGroup.get(g.id);
+    if (!picked) {
+      if (g.is_required) {
+        return { error: `"${g.name}" 옵션을 선택해 주세요.` };
+      }
+      continue;
+    }
+    const opt = g.options.find((o) => o.id === picked);
+    if (!opt) {
+      return { error: `"${g.name}" 옵션 선택이 올바르지 않습니다.` };
+    }
+    snapshots.push({
+      group_id: g.id,
+      group_name: g.name,
+      option_id: opt.id,
+      option_name: opt.name,
+    });
+  }
+
+  return { data: snapshots };
 }

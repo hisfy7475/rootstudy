@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useTransition, useMemo } from 'react';
-import { X, Clock, Check, Minus, Plus } from 'lucide-react';
+import { X, Clock, Check, Minus, Plus, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { assignUnclassifiedTime } from '@/lib/actions/student';
+import { REWARD_RULES } from '@/lib/constants';
 import { format, addMinutes } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
@@ -23,6 +24,7 @@ interface UnclassifiedModalProps {
 }
 
 const defaultSubjects = ['국어', '수학', '영어', '과학', '사회', '기타'];
+const MIN_SEGMENT_SECONDS = REWARD_RULES.dailyFocusMinSegmentSeconds;
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -46,6 +48,22 @@ export function UnclassifiedModal({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // segment 가 바뀌거나 모달이 열릴 때 state 를 prop 에서 다시 동기화.
+  // React 19 권장 패턴: "Adjusting state while rendering"
+  // (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
+  // — 이전 구현의 useState lazy initializer 내 setState 호출 및 useEffect 내 setState
+  //   는 모두 cascading render / invariant 위반을 일으켰음.
+  const segmentKey = isOpen ? (segment?.id ?? null) : null;
+  const [prevSegmentKey, setPrevSegmentKey] = useState<string | null>(segmentKey);
+  if (prevSegmentKey !== segmentKey) {
+    setPrevSegmentKey(segmentKey);
+    if (isOpen && segment) {
+      setSelectedMinutes(Math.max(5, Math.floor(segment.durationSeconds / 60)));
+      setSelectedSubject(null);
+      setError(null);
+    }
+  }
+
   const subjects = availableSubjects || defaultSubjects;
 
   // 총 분 계산
@@ -57,13 +75,6 @@ export function UnclassifiedModal({
     const start = new Date(segment.startTime);
     return addMinutes(start, selectedMinutes);
   }, [segment, selectedMinutes]);
-
-  // 모달 열릴 때 전체 시간으로 초기화
-  useState(() => {
-    if (segment) {
-      setSelectedMinutes(totalMinutes);
-    }
-  });
 
   const handleAssign = () => {
     if (!segment || !selectedSubject || selectedMinutes === 0) return;
@@ -100,12 +111,48 @@ export function UnclassifiedModal({
     });
   };
 
-  // 모달 열릴 때 전체 시간으로 설정
-  if (isOpen && segment && selectedMinutes === 0) {
-    setSelectedMinutes(totalMinutes);
-  }
-
   if (!isOpen || !segment) return null;
+
+  // 1분 미만 segment 안전망 — subject-time-list 가 1차로 거르지만
+  // 외부 호출자가 stale segment 를 전달해도 크래시 없이 안내만 표시.
+  if (segment.durationSeconds < MIN_SEGMENT_SECONDS) {
+    return (
+      <div className='fixed inset-0 z-[55] flex items-end justify-center'>
+        <div className='absolute inset-0 bg-black/50' onClick={resetAndClose} />
+        <div className='animate-slide-up relative flex w-full max-w-lg flex-col rounded-t-3xl bg-white'>
+          <div className='flex flex-shrink-0 justify-center bg-white pt-3'>
+            <div className='h-1 w-10 rounded-full bg-gray-300' />
+          </div>
+          <div className='flex flex-shrink-0 items-center justify-between border-b border-gray-100 bg-white p-4'>
+            <h2 className='text-text text-lg font-bold'>미분류 시간 분류</h2>
+            <button
+              onClick={resetAndClose}
+              className='rounded-full p-2 transition-colors hover:bg-gray-100'
+            >
+              <X className='text-text-muted h-5 w-5' />
+            </button>
+          </div>
+          <div className='flex items-start gap-3 p-6'>
+            <AlertCircle className='text-warning mt-0.5 h-5 w-5 flex-shrink-0' />
+            <div className='text-sm'>
+              <p className='text-text font-medium'>1분 미만 구간은 자동으로 무시됩니다</p>
+              <p className='text-text-muted mt-1'>
+                과목 전환 사이의 짧은 자투리는 미분류로 카운트되지 않으니 별도 분류가 필요 없습니다.
+              </p>
+            </div>
+          </div>
+          <div className='pb-safe-nav flex flex-shrink-0 gap-3 border-t border-gray-100 bg-white p-4'>
+            <button
+              onClick={resetAndClose}
+              className='text-text bg-primary hover:bg-primary/90 flex-1 rounded-xl px-4 py-3 font-medium text-white transition-colors'
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const startTime = new Date(segment.startTime);
   const endTime = new Date(segment.endTime);

@@ -39,10 +39,10 @@ export default function PointsPolicyPage() {
         <h2 className='text-base font-bold text-red-700'>③ 30점 도달 시 보유 상점 소멸</h2>
         <p className='text-text text-sm'>
           분기 누적 벌점이 30점에 도달하면 보유한 상점이 모두 소멸됩니다. 단, 100점 단위로 모인
-          상점은 자동으로 상품권 발급 큐에 등록되어 보호됩니다.
+          상점은 자동으로 상품권 발급 대기에 등록되어 보호됩니다.
         </p>
         <p className='text-text-muted text-xs'>
-          예: 보유 상점 250점 + 30점 도달 → 100점 × 2건은 상품권 발급 큐로 보호, 잔여 50점은 소멸.
+          예: 보유 상점 250점 + 30점 도달 → 100점 × 2건은 상품권 발급 대기로 보호, 잔여 50점은 소멸.
         </p>
       </Card>
 

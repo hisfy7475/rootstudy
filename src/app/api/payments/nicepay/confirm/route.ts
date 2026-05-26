@@ -12,6 +12,7 @@ import {
   verifyAuthResponseSignature,
 } from '@/lib/nicepay';
 import { sendPushToUser } from '@/lib/push';
+import { formatOptionSelectionsSummary, parseOptionSelections } from '@/lib/mock-exam-options';
 
 type OrderCategory = 'meal' | 'exam';
 
@@ -42,8 +43,7 @@ function resolveRequestOrigin(request: Request): string {
     const proto = fwdProto || (host.startsWith('localhost') ? 'http' : 'https');
     // LAN IP(10./192.168./172.16-31.) 는 dev 서버이므로 http 강제.
     const isLan =
-      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host) ||
-      host.startsWith('localhost');
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host) || host.startsWith('localhost');
     return `${isLan ? 'http' : proto}://${host}`;
   }
   return new URL(request.url).origin;
@@ -80,6 +80,7 @@ type MealOrderRow = {
   status: string;
   tid: string | null;
   product_id: string | null;
+  option_selections: unknown;
 };
 
 type OrderWithVariant = {
@@ -91,6 +92,7 @@ type OrderWithVariant = {
   amount: number;
   status: string;
   tid: string | null;
+  option_selections: unknown;
   meal_product_variants: { product_id: string } | { product_id: string }[] | null;
 };
 
@@ -158,7 +160,7 @@ export async function POST(request: Request) {
   const { data: order, error: orderErr } = await admin
     .from('meal_orders')
     .select(
-      'id, user_id, student_id, variant_id, order_id, amount, status, tid, meal_product_variants(product_id)',
+      'id, user_id, student_id, variant_id, order_id, amount, status, tid, option_selections, meal_product_variants(product_id)',
     )
     .eq('order_id', orderId)
     .maybeSingle();
@@ -182,6 +184,7 @@ export async function POST(request: Request) {
     status: ordRaw.status,
     tid: ordRaw.tid,
     product_id: variantJoin?.product_id ?? null,
+    option_selections: ordRaw.option_selections ?? null,
   };
 
   if (row.status === 'paid' && row.tid) {
@@ -352,10 +355,15 @@ export async function POST(request: Request) {
       : `/student/order?tab=orders&category=${category}`;
   const studentOrdersLink = `/student/order?tab=orders&category=${category}`;
   const title = category === 'exam' ? '모의고사 결제 완료' : '급식 결제 완료';
-  const body =
+  const optionSummary =
+    category === 'exam'
+      ? formatOptionSelectionsSummary(parseOptionSelections(row.option_selections))
+      : '';
+  const baseBody =
     category === 'exam'
       ? '모의고사 신청이 결제 완료되었습니다.'
       : '급식 신청이 결제 완료되었습니다.';
+  const body = optionSummary ? `${baseBody}\n옵션: ${optionSummary}` : baseBody;
 
   try {
     await admin.from('user_notifications').insert({
@@ -383,11 +391,15 @@ export async function POST(request: Request) {
     }
   }
 
-  void sendPushToUser(row.user_id, title, body, { path: ordersLink }).catch((e) =>
+  const pushData = optionSummary ? { path: ordersLink, optionSummary } : { path: ordersLink };
+  const pushDataStudent = optionSummary
+    ? { path: studentOrdersLink, optionSummary }
+    : { path: studentOrdersLink };
+  void sendPushToUser(row.user_id, title, body, pushData).catch((e) =>
     console.error('[nicepay/confirm] push payer', e),
   );
   if (row.student_id !== row.user_id) {
-    void sendPushToUser(row.student_id, title, body, { path: studentOrdersLink }).catch((e) =>
+    void sendPushToUser(row.student_id, title, body, pushDataStudent).catch((e) =>
       console.error('[nicepay/confirm] push student', e),
     );
   }

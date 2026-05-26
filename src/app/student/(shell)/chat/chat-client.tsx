@@ -37,7 +37,7 @@ export function StudentChatClient({
           currentUserType='student'
           currentUserName={currentUserName}
           title='학부모 · 관리자 채팅'
-          subtitle='학부모와 관리자 선생님과 대화할 수 있어요'
+          subtitle='학부모와 관리자와 대화할 수 있어요'
         />
       </div>
     </div>

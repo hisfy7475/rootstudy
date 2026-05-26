@@ -1,4 +1,5 @@
-import { getMealProductsForAdmin } from '@/lib/actions/meal';
+import { getMealProductsForAdmin, getMockExamOptionGroupsByProducts } from '@/lib/actions/meal';
+import { formatMockExamOptionLineup } from '@/lib/mock-exam-options';
 import { AdminMockExamsClient } from './mock-exams-client';
 
 interface PageProps {
@@ -35,5 +36,13 @@ export default async function AdminMockExamsPage({ searchParams }: PageProps) {
     dir,
   });
 
-  return <AdminMockExamsClient initialResult={result} />;
+  const optionGroupsByProduct = await getMockExamOptionGroupsByProducts(
+    result.rows.map((r) => r.id),
+  );
+  const optionSummaries: Record<string, string> = {};
+  for (const productId of Object.keys(optionGroupsByProduct)) {
+    optionSummaries[productId] = formatMockExamOptionLineup(optionGroupsByProduct[productId]);
+  }
+
+  return <AdminMockExamsClient initialResult={result} optionSummaries={optionSummaries} />;
 }

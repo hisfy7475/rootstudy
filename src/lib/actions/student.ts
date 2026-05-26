@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
 import { getMandatoryTime } from './date-type';
 import { isInAbsencePeriod } from './absence-schedule';
-import { PENALTY_RULES } from '@/lib/constants';
-import { createStudentNotification } from './notification';
+import { PENALTY_RULES, REWARD_RULES } from '@/lib/constants';
+import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
+import { notifyPointsGranted } from './notification';
 import {
   getRewardPresets,
   getPenaltyPresets,
@@ -64,14 +65,8 @@ async function giveAutoPoints(
     return { error: '자동 벌점 부여에 실패했습니다.' };
   }
 
-  // 학생에게 알림 발송
-  await createStudentNotification({
-    studentId,
-    type: 'point',
-    title: type === 'penalty' ? '벌점이 부여되었습니다' : '상점이 부여되었습니다',
-    message: `${reason} (${type === 'penalty' ? '-' : '+'}${amount}점)`,
-    link: '/student/points',
-  }).catch(console.error);
+  // 학생 + 모든 학부모 앱 알림 + 푸시 발송
+  await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
 
   return { success: true };
 }
@@ -567,17 +562,20 @@ export async function changeSubject(subjectName: string) {
     return { error: '입실 상태에서만 과목을 변경할 수 있습니다.' };
   }
 
-  // 현재 과목 종료
+  // 현재 과목 종료 + 새 과목 시작을 동일 timestamp 로 묶어 phantom gap 제거.
+  // (이전: old.ended_at = JS now, new.started_at = DB default now() → 매 전환마다 round-trip 만큼 갭)
+  const transitionAt = new Date().toISOString();
+
   await supabase
     .from('subjects')
-    .update({ is_current: false, ended_at: new Date().toISOString() })
+    .update({ is_current: false, ended_at: transitionAt })
     .eq('student_id', user.id)
     .eq('is_current', true);
 
-  // 새 과목 시작
   const { error } = await supabase.from('subjects').insert({
     student_id: user.id,
     subject_name: subjectName,
+    started_at: transitionAt,
     is_current: true,
   });
 
@@ -917,7 +915,6 @@ export async function getTodayFocusProgress() {
   if (!user) {
     return null;
   }
-  const { REWARD_RULES } = await import('@/lib/constants');
 
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
@@ -940,39 +937,10 @@ export async function getTodayFocusProgress() {
       .limit(500),
   ]);
 
-  // daily-reset 의 calculateUnclassifiedMinutes 와 동일 알고리즘 (현재 시각까지 클램프).
-  const now = new Date();
-  const effectiveEnd = now < end ? now : end;
-  const inSessions: Array<[number, number]> = [];
-  let inStart: number | null = null;
-  for (const a of attendance ?? []) {
-    const t = new Date(a.timestamp).getTime();
-    if (a.type === 'check_in' || a.type === 'break_end') {
-      if (inStart === null) inStart = t;
-    } else if (a.type === 'check_out' || a.type === 'break_start') {
-      if (inStart !== null) {
-        inSessions.push([inStart, t]);
-        inStart = null;
-      }
-    }
-  }
-  if (inStart !== null) inSessions.push([inStart, effectiveEnd.getTime()]);
-
-  const subSessions: Array<[number, number]> = (subjects ?? []).map((s) => [
-    new Date(s.started_at).getTime(),
-    s.ended_at ? new Date(s.ended_at).getTime() : effectiveEnd.getTime(),
-  ]);
-  let classifiedMs = 0;
-  for (const [iStart, iEnd] of inSessions) {
-    for (const [sStart, sEnd] of subSessions) {
-      const overlapStart = Math.max(iStart, sStart);
-      const overlapEnd = Math.min(iEnd, sEnd);
-      if (overlapEnd > overlapStart) classifiedMs += overlapEnd - overlapStart;
-    }
-  }
-  const studyMs = inSessions.reduce((s, [a, b]) => s + (b - a), 0);
-  const studyMinutes = Math.floor(studyMs / 60000);
-  const unclassifiedMinutes = Math.max(0, Math.floor((studyMs - classifiedMs) / 60000));
+  const metrics = calculateUnclassifiedMetrics(attendance ?? [], subjects ?? [], end, {
+    minSegmentSeconds: REWARD_RULES.dailyFocusMinSegmentSeconds,
+    clampToNow: true,
+  });
 
   // dayStart KST 요일 (월~금 = 평일)
   const dayStartKst = new Date(start.getTime() + 9 * 60 * 60 * 1000);
@@ -980,8 +948,8 @@ export async function getTodayFocusProgress() {
   const isWeekday = (REWARD_RULES.dailyFocusWeekdays as readonly number[]).includes(dow);
 
   return {
-    studyMinutes,
-    unclassifiedMinutes,
+    studyMinutes: metrics.studyMinutes,
+    unclassifiedMinutes: metrics.unclassifiedMinutes,
     targetMinutes: REWARD_RULES.dailyFocusHours * 60,
     graceMinutes: REWARD_RULES.dailyFocusUnclassifiedGraceMinutes,
     isWeekday,
@@ -1509,11 +1477,9 @@ export async function getSubjectStudyTime(
     .lt('timestamp', end.toISOString())
     .order('timestamp', { ascending: true });
 
-  // 학습 세션 추출
-  const studySessions = extractStudySessions(attendance || [], end);
-  const totalStudySeconds = studySessions.reduce((sum, s) => sum + s.durationSeconds, 0);
-
   // 과목별 시간 계산 (학습 세션과 교차하는 시간만)
+  // — 미분류 metrics 는 공통 헬퍼로 일원화 (cron/widget 과 동일한 자투리 필터 적용).
+  const studySessions = extractStudySessions(attendance || [], end);
   const subjectTimes: Record<string, number> = {};
   const subjectRecords: SubjectStudyRecord[] = [];
 
@@ -1545,97 +1511,19 @@ export async function getSubjectStudyTime(
     });
   }
 
-  const classifiedSeconds = Object.values(subjectTimes).reduce((sum, s) => sum + s, 0);
-  const unclassifiedSeconds = Math.max(0, totalStudySeconds - classifiedSeconds);
-
-  // 미분류 구간 계산
-  const unclassifiedSegments = calculateUnclassifiedSegments(studySessions, subjectRecords);
+  // 미분류는 빼기 방식 폐기 — 헬퍼가 segments 합산으로 산출.
+  // 자투리 필터 동일 → 화면 표시값과 cron gate 값이 항상 일치.
+  const metrics = calculateUnclassifiedMetrics(attendance || [], subjects || [], end, {
+    minSegmentSeconds: REWARD_RULES.dailyFocusMinSegmentSeconds,
+    clampToNow: true,
+  });
 
   return {
     subjectTimes,
     subjectRecords,
-    unclassifiedSeconds,
-    unclassifiedSegments,
+    unclassifiedSeconds: metrics.unclassifiedSeconds,
+    unclassifiedSegments: metrics.segments,
   };
-}
-
-// 미분류 구간 계산
-function calculateUnclassifiedSegments(
-  studySessions: StudySession[],
-  subjectRecords: SubjectStudyRecord[],
-): UnclassifiedSegment[] {
-  const segments: UnclassifiedSegment[] = [];
-
-  for (const session of studySessions) {
-    // 이 세션과 겹치는 과목 기록 찾기
-    const overlappingSubjects = subjectRecords.filter(
-      (sr) => sr.startTime < session.endTime && sr.endTime > session.startTime,
-    );
-
-    if (overlappingSubjects.length === 0) {
-      // 전체 세션이 미분류
-      segments.push({
-        id: `${session.startTime.getTime()}`,
-        startTime: session.startTime.toISOString(),
-        endTime: session.endTime.toISOString(),
-        durationSeconds: session.durationSeconds,
-      });
-    } else {
-      // 세션 내 미분류 구간 찾기
-      const covered: Array<{ start: number; end: number }> = [];
-
-      for (const sr of overlappingSubjects) {
-        const overlapStart = Math.max(session.startTime.getTime(), sr.startTime.getTime());
-        const overlapEnd = Math.min(session.endTime.getTime(), sr.endTime.getTime());
-        if (overlapEnd > overlapStart) {
-          covered.push({ start: overlapStart, end: overlapEnd });
-        }
-      }
-
-      // 커버된 구간 병합
-      covered.sort((a, b) => a.start - b.start);
-      const merged: Array<{ start: number; end: number }> = [];
-      for (const c of covered) {
-        if (merged.length === 0 || merged[merged.length - 1].end < c.start) {
-          merged.push(c);
-        } else {
-          merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, c.end);
-        }
-      }
-
-      // 미분류 구간 추출
-      let currentStart = session.startTime.getTime();
-      for (const m of merged) {
-        if (m.start > currentStart) {
-          const duration = Math.floor((m.start - currentStart) / 1000);
-          if (duration > 0) {
-            segments.push({
-              id: `${currentStart}`,
-              startTime: new Date(currentStart).toISOString(),
-              endTime: new Date(m.start).toISOString(),
-              durationSeconds: duration,
-            });
-          }
-        }
-        currentStart = m.end;
-      }
-
-      // 마지막 구간
-      if (currentStart < session.endTime.getTime()) {
-        const duration = Math.floor((session.endTime.getTime() - currentStart) / 1000);
-        if (duration > 0) {
-          segments.push({
-            id: `${currentStart}`,
-            startTime: new Date(currentStart).toISOString(),
-            endTime: session.endTime.toISOString(),
-            durationSeconds: duration,
-          });
-        }
-      }
-    }
-  }
-
-  return segments;
 }
 
 // 일별 학습 시간 추이 (주간/월간 용)
@@ -1809,6 +1697,13 @@ export async function assignUnclassifiedTime(
 
   if (end <= start) {
     return { error: '종료 시간이 시작 시간보다 커야 합니다.' };
+  }
+
+  // 최소 길이 가드 — 모달은 1분 미만 segment 를 노출하지 않지만 API 직접 호출은 우회 가능.
+  // 헬퍼의 자투리 필터와 동일 임계값을 적용해 운영 일관성 확보.
+  const durationSec = Math.floor((end.getTime() - start.getTime()) / 1000);
+  if (durationSec < REWARD_RULES.dailyFocusMinSegmentSeconds) {
+    return { error: '1분 미만은 할당할 수 없습니다.' };
   }
 
   // 해당 학습일의 범위 계산

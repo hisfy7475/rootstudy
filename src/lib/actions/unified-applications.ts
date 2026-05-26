@@ -58,6 +58,8 @@ export interface UnifiedAppRow {
   service_start_time: string | null;
   /** 이용 종료 시간 (mentoring 만 채워짐, meal/exam 은 NULL). HH:mm:ss. */
   service_end_time: string | null;
+  /** 모의고사 선택 옵션 요약 ("유형: 현장 · 영역: 과탐"). exam 외 도메인은 NULL. */
+  option_summary: string | null;
   // hydration 필드
   student_name: string | null;
   student_phone: string | null;
@@ -96,7 +98,7 @@ function logQueryError(scope: string, error: unknown): void {
 function buildDetailHref(domain: UnifiedAppDomain, itemId: string): string {
   if (domain === 'meal') return `/admin/meals/${itemId}/orders`;
   if (domain === 'exam') return `/admin/mock-exams/${itemId}/orders`;
-  return `/admin/mentoring/slots/${itemId}`;
+  return `/admin/mentoring?view=month&slot=${itemId}`;
 }
 
 type UnifiedAppDbRow = Omit<

@@ -6,6 +6,7 @@ import {
   getPaidOrderCountForVariant,
   getExistingPendingOrder,
   getExistingPaidOrder,
+  getMockExamOptionGroups,
 } from '@/lib/actions/meal';
 import { createClient } from '@/lib/supabase/server';
 import { MockExamDetailClient } from './mock-exam-detail-client';
@@ -26,16 +27,19 @@ export default async function StudentMockExamProductPage({
   } = await supabase.auth.getUser();
   const studentId = user?.id ?? null;
 
-  const variantStats = await Promise.all(
-    product.variants.map(async (v) => {
-      const [paidCount, pending, paid] = await Promise.all([
-        getPaidOrderCountForVariant(v.id),
-        studentId ? getExistingPendingOrder(v.id, studentId) : Promise.resolve(null),
-        studentId ? getExistingPaidOrder(v.id, studentId) : Promise.resolve(null),
-      ]);
-      return { variantId: v.id, paidCount, pending, paid };
-    }),
-  );
+  const [variantStats, optionGroups] = await Promise.all([
+    Promise.all(
+      product.variants.map(async (v) => {
+        const [paidCount, pending, paid] = await Promise.all([
+          getPaidOrderCountForVariant(v.id),
+          studentId ? getExistingPendingOrder(v.id, studentId) : Promise.resolve(null),
+          studentId ? getExistingPaidOrder(v.id, studentId) : Promise.resolve(null),
+        ]);
+        return { variantId: v.id, paidCount, pending, paid };
+      }),
+    ),
+    getMockExamOptionGroups(productId, { includeInactive: false }),
+  ]);
 
   const capacityLeftByVariant: Record<string, number | null> = {};
   const pendingOrderByVariant: Record<string, MealOrder | null> = {};
@@ -65,6 +69,7 @@ export default async function StudentMockExamProductPage({
         payBasePath='/student/mock-exams/pay'
         studentId={studentId}
         backHref='/student/order'
+        optionGroups={optionGroups}
       />
     </div>
   );

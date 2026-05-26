@@ -107,7 +107,7 @@ export function WithdrawalReviewTab({ queue, onRefresh }: Props) {
                     {row.protectedRedemptionCount > 0 && (
                       <>
                         {' · '}
-                        보호된 상품권 큐{' '}
+                        보호된 발급 대기{' '}
                         <strong className='text-purple-600'>
                           {row.protectedRedemptionCount}건
                         </strong>

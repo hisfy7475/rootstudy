@@ -19,9 +19,14 @@ const statusLabel: Record<MealProduct['status'], string> = {
 
 interface AdminMockExamsClientProps {
   initialResult: MealProductsListResult;
+  /** productId → 옵션 요약 ("유형: 현장/개별 · 영역: 과탐/사탐/교차"). 옵션 없으면 빈 문자열. */
+  optionSummaries: Record<string, string>;
 }
 
-export function AdminMockExamsClient({ initialResult }: AdminMockExamsClientProps) {
+export function AdminMockExamsClient({
+  initialResult,
+  optionSummaries,
+}: AdminMockExamsClientProps) {
   const pathname = usePathname();
   const sp = useSearchParams();
 
@@ -73,6 +78,7 @@ export function AdminMockExamsClient({ initialResult }: AdminMockExamsClientProp
                 <th className='w-16 p-3 font-medium'></th>
                 <th className='p-3 font-medium'>이름</th>
                 <th className='p-3 font-medium'>가격</th>
+                <th className='p-3 font-medium'>옵션</th>
                 <th className='p-3 font-medium'>신청 기간</th>
                 <th className='p-3 font-medium'>시험 기간</th>
                 <th className='p-3 font-medium'>정원</th>
@@ -82,7 +88,7 @@ export function AdminMockExamsClient({ initialResult }: AdminMockExamsClientProp
             <tbody>
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={8} className='text-muted-foreground p-8 text-center'>
                     등록된 모의고사가 없습니다.
                   </td>
                 </tr>
@@ -112,6 +118,9 @@ export function AdminMockExamsClient({ initialResult }: AdminMockExamsClientProp
                         </Link>
                       </td>
                       <td className='p-3'>{v ? `${v.price.toLocaleString()}원` : '-'}</td>
+                      <td className='text-muted-foreground p-3 text-xs whitespace-pre-wrap'>
+                        {optionSummaries[p.id] || '-'}
+                      </td>
                       <td className='p-3 whitespace-nowrap'>
                         {v ? `${v.sale_start_date} ~ ${v.sale_end_date}` : '-'}
                       </td>

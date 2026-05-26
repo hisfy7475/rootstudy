@@ -58,6 +58,7 @@ export function PayClient({
   orderRowId,
   displayAmount,
   displayGoodsName,
+  optionSelections,
 }: {
   paymentInit: PaymentInit | null;
   mallReserved: 's' | 'p';
@@ -65,6 +66,8 @@ export function PayClient({
   orderRowId: string;
   displayAmount: number;
   displayGoodsName: string;
+  /** 모의고사 옵션 스냅샷. 비어있거나 undefined면 옵션 영역 미표시. */
+  optionSelections?: { group_name: string; option_name: string }[];
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -186,10 +189,26 @@ export function PayClient({
         </form>
       ) : null}
 
-      <Card className='space-y-2 p-4'>
-        <p className='text-muted-foreground text-sm'>결제 금액</p>
-        <p className='text-2xl font-bold'>{displayAmount.toLocaleString('ko-KR')}원</p>
-        <p className='text-sm font-medium'>{displayGoodsName}</p>
+      <Card className='p-4'>
+        <div className='space-y-2'>
+          <p className='text-muted-foreground text-sm'>결제 금액</p>
+          <p className='text-2xl font-bold'>{displayAmount.toLocaleString('ko-KR')}원</p>
+        </div>
+
+        <dl className='mt-4 space-y-2 border-t pt-4 text-sm'>
+          <div className='flex items-start gap-3'>
+            <dt className='text-muted-foreground w-16 shrink-0'>상품</dt>
+            <dd className='font-medium'>{displayGoodsName}</dd>
+          </div>
+          {optionSelections && optionSelections.length > 0
+            ? optionSelections.map((s, i) => (
+                <div key={`${s.group_name}-${i}`} className='flex items-start gap-3'>
+                  <dt className='text-muted-foreground w-16 shrink-0'>{s.group_name}</dt>
+                  <dd className='font-medium'>{s.option_name}</dd>
+                </div>
+              ))
+            : null}
+        </dl>
       </Card>
 
       {!paymentInit ? (

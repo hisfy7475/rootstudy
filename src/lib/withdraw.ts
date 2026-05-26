@@ -34,6 +34,13 @@ export async function softDeleteUser(params: {
     return { error: '회원 탈퇴 처리에 실패했습니다.' };
   }
 
+  // 학생인 경우 caps_id 점유 해제. UNIQUE 제약 때문에 탈퇴자가 점유하고 있으면
+  // 다른 학생에게 같은 caps_id 부여 불가. 학생이 아니면 영향 없는 no-op 업데이트.
+  await adminClient
+    .from('student_profiles')
+    .update({ caps_id: null, caps_id_set_at: null })
+    .eq('id', userId);
+
   await adminClient.from('push_tokens').delete().eq('user_id', userId);
 
   const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {

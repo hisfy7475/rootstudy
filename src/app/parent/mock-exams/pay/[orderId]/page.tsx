@@ -4,6 +4,7 @@ import { ChevronLeft } from 'lucide-react';
 import { getMealOrderById } from '@/lib/actions/meal';
 import { buildMealPaymentWindowParams } from '@/lib/nicepay';
 import { PayClient } from '@/components/shared/payment/pay-client';
+import { parseOptionSelections } from '@/lib/mock-exam-options';
 
 export default async function ParentMockExamPayPage({
   params,
@@ -43,6 +44,7 @@ export default async function ParentMockExamPayPage({
         orderRowId={order.id}
         displayAmount={order.amount}
         displayGoodsName={product.name}
+        optionSelections={parseOptionSelections(order.option_selections)}
       />
     </div>
   );

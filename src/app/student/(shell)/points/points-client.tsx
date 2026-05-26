@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { PointsList } from '@/components/student/points-list';
 import { Card } from '@/components/ui/card';
 import { Award, TrendingDown, Filter, Gift, AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { requestRedemption } from '@/lib/actions/student';
-import { useRouter } from 'next/navigation';
 import { PolicyHelpButton } from '@/components/policy/policy-acknowledgement-modal';
 
 interface PointRecord {
@@ -63,9 +61,6 @@ export function PointsPageClient({
   penaltyPresets,
 }: PointsPageClientProps) {
   const [filter, setFilter] = useState<FilterType>('all');
-  const [requesting, startRequest] = useTransition();
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const router = useRouter();
 
   const filteredPoints = filter === 'all' ? points : points.filter((p) => p.type === filter);
 
@@ -95,23 +90,8 @@ export function PointsPageClient({
   const queueCount = summary.activeRedemptions.filter(
     (r) => r.status === 'requested' || r.status === 'auto_pending',
   ).length;
-  const availableBalance = Math.max(0, balance - queueCount * 100);
-  const redeemableSlots = Math.floor(availableBalance / 100);
-  const progressInCycle = availableBalance % 100;
+  const progressInCycle = balance % 100;
   const inReview = summary.withdrawalReviewAt !== null;
-
-  const handleRequestRedemption = () => {
-    setFeedback(null);
-    startRequest(async () => {
-      const res = await requestRedemption();
-      if ('error' in res) {
-        setFeedback(res.error);
-        return;
-      }
-      setFeedback('상품권 신청이 접수되었습니다. 영업일 기준 3일 이내 발급됩니다.');
-      router.refresh();
-    });
-  };
 
   return (
     <div className='space-y-6 p-4'>
@@ -160,9 +140,7 @@ export function PointsPageClient({
           {/* 100점 단위 진행도 */}
           <div className='space-y-1'>
             <div className='text-text-muted flex items-center justify-between text-[10px]'>
-              <span>
-                {redeemableSlots > 0 ? `상품권 ${redeemableSlots}회 발급 가능` : '다음 상품권까지'}
-              </span>
+              <span>{queueCount > 0 ? `발급 대기 ${queueCount}건` : '다음 상품권까지'}</span>
               <span>{progressInCycle} / 100</span>
             </div>
             <div className='h-1.5 w-full overflow-hidden rounded-full bg-green-100'>
@@ -234,19 +212,19 @@ export function PointsPageClient({
         </Card>
       </div>
 
-      {/* 상품권 신청 CTA — 가용 잔액 ≥ 100 + 검토 진입 아닐 때 */}
-      {redeemableSlots > 0 && !inReview && (
-        <button
-          onClick={handleRequestRedemption}
-          disabled={requesting}
-          className='bg-primary hover:bg-primary/90 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition-all disabled:opacity-50'
-        >
-          <Gift className='h-4 w-4' />
-          {requesting ? '신청 중...' : `지금 상품권 신청 (${redeemableSlots}회 가능)`}
-        </button>
-      )}
-      {feedback && (
-        <p className='rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-700'>{feedback}</p>
+      {/* 상품권 자동 발급 안내 — 검토 진입 아닐 때 */}
+      {!inReview && (
+        <Card className='border-blue-200 bg-blue-50 p-3'>
+          <div className='flex items-start gap-2'>
+            <Gift className='mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600' />
+            <div className='space-y-0.5 text-xs text-blue-700'>
+              <p className='font-semibold'>상품권은 자동 발급됩니다</p>
+              <p>
+                상점 100점 달성 시 발급 대기에 자동 등록되며, 관리자 처리 후 알림으로 안내됩니다.
+              </p>
+            </div>
+          </div>
+        </Card>
       )}
 
       {/* 활성 redemption 상태 */}
@@ -259,7 +237,7 @@ export function PointsPageClient({
                 <div className='space-y-0.5'>
                   <p className='text-text'>
                     {r.status === 'requested' && '신청됨 (대기 중)'}
-                    {r.status === 'auto_pending' && '자동 보호 (관리자 발급 대기)'}
+                    {r.status === 'auto_pending' && '발급 대기 중'}
                     {r.status === 'issued' && (
                       <>
                         발급 완료

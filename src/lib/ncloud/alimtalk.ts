@@ -1,3 +1,10 @@
+// ============================================
+// [알림톡 비활성화 2026-05-26]
+// NCP SENS 카카오 알림톡 발송 모듈. 등록된 템플릿이 서비스 메시지 카테고리와 매칭되지
+// 않아 현재 호출부가 모두 주석 처리되어 있으며, 본 모듈은 dormant 상태로 유지됩니다.
+// 신규 템플릿 등록 후 부활시킬 수 있도록 코드는 그대로 보존합니다.
+// ============================================
+
 import crypto from 'crypto';
 
 // ============================================
@@ -63,23 +70,11 @@ interface AlimtalkMessageResponse {
 // HMAC-SHA256 서명 생성 (네이버 클라우드 API 인증)
 // ============================================
 
-function makeSignature(
-  method: string,
-  url: string,
-  timestamp: string
-): string {
+function makeSignature(method: string, url: string, timestamp: string): string {
   const space = ' ';
   const newLine = '\n';
 
-  const message = [
-    method,
-    space,
-    url,
-    newLine,
-    timestamp,
-    newLine,
-    NCLOUD_ACCESS_KEY,
-  ].join('');
+  const message = [method, space, url, newLine, timestamp, newLine, NCLOUD_ACCESS_KEY].join('');
 
   const hmac = crypto.createHmac('sha256', NCLOUD_SECRET_KEY);
   hmac.update(message);
@@ -93,7 +88,7 @@ function makeSignature(
 function formatPhoneNumber(phone: string): string {
   // 숫자만 추출
   const digits = phone.replace(/[^0-9]/g, '');
-  
+
   // 010-xxxx-xxxx 형식에서 앞의 0을 제거하지 않음
   // 네이버 클라우드는 010으로 시작하는 번호를 그대로 사용
   return digits;
@@ -256,12 +251,8 @@ export function analyzeAlimtalkResult(response: AlimtalkResponse): {
     };
   }
 
-  const successMessages = response.messages.filter(
-    (msg) => msg.requestStatusCode === 'A000'
-  );
-  const failedMessages = response.messages.filter(
-    (msg) => msg.requestStatusCode !== 'A000'
-  );
+  const successMessages = response.messages.filter((msg) => msg.requestStatusCode === 'A000');
+  const failedMessages = response.messages.filter((msg) => msg.requestStatusCode !== 'A000');
 
   return {
     success: response.statusCode === '202' && failedMessages.length === 0,

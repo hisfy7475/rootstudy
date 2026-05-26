@@ -1,5 +1,6 @@
 import { getAnnouncementsForAdmin, getAnnouncementStatsForAdmin } from '@/lib/actions/announcement';
-import { getAlimtalkConfig } from '@/lib/actions/notification';
+// [알림톡 비활성화 2026-05-26]
+// import { getAlimtalkConfig } from '@/lib/actions/notification';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { ANNOUNCEMENTS_LIST_CONFIG } from './list-config';
@@ -32,7 +33,7 @@ export default async function AnnouncementsManagementPage({ searchParams }: Page
 
   const importantFilter = params.filters.important === '1' ? true : undefined;
 
-  const [result, stats, alimtalkConfig] = await Promise.all([
+  const [result, stats] = await Promise.all([
     getAnnouncementsForAdmin({
       branchId: ctx.branchId,
       page: params.page,
@@ -44,14 +45,15 @@ export default async function AnnouncementsManagementPage({ searchParams }: Page
       important: importantFilter,
     }),
     getAnnouncementStatsForAdmin(ctx.branchId),
-    getAlimtalkConfig(),
+    // [알림톡 비활성화 2026-05-26] getAlimtalkConfig() 호출 제거
   ]);
 
   return (
     <AnnouncementsClient
       initialResult={result}
       stats={stats}
-      alimtalkConfigured={alimtalkConfig.isConfigured}
+      // [알림톡 비활성화 2026-05-26]
+      // alimtalkConfigured={alimtalkConfig.isConfigured}
     />
   );
 }

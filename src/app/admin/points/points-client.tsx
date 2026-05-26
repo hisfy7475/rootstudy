@@ -790,7 +790,7 @@ export function PointsClient({
           },
           {
             value: 'redemptions',
-            label: `상품권 큐${initialRedemptionQueue.length > 0 ? ` (${initialRedemptionQueue.length})` : ''}`,
+            label: `상품권 발급 대기${initialRedemptionQueue.length > 0 ? ` (${initialRedemptionQueue.length})` : ''}`,
           },
         ]}
         activeValue={activeTab}
@@ -1375,7 +1375,7 @@ export function PointsClient({
             </div>
 
             <DataTableToolbar
-              searchPlaceholder='사유로 검색...'
+              searchPlaceholder='사유 또는 학생 이름으로 검색...'
               filters={[
                 {
                   key: 'type',

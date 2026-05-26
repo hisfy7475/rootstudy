@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getMealProductDetail } from "@/lib/actions/meal";
-import { AdminMockExamsDetailClient } from "./mock-exams-detail-client";
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { getMealProductDetail, getMockExamOptionGroups } from '@/lib/actions/meal';
+import { AdminMockExamsDetailClient } from './mock-exams-detail-client';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -9,7 +9,10 @@ interface PageProps {
 
 export default async function AdminMockExamDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const product = await getMealProductDetail(id, "exam");
+  const [product, optionGroups] = await Promise.all([
+    getMealProductDetail(id, 'exam'),
+    getMockExamOptionGroups(id, { includeInactive: false }),
+  ]);
 
   if (!product) {
     notFound();
@@ -24,7 +27,7 @@ export default async function AdminMockExamDetailPage({ params }: PageProps) {
         <span className='text-muted-foreground'>/</span>
         <span className='text-muted-foreground'>{product.name}</span>
       </div>
-      <AdminMockExamsDetailClient product={product} />
+      <AdminMockExamsDetailClient product={product} optionGroups={optionGroups} />
     </div>
   );
 }

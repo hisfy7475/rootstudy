@@ -71,7 +71,7 @@ export function PolicyAcknowledgementModal({
                 분기 벌점 {PENALTY_RULES.withdrawAt}점 도달 시
               </p>
               <p className='text-text-muted text-xs'>
-                보유 상점이 소멸되고 퇴원 검토 대상이 됩니다. (100점 단위는 상품권 발급 큐로 보호)
+                보유 상점이 소멸되고 퇴원 검토 대상이 됩니다. (100점 단위는 상품권 발급 대기로 보호)
               </p>
             </div>
           </div>
