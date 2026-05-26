@@ -273,7 +273,7 @@ export async function GET(request: Request) {
             const action = r.type === 'check_in' ? '입실' : '퇴실';
 
             const studentTitle = `${action} 알림`;
-            const studentMessage = `${action}했습니다 (${timeLabel})`;
+            const studentMessage = `${studentName} 학생, ${action} 했습니다 (${timeLabel})`;
             studentNotifInserts.push({
               student_id: r.student_id,
               type: 'system',
@@ -293,7 +293,7 @@ export async function GET(request: Request) {
             const parentIds = studentToParents.get(r.student_id) || [];
             if (parentIds.length > 0) {
               const parentTitle = `${action} 알림`;
-              const parentMessage = `${studentName} 학생이 ${action}했습니다 (${timeLabel})`;
+              const parentMessage = `${studentName} 학생, ${action} 했습니다 (${timeLabel})`;
               for (const pid of parentIds) {
                 userNotifInserts.push({
                   user_id: pid,

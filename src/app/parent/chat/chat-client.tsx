@@ -39,7 +39,7 @@ export function ParentChatClient({
           currentUserType='parent'
           currentUserName={currentUserName}
           title={`${studentName} 채팅방`}
-          subtitle='자녀와 관리자 선생님과 대화할 수 있어요'
+          subtitle='자녀와 관리자와 대화할 수 있어요'
         />
       </div>
     </div>

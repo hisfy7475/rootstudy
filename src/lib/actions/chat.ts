@@ -682,7 +682,7 @@ async function sendChatNotifications(params: {
       case 'parent':
         return '학부모님';
       case 'admin':
-        return '선생님';
+        return '관리자';
       default:
         return params.senderName;
     }
