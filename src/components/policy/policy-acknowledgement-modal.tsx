@@ -42,7 +42,7 @@ export function PolicyAcknowledgementModal({
   };
 
   return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'>
+    <div className='fixed inset-0 z-[55] flex items-center justify-center bg-black/60 p-4'>
       <Card className='max-h-[90vh] w-full max-w-md overflow-y-auto p-6'>
         <div className='mb-4 flex items-center justify-between'>
           <h2 className='text-lg font-bold'>상벌점·몰입도 정책 안내</h2>

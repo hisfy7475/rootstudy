@@ -4,7 +4,11 @@ import { useState, useRef, KeyboardEvent, ClipboardEvent, ChangeEvent } from 're
 import { Send, ImagePlus, Paperclip, X } from 'lucide-react';
 import { cn, isNativeApp, randomUUID } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
-import { CHAT_FILE_ACCEPT, CHAT_FILE_MAX_BYTES, resolveChatFileMime } from '@shared/uploads/chat';
+import {
+  ATTACHMENT_FILE_ACCEPT,
+  ATTACHMENT_FILE_MAX_BYTES,
+  resolveAttachmentFileMime,
+} from '@shared/uploads/attachments';
 import Image from 'next/image';
 import { ChatTemplatePopover } from './chat-template-popover';
 
@@ -103,11 +107,11 @@ export function ChatInput({
       alert('이미지는 이미지 첨부 버튼을 사용해 주세요.');
       return;
     }
-    if (!resolveChatFileMime(file.type, file.name)) {
+    if (!resolveAttachmentFileMime(file.type, file.name)) {
       alert('지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)');
       return;
     }
-    if (file.size > CHAT_FILE_MAX_BYTES) {
+    if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
       alert('파일 크기는 20MB 이하여야 합니다.');
       return;
     }
@@ -124,7 +128,7 @@ export function ChatInput({
 
   const openDataFilePicker = () => {
     if (isNative) {
-      postToNative({ type: 'PICK_FILE', payload: { roomId } });
+      postToNative({ type: 'PICK_FILE', payload: { context: 'chat', roomId } });
       return;
     }
     dataFileInputRef.current?.click();
@@ -132,7 +136,7 @@ export function ChatInput({
 
   const openImagePicker = () => {
     if (isNative) {
-      postToNative({ type: 'PICK_IMAGE', payload: { source: 'gallery', roomId } });
+      postToNative({ type: 'PICK_IMAGE', payload: { source: 'gallery', context: 'chat', roomId } });
       return;
     }
     fileInputRef.current?.click();
@@ -245,7 +249,7 @@ export function ChatInput({
         <input
           ref={dataFileInputRef}
           type='file'
-          accept={CHAT_FILE_ACCEPT}
+          accept={ATTACHMENT_FILE_ACCEPT}
           onChange={handleDataFileChange}
           className='hidden'
         />

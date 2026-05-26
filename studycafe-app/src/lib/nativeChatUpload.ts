@@ -3,10 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../constants';
 import type { StoredSession } from '../hooks/useSecureTokenStore';
 import {
-  CHAT_FILE_MAX_BYTES,
-  resolveChatFileMime,
-  sanitizeChatFileSegment,
-} from '@shared/uploads/chat';
+  ATTACHMENT_FILE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MAX_BYTES,
+  resolveAttachmentFileMime,
+  sanitizeAttachmentSegment,
+} from '@shared/uploads/attachments';
 import { FILE_SIZE_10MB } from '@shared/uploads/file-utils';
 
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -134,11 +135,11 @@ export async function uploadChatFileFromNative(
   }
   // 확장자 우선으로 MIME 결정. DocumentPicker가 mimeType undefined/octet-stream을
   // 주는 Android 케이스에서도 확장자가 화이트리스트면 통과.
-  const resolvedMime = resolveChatFileMime(mimeType, filename);
+  const resolvedMime = resolveAttachmentFileMime(mimeType, filename);
   if (!resolvedMime) {
     throw new Error('지원하지 않는 파일 형식입니다.');
   }
-  if (size != null && size > CHAT_FILE_MAX_BYTES) {
+  if (size != null && size > ATTACHMENT_FILE_MAX_BYTES) {
     throw new Error('파일 크기는 20MB 이하여야 합니다.');
   }
 
@@ -148,7 +149,7 @@ export async function uploadChatFileFromNative(
     throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
   }
 
-  const safeBase = sanitizeChatFileSegment(filename || 'file');
+  const safeBase = sanitizeAttachmentSegment(filename || 'file');
   const storagePath = `${userData.user.id}/${roomId}/${Date.now()}_${safeBase}`;
 
   await uploadToStorage(
@@ -164,6 +165,102 @@ export async function uploadChatFileFromNative(
   const downloadName = filename || safeBase;
   const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     .storage.from('chat-files')
+    .getPublicUrl(storagePath, { download: downloadName });
+
+  return { url: pub.publicUrl, filename: downloadName, mime_type: resolvedMime };
+}
+
+// ─── 멘토링/클리닉/상담 신청 첨부 ────────────────────────────────
+// 채팅 함수의 형태를 그대로 따르되 버킷·경로 prefix만 다르다.
+// 서버 액션 sanitizeAttachmentList 가 `${uid}/applications/...` prefix 를 기대하므로 동일하게 맞춘다.
+
+export async function uploadMentoringImageFromNative(
+  session: StoredSession,
+  uri: string,
+  mimeType: string | undefined,
+  size: number | undefined,
+): Promise<NativeUploadOk> {
+  const mt = mimeType?.trim() || 'image/jpeg';
+  if (!ALLOWED_IMAGE_TYPES.has(mt)) {
+    throw new Error('지원하지 않는 이미지 형식입니다.');
+  }
+  if (size != null && size > ATTACHMENT_IMAGE_MAX_BYTES) {
+    throw new Error('이미지 크기는 10MB 이하여야 합니다.');
+  }
+
+  const supabase = createAuthedClient(session);
+  const { data: userData, error: userErr } = await supabase.auth.getUser(session.access_token);
+  if (userErr || !userData.user) {
+    throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
+  }
+
+  const ext =
+    mt === 'image/png'
+      ? 'png'
+      : mt === 'image/gif'
+        ? 'gif'
+        : mt === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+  const fileName = `${Date.now()}.${ext}`;
+  const storagePath = `${userData.user.id}/applications/${fileName}`;
+
+  await uploadToStorage(
+    'mentoring-attachments',
+    storagePath,
+    uri,
+    fileName,
+    mt,
+    session.access_token,
+  );
+
+  // 이미지는 인라인 미리보기 유지를 위해 download 옵션 미적용.
+  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    .storage.from('mentoring-attachments')
+    .getPublicUrl(storagePath);
+
+  return { url: pub.publicUrl, filename: `image.${ext}`, mime_type: mt };
+}
+
+export async function uploadMentoringFileFromNative(
+  session: StoredSession,
+  uri: string,
+  filename: string,
+  mimeType: string | undefined,
+  size: number | undefined | null,
+): Promise<NativeUploadOk> {
+  if (mimeType && mimeType.trim().toLowerCase().startsWith('image/')) {
+    throw new Error('이미지는 이미지 첨부를 사용해 주세요.');
+  }
+  const resolvedMime = resolveAttachmentFileMime(mimeType, filename);
+  if (!resolvedMime) {
+    throw new Error('지원하지 않는 파일 형식입니다.');
+  }
+  if (size != null && size > ATTACHMENT_FILE_MAX_BYTES) {
+    throw new Error('파일 크기는 20MB 이하여야 합니다.');
+  }
+
+  const supabase = createAuthedClient(session);
+  const { data: userData, error: userErr } = await supabase.auth.getUser(session.access_token);
+  if (userErr || !userData.user) {
+    throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
+  }
+
+  const safeBase = sanitizeAttachmentSegment(filename || 'file');
+  const storagePath = `${userData.user.id}/applications/${Date.now()}_${safeBase}`;
+
+  await uploadToStorage(
+    'mentoring-files',
+    storagePath,
+    uri,
+    safeBase,
+    resolvedMime,
+    session.access_token,
+  );
+
+  const downloadName = filename || safeBase;
+  const { data: pub } = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    .storage.from('mentoring-files')
     .getPublicUrl(storagePath, { download: downloadName });
 
   return { url: pub.publicUrl, filename: downloadName, mime_type: resolvedMime };

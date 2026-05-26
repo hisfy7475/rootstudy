@@ -2,10 +2,10 @@
 
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import {
-  CHAT_FILE_MAX_BYTES,
-  resolveChatFileMime,
-  sanitizeChatFileSegment,
-} from '@shared/uploads/chat';
+  ATTACHMENT_FILE_MAX_BYTES,
+  resolveAttachmentFileMime,
+  sanitizeAttachmentSegment,
+} from '@shared/uploads/attachments';
 
 // ============================================
 // 채팅방 관련
@@ -466,16 +466,16 @@ export async function uploadChatFile(roomId: string, formData: FormData) {
 
   // 확장자 우선으로 MIME을 결정. 브라우저가 한글/대괄호 파일명에서
   // file.type 을 비워 보내도 확장자가 화이트리스트면 통과한다.
-  const resolvedMime = resolveChatFileMime(file.type, file.name);
+  const resolvedMime = resolveAttachmentFileMime(file.type, file.name);
   if (!resolvedMime) {
     return { error: '지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)' };
   }
 
-  if (file.size > CHAT_FILE_MAX_BYTES) {
+  if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
     return { error: '파일 크기는 20MB 이하여야 합니다.' };
   }
 
-  const safeBase = sanitizeChatFileSegment(file.name);
+  const safeBase = sanitizeAttachmentSegment(file.name);
   const fileName = `${user.id}/${roomId}/${Date.now()}_${safeBase}`;
 
   const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, {

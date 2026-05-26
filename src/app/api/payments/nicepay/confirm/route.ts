@@ -31,16 +31,31 @@ function categorySlug(category: OrderCategory): string {
   return category === 'exam' ? 'mock-exams' : 'meals';
 }
 
+function resolveRequestOrigin(request: Request): string {
+  // next dev 의 request.url 은 실제 Host 헤더가 아닌 내부 기본값(localhost:3000)을 반환하는
+  // 경우가 있어, 폰 WebView가 LAN IP 로 접속했는데 redirect 가 localhost 로 나가버린다.
+  // Host / X-Forwarded-Host 헤더를 우선 사용한다.
+  const fwdHost = request.headers.get('x-forwarded-host');
+  const host = fwdHost || request.headers.get('host');
+  const fwdProto = request.headers.get('x-forwarded-proto');
+  if (host) {
+    const proto = fwdProto || (host.startsWith('localhost') ? 'http' : 'https');
+    // LAN IP(10./192.168./172.16-31.) 는 dev 서버이므로 http 강제.
+    const isLan =
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host) ||
+      host.startsWith('localhost');
+    return `${isLan ? 'http' : proto}://${host}`;
+  }
+  return new URL(request.url).origin;
+}
+
 function redirectResult(
   request: Request,
   role: 'student' | 'parent',
   category: OrderCategory,
   params: Record<string, string>,
 ): NextResponse {
-  // 요청이 들어온 호스트(request.url.origin) 그대로 리다이렉트 — NEXT_PUBLIC_SITE_URL 에 의존하면
-  // env 호스트와 실제 접속 호스트가 달라졌을 때(localhost vs LAN IP 등) 세션 쿠키 도메인이 어긋나
-  // /student 보호 경로에서 /login 으로 튕긴다.
-  const base = new URL(request.url).origin;
+  const base = resolveRequestOrigin(request);
   const slug = categorySlug(category);
   const path = role === 'parent' ? `/parent/${slug}/pay/result` : `/student/${slug}/pay/result`;
   const u = new URL(path, base);

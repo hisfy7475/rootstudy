@@ -27,10 +27,23 @@ import {
   type MentoringSlotWithMentor,
   type MentoringApplicationWithDetails,
 } from '@/lib/mentoring-utils';
+import {
+  ATTACHMENT_FILE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MIME_TYPES,
+  resolveAttachmentFileMime,
+  sanitizeAttachmentSegment,
+} from '@shared/uploads/attachments';
 
-const MENTORING_ATTACHMENTS_BUCKET = 'mentoring-attachments';
-const APPLICATION_ATTACHMENT_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const APPLICATION_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+// 멘토링/클리닉/상담 신청 첨부.
+// - mentoring-attachments: 이미지 전용 (DB allowed_mime_types로 4종 화이트리스트, 10MB)
+// - mentoring-files: 파일 전용 (PDF·Office·ZIP 등, 20MB, 코드 레이어에서 화이트리스트)
+const MENTORING_IMAGES_BUCKET = 'mentoring-attachments';
+const MENTORING_FILES_BUCKET = 'mentoring-files';
+// 기존 코드 호환용 별칭
+const MENTORING_ATTACHMENTS_BUCKET = MENTORING_IMAGES_BUCKET;
+const APPLICATION_ATTACHMENT_ALLOWED_TYPES: string[] = [...ATTACHMENT_IMAGE_MIME_TYPES];
+const APPLICATION_ATTACHMENT_MAX_SIZE = ATTACHMENT_IMAGE_MAX_BYTES;
 
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
@@ -284,10 +297,11 @@ function sanitizeAttachmentList(
   if (list.length > APPLICATION_ATTACHMENTS_MAX) {
     return {
       ok: false,
-      error: `사진은 최대 ${APPLICATION_ATTACHMENTS_MAX}장까지 첨부할 수 있습니다.`,
+      error: `첨부는 최대 ${APPLICATION_ATTACHMENTS_MAX}개까지 추가할 수 있습니다.`,
     };
   }
-  const ownerPrefix = `/storage/v1/object/public/${MENTORING_ATTACHMENTS_BUCKET}/${ownerUserId}/`;
+  const IMAGE_PREFIX = `/storage/v1/object/public/${MENTORING_IMAGES_BUCKET}/${ownerUserId}/`;
+  const FILE_PREFIX = `/storage/v1/object/public/${MENTORING_FILES_BUCKET}/${ownerUserId}/`;
   const cleaned: MentoringAttachment[] = [];
   for (const a of list) {
     if (!a || typeof a.url !== 'string' || typeof a.name !== 'string') {
@@ -300,13 +314,24 @@ function sanitizeAttachmentList(
     } catch {
       return { ok: false, error: '첨부 URL이 올바르지 않습니다.' };
     }
-    if (!pathname.startsWith(ownerPrefix)) {
+    const isImageBucket = pathname.startsWith(IMAGE_PREFIX);
+    const isFileBucket = pathname.startsWith(FILE_PREFIX);
+    if (!isImageBucket && !isFileBucket) {
       return { ok: false, error: '본인이 업로드한 파일만 첨부할 수 있습니다.' };
+    }
+    const rawMime = typeof a.mime_type === 'string' ? a.mime_type : '';
+    const isImageMime = rawMime.toLowerCase().startsWith('image/');
+    // 버킷-MIME 정합성: 이미지 버킷이면 image/*, 파일 버킷이면 non-image (클라이언트 위조 차단)
+    if (isImageBucket && !isImageMime) {
+      return { ok: false, error: '이미지 첨부의 형식 정보가 올바르지 않습니다.' };
+    }
+    if (isFileBucket && isImageMime) {
+      return { ok: false, error: '파일 첨부의 형식 정보가 올바르지 않습니다.' };
     }
     cleaned.push({
       url: a.url,
       name: String(a.name).slice(0, 200),
-      mime_type: typeof a.mime_type === 'string' ? a.mime_type : 'image/jpeg',
+      mime_type: rawMime || (isImageBucket ? 'image/jpeg' : 'application/octet-stream'),
       size: Number.isFinite(a.size) ? Number(a.size) : 0,
     });
   }
@@ -1485,18 +1510,24 @@ export async function deleteMentorProfileImage(
   return { success: true };
 }
 
-// ─── 신청 첨부 사진 업로드/삭제 (학생·학부모) ──────────────────────
+// ─── 신청 첨부 업로드/삭제 (학생·학부모) ──────────────────────
 
-function applicationAttachmentPathFromPublicUrl(publicUrl: string): string | null {
-  const marker = `/object/public/${MENTORING_ATTACHMENTS_BUCKET}/`;
-  const i = publicUrl.indexOf(marker);
-  if (i === -1) return null;
-  const rest = publicUrl.slice(i + marker.length).split('?')[0];
-  try {
-    return decodeURIComponent(rest);
-  } catch {
-    return null;
+// 이미지·파일 두 버킷 모두를 인식하여 (bucket, path) 를 추출.
+function applicationAttachmentLocateFromPublicUrl(
+  publicUrl: string,
+): { bucket: string; path: string } | null {
+  for (const bucket of [MENTORING_IMAGES_BUCKET, MENTORING_FILES_BUCKET]) {
+    const marker = `/object/public/${bucket}/`;
+    const i = publicUrl.indexOf(marker);
+    if (i === -1) continue;
+    const rest = publicUrl.slice(i + marker.length).split('?')[0];
+    try {
+      return { bucket, path: decodeURIComponent(rest) };
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 export async function uploadMentoringApplicationAttachment(
@@ -1548,6 +1579,65 @@ export async function uploadMentoringApplicationAttachment(
   };
 }
 
+export async function uploadMentoringApplicationFile(
+  formData: FormData,
+): Promise<{ data?: MentoringAttachment; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: '로그인이 필요합니다.' };
+
+  const file = formData.get('file') as File | null;
+  if (!file) return { error: '파일을 선택해 주세요.' };
+
+  // 위장 이미지 차단: 이미지는 이미지 전용 업로드 함수 사용
+  if (file.type && file.type.toLowerCase().startsWith('image/')) {
+    return { error: '이미지는 이미지 첨부 버튼을 사용해 주세요.' };
+  }
+
+  const resolvedMime = resolveAttachmentFileMime(file.type, file.name);
+  if (!resolvedMime) {
+    return { error: '지원하지 않는 파일 형식입니다.' };
+  }
+  if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
+    return { error: '파일 크기는 20MB 이하여야 합니다.' };
+  }
+
+  const safeBase = sanitizeAttachmentSegment(file.name || 'file');
+  const storagePath = `${user.id}/applications/${Date.now()}_${safeBase}`;
+
+  const { data: uploaded, error: upErr } = await supabase.storage
+    .from(MENTORING_FILES_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: resolvedMime,
+    });
+
+  if (upErr || !uploaded) {
+    console.error('[uploadMentoringApplicationFile] storage', upErr);
+    return { error: '파일 업로드에 실패했습니다.' };
+  }
+
+  // 다운로드 시 원본 한글 파일명이 보존되도록 ?download=<원본이름> 강제.
+  const downloadName = file.name || safeBase;
+  const {
+    data: { publicUrl },
+  } = supabase.storage
+    .from(MENTORING_FILES_BUCKET)
+    .getPublicUrl(uploaded.path, { download: downloadName });
+
+  return {
+    data: {
+      url: publicUrl,
+      name: downloadName.slice(0, 200),
+      mime_type: resolvedMime,
+      size: file.size,
+    },
+  };
+}
+
 export async function removeMentoringApplicationAttachment(
   url: string,
 ): Promise<{ success?: true; error?: string }> {
@@ -1557,18 +1647,18 @@ export async function removeMentoringApplicationAttachment(
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  const path = applicationAttachmentPathFromPublicUrl(url);
-  if (!path) return { error: '첨부 URL을 인식할 수 없습니다.' };
+  const located = applicationAttachmentLocateFromPublicUrl(url);
+  if (!located) return { error: '첨부 URL을 인식할 수 없습니다.' };
 
   // RLS 가 자기 폴더만 허용하므로 서버에서도 prefix 검증을 한 번 더
-  if (!path.startsWith(`${user.id}/`)) {
+  if (!located.path.startsWith(`${user.id}/`)) {
     return { error: '본인이 업로드한 파일만 삭제할 수 있습니다.' };
   }
 
-  const { error } = await supabase.storage.from(MENTORING_ATTACHMENTS_BUCKET).remove([path]);
+  const { error } = await supabase.storage.from(located.bucket).remove([located.path]);
   if (error) {
     console.error('[removeMentoringApplicationAttachment] storage', error);
-    return { error: '이미지 삭제에 실패했습니다.' };
+    return { error: '첨부 삭제에 실패했습니다.' };
   }
   return { success: true };
 }

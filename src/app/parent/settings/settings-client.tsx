@@ -345,7 +345,7 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
       {/* 회원 탈퇴 모달 */}
       {isWithdrawModalOpen && (
         <div
-          className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4'
+          className='fixed inset-0 z-[55] flex items-center justify-center bg-black/50 px-4'
           onClick={handleCloseWithdraw}
         >
           <div

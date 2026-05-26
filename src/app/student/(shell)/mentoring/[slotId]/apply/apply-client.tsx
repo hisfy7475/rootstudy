@@ -1,25 +1,35 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Camera, X } from 'lucide-react';
+import { ImagePlus, Paperclip, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   applyMentoring,
   uploadMentoringApplicationAttachment,
+  uploadMentoringApplicationFile,
   removeMentoringApplicationAttachment,
   type MentoringSlotWithMentor,
 } from '@/lib/actions/mentoring';
 import type { MentoringAttachment } from '@/types/database';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
-import { cn } from '@/lib/utils';
+import { cn, isNativeApp, isNativeAppAtLeast } from '@/lib/utils';
+import { postToNative } from '@/lib/native-bridge';
+import {
+  ATTACHMENT_FILE_ACCEPT,
+  ATTACHMENT_FILE_MAX_BYTES,
+  resolveAttachmentFileMime,
+} from '@shared/uploads/attachments';
 
 const MAX_ATTACHMENTS = 3;
 const CONTENT_MIN = 5;
 const CONTENT_MAX = 2000;
+// 멘토링 첨부 네이티브 브리지가 지원되는 최소 앱 버전. 그 미만 앱은 첨부 영역을 비활성화하고 안내.
+const NATIVE_ATTACH_MIN_MAJOR = 1;
+const NATIVE_ATTACH_MIN_MINOR = 1;
 
 function buildSubtitle(slot: MentoringSlotWithMentor): string {
   const m = slot.mentors;
@@ -43,6 +53,7 @@ export function MentoringApplyClient({
   backHref: string;
 }) {
   const router = useRouter();
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState('');
   const [selectedSubject, setSelectedSubject] = useState<string>('');
@@ -58,12 +69,76 @@ export function MentoringApplyClient({
   const isClinic = slot.type === 'clinic';
   const blockedClinic = isClinic && subjects.length === 0;
 
-  async function handlePickFiles(files: FileList | null) {
+  // 네이티브 환경 감지 + 멘토링 첨부 브리지 지원 버전 가드.
+  // useSyncExternalStore 로 SSR/hydration mismatch 없이 클라이언트 한정으로 평가.
+  const isNative = useSyncExternalStore(
+    () => () => {},
+    () => isNativeApp(),
+    () => false,
+  );
+  const nativeVersionOk = useSyncExternalStore(
+    () => () => {},
+    () => !isNativeApp() || isNativeAppAtLeast(NATIVE_ATTACH_MIN_MAJOR, NATIVE_ATTACH_MIN_MINOR),
+    () => true,
+  );
+  const attachmentsBlocked = isNative && !nativeVersionOk;
+
+  // 네이티브 → 웹 FILE_UPLOADED / FILE_UPLOAD_ERROR 수신.
+  // mentoring 컨텍스트만 처리해 채팅과의 cross-talk를 방지.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isNative) return;
+    const handler = (event: MessageEvent) => {
+      const raw = typeof event.data === 'string' ? event.data : null;
+      if (!raw) return;
+      let parsed: {
+        type?: string;
+        payload?: {
+          url?: string;
+          filename?: string;
+          mime_type?: string;
+          message?: string;
+          context?: string;
+          size?: number;
+        };
+      } | null = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (!parsed || parsed.payload?.context !== 'mentoring') return;
+      if (parsed.type === 'FILE_UPLOAD_ERROR') {
+        setUploading(false);
+        setUploadErr(parsed.payload?.message ?? '업로드에 실패했습니다.');
+        return;
+      }
+      if (parsed.type !== 'FILE_UPLOADED' || !parsed.payload?.url) return;
+
+      const url = parsed.payload.url;
+      const mime = parsed.payload.mime_type ?? '';
+      const name =
+        parsed.payload.filename?.trim() || (mime.startsWith('image/') ? 'image' : 'file');
+      setAttachments((prev) => {
+        if (prev.length >= MAX_ATTACHMENTS) {
+          setUploadErr(`첨부는 최대 ${MAX_ATTACHMENTS}개까지 추가할 수 있습니다.`);
+          return prev;
+        }
+        return [...prev, { url, name, mime_type: mime || 'application/octet-stream', size: 0 }];
+      });
+      setUploading(false);
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [isNative]);
+
+  const remain = MAX_ATTACHMENTS - attachments.length;
+  const canAddMore = remain > 0 && !uploading && !attachmentsBlocked;
+
+  async function handlePickImages(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploadErr(null);
-    const remain = MAX_ATTACHMENTS - attachments.length;
     if (remain <= 0) {
-      setUploadErr(`사진은 최대 ${MAX_ATTACHMENTS}장까지 첨부할 수 있습니다.`);
+      setUploadErr(`첨부는 최대 ${MAX_ATTACHMENTS}개까지 추가할 수 있습니다.`);
       return;
     }
     const targets = Array.from(files).slice(0, remain);
@@ -83,7 +158,64 @@ export function MentoringApplyClient({
       setAttachments((prev) => [...prev, ...accumulated]);
     }
     setUploading(false);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  }
+
+  async function handlePickDataFile(file: File | null) {
+    if (!file) return;
+    setUploadErr(null);
+    if (remain <= 0) {
+      setUploadErr(`첨부는 최대 ${MAX_ATTACHMENTS}개까지 추가할 수 있습니다.`);
+      return;
+    }
+    if (file.type.startsWith('image/')) {
+      setUploadErr('이미지는 이미지 첨부 버튼을 사용해 주세요.');
+      return;
+    }
+    if (!resolveAttachmentFileMime(file.type, file.name)) {
+      setUploadErr('지원하지 않는 파일 형식입니다. (PDF, Office, TXT, CSV, ZIP)');
+      return;
+    }
+    if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
+      setUploadErr('파일 크기는 20MB 이하여야 합니다.');
+      return;
+    }
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await uploadMentoringApplicationFile(fd);
+    if (res.error || !res.data) {
+      setUploadErr(res.error ?? '업로드에 실패했습니다.');
+    } else {
+      setAttachments((prev) => [...prev, res.data!]);
+    }
+    setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function openImagePicker() {
+    if (!canAddMore) return;
+    setUploadErr(null);
+    if (isNative) {
+      setUploading(true);
+      postToNative({
+        type: 'PICK_IMAGE',
+        payload: { source: 'gallery', context: 'mentoring' },
+      });
+      return;
+    }
+    imageInputRef.current?.click();
+  }
+
+  function openFilePicker() {
+    if (!canAddMore) return;
+    setUploadErr(null);
+    if (isNative) {
+      setUploading(true);
+      postToNative({ type: 'PICK_FILE', payload: { context: 'mentoring' } });
+      return;
+    }
+    fileInputRef.current?.click();
   }
 
   async function handleRemoveAttachment(idx: number) {
@@ -95,6 +227,12 @@ export function MentoringApplyClient({
       /* ignore */
     });
   }
+
+  const placeholder = useMemo(() => {
+    if (isClinic) return '문제·풀이 과정·헷갈리는 개념 등을 자세히 적어주세요.';
+    if (slot.type === 'consult') return '상담 받고 싶은 내용을 자세히 적어주세요.';
+    return '멘토에게 전달할 내용을 자세히 적어주세요.';
+  }, [isClinic, slot.type]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -210,13 +348,7 @@ export function MentoringApplyClient({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className='border-input bg-background mt-1 min-h-[160px] w-full rounded-xl border px-3 py-2 text-sm'
-              placeholder={
-                isClinic
-                  ? '문제·풀이 과정·헷갈리는 개념 등을 자세히 적어주세요.'
-                  : slot.type === 'consult'
-                    ? '상담 받고 싶은 내용을 자세히 적어주세요.'
-                    : '멘토에게 전달할 내용을 자세히 적어주세요.'
-              }
+              placeholder={placeholder}
               maxLength={CONTENT_MAX}
               required
             />
@@ -226,53 +358,105 @@ export function MentoringApplyClient({
           </div>
 
           <div>
-            <span className='text-sm font-medium'>사진 첨부</span>
+            <span className='text-sm font-medium'>첨부 (이미지·파일)</span>
             <input
-              ref={fileInputRef}
+              ref={imageInputRef}
               type='file'
               accept='image/jpeg,image/png,image/webp,image/gif'
               multiple
               className='hidden'
-              onChange={(e) => handlePickFiles(e.target.files)}
+              onChange={(e) => handlePickImages(e.target.files)}
             />
-            <div className='mt-2 flex flex-wrap gap-2'>
-              {attachments.map((att, idx) => (
-                <div key={att.url} className='relative size-20 overflow-hidden rounded-lg border'>
-                  <Image
-                    src={att.url}
-                    alt={att.name}
-                    width={80}
-                    height={80}
-                    unoptimized
-                    className='size-full object-cover'
-                  />
+            <input
+              ref={fileInputRef}
+              type='file'
+              accept={ATTACHMENT_FILE_ACCEPT}
+              className='hidden'
+              onChange={(e) => handlePickDataFile(e.target.files?.[0] ?? null)}
+            />
+            {attachmentsBlocked ? (
+              <p className='text-muted-foreground bg-muted/40 mt-2 rounded-lg border border-dashed p-3 text-xs'>
+                앱 최신 버전(1.1 이상)에서 첨부 기능을 사용할 수 있습니다. 앱을 업데이트해 주세요.
+              </p>
+            ) : (
+              <>
+                <div className='mt-2 flex flex-wrap gap-2'>
+                  {attachments.map((att, idx) =>
+                    att.mime_type?.startsWith('image/') ? (
+                      <div
+                        key={`${att.url}-${idx}`}
+                        className='relative size-20 overflow-hidden rounded-lg border'
+                      >
+                        <Image
+                          src={att.url}
+                          alt={att.name}
+                          width={80}
+                          height={80}
+                          unoptimized
+                          className='size-full object-cover'
+                        />
+                        <button
+                          type='button'
+                          onClick={() => handleRemoveAttachment(idx)}
+                          className='absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white'
+                          aria-label='첨부 삭제'
+                        >
+                          <X className='size-3.5' />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        key={`${att.url}-${idx}`}
+                        className='bg-muted inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs'
+                      >
+                        <Paperclip className='size-3.5 flex-shrink-0' />
+                        <span className='max-w-[160px] truncate'>{att.name}</span>
+                        <button
+                          type='button'
+                          onClick={() => handleRemoveAttachment(idx)}
+                          className='hover:bg-foreground/10 ml-1 rounded-full p-0.5'
+                          aria-label='첨부 삭제'
+                        >
+                          <X className='size-3.5' />
+                        </button>
+                      </div>
+                    ),
+                  )}
+                </div>
+                <div className='mt-2 flex flex-wrap items-center gap-2'>
                   <button
                     type='button'
-                    onClick={() => handleRemoveAttachment(idx)}
-                    className='absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white'
-                    aria-label='첨부 삭제'
+                    onClick={openImagePicker}
+                    disabled={!canAddMore}
+                    className={cn(
+                      'text-muted-foreground inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-xs transition-colors',
+                      'hover:bg-muted/50 disabled:opacity-50',
+                    )}
                   >
-                    <X className='size-3.5' />
+                    <ImagePlus className='size-4' />
+                    <span>이미지</span>
                   </button>
-                </div>
-              ))}
-              {attachments.length < MAX_ATTACHMENTS && (
-                <button
-                  type='button'
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    'text-muted-foreground flex size-20 flex-col items-center justify-center rounded-lg border border-dashed text-xs transition-colors',
-                    'hover:bg-muted/50 disabled:opacity-50',
-                  )}
-                >
-                  <Camera className='size-5' />
-                  <span className='mt-0.5'>
+                  <button
+                    type='button'
+                    onClick={openFilePicker}
+                    disabled={!canAddMore}
+                    className={cn(
+                      'text-muted-foreground inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-xs transition-colors',
+                      'hover:bg-muted/50 disabled:opacity-50',
+                    )}
+                  >
+                    <Paperclip className='size-4' />
+                    <span>파일</span>
+                  </button>
+                  <span className='text-muted-foreground text-xs'>
                     {uploading ? '업로드 중…' : `(${attachments.length}/${MAX_ATTACHMENTS})`}
                   </span>
-                </button>
-              )}
-            </div>
+                </div>
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  이미지 10MB · 파일 20MB까지, 합쳐서 최대 {MAX_ATTACHMENTS}개.
+                </p>
+              </>
+            )}
             {uploadErr && <p className='text-destructive mt-1 text-xs'>{uploadErr}</p>}
           </div>
 

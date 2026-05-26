@@ -7,20 +7,25 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
+  Keyboard,
   Platform,
-  SafeAreaView,
-  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 import { WEB_BASE_URL, APP_USER_AGENT_SUFFIX } from "./constants";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useSecureTokenStore } from "./hooks/useSecureTokenStore";
-import { uploadChatFileFromNative, uploadChatImageFromNative } from "./lib/nativeChatUpload";
+import {
+  uploadChatFileFromNative,
+  uploadChatImageFromNative,
+  uploadMentoringFileFromNative,
+  uploadMentoringImageFromNative,
+} from "./lib/nativeChatUpload";
 import {
   buildInjectNativeMessageScript,
   parseWebMessage,
@@ -54,6 +59,46 @@ export default function WebViewScreen() {
   const lastUrlRef = useRef<string>(WEB_BASE_URL);
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
+
+  // 네이티브가 측정한 bottom inset을 WebView의 CSS 변수로 브릿지.
+  // Android System WebView는 env(safe-area-inset-*)을 0으로 반환하므로 bottom은 native 측정값이 필요.
+  // top은 SafeAreaView(edges=["top",...])가 WebView 자체를 상태바 아래로 밀어 단일 출처로 흡수하므로
+  // 여기서 주입하지 않는다. (주입 시 SafeAreaView padding + .pt-safe 가 더블 적용되어 헤더 위 빈 공간 발생)
+  const insets = useSafeAreaInsets();
+  const insetsRef = useRef(insets);
+  useEffect(() => {
+    insetsRef.current = insets;
+  }, [insets]);
+
+  // <html>의 inline style을 mutate하면 Next.js SSR과 하이드레이션 mismatch가 발생한다.
+  // (서버 HTML에는 style 속성이 없는데 네이티브 주입으로 클라이언트 DOM에는 생김)
+  // 대신 <head>에 전용 <style> 노드를 추가/갱신한다. 외부 추가 노드는 React hydration이 허용.
+  const injectSafeAreaVars = useCallback((bottom: number) => {
+    const script = `(()=>{try{var id='__app-native-safe-area';var el=document.getElementById(id);if(!el){el=document.createElement('style');el.id=id;(document.head||document.documentElement).appendChild(el);}el.textContent=':root{--app-native-safe-bottom:${bottom}px;}';}catch(e){}})();true;`;
+    webViewRef.current?.injectJavaScript(script);
+  }, []);
+
+  useEffect(() => {
+    injectSafeAreaVars(insets.bottom);
+  }, [insets.bottom, injectSafeAreaVars]);
+
+  // iOS 키보드는 fixed BottomNav를 가린다. 키보드 높이를 web에 publish 하여 BottomNav 숨김 처리.
+  // Android는 windowSoftInputMode=adjustResize 로 viewport 자체가 줄어 자동 해결되므로 iOS 한정.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const inject = (h: number) => {
+      const script = `(()=>{try{var r=document.documentElement;r.style.setProperty('--app-keyboard-height','${h}px');r.classList.toggle('keyboard-open',${h > 0});}catch(e){}})();true;`;
+      webViewRef.current?.injectJavaScript(script);
+    };
+    const showSub = Keyboard.addListener("keyboardWillShow", (e) =>
+      inject(e.endCoordinates?.height ?? 0),
+    );
+    const hideSub = Keyboard.addListener("keyboardWillHide", () => inject(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const { ready: secureReady, sessionRef, saveSession, saveEphemeral, clearSession } =
     useSecureTokenStore();
@@ -143,13 +188,17 @@ export default function WebViewScreen() {
   }, [secureReady, tryInjectStoredSession]);
 
   const postFileUploadedToWeb = useCallback(
-    (payload: { url: string; filename: string; mime_type: string }) => {
+    (
+      payload: { url: string; filename: string; mime_type: string },
+      context: "chat" | "mentoring",
+    ) => {
       const script = buildInjectNativeMessageScript({
         type: "FILE_UPLOADED",
         payload: {
           url: payload.url,
           filename: payload.filename,
           mime_type: payload.mime_type,
+          context,
         },
       });
       webViewRef.current?.injectJavaScript(script);
@@ -160,22 +209,35 @@ export default function WebViewScreen() {
   // 네이티브 업로드 실패를 웹에 전달해 사용자에게 토스트로 알린다.
   // 에러 메시지에 토큰/경로 등 민감 정보가 섞이지 않도록 nativeChatUpload 측에서
   // 사용자 노출 안전한 한글 문구로만 throw 하도록 보장되어야 한다.
-  const postFileUploadErrorToWeb = useCallback((message: string) => {
-    const safe =
-      typeof message === "string" && message.length > 0 && message.length < 200
-        ? message
-        : "파일 업로드에 실패했습니다.";
-    const script = buildInjectNativeMessageScript({
-      type: "FILE_UPLOAD_ERROR",
-      payload: { message: safe },
-    });
-    webViewRef.current?.injectJavaScript(script);
-  }, []);
+  const postFileUploadErrorToWeb = useCallback(
+    (message: string, context: "chat" | "mentoring") => {
+      const safe =
+        typeof message === "string" && message.length > 0 && message.length < 200
+          ? message
+          : "파일 업로드에 실패했습니다.";
+      const script = buildInjectNativeMessageScript({
+        type: "FILE_UPLOAD_ERROR",
+        payload: { message: safe, context },
+      });
+      webViewRef.current?.injectJavaScript(script);
+    },
+    [],
+  );
 
   const handlePickImage = useCallback(
-    async (payload: { source: "camera" | "gallery"; roomId: string }) => {
+    async (payload: {
+      source: "camera" | "gallery";
+      context: "chat" | "mentoring";
+      roomId?: string;
+    }) => {
       const session = sessionRef.current;
       if (!session?.access_token) return;
+
+      // chat 컨텍스트는 roomId 가 필수. 누락된 메시지는 신뢰하지 않고 무시.
+      if (payload.context === "chat" && !payload.roomId) {
+        console.warn("[WebViewScreen] PICK_IMAGE chat without roomId");
+        return;
+      }
 
       const perm =
         payload.source === "camera"
@@ -223,18 +285,27 @@ export default function WebViewScreen() {
 
       const asset = picked.assets[0];
       try {
-        const result = await uploadChatImageFromNative(
-          session,
-          payload.roomId,
-          asset.uri,
-          asset.mimeType ?? undefined,
-          asset.fileSize ?? undefined,
-        );
-        postFileUploadedToWeb(result);
+        const result =
+          payload.context === "mentoring"
+            ? await uploadMentoringImageFromNative(
+                session,
+                asset.uri,
+                asset.mimeType ?? undefined,
+                asset.fileSize ?? undefined,
+              )
+            : await uploadChatImageFromNative(
+                session,
+                payload.roomId!,
+                asset.uri,
+                asset.mimeType ?? undefined,
+                asset.fileSize ?? undefined,
+              );
+        postFileUploadedToWeb(result, payload.context);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
+          payload.context,
         );
       }
     },
@@ -242,9 +313,14 @@ export default function WebViewScreen() {
   );
 
   const handlePickFile = useCallback(
-    async (payload: { roomId: string }) => {
+    async (payload: { context: "chat" | "mentoring"; roomId?: string }) => {
       const session = sessionRef.current;
       if (!session?.access_token) return;
+
+      if (payload.context === "chat" && !payload.roomId) {
+        console.warn("[WebViewScreen] PICK_FILE chat without roomId");
+        return;
+      }
 
       const picked = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
@@ -255,19 +331,29 @@ export default function WebViewScreen() {
 
       const asset = picked.assets[0];
       try {
-        const result = await uploadChatFileFromNative(
-          session,
-          payload.roomId,
-          asset.uri,
-          asset.name ?? "file",
-          asset.mimeType ?? undefined,
-          asset.size ?? null,
-        );
-        postFileUploadedToWeb(result);
+        const result =
+          payload.context === "mentoring"
+            ? await uploadMentoringFileFromNative(
+                session,
+                asset.uri,
+                asset.name ?? "file",
+                asset.mimeType ?? undefined,
+                asset.size ?? null,
+              )
+            : await uploadChatFileFromNative(
+                session,
+                payload.roomId!,
+                asset.uri,
+                asset.name ?? "file",
+                asset.mimeType ?? undefined,
+                asset.size ?? null,
+              );
+        postFileUploadedToWeb(result, payload.context);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "파일 업로드에 실패했습니다.",
+          payload.context,
         );
       }
     },
@@ -334,9 +420,7 @@ export default function WebViewScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle='dark-content' />
-
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       {loadError ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorTitle}>페이지를 불러올 수 없습니다</Text>
@@ -390,6 +474,8 @@ export default function WebViewScreen() {
             hideSplashOnce();
             sendPushTokenToWeb();
             tryInjectStoredSession(lastUrlRef.current);
+            // 페이지 전환 시 CSS 변수가 초기화되므로 재주입.
+            injectSafeAreaVars(insetsRef.current.bottom);
           }}
           onError={(e) => {
             clearLoadingTimer();

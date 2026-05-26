@@ -636,11 +636,52 @@ async function getProductMenuDateRange(
   return { minStart: min, maxEnd: max };
 }
 
+/**
+ * 같은 지점·같은 끼니에 다른 활성 상품이 해당 날짜에 이미 메뉴를 등록했는지 검사.
+ * meal_type 이 null 인 상품은 충돌 검사 대상에서 제외 (정상 운영 데이터엔 없음).
+ */
+async function findMenuConflictsOnDate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  branchId: string,
+  mealType: 'lunch' | 'dinner' | null,
+  dateYmd: string,
+  excludeProductId: string,
+): Promise<Array<{ product_id: string; product_name: string }>> {
+  if (mealType === null) return [];
+
+  const { data, error } = await supabase
+    .from('meal_menus')
+    .select('product_id, meal_products!inner(id, name, branch_id, meal_type, status)')
+    .eq('date', dateYmd)
+    .neq('product_id', excludeProductId)
+    .eq('meal_products.branch_id', branchId)
+    .eq('meal_products.meal_type', mealType)
+    .eq('meal_products.status', 'active');
+
+  if (error) {
+    logPostgrestQueryError('[findMenuConflictsOnDate]', error);
+    return [];
+  }
+
+  return (data ?? []).map((row) => {
+    // PostgREST 가 단일 FK join 도 배열 타입으로 추론하는 경우가 있어 unknown 경유 캐스팅.
+    const parent = (row as unknown as { meal_products: { id: string; name: string } })
+      .meal_products;
+    return { product_id: parent.id, product_name: parent.name };
+  });
+}
+
 export async function upsertMealMenu(
   productId: string,
   dateYmd: string,
   menuText: string,
-): Promise<{ success?: true; menu?: MealMenu; error?: string }> {
+  options?: { force?: boolean },
+): Promise<{
+  success?: true;
+  menu?: MealMenu;
+  warning?: { conflicts: Array<{ product_id: string; product_name: string }> };
+  error?: string;
+}> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
@@ -657,6 +698,19 @@ export async function upsertMealMenu(
   }
   if (dateYmd < range.minStart || dateYmd > range.maxEnd) {
     return { error: '식사 기간 내 날짜만 입력할 수 있습니다.' };
+  }
+
+  if (!options?.force) {
+    const conflicts = await findMenuConflictsOnDate(
+      supabase,
+      product.branch_id,
+      product.meal_type,
+      dateYmd,
+      productId,
+    );
+    if (conflicts.length > 0) {
+      return { warning: { conflicts } };
+    }
   }
 
   const { data: saved, error } = await supabase

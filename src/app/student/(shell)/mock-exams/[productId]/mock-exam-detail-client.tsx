@@ -313,7 +313,7 @@ function ConflictDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center'>
+    <div className='pb-safe-nav fixed inset-0 z-[55] flex items-end justify-center bg-black/40 p-4 sm:items-center sm:pb-4'>
       <Card className='w-full max-w-md space-y-3 p-5'>
         <h2 className='text-base font-semibold'>이미 신청한 시험 일자와 겹칩니다</h2>
         <div className='bg-muted/50 rounded-md p-3'>

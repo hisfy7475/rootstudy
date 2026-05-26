@@ -28,7 +28,9 @@ export const WEB_HOST = 'rootstudy.co.kr';
 
 export const URL_SCHEME = 'rootstudy';
 
-export const APP_USER_AGENT_SUFFIX = 'RootStudyApp/1.0';
+// 버전 표기는 신기능(멘토링 첨부 등)을 구버전 앱에서 가드하기 위한 식별자.
+// app.json `version` 과 함께 올리고, 신기능 추가 시 minor 를 bump 한다.
+export const APP_USER_AGENT_SUFFIX = 'RootStudyApp/1.1';
 
 /** Next 웹과 동일한 공개 env. `studycafe-app/.env`에 설정 (EXPO_PUBLIC_*) */
 export const SUPABASE_URL: string = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';

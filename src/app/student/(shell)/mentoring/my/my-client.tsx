@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { Paperclip } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cancelMentoringApplication } from '@/lib/actions/mentoring';
@@ -164,24 +165,37 @@ export function MentoringMyClient({
                       ) : null}
                       {Array.isArray(a.attachments) && a.attachments.length > 0 && (
                         <div className='mt-2 flex flex-wrap gap-2'>
-                          {a.attachments.map((att, i) => (
-                            <a
-                              key={`${a.id}-att-${i}`}
-                              href={att.url}
-                              target='_blank'
-                              rel='noopener noreferrer'
-                              className='bg-muted block size-16 overflow-hidden rounded-lg border'
-                            >
-                              <Image
-                                src={att.url}
-                                alt={att.name}
-                                width={64}
-                                height={64}
-                                unoptimized
-                                className='size-full object-cover'
-                              />
-                            </a>
-                          ))}
+                          {a.attachments.map((att, i) =>
+                            att.mime_type?.startsWith('image/') ? (
+                              <a
+                                key={`${a.id}-att-${i}`}
+                                href={att.url}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                className='bg-muted block size-16 overflow-hidden rounded-lg border'
+                              >
+                                <Image
+                                  src={att.url}
+                                  alt={att.name}
+                                  width={64}
+                                  height={64}
+                                  unoptimized
+                                  className='size-full object-cover'
+                                />
+                              </a>
+                            ) : (
+                              <a
+                                key={`${a.id}-att-${i}`}
+                                href={att.url}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                className='bg-muted hover:bg-muted/70 inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs'
+                              >
+                                <Paperclip className='size-3.5 flex-shrink-0' />
+                                <span className='max-w-[160px] truncate'>{att.name}</span>
+                              </a>
+                            ),
+                          )}
                         </div>
                       )}
                       {a.reject_reason && (
@@ -217,7 +231,7 @@ export function MentoringMyClient({
       )}
 
       {cancelId && (
-        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center'>
+        <div className='pb-safe-nav fixed inset-0 z-[55] flex items-end justify-center bg-black/40 p-4 sm:items-center sm:pb-4'>
           <Card className='w-full max-w-md space-y-3 p-4'>
             <h3 className='font-semibold'>신청 취소</h3>
             <p className='text-muted-foreground text-sm'>취소 사유를 입력해 주세요.</p>

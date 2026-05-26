@@ -1,6 +1,16 @@
 'use client';
 
-import { Clock, Calendar, Repeat, CalendarDays, Trash2, ToggleLeft, ToggleRight, X, Edit } from 'lucide-react';
+import {
+  Clock,
+  Calendar,
+  Repeat,
+  CalendarDays,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  X,
+  Edit,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { DAY_NAMES } from '@/lib/constants';
@@ -29,7 +39,7 @@ export default function ScheduleBlock({
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '-';
-    return days.map(d => DAY_NAMES[d]).join(', ');
+    return days.map((d) => DAY_NAMES[d]).join(', ');
   };
 
   const isActive = variant === 'active';
@@ -74,96 +84,100 @@ export default function ScheduleBlock({
 
   return (
     <Card className={`p-4 ${getCardStyle()}`}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${getIconBgStyle()}`}>
+      <div className='flex items-start justify-between'>
+        <div className='flex items-start gap-3'>
+          <div
+            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${getIconBgStyle()}`}
+          >
             {schedule.is_recurring ? (
-              <Repeat className={`w-5 h-5 ${getIconColor()}`} />
+              <Repeat className={`h-5 w-5 ${getIconColor()}`} />
             ) : (
-              <CalendarDays className={`w-5 h-5 ${getIconColor()}`} />
+              <CalendarDays className={`h-5 w-5 ${getIconColor()}`} />
             )}
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className={`font-medium ${getTextColor()}`}>
-                {schedule.title}
-              </h3>
+            <div className='flex items-center gap-2'>
+              <h3 className={`font-medium ${getTextColor()}`}>{schedule.title}</h3>
               {isPending && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-amber-200 text-amber-800 rounded-full">
+                <span className='rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-800'>
                   승인 대기
                 </span>
               )}
               {isRejected && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-red-200 text-red-800 rounded-full">
+                <span className='rounded-full bg-red-200 px-2 py-0.5 text-xs font-medium text-red-800'>
                   거부됨
                 </span>
               )}
             </div>
-            <div className={`flex items-center gap-2 text-sm mt-1 ${getSubTextColor()}`}>
-              <Clock className="w-3.5 h-3.5" />
+            <div className={`mt-1 flex items-center gap-2 text-sm ${getSubTextColor()}`}>
+              <Clock className='h-3.5 w-3.5' />
               <span>{formatTimeRange(schedule.start_time, schedule.end_time)}</span>
             </div>
             {schedule.is_recurring ? (
-              <div className={`flex items-center gap-2 text-sm mt-1 ${getSubTextColor()}`}>
-                <Calendar className="w-3.5 h-3.5" />
+              <div className={`mt-1 flex items-center gap-2 text-sm ${getSubTextColor()}`}>
+                <Calendar className='h-3.5 w-3.5' />
                 <span>{formatDaysOfWeek(schedule.day_of_week)}</span>
               </div>
             ) : (
-              <div className={`flex items-center gap-2 text-sm mt-1 ${getSubTextColor()}`}>
-                <Calendar className="w-3.5 h-3.5" />
+              <div className={`mt-1 flex items-center gap-2 text-sm ${getSubTextColor()}`}>
+                <Calendar className='h-3.5 w-3.5' />
                 <span>
-                  {schedule.specific_date 
+                  {schedule.specific_date
                     ? format(new Date(schedule.specific_date), 'M월 d일 (eee)', { locale: ko })
-                    : '-'
-                  }
+                    : '-'}
                 </span>
               </div>
             )}
             {schedule.status === 'approved' && (
-              <p className={`text-xs mt-1 ${getSubTextColor()}`}>
+              <p className={`mt-1 text-xs ${getSubTextColor()}`}>
                 승인: {approvedByCaption(schedule.status, schedule.approver_display)}
               </p>
             )}
             {schedule.description && (
-              <p className={`text-xs mt-1.5 ${isRejected ? 'text-red-500' : isPending ? 'text-amber-500' : isActive ? 'text-gray-400' : 'text-gray-300'}`}>
+              <p
+                className={`mt-1.5 text-xs ${isRejected ? 'text-red-500' : isPending ? 'text-amber-500' : isActive ? 'text-gray-400' : 'text-gray-300'}`}
+              >
                 {schedule.description}
               </p>
             )}
           </div>
         </div>
-        <div className="flex gap-1">
+        <div className='flex gap-1'>
           {onEdit && !isPending && !isRejected && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onEdit(schedule)}
-              title="수정"
-            >
-              <Edit className={`w-4 h-4 ${isActive ? 'text-gray-500' : 'text-gray-400'}`} />
+            <Button variant='ghost' size='sm' onClick={() => onEdit(schedule)} title='수정'>
+              <Edit className={`h-4 w-4 ${isActive ? 'text-gray-500' : 'text-gray-400'}`} />
             </Button>
           )}
           {!isPending && !isRejected && (
             <Button
-              variant="ghost"
-              size="sm"
+              variant='ghost'
+              size='sm'
               onClick={() => onToggle(schedule.id)}
               title={isActive ? '비활성화' : '활성화'}
             >
               {isActive ? (
-                <ToggleRight className="w-5 h-5 text-green-500" />
+                <ToggleRight className='h-5 w-5 text-green-500' />
               ) : (
-                <ToggleLeft className="w-5 h-5 text-gray-400" />
+                <ToggleLeft className='h-5 w-5 text-gray-400' />
               )}
             </Button>
           )}
           <Button
-            variant="ghost"
-            size="sm"
+            variant='ghost'
+            size='sm'
             onClick={() => onDelete(schedule.id)}
-            className={isRejected ? 'text-red-600' : isPending ? 'text-amber-600' : isActive ? 'text-red-500' : 'text-red-400'}
-            title="삭제"
+            className={
+              isRejected
+                ? 'text-red-600'
+                : isPending
+                  ? 'text-amber-600'
+                  : isActive
+                    ? 'text-red-500'
+                    : 'text-red-400'
+            }
+            title='삭제'
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className='h-4 w-4' />
           </Button>
         </div>
       </div>
@@ -193,46 +207,47 @@ export function ScheduleDetailModal({
 
   const formatDaysOfWeek = (days: number[] | null) => {
     if (!days || days.length === 0) return '-';
-    return days.map(d => DAY_NAMES[d]).join(', ');
+    return days.map((d) => DAY_NAMES[d]).join(', ');
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-sm p-5 bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg text-gray-800">{schedule.title}</h3>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="w-5 h-5" />
+    <div className='fixed inset-0 z-[55] flex items-center justify-center bg-black/50 p-4'>
+      <Card className='w-full max-w-sm bg-white p-5'>
+        <div className='mb-4 flex items-center justify-between'>
+          <h3 className='text-lg font-bold text-gray-800'>{schedule.title}</h3>
+          <Button variant='ghost' size='sm' onClick={onClose}>
+            <X className='h-5 w-5' />
           </Button>
         </div>
 
-        <div className="space-y-3">
+        <div className='space-y-3'>
           {/* 시간 정보 */}
-          <div className="flex items-center gap-3 text-gray-600">
-            <Clock className="w-5 h-5 text-gray-400" />
-            <p className="font-medium">{formatTimeRange(schedule.start_time, schedule.end_time)}</p>
+          <div className='flex items-center gap-3 text-gray-600'>
+            <Clock className='h-5 w-5 text-gray-400' />
+            <p className='font-medium'>{formatTimeRange(schedule.start_time, schedule.end_time)}</p>
           </div>
 
           {/* 요일/날짜 정보 */}
-          <div className="flex items-center gap-3 text-gray-600">
+          <div className='flex items-center gap-3 text-gray-600'>
             {schedule.is_recurring ? (
               <>
-                <Repeat className="w-5 h-5 text-gray-400" />
+                <Repeat className='h-5 w-5 text-gray-400' />
                 <div>
-                  <p className="font-medium">매주 반복</p>
-                  <p className="text-sm text-gray-500">{formatDaysOfWeek(schedule.day_of_week)}</p>
+                  <p className='font-medium'>매주 반복</p>
+                  <p className='text-sm text-gray-500'>{formatDaysOfWeek(schedule.day_of_week)}</p>
                 </div>
               </>
             ) : (
               <>
-                <CalendarDays className="w-5 h-5 text-gray-400" />
+                <CalendarDays className='h-5 w-5 text-gray-400' />
                 <div>
-                  <p className="font-medium">일회성</p>
-                  <p className="text-sm text-gray-500">
-                    {schedule.specific_date 
-                      ? format(new Date(schedule.specific_date), 'yyyy년 M월 d일 (eee)', { locale: ko })
-                      : '-'
-                    }
+                  <p className='font-medium'>일회성</p>
+                  <p className='text-sm text-gray-500'>
+                    {schedule.specific_date
+                      ? format(new Date(schedule.specific_date), 'yyyy년 M월 d일 (eee)', {
+                          locale: ko,
+                        })
+                      : '-'}
                   </p>
                 </div>
               </>
@@ -241,46 +256,48 @@ export function ScheduleDetailModal({
 
           {/* 설명 */}
           {schedule.description && (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">{schedule.description}</p>
+            <div className='rounded-lg bg-gray-50 p-3'>
+              <p className='text-sm text-gray-600'>{schedule.description}</p>
             </div>
           )}
 
           {schedule.status === 'approved' && (
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-xs text-slate-500 font-medium mb-0.5">승인</p>
-              <p className="text-sm text-slate-700">
+            <div className='rounded-lg border border-slate-100 bg-slate-50 p-3'>
+              <p className='mb-0.5 text-xs font-medium text-slate-500'>승인</p>
+              <p className='text-sm text-slate-700'>
                 {approvedByCaption(schedule.status, schedule.approver_display)}
               </p>
             </div>
           )}
 
           {/* 상태 */}
-          <div className={`p-3 rounded-lg ${schedule.is_active ? 'bg-green-50' : 'bg-gray-100'}`}>
-            <p className={`text-sm font-medium ${schedule.is_active ? 'text-green-700' : 'text-gray-500'}`}>
+          <div className={`rounded-lg p-3 ${schedule.is_active ? 'bg-green-50' : 'bg-gray-100'}`}>
+            <p
+              className={`text-sm font-medium ${schedule.is_active ? 'text-green-700' : 'text-gray-500'}`}
+            >
               {schedule.is_active ? '활성화됨' : '비활성화됨'}
             </p>
           </div>
         </div>
 
         {/* 액션 버튼 */}
-        <div className="flex gap-2 mt-5">
+        <div className='mt-5 flex gap-2'>
           {onEdit && (
             <Button
-              variant="outline"
-              className="flex-1"
+              variant='outline'
+              className='flex-1'
               onClick={() => {
                 onEdit(schedule);
                 onClose();
               }}
             >
-              <Edit className="w-4 h-4 mr-2" />
+              <Edit className='mr-2 h-4 w-4' />
               수정
             </Button>
           )}
           <Button
-            variant="outline"
-            className="flex-1"
+            variant='outline'
+            className='flex-1'
             onClick={() => {
               onToggle(schedule.id);
               onClose();
@@ -288,19 +305,19 @@ export function ScheduleDetailModal({
           >
             {schedule.is_active ? (
               <>
-                <ToggleLeft className="w-4 h-4 mr-2" />
+                <ToggleLeft className='mr-2 h-4 w-4' />
                 비활성화
               </>
             ) : (
               <>
-                <ToggleRight className="w-4 h-4 mr-2" />
+                <ToggleRight className='mr-2 h-4 w-4' />
                 활성화
               </>
             )}
           </Button>
           <Button
-            variant="outline"
-            className="text-red-500 border-red-200 hover:bg-red-50"
+            variant='outline'
+            className='border-red-200 text-red-500 hover:bg-red-50'
             onClick={() => {
               if (confirm('이 일정을 삭제하시겠습니까?')) {
                 onDelete(schedule.id);
@@ -308,7 +325,7 @@ export function ScheduleDetailModal({
               }
             }}
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className='h-4 w-4' />
           </Button>
         </div>
       </Card>

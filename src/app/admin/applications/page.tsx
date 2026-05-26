@@ -38,7 +38,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
   }
 
   const params = parseListParams(raw, {
-    defaultSort: 'service_start_date',
+    defaultSort: 'applied_at',
     defaultDir: 'desc',
     defaultPageSize: 20,
     sortAllowlist: SORT_KEYS,
@@ -102,6 +102,8 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
         }}
         branches={branches.map((b) => ({ id: b.id, name: b.name }))}
         isSuperAdmin={ctx.isSuperAdmin}
+        sort={params.sort}
+        dir={params.dir}
       />
     </div>
   );

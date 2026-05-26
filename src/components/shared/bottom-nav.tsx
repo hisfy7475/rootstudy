@@ -135,7 +135,7 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
   return (
     <nav
       ref={navRef}
-      className='bg-card pb-safe fixed right-0 bottom-0 left-0 z-50 border-t border-gray-100 shadow-lg'
+      className='app-bottom-nav bg-card pb-safe fixed right-0 bottom-0 left-0 z-50 border-t border-gray-100 shadow-lg'
     >
       <div className='mx-auto max-w-lg px-2'>
         <ul className='flex items-center justify-around'>
