@@ -2451,6 +2451,24 @@ export async function updateStudentCapsId(studentId: string, capsId: string | nu
     .eq('id', studentId);
 
   if (error) {
+    // UNIQUE 위반 — 누가 점유 중인지 안내. 탈퇴자/타 지점도 잡으려고 admin client 사용.
+    if (error.code === '23505' && normalizedCapsId) {
+      const adminClient = createAdminClient();
+      const { data: holder } = await adminClient
+        .from('student_profiles')
+        .select('id, profiles!inner(name, withdrawn_at)')
+        .eq('caps_id', normalizedCapsId)
+        .maybeSingle();
+
+      if (holder) {
+        const profile = (
+          holder as unknown as { profiles: { name: string; withdrawn_at: string | null } }
+        ).profiles;
+        const label = profile.withdrawn_at ? `탈퇴된 학생(${profile.name})` : profile.name;
+        throw new Error(`CAPS ID ${normalizedCapsId}은(는) 이미 ${label}이(가) 사용 중입니다.`);
+      }
+      throw new Error(`CAPS ID ${normalizedCapsId}은(는) 이미 사용 중입니다.`);
+    }
     console.error('Error updating CAPS ID:', error);
     throw new Error(error.message);
   }
