@@ -1397,3 +1397,78 @@ export async function resetCounselingTemplatesToDefaults(
   revalidatePath('/admin/report');
   return { success: true };
 }
+
+// ---------------------------------------------------------------------------
+// 모의고사 옵션별 집계 (관리자 보고서/주문 현황)
+// ---------------------------------------------------------------------------
+
+export type MockExamOptionSummaryRow = {
+  /** 그룹/옵션 조합 키 (정렬·표시용). 그룹명 + 옵션명을 ' · ' 로 결합 (선택 안 한 그룹은 제외). */
+  combo_label: string;
+  /** 결제 완료(paid) 주문 수 */
+  paid_count: number;
+  /** 결제 대기(pending) 주문 수 */
+  pending_count: number;
+};
+
+/**
+ * 한 모의고사 상품의 옵션 조합별 신청 통계를 반환한다.
+ * meal_orders.option_selections JSONB 스냅샷을 풀어서 그룹/옵션 조합별 카운트 집계.
+ * 스냅샷 기반이므로 옵션이 inactive 로 바뀌어도 이전 데이터는 유지된다.
+ *
+ * - 옵션 없는 상품(option_selections=null) 은 combo_label='-' 한 줄로 묶임.
+ * - cancelled/refunded/failed 는 제외.
+ */
+export async function getMockExamOptionSummary(
+  productId: string,
+): Promise<MockExamOptionSummaryRow[]> {
+  const supabase = await createClient();
+
+  const { data: variants, error: vErr } = await supabase
+    .from('meal_product_variants')
+    .select('id')
+    .eq('product_id', productId);
+  if (vErr || !variants || variants.length === 0) return [];
+
+  const variantIds = variants.map((v) => v.id as string);
+
+  const { data: orders, error: oErr } = await supabase
+    .from('meal_orders')
+    .select('status, option_selections')
+    .in('variant_id', variantIds)
+    .in('status', ['paid', 'pending']);
+
+  if (oErr) {
+    console.error('[getMockExamOptionSummary]', oErr);
+    return [];
+  }
+
+  const counts = new Map<string, { paid: number; pending: number }>();
+
+  for (const row of orders ?? []) {
+    const sel = (row as { option_selections: unknown }).option_selections;
+    let label = '-';
+    if (Array.isArray(sel) && sel.length > 0) {
+      label = (sel as Array<{ group_name?: string; option_name?: string }>)
+        .map((s) => `${s.group_name ?? ''}: ${s.option_name ?? ''}`)
+        .join(' · ');
+    }
+    const status = (row as { status: 'paid' | 'pending' }).status;
+    const bucket = counts.get(label) ?? { paid: 0, pending: 0 };
+    if (status === 'paid') bucket.paid += 1;
+    else if (status === 'pending') bucket.pending += 1;
+    counts.set(label, bucket);
+  }
+
+  return Array.from(counts.entries())
+    .map(([combo_label, { paid, pending }]) => ({
+      combo_label,
+      paid_count: paid,
+      pending_count: pending,
+    }))
+    .sort((a, b) => {
+      if (a.combo_label === '-' && b.combo_label !== '-') return 1;
+      if (a.combo_label !== '-' && b.combo_label === '-') return -1;
+      return a.combo_label.localeCompare(b.combo_label, 'ko');
+    });
+}

@@ -1372,6 +1372,67 @@ export interface Database {
           updated_at?: string;
         };
       };
+      mock_exam_option_groups: {
+        Row: {
+          id: string;
+          product_id: string;
+          name: string;
+          sort_order: number;
+          is_required: boolean;
+          status: 'active' | 'inactive';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          name: string;
+          sort_order?: number;
+          is_required?: boolean;
+          status?: 'active' | 'inactive';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          name?: string;
+          sort_order?: number;
+          is_required?: boolean;
+          status?: 'active' | 'inactive';
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      mock_exam_options: {
+        Row: {
+          id: string;
+          group_id: string;
+          name: string;
+          sort_order: number;
+          status: 'active' | 'inactive';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          group_id: string;
+          name: string;
+          sort_order?: number;
+          status?: 'active' | 'inactive';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          group_id?: string;
+          name?: string;
+          sort_order?: number;
+          status?: 'active' | 'inactive';
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       meal_menus: {
         Row: {
           id: string;
@@ -1412,6 +1473,7 @@ export interface Database {
           cancelled_at: string | null;
           cancel_reason: string | null;
           seat_number_snapshot: number | null;
+          option_selections: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -1428,6 +1490,7 @@ export interface Database {
           cancelled_at?: string | null;
           cancel_reason?: string | null;
           seat_number_snapshot?: number | null;
+          option_selections?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1444,6 +1507,7 @@ export interface Database {
           cancelled_at?: string | null;
           cancel_reason?: string | null;
           seat_number_snapshot?: number | null;
+          option_selections?: Json | null;
           created_at?: string;
           updated_at?: string;
         };

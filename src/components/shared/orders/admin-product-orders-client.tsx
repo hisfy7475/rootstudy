@@ -14,6 +14,7 @@ import {
 import { Download, Loader2 } from 'lucide-react';
 import { cn, getTodayKST } from '@/lib/utils';
 import { formatSeatSnapshot } from '@/lib/seat-display';
+import { formatOptionSelectionsSummary, parseOptionSelections } from '@/lib/mock-exam-options';
 
 type StatusTab = MealOrderAdminFilter['status'];
 
@@ -112,7 +113,10 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
         좌석: formatSeatSnapshot(o.seat_number_snapshot, o.student_seat_number_current),
         학생명: o.student_name ?? '',
         결제자명: o.payer_name ?? '',
-        옵션: variantLabel(o.variant?.kind),
+        옵션: isExam
+          ? formatOptionSelectionsSummary(parseOptionSelections(o.option_selections)) ||
+            variantLabel(o.variant?.kind)
+          : variantLabel(o.variant?.kind),
         상태: statusLabel[o.status] ?? o.status,
         금액: o.amount,
         주문번호: o.order_id,
@@ -271,7 +275,11 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
                       )}
                     </td>
                     <td className='p-3 text-xs whitespace-nowrap'>
-                      {variantLabel(o.variant?.kind)}
+                      {isExam
+                        ? formatOptionSelectionsSummary(
+                            parseOptionSelections(o.option_selections),
+                          ) || '-'
+                        : variantLabel(o.variant?.kind)}
                     </td>
                     <td className='p-3 text-xs whitespace-nowrap'>
                       {o.variant

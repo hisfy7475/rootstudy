@@ -11,6 +11,7 @@ import {
   cancelPendingMealOrder,
   getOrderResumeConflicts,
   type MealProductWithVariants,
+  type MockExamOptionGroupWithOptions,
   type OrderConflictItem,
 } from '@/lib/actions/meal';
 import { getRefundPolicy } from '@/lib/refund-policy';
@@ -26,6 +27,7 @@ export function MockExamDetailClient({
   payBasePath,
   studentId,
   backHref,
+  optionGroups,
 }: {
   product: MealProductWithVariants;
   capacityLeftByVariant: Record<string, number | null>;
@@ -34,6 +36,7 @@ export function MockExamDetailClient({
   payBasePath: string;
   studentId: string | null;
   backHref: string;
+  optionGroups: MockExamOptionGroupWithOptions[];
 }) {
   const router = useRouter();
   const variant = useMemo(
@@ -47,6 +50,15 @@ export function MockExamDetailClient({
   const [pending, setPending] = useState<MealOrder | null>(
     variant ? (pendingOrderByVariant[variant.id] ?? null) : null,
   );
+  // groupId -> optionId
+  const [optionSelections, setOptionSelections] = useState<Record<string, string>>({});
+
+  const requiredGroupsAllSelected = useMemo(() => {
+    for (const g of optionGroups) {
+      if (g.is_required && !optionSelections[g.id]) return false;
+    }
+    return true;
+  }, [optionGroups, optionSelections]);
   const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
   const [conflictMode, setConflictMode] = useState<'new' | 'resume'>('new');
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -126,9 +138,19 @@ export function MockExamDetailClient({
 
   const submitOrder = async (force: boolean) => {
     setError(null);
+    if (!requiredGroupsAllSelected) {
+      setError('필수 옵션을 모두 선택해 주세요.');
+      return;
+    }
     setLoading(true);
     try {
-      const res = await createMealOrder(variant.id, studentId, force ? { force: true } : undefined);
+      const selections = optionGroups
+        .filter((g) => optionSelections[g.id])
+        .map((g) => ({ group_id: g.id, option_id: optionSelections[g.id]! }));
+      const res = await createMealOrder(variant.id, studentId, {
+        force: force || undefined,
+        optionSelections: selections.length > 0 ? selections : undefined,
+      });
       if (res.conflict && res.conflict.length > 0 && !force) {
         setConflictMode('new');
         setConflict(res.conflict);
@@ -191,6 +213,43 @@ export function MockExamDetailClient({
           <p className='text-muted-foreground mt-1 text-xs'>잔여 정원: {capacityLeft}명</p>
         ) : null}
       </div>
+
+      {!paid && optionGroups.length > 0 ? (
+        <div>
+          <h2 className='border-b py-2.5 text-sm font-semibold'>응시 옵션 선택</h2>
+          <div className='mt-3 space-y-4'>
+            {optionGroups.map((g) => (
+              <div key={g.id}>
+                <p className='mb-2 text-sm font-medium'>
+                  {g.name}
+                  {g.is_required ? <span className='text-red-600'> *</span> : null}
+                </p>
+                <div className='flex flex-wrap gap-2'>
+                  {g.options.map((opt) => {
+                    const selected = optionSelections[g.id] === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type='button'
+                        onClick={() => setOptionSelections((prev) => ({ ...prev, [g.id]: opt.id }))}
+                        className={cn(
+                          'rounded-full border px-3 py-1.5 text-sm transition-colors',
+                          selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-input bg-background hover:bg-muted',
+                        )}
+                        aria-pressed={selected}
+                      >
+                        {opt.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <h2 className='border-b py-2.5 text-sm font-semibold'>상세 정보</h2>
@@ -264,7 +323,11 @@ export function MockExamDetailClient({
           className='w-full'
           size='lg'
           disabled={
-            loading || soldOut || product.status !== 'active' || variant.status !== 'active'
+            loading ||
+            soldOut ||
+            product.status !== 'active' ||
+            variant.status !== 'active' ||
+            !requiredGroupsAllSelected
           }
           onClick={handlePay}
         >
@@ -275,6 +338,8 @@ export function MockExamDetailClient({
             </>
           ) : soldOut ? (
             '정원 마감'
+          ) : !requiredGroupsAllSelected ? (
+            '옵션을 선택해 주세요'
           ) : (
             '결제하기'
           )}

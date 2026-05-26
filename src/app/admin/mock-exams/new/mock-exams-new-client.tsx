@@ -13,8 +13,19 @@ import {
   type MealProductCreateInput,
 } from '@/lib/actions/meal';
 import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
+import {
+  MockExamOptionEditor,
+  optionEditorValueToInput,
+  type OptionEditorValue,
+} from '@/components/admin/mock-exam-option-editor';
 
-export function AdminMockExamsNewClient() {
+export function AdminMockExamsNewClient({
+  isSuperAdmin,
+  branches,
+}: {
+  isSuperAdmin: boolean;
+  branches: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +42,9 @@ export function AdminMockExamsNewClient() {
     max_capacity: '',
     description: '',
     productStatus: 'active' as 'active' | 'inactive',
+    branchId: '',
   });
+  const [optionGroups, setOptionGroups] = useState<OptionEditorValue[]>([]);
 
   const handleImageSelect = (file: File) => {
     setImageFile(file);
@@ -66,6 +79,21 @@ export function AdminMockExamsNewClient() {
       return setError('정원은 양의 정수이거나 비워 두세요(무제한).');
     }
 
+    if (isSuperAdmin && !form.branchId) {
+      return setError('등록할 지점을 선택해 주세요.');
+    }
+
+    // 옵션 그룹 입력 검증: 그룹명/옵션명이 비어 있으면 알림
+    const cleanedGroups = optionEditorValueToInput(optionGroups);
+    for (const g of optionGroups) {
+      if (g.name.trim() && g.options.every((o) => !o.name.trim())) {
+        return setError(`"${g.name.trim()}" 그룹에 옵션을 1개 이상 입력하세요.`);
+      }
+      if (!g.name.trim() && g.options.some((o) => o.name.trim())) {
+        return setError('옵션 그룹명을 입력하세요.');
+      }
+    }
+
     setLoading(true);
     const payload: MealProductCreateInput = {
       name: form.name,
@@ -81,6 +109,8 @@ export function AdminMockExamsNewClient() {
         max_capacity,
         status: 'active',
       },
+      optionGroups: cleanedGroups,
+      branchId: isSuperAdmin ? form.branchId : undefined,
     };
 
     const res = await createMealProduct(payload, 'exam');
@@ -130,6 +160,25 @@ export function AdminMockExamsNewClient() {
           {error && (
             <div className='bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm'>
               {error}
+            </div>
+          )}
+
+          {isSuperAdmin && (
+            <div>
+              <label className='mb-1 block text-sm font-medium'>등록할 지점</label>
+              <select
+                className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
+                value={form.branchId}
+                onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
+                required
+              >
+                <option value=''>지점 선택…</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -206,6 +255,8 @@ export function AdminMockExamsNewClient() {
               onChange={(e) => setForm((f) => ({ ...f, max_capacity: e.target.value }))}
             />
           </div>
+
+          <MockExamOptionEditor value={optionGroups} onChange={setOptionGroups} />
 
           <div>
             <label className='mb-1 block text-sm font-medium'>상태</label>

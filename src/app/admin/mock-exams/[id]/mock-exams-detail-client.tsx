@@ -12,15 +12,26 @@ import {
   uploadMealProductImage,
   deleteMealProductImage,
   type MealProductWithVariants,
+  type MockExamOptionGroupWithOptions,
 } from '@/lib/actions/meal';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import { ListOrdered, Loader2 } from 'lucide-react';
+import {
+  MockExamOptionEditor,
+  optionEditorValueFromServer,
+  optionEditorValueToInput,
+  type OptionEditorValue,
+} from '@/components/admin/mock-exam-option-editor';
 
 interface AdminMockExamsDetailClientProps {
   product: MealProductWithVariants;
+  optionGroups: MockExamOptionGroupWithOptions[];
 }
 
-export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsDetailClientProps) {
+export function AdminMockExamsDetailClient({
+  product: initial,
+  optionGroups: initialGroups,
+}: AdminMockExamsDetailClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [product, setProduct] = useState<MealProduct>(initial);
@@ -40,6 +51,9 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
     description: initial.description ?? '',
     status: initial.status,
   });
+  const [optionGroups, setOptionGroups] = useState<OptionEditorValue[]>(() =>
+    optionEditorValueFromServer(initialGroups),
+  );
 
   // 등록 직후 이미지 업로드 실패 안내 (?image_error=...). 한 번 보여주고 쿼리 정리.
   useEffect(() => {
@@ -69,6 +83,15 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
       return setError('정원은 양의 정수이거나 비워 두세요.');
     }
 
+    for (const g of optionGroups) {
+      if (g.name.trim() && g.options.every((o) => !o.name.trim())) {
+        return setError(`"${g.name.trim()}" 그룹에 옵션을 1개 이상 입력하세요.`);
+      }
+      if (!g.name.trim() && g.options.some((o) => o.name.trim())) {
+        return setError('옵션 그룹명을 입력하세요.');
+      }
+    }
+
     setLoading(true);
     const res = await updateMealProductAndVariant(product.id, variant.id, {
       product: {
@@ -86,6 +109,7 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
         max_capacity,
         status: variant.status,
       },
+      optionGroups: optionEditorValueToInput(optionGroups),
     });
     setLoading(false);
     if (res.error) {
@@ -218,6 +242,8 @@ export function AdminMockExamsDetailClient({ product: initial }: AdminMockExamsD
               onChange={(e) => setForm((f) => ({ ...f, max_capacity: e.target.value }))}
             />
           </div>
+
+          <MockExamOptionEditor value={optionGroups} onChange={setOptionGroups} />
 
           <div>
             <label className='mb-1 block text-sm font-medium'>상태</label>

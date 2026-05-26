@@ -467,6 +467,7 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
       ? `${row.item_name} · ${subText}`
       : row.item_name
     : subText || '-';
+  const optionSummary = row.domain === 'exam' ? row.option_summary : null;
 
   return (
     <tr className='border-t'>
@@ -501,7 +502,12 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
           {row.user_name && row.user_name !== row.student_name ? ` · 신청자 ${row.user_name}` : ''}
         </div>
       </td>
-      <td className='px-3 py-2 align-top'>{itemDisplay}</td>
+      <td className='px-3 py-2 align-top'>
+        <div>{itemDisplay}</div>
+        {optionSummary ? (
+          <div className='text-muted-foreground mt-0.5 text-xs'>옵션: {optionSummary}</div>
+        ) : null}
+      </td>
       <td className='px-3 py-2 align-top text-xs whitespace-nowrap'>{formatServiceDate(row)}</td>
       <td className='px-3 py-2 text-right align-top whitespace-nowrap'>
         {formatAmount(row.amount)}
@@ -538,6 +544,7 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
     신청자: r.user_name ?? '',
     내역: r.item_name ?? '',
     세부유형: describeSubCategory(r.domain, r.sub_category),
+    옵션: r.domain === 'exam' ? (r.option_summary ?? '') : '',
     이용일자: formatServiceDateForExcel(r),
     이용시간: formatServiceTimeForExcel(r),
     금액: r.amount ?? '',

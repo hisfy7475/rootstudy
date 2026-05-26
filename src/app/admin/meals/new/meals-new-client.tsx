@@ -22,7 +22,13 @@ function isoDayOfWeek(ymd: string): number | null {
   return dow;
 }
 
-export function AdminMealsNewClient() {
+export function AdminMealsNewClient({
+  isSuperAdmin,
+  branches,
+}: {
+  isSuperAdmin: boolean;
+  branches: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +47,7 @@ export function AdminMealsNewClient() {
     product_start_date: '',
     product_end_date: '',
     max_capacity: '',
+    branchId: '',
   });
 
   const handleImageSelect = (file: File) => {
@@ -85,6 +92,10 @@ export function AdminMealsNewClient() {
       return setError('정원은 양의 정수이거나 비워 두세요(무제한).');
     }
 
+    if (isSuperAdmin && !form.branchId) {
+      return setError('등록할 지점을 선택해 주세요.');
+    }
+
     setLoading(true);
     const payload: MealProductCreateInput = {
       name: form.name,
@@ -101,6 +112,7 @@ export function AdminMealsNewClient() {
         max_capacity,
         status: 'active',
       },
+      branchId: isSuperAdmin ? form.branchId : undefined,
     };
 
     const res = await createMealProduct(payload, 'meal');
@@ -155,6 +167,25 @@ export function AdminMealsNewClient() {
 
           <section className='space-y-4'>
             <h2 className='text-muted-foreground text-sm font-semibold'>상품 정보</h2>
+
+            {isSuperAdmin && (
+              <div>
+                <label className='mb-1 block text-sm font-medium'>등록할 지점</label>
+                <select
+                  className='border-input bg-background w-full rounded-md border px-3 py-2 text-sm'
+                  value={form.branchId}
+                  onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
+                  required
+                >
+                  <option value=''>지점 선택…</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className='mb-1 block text-sm font-medium'>상품명</label>

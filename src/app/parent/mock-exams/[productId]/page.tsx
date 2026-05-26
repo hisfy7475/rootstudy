@@ -7,6 +7,7 @@ import {
   getPaidOrderCountForVariant,
   getExistingPendingOrder,
   getExistingPaidOrder,
+  getMockExamOptionGroups,
 } from '@/lib/actions/meal';
 import { MockExamDetailClient } from '@/app/student/(shell)/mock-exams/[productId]/mock-exam-detail-client';
 import type { MealOrder } from '@/types/database';
@@ -31,16 +32,19 @@ export default async function ParentMockExamProductPage({
   const product = await getMealProductDetail(productId, 'exam');
   if (!product) notFound();
 
-  const variantStats = await Promise.all(
-    product.variants.map(async (v) => {
-      const [paidCount, pending, paid] = await Promise.all([
-        getPaidOrderCountForVariant(v.id),
-        getExistingPendingOrder(v.id, forStudentId!),
-        getExistingPaidOrder(v.id, forStudentId!),
-      ]);
-      return { variantId: v.id, paidCount, pending, paid };
-    }),
-  );
+  const [variantStats, optionGroups] = await Promise.all([
+    Promise.all(
+      product.variants.map(async (v) => {
+        const [paidCount, pending, paid] = await Promise.all([
+          getPaidOrderCountForVariant(v.id),
+          getExistingPendingOrder(v.id, forStudentId!),
+          getExistingPaidOrder(v.id, forStudentId!),
+        ]);
+        return { variantId: v.id, paidCount, pending, paid };
+      }),
+    ),
+    getMockExamOptionGroups(productId, { includeInactive: false }),
+  ]);
 
   const capacityLeftByVariant: Record<string, number | null> = {};
   const pendingOrderByVariant: Record<string, MealOrder | null> = {};
@@ -70,6 +74,7 @@ export default async function ParentMockExamProductPage({
         payBasePath='/parent/mock-exams/pay'
         studentId={forStudentId!}
         backHref='/parent/order'
+        optionGroups={optionGroups}
       />
     </div>
   );
