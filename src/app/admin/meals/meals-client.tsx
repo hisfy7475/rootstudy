@@ -7,7 +7,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import { MealImage } from '@/components/shared/meal-image';
 import { Plus } from 'lucide-react';
-import { cn, formatYmdShort } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import type { MealProductsListResult } from '@/lib/actions/meal';
 
@@ -28,19 +28,6 @@ function priceRangeLabel(variants: MealProductVariant[]): string {
   const max = Math.max(...prices);
   if (min === max) return `${min.toLocaleString()}원`;
   return `${min.toLocaleString()} ~ ${max.toLocaleString()}원`;
-}
-
-function productDateRangeLabel(variants: MealProductVariant[]): string | null {
-  if (variants.length === 0) return null;
-  let start = variants[0].product_start_date;
-  let end = variants[0].product_end_date;
-  for (const v of variants) {
-    if (v.product_start_date < start) start = v.product_start_date;
-    if (v.product_end_date > end) end = v.product_end_date;
-  }
-  return start === end
-    ? formatYmdShort(start)
-    : `${formatYmdShort(start)} ~ ${formatYmdShort(end)}`;
 }
 
 function variantSummary(variants: MealProductVariant[]): string {
@@ -139,12 +126,6 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
                       >
                         {p.name}
                       </Link>
-                      {(() => {
-                        const dateRange = productDateRangeLabel(p.variants);
-                        return dateRange ? (
-                          <div className='text-muted-foreground mt-0.5 text-xs'>{dateRange}</div>
-                        ) : null;
-                      })()}
                     </td>
                     <td className='p-3'>{p.meal_type === 'lunch' ? '중식' : '석식'}</td>
                     <td className='p-3 whitespace-nowrap'>{variantSummary(p.variants)}</td>
