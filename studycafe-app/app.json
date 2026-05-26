@@ -36,7 +36,8 @@
           "photosPermission": "채팅에 이미지를 보내기 위해 사진 라이브러리 접근이 필요합니다.",
           "cameraPermission": "채팅에 사진을 촬영해 보내기 위해 카메라 접근이 필요합니다."
         }
-      ]
+      ],
+      "react-native-edge-to-edge"
     ],
     "ios": {
       "supportsTablet": false,

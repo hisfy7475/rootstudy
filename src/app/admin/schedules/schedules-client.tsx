@@ -909,7 +909,7 @@ export default function SchedulesClient({
 
       {/* 추가 모달 */}
       {showAddModal && (
-        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 pb-28 sm:items-center sm:pb-4'>
+        <div className='pb-safe-nav fixed inset-0 z-[55] flex items-end justify-center bg-black/50 p-4 sm:items-center sm:pb-4'>
           <Card className='max-h-[80vh] w-full max-w-md overflow-y-auto bg-white p-5'>
             <div className='mb-4 flex items-center justify-between'>
               <h3 className='text-lg font-bold'>

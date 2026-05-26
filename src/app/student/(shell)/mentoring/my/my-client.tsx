@@ -217,7 +217,7 @@ export function MentoringMyClient({
       )}
 
       {cancelId && (
-        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center'>
+        <div className='pb-safe-nav fixed inset-0 z-[55] flex items-end justify-center bg-black/40 p-4 sm:items-center sm:pb-4'>
           <Card className='w-full max-w-md space-y-3 p-4'>
             <h3 className='font-semibold'>신청 취소</h3>
             <p className='text-muted-foreground text-sm'>취소 사유를 입력해 주세요.</p>

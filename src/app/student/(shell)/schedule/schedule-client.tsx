@@ -391,7 +391,7 @@ export default function ScheduleClient({ initialSchedules }: ScheduleClientProps
 
       {/* 추가/수정 폼 모달 */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4 pb-28 sm:items-center sm:pb-4">
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[55] p-4 pb-safe-nav sm:items-center sm:pb-4">
           <Card className="w-full max-w-md p-5 bg-white max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">{editingSchedule ? '부재 일정 수정' : '새 부재 일정'}</h3>

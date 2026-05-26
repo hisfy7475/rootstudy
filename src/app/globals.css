@@ -106,15 +106,45 @@ html {
   animation: slide-up 0.3s ease-out;
 }
 
-/* Safe area padding (노치 기기·네이티브 WebView 대응, viewport-fit: cover 필요)
-   - 웹(safe-area=0): 0 → bottom-nav 의 py-3 와 위/아래 여백 대칭
-   - iOS(safe-area≈34px): ≈10px → 홈 인디케이터와 충돌 직전까지 축소 */
+/* Safe area 단일 진실 출처.
+   - iOS WKWebView: env(safe-area-inset-*) 정상 동작.
+   - Android System WebView: env() 가 0 을 반환하므로 네이티브 쉘이 useSafeAreaInsets 값을
+     --app-native-safe-* 로 주입 (studycafe-app/src/WebViewScreen.tsx 참고).
+   - 일반 웹: 두 값 모두 0. */
+:root {
+  --app-native-safe-bottom: 0px;
+  --app-native-safe-top: 0px;
+  --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-native-safe-bottom));
+  --app-safe-top: max(env(safe-area-inset-top, 0px), var(--app-native-safe-top));
+  --app-keyboard-height: 0px;
+}
+
+/* BottomNav 본인용: 안전 영역 전체 흡수.
+   과거에는 1.5rem 단축 정책을 썼으나 Android 제스처(~24px)에서는 0이 되고
+   3-button(~48px)에서는 절반만 적용되어 라벨이 시스템 바에 가렸음. */
 .pb-safe {
-  padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 1.5rem));
+  padding-bottom: var(--app-safe-bottom);
 }
 
 .pt-safe {
-  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-top: max(0.75rem, var(--app-safe-top));
+}
+
+/* 바텀시트형 모달:
+   - BottomNav 있는 라우트: nav-height (이미 pb-safe 포함된 offsetHeight) + 1rem
+   - BottomNav 없는 라우트(/admin/*, /login): 안전 영역 + 1rem
+   max() 로 둘 중 큰 값을 적용해 안전 영역 double-count 회피. */
+.pb-safe-nav {
+  padding-bottom: max(
+    calc(var(--app-bottom-nav-height, 0px) + 1rem),
+    calc(var(--app-safe-bottom) + 1rem)
+  );
+}
+
+/* iOS 키보드 등장 시 fixed BottomNav 숨김. WebViewScreen 이 keyboardWill* 이벤트에
+   맞춰 html.keyboard-open 토글. Android 는 windowSoftInputMode=adjustResize 로 자동 해결. */
+html.keyboard-open .app-bottom-nav {
+  display: none;
 }
 
 /* 스크롤바 숨기기 (가로 스크롤용) */

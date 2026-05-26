@@ -7,14 +7,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
+  Keyboard,
   Platform,
-  SafeAreaView,
-  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 import { WEB_BASE_URL, APP_USER_AGENT_SUFFIX } from "./constants";
@@ -54,6 +54,41 @@ export default function WebViewScreen() {
   const lastUrlRef = useRef<string>(WEB_BASE_URL);
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
+
+  // 네이티브가 측정한 안전 영역 inset을 WebView의 CSS 변수로 브릿지.
+  // Android System WebView는 env(safe-area-inset-*)을 0으로 반환하므로 native 측정값이 단일 진실 출처.
+  const insets = useSafeAreaInsets();
+  const insetsRef = useRef(insets);
+  useEffect(() => {
+    insetsRef.current = insets;
+  }, [insets]);
+
+  const injectSafeAreaVars = useCallback((bottom: number, top: number) => {
+    const script = `(()=>{try{var r=document.documentElement;r.style.setProperty('--app-native-safe-bottom','${bottom}px');r.style.setProperty('--app-native-safe-top','${top}px');}catch(e){}})();true;`;
+    webViewRef.current?.injectJavaScript(script);
+  }, []);
+
+  useEffect(() => {
+    injectSafeAreaVars(insets.bottom, insets.top);
+  }, [insets.bottom, insets.top, injectSafeAreaVars]);
+
+  // iOS 키보드는 fixed BottomNav를 가린다. 키보드 높이를 web에 publish 하여 BottomNav 숨김 처리.
+  // Android는 windowSoftInputMode=adjustResize 로 viewport 자체가 줄어 자동 해결되므로 iOS 한정.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const inject = (h: number) => {
+      const script = `(()=>{try{var r=document.documentElement;r.style.setProperty('--app-keyboard-height','${h}px');r.classList.toggle('keyboard-open',${h > 0});}catch(e){}})();true;`;
+      webViewRef.current?.injectJavaScript(script);
+    };
+    const showSub = Keyboard.addListener("keyboardWillShow", (e) =>
+      inject(e.endCoordinates?.height ?? 0),
+    );
+    const hideSub = Keyboard.addListener("keyboardWillHide", () => inject(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const { ready: secureReady, sessionRef, saveSession, saveEphemeral, clearSession } =
     useSecureTokenStore();
@@ -334,9 +369,7 @@ export default function WebViewScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle='dark-content' />
-
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       {loadError ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorTitle}>페이지를 불러올 수 없습니다</Text>
@@ -390,6 +423,8 @@ export default function WebViewScreen() {
             hideSplashOnce();
             sendPushTokenToWeb();
             tryInjectStoredSession(lastUrlRef.current);
+            // 페이지 전환 시 CSS 변수가 초기화되므로 재주입.
+            injectSafeAreaVars(insetsRef.current.bottom, insetsRef.current.top);
           }}
           onError={(e) => {
             clearLoadingTimer();
