@@ -253,7 +253,7 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
                     <td className='p-3'>{String(a.status)}</td>
                     <td className='space-y-2 p-3'>
                       <Link
-                        href={`/admin/mentoring/slots/${a.slot_id}`}
+                        href={`/admin/mentoring?view=month&slot=${a.slot_id}`}
                         className='text-primary block text-xs hover:underline'
                       >
                         슬롯 상세

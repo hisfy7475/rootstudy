@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card } from '@/components/ui/card';
 import type { Mentor, MentoringType } from '@/types/database';
 import {
   createMentoringSlot,
@@ -13,7 +12,10 @@ import { getMondayOfWeekKST } from '@/lib/mentoring-calendar';
 
 interface Props {
   mentors: Mentor[];
-  defaultWeekMonday: string;
+  defaultDate: string;
+  defaultMentorId?: string | null;
+  /** 폼 dirty 상태가 외부에 알려져야 모드 전환 시 confirm 모달을 띄울 수 있다. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const weekdays = [
@@ -26,16 +28,18 @@ const weekdays = [
   { v: 7, label: '일' },
 ];
 
-export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
+export function SlotCreateForm({ mentors, defaultDate, defaultMentorId, onDirtyChange }: Props) {
   const router = useRouter();
   const [bulk, setBulk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const initialMentorId = defaultMentorId || mentors[0]?.id || '';
+
   const [single, setSingle] = useState<MentoringSlotAdminInput>({
-    mentor_id: mentors[0]?.id ?? '',
-    date: defaultWeekMonday,
+    mentor_id: initialMentorId,
+    date: defaultDate,
     start_time: '15:00',
     end_time: '16:00',
     type: 'mentoring',
@@ -45,31 +49,48 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
     note: '',
   });
 
-  const [bulkState, setBulkState] = useState<{
-    mentor_id: string;
-    weekStartMonday: string;
-    repeatWeeks: number;
-    weekdaySet: Set<number>;
-    start_time: string;
-    end_time: string;
-    type: MentoringType;
-    subject: string;
-    capacity: number;
-    location: string;
-    note: string;
-  }>({
-    mentor_id: mentors[0]?.id ?? '',
-    weekStartMonday: defaultWeekMonday,
+  const [bulkState, setBulkState] = useState({
+    mentor_id: initialMentorId,
+    weekStartMonday: getMondayOfWeekKST(defaultDate),
     repeatWeeks: 4,
     weekdaySet: new Set<number>([3]),
     start_time: '15:00',
     end_time: '16:00',
-    type: 'mentoring',
+    type: 'mentoring' as MentoringType,
     subject: '',
     capacity: 1,
     location: '',
     note: '',
   });
+
+  // 외부에서 defaultDate 가 바뀌면 (다른 빈 셀 클릭) 폼을 그 날짜로 갱신.
+  // useEffect 대신 "렌더 중 비교 → setState" 패턴 사용 (React 공식 권고).
+  const [prevDefaultDate, setPrevDefaultDate] = useState(defaultDate);
+  if (prevDefaultDate !== defaultDate) {
+    setPrevDefaultDate(defaultDate);
+    setSingle((s) => ({ ...s, date: defaultDate }));
+    setBulkState((s) => ({ ...s, weekStartMonday: getMondayOfWeekKST(defaultDate) }));
+  }
+
+  // dirty 추적: 입력 필드 중 어느 하나라도 기본값과 다르면 dirty 로 본다.
+  const dirty =
+    single.subject !== '' ||
+    single.location !== '' ||
+    single.note !== '' ||
+    single.start_time !== '15:00' ||
+    single.end_time !== '16:00' ||
+    single.capacity !== 1 ||
+    single.type !== 'mentoring' ||
+    bulkState.subject !== '' ||
+    bulkState.location !== '' ||
+    bulkState.note !== '';
+  // 부모에게 통보는 useEffect 없이 즉시 호출 (idempotent 한 setter 가정).
+  // 단 부모의 setState 를 직접 호출하면 React 가 경고하지 않도록 prev 값 비교.
+  const [prevDirty, setPrevDirty] = useState(false);
+  if (onDirtyChange && prevDirty !== dirty) {
+    setPrevDirty(dirty);
+    onDirtyChange(dirty);
+  }
 
   function toggleWeekday(v: number) {
     setBulkState((s) => {
@@ -90,8 +111,15 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
         return;
       }
       setOkMsg('슬롯이 등록되었습니다.');
-      if (res.data) router.push(`/admin/mentoring/slots/${res.data.id}`);
-      else router.refresh();
+      if (res.data) {
+        // 등록 직후 그 슬롯의 상세 모드로 전환
+        const url = new URL(window.location.href);
+        url.searchParams.delete('new');
+        url.searchParams.delete('date');
+        url.searchParams.set('slot', res.data.id);
+        router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
+      }
+      router.refresh();
     });
   }
 
@@ -99,6 +127,10 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
     setError(null);
     setOkMsg(null);
     const weekdaysArr = [...bulkState.weekdaySet].sort((a, b) => a - b);
+    if (weekdaysArr.length === 0) {
+      setError('요일을 하나 이상 선택해 주세요.');
+      return;
+    }
     startTransition(async () => {
       const res = await createMentoringSlotsBulk({
         mentor_id: bulkState.mentor_id,
@@ -119,28 +151,27 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
       }
       setOkMsg(`${res.created}개 슬롯이 등록되었습니다.`);
       router.refresh();
-      router.push('/admin/mentoring');
     });
   }
 
   if (mentors.length === 0) {
     return (
-      <Card className='p-6'>
+      <div className='space-y-3 p-1'>
         <p className='text-muted-foreground text-sm'>
           등록된 멘토가 없습니다. 먼저 멘토를 등록해 주세요.
         </p>
         <a
           href='/admin/mentoring/mentors'
-          className='text-primary mt-3 inline-block text-sm font-medium'
+          className='text-primary inline-block text-sm font-medium'
         >
           멘토 관리로 이동
         </a>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <div className='space-y-6'>
+    <div className='space-y-4'>
       <div className='flex gap-2'>
         <button
           type='button'
@@ -166,50 +197,52 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
       {okMsg && <p className='text-sm text-emerald-600 dark:text-emerald-400'>{okMsg}</p>}
 
       {!bulk ? (
-        <Card className='space-y-4 p-4'>
-          <div className='grid gap-3 sm:grid-cols-2'>
-            <label className='space-y-1 text-sm'>
-              <span className='text-muted-foreground'>멘토</span>
-              <select
-                className='border-input w-full rounded-xl border px-3 py-2'
-                value={single.mentor_id}
-                onChange={(e) => setSingle((s) => ({ ...s, mentor_id: e.target.value }))}
-              >
-                {mentors.map((m) => (
-                  <option key={m.id} value={m.id} disabled={!m.is_active}>
-                    {m.name} {!m.is_active ? '(비활성)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className='space-y-1 text-sm'>
-              <span className='text-muted-foreground'>날짜</span>
-              <input
-                type='date'
-                className='border-input w-full rounded-xl border px-3 py-2'
-                value={single.date}
-                onChange={(e) => setSingle((s) => ({ ...s, date: e.target.value }))}
-              />
-            </label>
-            <label className='space-y-1 text-sm'>
+        <div className='space-y-3'>
+          <label className='block space-y-1 text-sm'>
+            <span className='text-muted-foreground'>멘토</span>
+            <select
+              className='border-input w-full rounded-xl border px-3 py-2'
+              value={single.mentor_id}
+              onChange={(e) => setSingle((s) => ({ ...s, mentor_id: e.target.value }))}
+            >
+              {mentors.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.is_active}>
+                  {m.name} {!m.is_active ? '(비활성)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className='block space-y-1 text-sm'>
+            <span className='text-muted-foreground'>날짜</span>
+            <input
+              type='date'
+              className='border-input w-full rounded-xl border px-3 py-2'
+              value={single.date}
+              onChange={(e) => setSingle((s) => ({ ...s, date: e.target.value }))}
+            />
+          </label>
+          <div className='grid grid-cols-2 gap-3'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>시작</span>
               <input
                 type='time'
                 className='border-input w-full rounded-xl border px-3 py-2'
-                value={single.start_time.slice(0, 5)}
+                value={String(single.start_time).slice(0, 5)}
                 onChange={(e) => setSingle((s) => ({ ...s, start_time: e.target.value }))}
               />
             </label>
-            <label className='space-y-1 text-sm'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>종료</span>
               <input
                 type='time'
                 className='border-input w-full rounded-xl border px-3 py-2'
-                value={single.end_time.slice(0, 5)}
+                value={String(single.end_time).slice(0, 5)}
                 onChange={(e) => setSingle((s) => ({ ...s, end_time: e.target.value }))}
               />
             </label>
-            <label className='space-y-1 text-sm'>
+          </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>유형</span>
               <select
                 className='border-input w-full rounded-xl border px-3 py-2'
@@ -223,7 +256,7 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
                 <option value='consult'>상담</option>
               </select>
             </label>
-            <label className='space-y-1 text-sm'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>정원</span>
               <input
                 type='number'
@@ -264,38 +297,38 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
             type='button'
             disabled={pending}
             onClick={submitSingle}
-            className='bg-primary text-primary-foreground rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50'
+            className='bg-primary text-primary-foreground w-full rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50'
           >
             등록
           </button>
-        </Card>
+        </div>
       ) : (
-        <Card className='space-y-4 p-4'>
-          <div className='grid gap-3 sm:grid-cols-2'>
-            <label className='space-y-1 text-sm'>
-              <span className='text-muted-foreground'>멘토</span>
-              <select
-                className='border-input w-full rounded-xl border px-3 py-2'
-                value={bulkState.mentor_id}
-                onChange={(e) => setBulkState((s) => ({ ...s, mentor_id: e.target.value }))}
-              >
-                {mentors.map((m) => (
-                  <option key={m.id} value={m.id} disabled={!m.is_active}>
-                    {m.name} {!m.is_active ? '(비활성)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className='space-y-1 text-sm'>
-              <span className='text-muted-foreground'>기준 날짜 (해당 주 월요일로 자동 맞춤)</span>
-              <input
-                type='date'
-                className='border-input w-full rounded-xl border px-3 py-2'
-                value={bulkState.weekStartMonday}
-                onChange={(e) => setBulkState((s) => ({ ...s, weekStartMonday: e.target.value }))}
-              />
-            </label>
-            <label className='space-y-1 text-sm'>
+        <div className='space-y-3'>
+          <label className='block space-y-1 text-sm'>
+            <span className='text-muted-foreground'>멘토</span>
+            <select
+              className='border-input w-full rounded-xl border px-3 py-2'
+              value={bulkState.mentor_id}
+              onChange={(e) => setBulkState((s) => ({ ...s, mentor_id: e.target.value }))}
+            >
+              {mentors.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.is_active}>
+                  {m.name} {!m.is_active ? '(비활성)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className='block space-y-1 text-sm'>
+            <span className='text-muted-foreground'>기준 날짜 (해당 주 월요일로 자동 맞춤)</span>
+            <input
+              type='date'
+              className='border-input w-full rounded-xl border px-3 py-2'
+              value={bulkState.weekStartMonday}
+              onChange={(e) => setBulkState((s) => ({ ...s, weekStartMonday: e.target.value }))}
+            />
+          </label>
+          <div className='grid grid-cols-2 gap-3'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>반복 주 수</span>
               <input
                 type='number'
@@ -308,7 +341,7 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
                 }
               />
             </label>
-            <label className='space-y-1 text-sm'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>유형</span>
               <select
                 className='border-input w-full rounded-xl border px-3 py-2'
@@ -322,7 +355,9 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
                 <option value='consult'>상담</option>
               </select>
             </label>
-            <label className='space-y-1 text-sm'>
+          </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>시작</span>
               <input
                 type='time'
@@ -331,7 +366,7 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
                 onChange={(e) => setBulkState((s) => ({ ...s, start_time: e.target.value }))}
               />
             </label>
-            <label className='space-y-1 text-sm'>
+            <label className='block space-y-1 text-sm'>
               <span className='text-muted-foreground'>종료</span>
               <input
                 type='time'
@@ -340,19 +375,19 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
                 onChange={(e) => setBulkState((s) => ({ ...s, end_time: e.target.value }))}
               />
             </label>
-            <label className='space-y-1 text-sm'>
-              <span className='text-muted-foreground'>정원</span>
-              <input
-                type='number'
-                min={1}
-                className='border-input w-full rounded-xl border px-3 py-2'
-                value={bulkState.capacity}
-                onChange={(e) =>
-                  setBulkState((s) => ({ ...s, capacity: Number(e.target.value) || 1 }))
-                }
-              />
-            </label>
           </div>
+          <label className='block space-y-1 text-sm'>
+            <span className='text-muted-foreground'>정원</span>
+            <input
+              type='number'
+              min={1}
+              className='border-input w-full rounded-xl border px-3 py-2'
+              value={bulkState.capacity}
+              onChange={(e) =>
+                setBulkState((s) => ({ ...s, capacity: Number(e.target.value) || 1 }))
+              }
+            />
+          </label>
           <div className='space-y-2'>
             <span className='text-muted-foreground text-sm'>요일 (복수 선택)</span>
             <div className='flex flex-wrap gap-2'>
@@ -400,11 +435,11 @@ export function AdminNewSlotClient({ mentors, defaultWeekMonday }: Props) {
             type='button'
             disabled={pending}
             onClick={submitBulk}
-            className='bg-primary text-primary-foreground rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50'
+            className='bg-primary text-primary-foreground w-full rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50'
           >
             벌크 등록
           </button>
-        </Card>
+        </div>
       )}
     </div>
   );

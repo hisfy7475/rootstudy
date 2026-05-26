@@ -1328,7 +1328,6 @@ export async function updateMentoringSlot(
   }
 
   revalidateMentoringAdmin();
-  revalidatePath(`/admin/mentoring/slots/${slotId}`);
   return { data: updated as MentoringSlot };
 }
 
@@ -1665,7 +1664,6 @@ export async function removeMentoringApplicationAttachment(
 
 function revalidateMentoringAdmin(): void {
   revalidatePath('/admin/mentoring');
-  revalidatePath('/admin/mentoring/slots/new');
   revalidatePath('/admin/mentoring/applications');
   revalidatePath('/student/mentoring');
   revalidatePath('/student/mentoring/my');
@@ -1703,6 +1701,8 @@ async function notifyStudentAndParentsMentoringDecision(params: {
   endTime: string;
   kind: 'confirmed' | 'rejected' | 'cancelled';
   rejectReason?: string;
+  /** true 이면 in-app 알림 제목을 "관리자가 대신 등록·확정" 뉘앙스로 분기. 알림톡 본문은 동일(템플릿 재사용). */
+  byAdmin?: boolean;
 }): Promise<void> {
   const admin = createAdminClient();
   const { dateLabel, timeLabel } = formatSlotDateTimeKST(
@@ -1721,7 +1721,9 @@ async function notifyStudentAndParentsMentoringDecision(params: {
   const typeLabel = MENTORING_TYPE_LABEL[params.slotType];
   const title =
     params.kind === 'confirmed'
-      ? `${typeLabel} 신청이 확정되었습니다`
+      ? params.byAdmin
+        ? `관리자가 ${typeLabel} 신청을 등록·확정했습니다`
+        : `${typeLabel} 신청이 확정되었습니다`
       : params.kind === 'rejected'
         ? `${typeLabel} 신청이 거절되었습니다`
         : `${typeLabel} 일정이 취소되었습니다`;
@@ -1839,7 +1841,6 @@ export async function confirmMentoringApplication(
   });
 
   revalidateMentoringAdmin();
-  revalidatePath(`/admin/mentoring/slots/${app.slot_id}`);
   return { success: true };
 }
 
@@ -1917,7 +1918,6 @@ export async function rejectMentoringApplication(
   });
 
   revalidateMentoringAdmin();
-  revalidatePath(`/admin/mentoring/slots/${app.slot_id}`);
   return { success: true };
 }
 
@@ -1998,6 +1998,291 @@ export async function adminCancelMentoringApplication(
   });
 
   revalidateMentoringAdmin();
-  revalidatePath(`/admin/mentoring/slots/${app.slot_id}`);
   return { success: true };
+}
+
+// 어드민이 학생을 대신해 슬롯에 신청한다. 즉시 confirmed 로 들어간다.
+// 권한 검증은 일반 client + requireAdminBranch 로 수행하고,
+// mutation 은 service-role 로 분리한다(다른 admin mutation 들과 일관).
+export async function adminApplyMentoring(
+  slotId: string,
+  studentId: string,
+  input: { content?: string | null; selectedSubject?: string | null },
+): Promise<{ success?: true; applicationId?: string; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const { data: slot, error: slotErr } = await supabase
+    .from('mentoring_slots')
+    .select(
+      'id, branch_id, capacity, booked_count, date, start_time, end_time, subject, is_active, mentor_id, type, mentors!inner(is_active, subjects)',
+    )
+    .eq('id', slotId)
+    .maybeSingle();
+
+  if (slotErr || !slot) return { error: '슬롯을 찾을 수 없습니다.' };
+
+  const slotRow = slot as {
+    id: string;
+    branch_id: string;
+    capacity: number;
+    booked_count: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+    subject: string | null;
+    is_active: boolean;
+    mentor_id: string;
+    type: MentoringType;
+    mentors:
+      | { is_active: boolean; subjects: string[] | null }
+      | { is_active: boolean; subjects: string[] | null }[];
+  };
+
+  const mentorJoin = Array.isArray(slotRow.mentors) ? slotRow.mentors[0] : slotRow.mentors;
+
+  if (!slotRow.is_active || !mentorJoin?.is_active) {
+    return { error: '신청할 수 없는 슬롯입니다.' };
+  }
+
+  if (!ctx.isSuperAdmin && slotRow.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
+
+  const startMs = mentoringSlotStartMs(slotRow.date, slotRow.start_time);
+  if (Date.now() >= startMs) {
+    return { error: '이미 시작된 슬롯에는 신청할 수 없습니다.' };
+  }
+
+  const { data: studentProfile } = await supabase
+    .from('profiles')
+    .select('id, branch_id, user_type, withdrawn_at')
+    .eq('id', studentId)
+    .maybeSingle();
+
+  if (!studentProfile) return { error: '학생을 찾을 수 없습니다.' };
+  if (studentProfile.user_type !== 'student') return { error: '학생 계정이 아닙니다.' };
+  if (studentProfile.withdrawn_at != null) {
+    return { error: '퇴원 처리된 학생은 신규 신청을 진행할 수 없습니다.' };
+  }
+  if (!studentProfile.branch_id || studentProfile.branch_id !== slotRow.branch_id) {
+    return { error: '학생과 슬롯의 지점이 일치하지 않습니다.' };
+  }
+
+  let normalizedSubject: string | null = null;
+  if (slotRow.type === 'clinic') {
+    const sel = (input.selectedSubject ?? '').trim();
+    if (!sel) return { error: '클리닉 과목을 선택해 주세요.' };
+    const mentorSubjects = mentorJoin?.subjects ?? [];
+    if (!mentorSubjects.includes(sel)) {
+      return { error: '선택한 과목이 멘토의 과목 목록에 없습니다.' };
+    }
+    normalizedSubject = sel;
+  }
+
+  const trimmedContent = (input.content ?? '').trim();
+  const finalContent = trimmedContent.length > 0 ? trimmedContent : '[관리자가 대신 등록]';
+  if (finalContent.length > APPLICATION_CONTENT_MAX) {
+    return { error: `메모는 ${APPLICATION_CONTENT_MAX}자 이하로 입력해 주세요.` };
+  }
+
+  const subjectLabel = slotRow.subject?.trim() || MENTORING_TYPE_LABEL[slotRow.type];
+
+  const { data: existing } = await supabase
+    .from('mentoring_applications')
+    .select('id, status')
+    .eq('slot_id', slotId)
+    .eq('student_id', studentId)
+    .maybeSingle();
+
+  const adminDb = createAdminClient();
+  const now = new Date().toISOString();
+
+  if (existing) {
+    if (existing.status === 'confirmed') {
+      return { error: '이미 확정된 신청이 있습니다.' };
+    }
+    if (existing.status === 'pending') {
+      // pending → confirmed: booked_count 변동 없음 (트리거가 같은 그룹은 건드리지 않음).
+      const { error: upErr } = await adminDb
+        .from('mentoring_applications')
+        .update({
+          status: 'confirmed',
+          user_id: studentId,
+          content: finalContent,
+          selected_subject: normalizedSubject,
+          confirmed_at: now,
+          updated_at: now,
+        })
+        .eq('id', existing.id);
+      if (upErr) {
+        logPostgrestQueryError('[adminApplyMentoring] update pending→confirmed', upErr);
+        return { error: '신청 처리에 실패했습니다.' };
+      }
+
+      await notifyStudentAndParentsMentoringDecision({
+        studentId,
+        subjectLabel,
+        slotType: slotRow.type,
+        dateYmd: slotRow.date,
+        startTime: slotRow.start_time,
+        endTime: slotRow.end_time,
+        kind: 'confirmed',
+        byAdmin: true,
+      });
+
+      revalidateMentoringAdmin();
+      return { success: true, applicationId: existing.id };
+    }
+    // rejected / cancelled → confirmed: 트리거가 booked_count +1 처리 (마이그레이션 보강 후).
+    if (slotRow.booked_count >= slotRow.capacity) {
+      return { error: '정원이 마감되었습니다.' };
+    }
+    const { error: upErr } = await adminDb
+      .from('mentoring_applications')
+      .update({
+        status: 'confirmed',
+        user_id: studentId,
+        content: finalContent,
+        selected_subject: normalizedSubject,
+        attachments: [],
+        note: null,
+        applied_at: now,
+        confirmed_at: now,
+        rejected_at: null,
+        cancelled_at: null,
+        reject_reason: null,
+        cancel_reason: null,
+        updated_at: now,
+      })
+      .eq('id', existing.id);
+    if (upErr) {
+      logPostgrestQueryError('[adminApplyMentoring] update re-apply', upErr);
+      return { error: '재신청 처리에 실패했습니다.' };
+    }
+
+    await notifyStudentAndParentsMentoringDecision({
+      studentId,
+      subjectLabel,
+      slotType: slotRow.type,
+      dateYmd: slotRow.date,
+      startTime: slotRow.start_time,
+      endTime: slotRow.end_time,
+      kind: 'confirmed',
+      byAdmin: true,
+    });
+
+    revalidateMentoringAdmin();
+    return { success: true, applicationId: existing.id };
+  }
+
+  // 신규 INSERT
+  if (slotRow.booked_count >= slotRow.capacity) {
+    return { error: '정원이 마감되었습니다.' };
+  }
+  const { data: inserted, error: insErr } = await adminDb
+    .from('mentoring_applications')
+    .insert({
+      slot_id: slotId,
+      user_id: studentId,
+      student_id: studentId,
+      status: 'confirmed',
+      content: finalContent,
+      selected_subject: normalizedSubject,
+      attachments: [],
+      applied_at: now,
+      confirmed_at: now,
+    })
+    .select('id')
+    .single();
+
+  if (insErr || !inserted) {
+    logPostgrestQueryError('[adminApplyMentoring] insert', insErr);
+    return { error: '신청에 실패했습니다.' };
+  }
+
+  await notifyStudentAndParentsMentoringDecision({
+    studentId,
+    subjectLabel,
+    slotType: slotRow.type,
+    dateYmd: slotRow.date,
+    startTime: slotRow.start_time,
+    endTime: slotRow.end_time,
+    kind: 'confirmed',
+    byAdmin: true,
+  });
+
+  revalidateMentoringAdmin();
+  return { success: true, applicationId: inserted.id as string };
+}
+
+// 어드민용 학생 검색 (사이드 패널의 학생 Combobox).
+// - 이름 ILIKE 검색 (profiles.name 에 trigram 인덱스 존재: 20260430011500_admin_search_indexes.sql)
+// - 일반 어드민: 자기 지점만. 슈퍼관리자: opts.branchId 지정 시 그 지점, 미지정 시 전체.
+// - 최소 2글자 미만은 빈 배열.
+export async function searchStudentsForAdmin(
+  query: string,
+  opts?: { branchId?: string | null; limit?: number },
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    phone: string | null;
+    branch_id: string | null;
+    branch_name: string | null;
+  }>
+> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return [];
+
+  const q = (query ?? '').trim();
+  if (q.length < 2) return [];
+
+  const limit = Math.min(50, Math.max(1, opts?.limit ?? 10));
+
+  let branchFilter: string | null = null;
+  if (!ctx.isSuperAdmin) {
+    branchFilter = ctx.branchId;
+  } else if (opts?.branchId) {
+    branchFilter = opts.branchId;
+  }
+
+  let pq = supabase
+    .from('profiles')
+    .select('id, name, phone, branch_id, branches:branch_id ( name )')
+    .eq('user_type', 'student')
+    .is('withdrawn_at', null)
+    .ilike('name', `%${q}%`)
+    .order('name', { ascending: true })
+    .limit(limit);
+
+  if (branchFilter) pq = pq.eq('branch_id', branchFilter);
+
+  const { data, error } = await pq;
+  if (error) {
+    logPostgrestQueryError('[searchStudentsForAdmin]', error);
+    return [];
+  }
+
+  type Row = {
+    id: string;
+    name: string;
+    phone: string | null;
+    branch_id: string | null;
+    branches: { name: string } | { name: string }[] | null;
+  };
+
+  return (data ?? []).map((row) => {
+    const r = row as Row;
+    const b = Array.isArray(r.branches) ? r.branches[0] : r.branches;
+    return {
+      id: r.id,
+      name: r.name,
+      phone: r.phone,
+      branch_id: r.branch_id,
+      branch_name: b?.name ?? null,
+    };
+  });
 }
