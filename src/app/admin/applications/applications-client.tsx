@@ -7,8 +7,16 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { cn, getTodayKST } from '@/lib/utils';
-import { Download, ExternalLink, Loader2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Download,
+  ExternalLink,
+  Loader2,
+} from 'lucide-react';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
+import { buildListHref } from '@/lib/list-params';
 import {
   exportUnifiedApplicationsForAdmin,
   type UnifiedAppDomain,
@@ -69,11 +77,16 @@ interface BranchOption {
   name: string;
 }
 
+type SortField = 'applied_at' | 'amount' | 'service_start_date';
+type SortDir = 'asc' | 'desc';
+
 interface Props {
   initialResult: UnifiedAppPage;
   initialFilters: InitialFilters;
   branches: BranchOption[];
   isSuperAdmin: boolean;
+  sort: SortField;
+  dir: SortDir;
 }
 
 const DOMAIN_TABS: { key: UnifiedAppDomain | 'all'; label: string }[] = [
@@ -153,6 +166,8 @@ export function ApplicationsClient({
   initialFilters,
   branches,
   isSuperAdmin,
+  sort,
+  dir,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -181,20 +196,18 @@ export function ApplicationsClient({
   function pushFilters(next: Partial<typeof local>): void {
     const merged = { ...local, ...next };
     setLocal(merged);
-    const p = new URLSearchParams();
-    if (merged.domain !== 'all') p.set('domain', merged.domain);
-    if (merged.status !== 'all') p.set('status', merged.status);
-    if (merged.branchId) p.set('branchId', merged.branchId);
-    if (merged.fromDate) p.set('from', merged.fromDate);
-    if (merged.toDate) p.set('to', merged.toDate);
     const trimmedQ = merged.q.trim();
-    if (trimmedQ) p.set('q', trimmedQ);
-    // page 는 필터 변경 시 1로 리셋. size 는 유지.
-    const size = searchParams.get('size');
-    if (size) p.set('size', size);
-    startTransition(() => {
-      router.push(p.toString() ? `${pathname}?${p.toString()}` : pathname);
+    // 현재 URL 기준 patch — sort/dir/size 는 자연 보존. page 는 필터 변경 시 1로 리셋.
+    const href = buildListHref(pathname, new URLSearchParams(searchParams.toString()), {
+      domain: merged.domain === 'all' ? null : merged.domain,
+      status: merged.status === 'all' ? null : merged.status,
+      branchId: merged.branchId || null,
+      from: merged.fromDate || null,
+      to: merged.toDate || null,
+      q: trimmedQ || null,
+      page: null,
     });
+    startTransition(() => router.replace(href, { scroll: false }));
   }
 
   function applyFromInputs(): void {
@@ -211,18 +224,29 @@ export function ApplicationsClient({
       q: '',
     });
     startTransition(() => {
-      router.push(pathname);
+      router.replace(pathname, { scroll: false });
     });
+  }
+
+  function handleSort(field: SortField): void {
+    const nextDir: SortDir = sort === field ? (dir === 'asc' ? 'desc' : 'asc') : 'asc';
+    const href = buildListHref(pathname, new URLSearchParams(searchParams.toString()), {
+      sort: field,
+      dir: nextDir,
+      page: null,
+    });
+    startTransition(() => router.replace(href, { scroll: false }));
+  }
+
+  function renderSortIcon(field: SortField) {
+    if (sort !== field) return <ChevronsUpDown className='h-3 w-3 text-gray-300' />;
+    return dir === 'asc' ? <ChevronUp className='h-3 w-3' /> : <ChevronDown className='h-3 w-3' />;
   }
 
   async function handleExport(): Promise<void> {
     setExportError(null);
     setExporting(true);
     try {
-      const sortParam =
-        (searchParams.get('sort') as 'applied_at' | 'amount' | 'service_start_date') ??
-        'service_start_date';
-      const dirParam = (searchParams.get('dir') as 'asc' | 'desc') ?? 'desc';
       const trimmedQ = local.q.trim();
       const { rows, truncated } = await exportUnifiedApplicationsForAdmin({
         domain: local.domain === 'all' ? undefined : local.domain,
@@ -231,8 +255,8 @@ export function ApplicationsClient({
         fromDate: local.fromDate || undefined,
         toDate: local.toDate || undefined,
         q: trimmedQ || undefined,
-        sort: sortParam,
-        dir: dirParam,
+        sort,
+        dir,
       });
       if (rows.length === 0) {
         alert('내보낼 데이터가 없습니다.');
@@ -372,14 +396,38 @@ export function ApplicationsClient({
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 text-muted-foreground'>
               <tr>
-                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>신청일</th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('applied_at')}
+                >
+                  <div className='flex items-center gap-0.5'>
+                    신청일
+                    {renderSortIcon('applied_at')}
+                  </div>
+                </th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>도메인</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>상태</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>좌석</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>학생</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>내역</th>
-                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>이용일자</th>
-                <th className='px-3 py-2 text-right font-medium whitespace-nowrap'>금액</th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('service_start_date')}
+                >
+                  <div className='flex items-center gap-0.5'>
+                    이용일자
+                    {renderSortIcon('service_start_date')}
+                  </div>
+                </th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-right font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('amount')}
+                >
+                  <div className='flex items-center justify-end gap-0.5'>
+                    금액
+                    {renderSortIcon('amount')}
+                  </div>
+                </th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>결제일</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>상세</th>
               </tr>
