@@ -595,12 +595,18 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
-          status: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          status:
+            | 'requested'
+            | 'auto_pending'
+            | 'issued'
+            | 'rejected'
+            | 'cancelled_by_revert'
+            | 'cancelled_by_balance';
           points_used: number;
           voucher_amount: number | null;
           voucher_code: string | null;
           voucher_note: string | null;
-          trigger: 'student_request' | 'threshold_auto';
+          trigger: 'student_request' | 'threshold_auto' | 'auto_threshold_100';
           requested_at: string;
           issued_at: string | null;
           issued_by: string | null;
@@ -611,12 +617,18 @@ export interface Database {
         Insert: {
           id?: string;
           student_id: string;
-          status?: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          status?:
+            | 'requested'
+            | 'auto_pending'
+            | 'issued'
+            | 'rejected'
+            | 'cancelled_by_revert'
+            | 'cancelled_by_balance';
           points_used?: number;
           voucher_amount?: number | null;
           voucher_code?: string | null;
           voucher_note?: string | null;
-          trigger?: 'student_request' | 'threshold_auto';
+          trigger?: 'student_request' | 'threshold_auto' | 'auto_threshold_100';
           requested_at?: string;
           issued_at?: string | null;
           issued_by?: string | null;
@@ -627,12 +639,18 @@ export interface Database {
         Update: {
           id?: string;
           student_id?: string;
-          status?: 'requested' | 'auto_pending' | 'issued' | 'rejected' | 'cancelled_by_revert';
+          status?:
+            | 'requested'
+            | 'auto_pending'
+            | 'issued'
+            | 'rejected'
+            | 'cancelled_by_revert'
+            | 'cancelled_by_balance';
           points_used?: number;
           voucher_amount?: number | null;
           voucher_code?: string | null;
           voucher_note?: string | null;
-          trigger?: 'student_request' | 'threshold_auto';
+          trigger?: 'student_request' | 'threshold_auto' | 'auto_threshold_100';
           requested_at?: string;
           issued_at?: string | null;
           issued_by?: string | null;
@@ -1782,6 +1800,39 @@ export interface Database {
       preview_penalty: {
         Args: { p_student_id: string; p_amount: number };
         Returns: unknown;
+      };
+      ensure_redemption_slots: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      cleanup_redemption_slots: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      search_points_history: {
+        Args: {
+          p_q?: string | null;
+          p_type?: string | null;
+          p_student_id?: string | null;
+          p_sort?: string;
+          p_dir?: string;
+          p_offset?: number;
+          p_limit?: number;
+        };
+        Returns: {
+          id: string;
+          student_id: string;
+          admin_id: string | null;
+          type: 'reward' | 'penalty';
+          amount: number;
+          reason: string;
+          is_auto: boolean;
+          created_at: string;
+          student_name: string;
+          student_seat_number: number | null;
+          admin_name: string | null;
+          total_count: number;
+        }[];
       };
       focus_weekly_summary: {
         Args: { p_branch_id: string; p_week_start: string };

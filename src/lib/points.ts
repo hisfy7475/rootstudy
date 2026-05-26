@@ -58,11 +58,6 @@ export async function getAvailableBalance(
   };
 }
 
-/** 발급 가능 횟수 (가용 잔액 기준) */
-export function getRedeemableSlots(availableBalance: number): number {
-  return Math.floor(availableBalance / REWARD_RULES.redeemAt);
-}
-
 /** KST 현재 분기 누적 벌점 */
 export async function getCurrentQuarterPenalty(
   supabase: SupabaseClient,
@@ -182,23 +177,6 @@ export async function issueRedemption(
   });
   if (error) throw new Error(`issue_redemption: ${error.message}`);
   return data as IssueResult;
-}
-
-export type RequestResult =
-  | { status: 'requested'; redemption_id: string }
-  | { status: 'rejected_insufficient'; balance: number; queue: number; available: number }
-  | { status: 'rejected_in_review' };
-
-/** 학생 본인 상품권 신청 */
-export async function requestRedemption(
-  supabase: SupabaseClient,
-  studentId: string,
-): Promise<RequestResult> {
-  const { data, error } = await supabase.rpc('request_redemption', {
-    p_student_id: studentId,
-  });
-  if (error) throw new Error(`request_redemption: ${error.message}`);
-  return data as RequestResult;
 }
 
 export type PenaltyPreview = {

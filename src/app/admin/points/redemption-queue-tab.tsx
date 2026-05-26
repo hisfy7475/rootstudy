@@ -106,7 +106,7 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
             상품권 발급 대기 ({queue.length}건)
           </h2>
           <p className='text-text-muted mt-1 text-xs'>
-            학생 직접 신청(requested) 또는 30점 도달 자동 보호(auto_pending) 건입니다.
+            상점 100점 달성·학생 직접 신청·벌점 30점 도달 보호 건입니다.
           </p>
         </div>
         <div className='divide-y'>
@@ -116,7 +116,11 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
                 <div className='space-y-1'>
                   <p className='font-semibold'>{studentName(row)}</p>
                   <p className='text-text-muted text-xs'>
-                    {row.status === 'requested' ? '학생 직접 신청' : '자동 보호 (30점 도달)'}
+                    {row.trigger === 'auto_threshold_100'
+                      ? '상점 100점 달성'
+                      : row.trigger === 'threshold_auto'
+                        ? '벌점 30점 도달 보호'
+                        : '학생 직접 신청 (legacy)'}
                     {' · '}
                     {new Date(row.requested_at).toLocaleDateString('ko-KR', {
                       timeZone: 'Asia/Seoul',
@@ -158,7 +162,7 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
                       <X className='h-4 w-4' />
                     </button>
                   </div>
-                  <div className='grid grid-cols-2 gap-2'>
+                  <div className='grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end'>
                     <div>
                       <label className='text-text-muted text-[10px]'>금액 (원)</label>
                       <Input
@@ -176,15 +180,15 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
                         placeholder='ABCD-1234-5678'
                       />
                     </div>
+                    <Button
+                      size='sm'
+                      className='col-span-2 w-full sm:col-span-1 sm:w-auto sm:shrink-0 sm:px-6 sm:py-3 sm:text-base'
+                      onClick={() => handleIssue(row)}
+                      disabled={busy}
+                    >
+                      {busy ? '발급 중...' : '발급 확정'}
+                    </Button>
                   </div>
-                  <Button
-                    size='sm'
-                    className='w-full'
-                    onClick={() => handleIssue(row)}
-                    disabled={busy}
-                  >
-                    {busy ? '발급 중...' : '발급 확정'}
-                  </Button>
                 </div>
               )}
 
@@ -196,20 +200,23 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
                       <X className='h-4 w-4' />
                     </button>
                   </div>
-                  <Input
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    placeholder='거부 사유 입력'
-                  />
-                  <Button
-                    size='sm'
-                    variant='danger'
-                    className='w-full'
-                    onClick={() => handleReject(row)}
-                    disabled={busy}
-                  >
-                    {busy ? '처리 중...' : '거부 확정'}
-                  </Button>
+                  <div className='flex flex-col gap-2 sm:flex-row sm:items-stretch'>
+                    <Input
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder='거부 사유 입력'
+                      className='sm:flex-1'
+                    />
+                    <Button
+                      size='sm'
+                      variant='danger'
+                      onClick={() => handleReject(row)}
+                      disabled={busy}
+                      className='w-full sm:w-auto sm:shrink-0 sm:px-6 sm:py-3 sm:text-base'
+                    >
+                      {busy ? '처리 중...' : '거부 확정'}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

@@ -1048,7 +1048,7 @@ export async function givePoints(
     //         const protectedCount = thresholdResult.auto_pending_created;
     //         const protectedText =
     //           protectedCount > 0
-    //             ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 큐로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
+    //             ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 대기로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
     //             : burnt > 0
     //               ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
     //               : '';
@@ -1422,63 +1422,59 @@ export interface PointsHistoryResult {
   pageSize: number;
 }
 
+// 검색 q 는 "사유 OR 학생 이름" 부분 일치. SQL RPC 로 단일 쿼리 처리.
+// branch 격리는 RLS (admin 정책) 가 자동 처리.
 export async function getAllPointsHistory(
   params: PointsHistoryParams,
 ): Promise<PointsHistoryResult> {
   const supabase = await createClient();
   const { page, pageSize, q, sort, dir, type, studentId } = params;
-  const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
-  const to = from + pageSize - 1;
+  const offset = Math.max(0, (Math.max(1, page) - 1) * pageSize);
 
-  let query = supabase
-    .from('points')
-    .select(
-      `
-      *,
-      student:student_id (
-        seat_number,
-        profiles!inner (name)
-      ),
-      admin:admin_id (name)
-    `,
-      { count: 'exact' },
-    )
-    .order(sort, { ascending: dir === 'asc' })
-    .range(from, to);
+  const { data, error } = await supabase.rpc('search_points_history', {
+    p_q: q && q.trim() ? q.trim() : null,
+    p_type: type ?? null,
+    p_student_id: studentId ?? null,
+    p_sort: sort,
+    p_dir: dir,
+    p_offset: offset,
+    p_limit: pageSize,
+  });
 
-  if (type) query = query.eq('type', type);
-  if (studentId) query = query.eq('student_id', studentId);
-  if (q && q.trim()) {
-    // q 는 사유 텍스트 부분 일치
-    const pattern = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    query = query.ilike('reason', pattern);
-  }
-
-  const { data, count, error } = await query;
   if (error) {
     console.error('[getAllPointsHistory]', error);
     return { rows: [], total: 0, page: 1, pageSize };
   }
 
-  const rows = (data || []).map((p): PointsHistoryRow => {
-    const studentProfile = Array.isArray(p.student?.profiles)
-      ? p.student?.profiles[0]
-      : p.student?.profiles;
-    return {
-      id: p.id,
-      student_id: p.student_id,
-      type: p.type,
-      amount: p.amount,
-      reason: p.reason,
-      is_auto: p.is_auto,
-      created_at: p.created_at,
-      studentName: studentProfile?.name || '이름 없음',
-      studentSeatNumber: p.student?.seat_number ?? null,
-      adminName: p.admin?.name || '시스템',
-    };
-  });
+  const list = (data ?? []) as Array<{
+    id: string;
+    student_id: string;
+    admin_id: string | null;
+    type: 'reward' | 'penalty';
+    amount: number;
+    reason: string;
+    is_auto: boolean;
+    created_at: string;
+    student_name: string;
+    student_seat_number: number | null;
+    admin_name: string | null;
+    total_count: number;
+  }>;
 
-  const total = count ?? 0;
+  const rows: PointsHistoryRow[] = list.map((r) => ({
+    id: r.id,
+    student_id: r.student_id,
+    type: r.type,
+    amount: r.amount,
+    reason: r.reason,
+    is_auto: r.is_auto,
+    created_at: r.created_at,
+    studentName: r.student_name || '이름 없음',
+    studentSeatNumber: r.student_seat_number,
+    adminName: r.admin_name || '시스템',
+  }));
+
+  const total = list[0]?.total_count ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
   const clampedPage = total === 0 ? 1 : Math.min(Math.max(1, page), lastPage);
 
@@ -1496,14 +1492,27 @@ export async function deletePointsByFilter(params: {
   const supabase = await createClient();
 
   // 1) 매칭되는 행 조회 (event_kind/type/student_id 포함, count + 학생별 분기 재계산용)
+  // 검색 q 는 "사유 OR 학생 이름" 부분 일치. 학생 이름 매칭은 profiles 에서 ID 후보를
+  // 먼저 가져와 student_id IN (...) 조건으로 결합.
   let idsQuery = supabase
     .from('points')
     .select('id, student_id, type, event_kind', { count: 'exact', head: false });
   if (params.type) idsQuery = idsQuery.eq('type', params.type);
   if (params.studentId) idsQuery = idsQuery.eq('student_id', params.studentId);
   if (params.q && params.q.trim()) {
-    const pattern = `%${params.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    idsQuery = idsQuery.ilike('reason', pattern);
+    const raw = params.q.trim();
+    const pattern = `%${raw.replace(/[\\%_]/g, '\\$&')}%`;
+    const { data: nameMatched } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('user_type', 'student')
+      .ilike('name', pattern);
+    const matchedIds = (nameMatched ?? []).map((p) => p.id);
+    if (matchedIds.length > 0) {
+      idsQuery = idsQuery.or(`reason.ilike.${pattern},student_id.in.(${matchedIds.join(',')})`);
+    } else {
+      idsQuery = idsQuery.ilike('reason', pattern);
+    }
   }
   // protected event_kind 는 사전 제외 (DB 트리거가 이중 차단하지만 silent skip 위해)
   idsQuery = idsQuery.not(
