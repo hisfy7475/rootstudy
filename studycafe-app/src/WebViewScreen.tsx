@@ -55,22 +55,27 @@ export default function WebViewScreen() {
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
 
-  // 네이티브가 측정한 안전 영역 inset을 WebView의 CSS 변수로 브릿지.
-  // Android System WebView는 env(safe-area-inset-*)을 0으로 반환하므로 native 측정값이 단일 진실 출처.
+  // 네이티브가 측정한 bottom inset을 WebView의 CSS 변수로 브릿지.
+  // Android System WebView는 env(safe-area-inset-*)을 0으로 반환하므로 bottom은 native 측정값이 필요.
+  // top은 SafeAreaView(edges=["top",...])가 WebView 자체를 상태바 아래로 밀어 단일 출처로 흡수하므로
+  // 여기서 주입하지 않는다. (주입 시 SafeAreaView padding + .pt-safe 가 더블 적용되어 헤더 위 빈 공간 발생)
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   useEffect(() => {
     insetsRef.current = insets;
   }, [insets]);
 
-  const injectSafeAreaVars = useCallback((bottom: number, top: number) => {
-    const script = `(()=>{try{var r=document.documentElement;r.style.setProperty('--app-native-safe-bottom','${bottom}px');r.style.setProperty('--app-native-safe-top','${top}px');}catch(e){}})();true;`;
+  // <html>의 inline style을 mutate하면 Next.js SSR과 하이드레이션 mismatch가 발생한다.
+  // (서버 HTML에는 style 속성이 없는데 네이티브 주입으로 클라이언트 DOM에는 생김)
+  // 대신 <head>에 전용 <style> 노드를 추가/갱신한다. 외부 추가 노드는 React hydration이 허용.
+  const injectSafeAreaVars = useCallback((bottom: number) => {
+    const script = `(()=>{try{var id='__app-native-safe-area';var el=document.getElementById(id);if(!el){el=document.createElement('style');el.id=id;(document.head||document.documentElement).appendChild(el);}el.textContent=':root{--app-native-safe-bottom:${bottom}px;}';}catch(e){}})();true;`;
     webViewRef.current?.injectJavaScript(script);
   }, []);
 
   useEffect(() => {
-    injectSafeAreaVars(insets.bottom, insets.top);
-  }, [insets.bottom, insets.top, injectSafeAreaVars]);
+    injectSafeAreaVars(insets.bottom);
+  }, [insets.bottom, injectSafeAreaVars]);
 
   // iOS 키보드는 fixed BottomNav를 가린다. 키보드 높이를 web에 publish 하여 BottomNav 숨김 처리.
   // Android는 windowSoftInputMode=adjustResize 로 viewport 자체가 줄어 자동 해결되므로 iOS 한정.
@@ -424,7 +429,7 @@ export default function WebViewScreen() {
             sendPushTokenToWeb();
             tryInjectStoredSession(lastUrlRef.current);
             // 페이지 전환 시 CSS 변수가 초기화되므로 재주입.
-            injectSafeAreaVars(insetsRef.current.bottom, insetsRef.current.top);
+            injectSafeAreaVars(insetsRef.current.bottom);
           }}
           onError={(e) => {
             clearLoadingTimer();
