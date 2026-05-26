@@ -61,6 +61,12 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // 계정 삭제 안내 — 스토어 심사용 정적 페이지. 로그인 여부와 관계없이 항상 접근 가능해야 하므로
+  // 어떤 리다이렉트(미인증 → /login, 인증 → 타입별 홈)도 수행하지 않는다.
+  if (pathname === '/account-deletion') {
+    return supabaseResponse;
+  }
+
   // 인증이 필요없는 경로
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron', '/account/withdrawn'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
