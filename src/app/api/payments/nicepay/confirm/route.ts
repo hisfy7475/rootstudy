@@ -13,13 +13,14 @@ import {
 } from '@/lib/nicepay';
 import { sendPushToUser } from '@/lib/push';
 import { formatOptionSelectionsSummary, parseOptionSelections } from '@/lib/mock-exam-options';
+import { parseEucKrFormBody } from '@/lib/nicepay-encoding';
 
 type OrderCategory = 'meal' | 'exam';
 
-function pickForm(formData: FormData, ...keys: string[]): string {
+function pickForm(formData: URLSearchParams, ...keys: string[]): string {
   for (const k of keys) {
     const v = formData.get(k);
-    if (v != null && String(v).length > 0) return String(v);
+    if (v != null && v.length > 0) return v;
   }
   return '';
 }
@@ -97,9 +98,12 @@ type OrderWithVariant = {
 };
 
 export async function POST(request: Request) {
-  let formData: FormData;
+  let formData: URLSearchParams;
   try {
-    formData = await request.formData();
+    // NICEPay 는 EUC-KR 로 인코딩한 form body 를 POST 한다 (CharSet=euc-kr).
+    // Request#formData() 는 UTF-8 디코드만 지원하므로 한글 ResultMsg 가 손상됨 → raw bytes 직접 디코드.
+    const buf = new Uint8Array(await request.arrayBuffer());
+    formData = parseEucKrFormBody(buf);
   } catch {
     return redirectResult(request, 'student', 'meal', { fail: '1', reason: 'invalid_body' });
   }
@@ -115,7 +119,8 @@ export async function POST(request: Request) {
     return redirectResult(request, role, category, {
       fail: '1',
       code: authResultCode || 'unknown',
-      msg: encodeURIComponent(pickForm(formData, 'AuthResultMsg', 'authResultMsg') || ''),
+      // searchParams.set 이 자동으로 URL 인코딩하므로 이중 인코딩 금지.
+      msg: pickForm(formData, 'AuthResultMsg', 'authResultMsg') || '',
     });
   }
 
@@ -316,7 +321,7 @@ export async function POST(request: Request) {
     return redirectResult(request, role, category, {
       fail: '1',
       reason: 'approve_failed',
-      msg: encodeURIComponent(msg),
+      msg,
       code: approveResult?.result.ResultCode || '',
     });
   }
