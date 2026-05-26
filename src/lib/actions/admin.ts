@@ -1012,76 +1012,77 @@ export async function givePoints(
     const {
       createStudentNotification,
       notifyPointsGranted,
-      sendKakaoAlimtalkToParent,
-      sendKakaoAlimtalkToParentCritical,
+      // [알림톡 비활성화 2026-05-26]
+      // sendKakaoAlimtalkToParent,
+      // sendKakaoAlimtalkToParentCritical,
     } = await import('./notification');
     await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
 
-    // 학부모 알림톡 — dedupe 매트릭스(G 섹션):
+    // [알림톡 비활성화 2026-05-26] 학부모 알림톡 — dedupe 매트릭스(G 섹션):
     //   매 벌점마다 알림톡 발송하지 않고, 단계 알림(warn_25/30 reached) 또는 상점만.
     //   상점은 매번 알림톡, 벌점은 25점/30점 도달 시점에 통합 알림톡 1회.
     //   25/30 은 critical → 실패 시 큐 enqueue (백로그 6).
-    const shouldSendKakao =
-      type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-    const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-
-    if (shouldSendKakao) {
-      try {
-        const { data: studentProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', studentId)
-          .single();
-
-        const { data: parentLink } = await supabase
-          .from('parent_student_links')
-          .select('parent_id')
-          .eq('student_id', studentId)
-          .limit(1)
-          .maybeSingle();
-
-        if (parentLink?.parent_id && studentProfile?.name) {
-          let alimtalkMessage: string;
-          if (thresholdResult?.status === 'consumed') {
-            const burnt = thresholdResult.remainder_burnt;
-            const protectedCount = thresholdResult.auto_pending_created;
-            const protectedText =
-              protectedCount > 0
-                ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 큐로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
-                : burnt > 0
-                  ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
-                  : '';
-            alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
-          } else if (warnings.includes('warn_25')) {
-            alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
-          } else {
-            const pointTypeText = type === 'reward' ? '상점' : '벌점';
-            const pointSign = type === 'reward' ? '+' : '-';
-            alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
-          }
-          if (isCritical) {
-            const category =
-              thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
-            await sendKakaoAlimtalkToParentCritical({
-              parentId: parentLink.parent_id,
-              studentId,
-              message: alimtalkMessage,
-              category,
-              type: 'point',
-            }).catch(console.error);
-          } else {
-            await sendKakaoAlimtalkToParent({
-              parentId: parentLink.parent_id,
-              studentId,
-              message: alimtalkMessage,
-              type: 'point',
-            }).catch(console.error);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to send kakao alimtalk for points:', err);
-      }
-    }
+    // const shouldSendKakao =
+    //   type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
+    // const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
+    //
+    // if (shouldSendKakao) {
+    //   try {
+    //     const { data: studentProfile } = await supabase
+    //       .from('profiles')
+    //       .select('name')
+    //       .eq('id', studentId)
+    //       .single();
+    //
+    //     const { data: parentLink } = await supabase
+    //       .from('parent_student_links')
+    //       .select('parent_id')
+    //       .eq('student_id', studentId)
+    //       .limit(1)
+    //       .maybeSingle();
+    //
+    //     if (parentLink?.parent_id && studentProfile?.name) {
+    //       let alimtalkMessage: string;
+    //       if (thresholdResult?.status === 'consumed') {
+    //         const burnt = thresholdResult.remainder_burnt;
+    //         const protectedCount = thresholdResult.auto_pending_created;
+    //         const protectedText =
+    //           protectedCount > 0
+    //             ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 큐로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
+    //             : burnt > 0
+    //               ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
+    //               : '';
+    //         alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
+    //       } else if (warnings.includes('warn_25')) {
+    //         alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
+    //       } else {
+    //         const pointTypeText = type === 'reward' ? '상점' : '벌점';
+    //         const pointSign = type === 'reward' ? '+' : '-';
+    //         alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
+    //       }
+    //       if (isCritical) {
+    //         const category =
+    //           thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
+    //         await sendKakaoAlimtalkToParentCritical({
+    //           parentId: parentLink.parent_id,
+    //           studentId,
+    //           message: alimtalkMessage,
+    //           category,
+    //           type: 'point',
+    //         }).catch(console.error);
+    //       } else {
+    //         await sendKakaoAlimtalkToParent({
+    //           parentId: parentLink.parent_id,
+    //           studentId,
+    //           message: alimtalkMessage,
+    //           type: 'point',
+    //         }).catch(console.error);
+    //       }
+    //     }
+    //   } catch (err) {
+    //     console.error('Failed to send kakao alimtalk for points:', err);
+    //   }
+    // }
 
     // 학생 단계 알림 — 인앱 추가 발송 (warn_10/20/25 별 톤)
     if (warnings.length > 0) {
@@ -1205,12 +1206,13 @@ export async function giveRewardBatch(params: {
   }
 
   // 사전 일괄 조회 (N+1 회피)
-  const [profilesRes, linksRes] = await Promise.all([
+  // [알림톡 비활성화 2026-05-26] parent_student_links 조회는 알림톡 발송용이었으므로 제거
+  const [profilesRes] = await Promise.all([
     supabase.from('profiles').select('id, name, branch_id').in('id', studentIds),
-    supabase
-      .from('parent_student_links')
-      .select('parent_id, student_id')
-      .in('student_id', studentIds),
+    // supabase
+    //   .from('parent_student_links')
+    //   .select('parent_id, student_id')
+    //   .in('student_id', studentIds),
   ]);
   const profilesById = new Map<string, { name: string; branch_id: string | null }>();
   for (const p of (profilesRes.data ?? []) as Array<{
@@ -1220,13 +1222,13 @@ export async function giveRewardBatch(params: {
   }>) {
     profilesById.set(p.id, { name: p.name ?? '', branch_id: p.branch_id });
   }
-  // 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
-  const firstParentByStudent = new Map<string, string>();
-  for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
-    if (!firstParentByStudent.has(l.student_id)) {
-      firstParentByStudent.set(l.student_id, l.parent_id);
-    }
-  }
+  // [알림톡 비활성화 2026-05-26] 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
+  // const firstParentByStudent = new Map<string, string>();
+  // for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
+  //   if (!firstParentByStudent.has(l.student_id)) {
+  //     firstParentByStudent.set(l.student_id, l.parent_id);
+  //   }
+  // }
 
   // 학생별 branch preset 재매칭 — 입력 presetId 가 학생 branch 와 다를 수 있음 (슈퍼관리자)
   async function resolveRewardPresetForStudent(
@@ -1297,7 +1299,8 @@ export async function giveRewardBatch(params: {
 
   // 알림 발송 — 성공 학생 한정
   if (successIds.length > 0) {
-    const { notifyPointsGranted, sendKakaoAlimtalkToParent } = await import('./notification');
+    // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
+    const { notifyPointsGranted } = await import('./notification');
 
     // 학생 + 모든 학부모 앱 푸시 — fire-and-forget. 학생 이름 매핑 활용해 N+1 회피.
     for (const studentId of successIds) {
@@ -1311,19 +1314,19 @@ export async function giveRewardBatch(params: {
       }).catch((e) => console.error('giveRewardBatch notifyPointsGranted error:', e));
     }
 
-    // 학부모 카카오 알림톡 — 기존 정책 유지 (첫 학부모에게만 발송).
-    for (const studentId of successIds) {
-      const parentId = firstParentByStudent.get(studentId);
-      const profile = profilesById.get(studentId);
-      if (!parentId || !profile?.name) continue;
-      const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
-      void sendKakaoAlimtalkToParent({
-        parentId,
-        studentId,
-        message: alimtalkMessage,
-        type: 'point',
-      }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
-    }
+    // [알림톡 비활성화 2026-05-26] 학부모 카카오 알림톡 — 기존 정책 유지 (첫 학부모에게만 발송).
+    // for (const studentId of successIds) {
+    //   const parentId = firstParentByStudent.get(studentId);
+    //   const profile = profilesById.get(studentId);
+    //   if (!parentId || !profile?.name) continue;
+    //   const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
+    //   void sendKakaoAlimtalkToParent({
+    //     parentId,
+    //     studentId,
+    //     message: alimtalkMessage,
+    //     type: 'point',
+    //   }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
+    // }
   }
 
   revalidatePath('/admin');
@@ -1792,7 +1795,8 @@ export async function issueRedemption(params: {
   }
 
   // 학생/학부모 알림
-  const { createStudentNotification, sendKakaoAlimtalkToParent } = await import('./notification');
+  // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
+  const { createStudentNotification } = await import('./notification');
   await createStudentNotification({
     studentId: result.student_id,
     type: 'point',
@@ -1801,30 +1805,30 @@ export async function issueRedemption(params: {
     link: '/student/points',
   }).catch(console.error);
 
-  // 학부모 알림톡
-  try {
-    const { data: parentLink } = await supabase
-      .from('parent_student_links')
-      .select('parent_id')
-      .eq('student_id', result.student_id)
-      .limit(1)
-      .maybeSingle();
-    const { data: studentProfile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', result.student_id)
-      .single();
-    if (parentLink?.parent_id && studentProfile?.name) {
-      await sendKakaoAlimtalkToParent({
-        parentId: parentLink.parent_id,
-        studentId: result.student_id,
-        message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
-        type: 'point',
-      }).catch(console.error);
-    }
-  } catch (err) {
-    console.error('Failed to send kakao alimtalk for redemption:', err);
-  }
+  // [알림톡 비활성화 2026-05-26] 학부모 알림톡
+  // try {
+  //   const { data: parentLink } = await supabase
+  //     .from('parent_student_links')
+  //     .select('parent_id')
+  //     .eq('student_id', result.student_id)
+  //     .limit(1)
+  //     .maybeSingle();
+  //   const { data: studentProfile } = await supabase
+  //     .from('profiles')
+  //     .select('name')
+  //     .eq('id', result.student_id)
+  //     .single();
+  //   if (parentLink?.parent_id && studentProfile?.name) {
+  //     await sendKakaoAlimtalkToParent({
+  //       parentId: parentLink.parent_id,
+  //       studentId: result.student_id,
+  //       message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
+  //       type: 'point',
+  //     }).catch(console.error);
+  //   }
+  // } catch (err) {
+  //   console.error('Failed to send kakao alimtalk for redemption:', err);
+  // }
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');

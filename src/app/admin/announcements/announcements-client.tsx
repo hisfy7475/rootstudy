@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useTransition } from 'react';
+import { useState, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,9 @@ import {
   ANNOUNCEMENT_FILE_MAX_COUNT,
   resolveAnnouncementFileMime,
 } from '@/lib/announcement-config';
-import { sendKakaoAlimtalkToParents, getAlimtalkConfig } from '@/lib/actions/notification';
+// [알림톡 비활성화 2026-05-26] 카카오 알림톡 기능은 등록된 템플릿이 자유 입력 공지에
+// 매칭되지 않아 일시 비활성화. 부활 시 아래 import와 관련 블록의 주석을 해제하면 됨.
+// import { sendKakaoAlimtalkToParents, getAlimtalkConfig } from '@/lib/actions/notification';
 import {
   Megaphone,
   Plus,
@@ -37,7 +39,7 @@ import {
   Edit,
   X,
   Eye,
-  MessageCircle,
+  // MessageCircle, // [알림톡 비활성화 2026-05-26] 알림톡 UI 전용 아이콘
   Paperclip,
   FileText,
 } from 'lucide-react';
@@ -48,7 +50,8 @@ type Announcement = AnnouncementsListResult['rows'][number];
 interface AnnouncementsClientProps {
   initialResult: AnnouncementsListResult;
   stats: { total: number; important: number; today: number; totalReads: number };
-  alimtalkConfigured?: boolean;
+  // [알림톡 비활성화 2026-05-26]
+  // alimtalkConfigured?: boolean;
 }
 
 const audienceConfig = {
@@ -75,8 +78,9 @@ const audienceConfig = {
 export function AnnouncementsClient({
   initialResult,
   stats,
-  alimtalkConfigured: initialAlimtalkConfigured,
-}: AnnouncementsClientProps) {
+}: // [알림톡 비활성화 2026-05-26]
+// alimtalkConfigured: initialAlimtalkConfigured,
+AnnouncementsClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -91,40 +95,43 @@ export function AnnouncementsClient({
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
+  // [알림톡 비활성화 2026-05-26]
+  // const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AnnouncementAttachmentRow[]>([]);
   // 사용자가 X로 표시한 기존 첨부 — 모달의 "수정/등록" 버튼을 눌러야 실제 DB·Storage에서 삭제된다.
   const [markedDeletedIds, setMarkedDeletedIds] = useState<string[]>([]);
-  const [alimtalkResult, setAlimtalkResult] = useState<{
-    show: boolean;
-    success: boolean;
-    sentCount: number;
-    failedCount: number;
-    noPhoneCount: number;
-  } | null>(null);
+  // [알림톡 비활성화 2026-05-26]
+  // const [alimtalkResult, setAlimtalkResult] = useState<{
+  //   show: boolean;
+  //   success: boolean;
+  //   sentCount: number;
+  //   failedCount: number;
+  //   noPhoneCount: number;
+  // } | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     isImportant: false,
     targetAudience: 'all' as 'all' | 'student' | 'parent',
     sendNotification: true,
-    sendKakaoAlimtalk: false,
+    // [알림톡 비활성화 2026-05-26]
+    // sendKakaoAlimtalk: false,
   });
 
-  // 알림톡 설정 상태 확인
-  useEffect(() => {
-    const checkAlimtalkConfig = async () => {
-      const config = await getAlimtalkConfig();
-      setAlimtalkConfigured(config.isConfigured);
-    };
-    if (initialAlimtalkConfigured === undefined) {
-      checkAlimtalkConfig();
-    }
-  }, [initialAlimtalkConfigured]);
+  // [알림톡 비활성화 2026-05-26] 알림톡 설정 상태 확인
+  // useEffect(() => {
+  //   const checkAlimtalkConfig = async () => {
+  //     const config = await getAlimtalkConfig();
+  //     setAlimtalkConfigured(config.isConfigured);
+  //   };
+  //   if (initialAlimtalkConfigured === undefined) {
+  //     checkAlimtalkConfig();
+  //   }
+  // }, [initialAlimtalkConfigured]);
 
-  // 대상이 학생 전용일 때 카카오 알림톡 비활성화
-  const canSendKakaoAlimtalk = alimtalkConfigured && formData.targetAudience !== 'student';
+  // [알림톡 비활성화 2026-05-26] 대상이 학생 전용일 때 카카오 알림톡 비활성화
+  // const canSendKakaoAlimtalk = alimtalkConfigured && formData.targetAudience !== 'student';
 
   const refreshData = () => {
     startTransition(() => router.refresh());
@@ -163,9 +170,11 @@ export function AnnouncementsClient({
       isImportant: false,
       targetAudience: 'all',
       sendNotification: true,
-      sendKakaoAlimtalk: false,
+      // [알림톡 비활성화 2026-05-26]
+      // sendKakaoAlimtalk: false,
     });
-    setAlimtalkResult(null);
+    // [알림톡 비활성화 2026-05-26]
+    // setAlimtalkResult(null);
     setShowModal(true);
   };
 
@@ -179,9 +188,11 @@ export function AnnouncementsClient({
       isImportant: announcement.is_important,
       targetAudience: announcement.target_audience,
       sendNotification: false,
-      sendKakaoAlimtalk: false,
+      // [알림톡 비활성화 2026-05-26]
+      // sendKakaoAlimtalk: false,
     });
-    setAlimtalkResult(null);
+    // [알림톡 비활성화 2026-05-26]
+    // setAlimtalkResult(null);
     setShowModal(true);
     const full = await getAnnouncementById(announcement.id);
     setExistingAttachments(full?.attachments ?? []);
@@ -277,7 +288,8 @@ export function AnnouncementsClient({
     }
 
     setLoading(true);
-    setAlimtalkResult(null);
+    // [알림톡 비활성화 2026-05-26]
+    // setAlimtalkResult(null);
 
     try {
       if (editingId) {
@@ -364,25 +376,25 @@ export function AnnouncementsClient({
         }
       }
 
-      // 카카오 알림톡 발송 (새 공지 생성 시에만)
-      if (!editingId && formData.sendKakaoAlimtalk && canSendKakaoAlimtalk) {
-        const alimtalkMessage = `[${formData.title}]\n\n${formData.content}`;
-        const alimtalkRes = await sendKakaoAlimtalkToParents({
-          message: alimtalkMessage,
-        });
-
-        setAlimtalkResult({
-          show: true,
-          success: alimtalkRes.success,
-          sentCount: alimtalkRes.sentCount,
-          failedCount: alimtalkRes.failedCount,
-          noPhoneCount: alimtalkRes.noPhoneCount,
-        });
-
-        // 결과 표시 후 모달 닫지 않음 (사용자가 결과 확인 후 닫기)
-        await refreshData();
-        return;
-      }
+      // [알림톡 비활성화 2026-05-26] 카카오 알림톡 발송 (새 공지 생성 시에만)
+      // if (!editingId && formData.sendKakaoAlimtalk && canSendKakaoAlimtalk) {
+      //   const alimtalkMessage = `[${formData.title}]\n\n${formData.content}`;
+      //   const alimtalkRes = await sendKakaoAlimtalkToParents({
+      //     message: alimtalkMessage,
+      //   });
+      //
+      //   setAlimtalkResult({
+      //     show: true,
+      //     success: alimtalkRes.success,
+      //     sentCount: alimtalkRes.sentCount,
+      //     failedCount: alimtalkRes.failedCount,
+      //     noPhoneCount: alimtalkRes.noPhoneCount,
+      //   });
+      //
+      //   // 결과 표시 후 모달 닫지 않음 (사용자가 결과 확인 후 닫기)
+      //   await refreshData();
+      //   return;
+      // }
 
       setShowModal(false);
       await refreshData();
@@ -798,6 +810,7 @@ export function AnnouncementsClient({
                       <span className='text-sm'>앱 내 알림 발송</span>
                     </label>
 
+                    {/* [알림톡 비활성화 2026-05-26] 카카오 알림톡 발송 토글
                     <label
                       className={cn(
                         'flex items-center gap-2',
@@ -824,11 +837,12 @@ export function AnnouncementsClient({
                         )}
                       </span>
                     </label>
+                    */}
                   </>
                 )}
               </div>
 
-              {/* 알림톡 발송 결과 */}
+              {/* [알림톡 비활성화 2026-05-26] 알림톡 발송 결과
               {alimtalkResult?.show && (
                 <div
                   className={cn(
@@ -855,17 +869,16 @@ export function AnnouncementsClient({
                   </div>
                 </div>
               )}
+              */}
             </div>
 
             <div className='mt-6 flex justify-end gap-2'>
               <Button variant='outline' onClick={() => setShowModal(false)}>
-                {alimtalkResult?.show ? '닫기' : '취소'}
+                취소
               </Button>
-              {!alimtalkResult?.show && (
-                <Button onClick={handleSubmit} disabled={loading}>
-                  {loading ? '저장 중...' : editingId ? '수정' : '등록'}
-                </Button>
-              )}
+              <Button onClick={handleSubmit} disabled={loading}>
+                {loading ? '저장 중...' : editingId ? '수정' : '등록'}
+              </Button>
             </div>
           </Card>
         </div>

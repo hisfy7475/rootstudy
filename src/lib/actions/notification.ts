@@ -511,6 +511,13 @@ export async function sendNotificationToAll(params: SendNotificationParams) {
 // ============================================
 // 카카오 알림톡 발송 (학부모 대상)
 // ============================================
+//
+// [알림톡 비활성화 2026-05-26]
+// NCP SENS에 승인된 템플릿(`alertAbsent`, `alertLate`, `noticeRule`, `noticeClosure`)이
+// 자유 입력 공지·상벌점·멘토링 메시지와 매칭되지 않아 카카오 알림톡 발송 기능 전체를
+// 일시 비활성화합니다. 호출부(announcements / admin / mentoring / kakao-retry cron)는
+// 모두 주석 처리되어 있으며, 아래 함수들은 외부 호출이 없는 상태로 유지됩니다.
+// 부활 시: 호출부 주석 해제 + 필요한 신규 템플릿 등록 + 환경변수 설정.
 
 import {
   sendBulkAlimtalk,

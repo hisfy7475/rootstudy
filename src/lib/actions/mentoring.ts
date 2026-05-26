@@ -16,7 +16,8 @@ import type {
 import {
   createStudentNotification,
   createUserNotification,
-  sendMentoringAlimtalkToParent,
+  // [알림톡 비활성화 2026-05-26]
+  // sendMentoringAlimtalkToParent,
 } from '@/lib/actions/notification';
 export type {
   MentoringSlotWithMentor,
@@ -1711,12 +1712,13 @@ async function notifyStudentAndParentsMentoringDecision(params: {
     params.endTime,
   );
 
-  const { data: studentProfile } = await admin
-    .from('profiles')
-    .select('name')
-    .eq('id', params.studentId)
-    .maybeSingle();
-  const studentName = studentProfile?.name ?? '학생';
+  // [알림톡 비활성화 2026-05-26] studentName은 알림톡 발송용이었으므로 조회/변수 제거.
+  // const { data: studentProfile } = await admin
+  //   .from('profiles')
+  //   .select('name')
+  //   .eq('id', params.studentId)
+  //   .maybeSingle();
+  // const studentName = studentProfile?.name ?? '학생';
 
   const typeLabel = MENTORING_TYPE_LABEL[params.slotType];
   const title =
@@ -1759,17 +1761,18 @@ async function notifyStudentAndParentsMentoringDecision(params: {
       link: '/parent/mentoring/my',
     }).catch((e) => console.error('[notifyStudentAndParentsMentoringDecision] parent notif', e));
 
-    void sendMentoringAlimtalkToParent({
-      parentId,
-      studentId: params.studentId,
-      slotType: params.slotType,
-      kind: params.kind,
-      studentName,
-      subjectLabel: params.subjectLabel,
-      dateLabel,
-      timeLabel,
-      reason: params.rejectReason,
-    }).catch((e) => console.error('[notifyStudentAndParentsMentoringDecision] alimtalk', e));
+    // [알림톡 비활성화 2026-05-26]
+    // void sendMentoringAlimtalkToParent({
+    //   parentId,
+    //   studentId: params.studentId,
+    //   slotType: params.slotType,
+    //   kind: params.kind,
+    //   studentName,
+    //   subjectLabel: params.subjectLabel,
+    //   dateLabel,
+    //   timeLabel,
+    //   reason: params.rejectReason,
+    // }).catch((e) => console.error('[notifyStudentAndParentsMentoringDecision] alimtalk', e));
   }
 }
 
