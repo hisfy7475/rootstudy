@@ -20,7 +20,12 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { WEB_BASE_URL, APP_USER_AGENT_SUFFIX } from "./constants";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useSecureTokenStore } from "./hooks/useSecureTokenStore";
-import { uploadChatFileFromNative, uploadChatImageFromNative } from "./lib/nativeChatUpload";
+import {
+  uploadChatFileFromNative,
+  uploadChatImageFromNative,
+  uploadMentoringFileFromNative,
+  uploadMentoringImageFromNative,
+} from "./lib/nativeChatUpload";
 import {
   buildInjectNativeMessageScript,
   parseWebMessage,
@@ -183,13 +188,17 @@ export default function WebViewScreen() {
   }, [secureReady, tryInjectStoredSession]);
 
   const postFileUploadedToWeb = useCallback(
-    (payload: { url: string; filename: string; mime_type: string }) => {
+    (
+      payload: { url: string; filename: string; mime_type: string },
+      context: "chat" | "mentoring",
+    ) => {
       const script = buildInjectNativeMessageScript({
         type: "FILE_UPLOADED",
         payload: {
           url: payload.url,
           filename: payload.filename,
           mime_type: payload.mime_type,
+          context,
         },
       });
       webViewRef.current?.injectJavaScript(script);
@@ -200,22 +209,35 @@ export default function WebViewScreen() {
   // 네이티브 업로드 실패를 웹에 전달해 사용자에게 토스트로 알린다.
   // 에러 메시지에 토큰/경로 등 민감 정보가 섞이지 않도록 nativeChatUpload 측에서
   // 사용자 노출 안전한 한글 문구로만 throw 하도록 보장되어야 한다.
-  const postFileUploadErrorToWeb = useCallback((message: string) => {
-    const safe =
-      typeof message === "string" && message.length > 0 && message.length < 200
-        ? message
-        : "파일 업로드에 실패했습니다.";
-    const script = buildInjectNativeMessageScript({
-      type: "FILE_UPLOAD_ERROR",
-      payload: { message: safe },
-    });
-    webViewRef.current?.injectJavaScript(script);
-  }, []);
+  const postFileUploadErrorToWeb = useCallback(
+    (message: string, context: "chat" | "mentoring") => {
+      const safe =
+        typeof message === "string" && message.length > 0 && message.length < 200
+          ? message
+          : "파일 업로드에 실패했습니다.";
+      const script = buildInjectNativeMessageScript({
+        type: "FILE_UPLOAD_ERROR",
+        payload: { message: safe, context },
+      });
+      webViewRef.current?.injectJavaScript(script);
+    },
+    [],
+  );
 
   const handlePickImage = useCallback(
-    async (payload: { source: "camera" | "gallery"; roomId: string }) => {
+    async (payload: {
+      source: "camera" | "gallery";
+      context: "chat" | "mentoring";
+      roomId?: string;
+    }) => {
       const session = sessionRef.current;
       if (!session?.access_token) return;
+
+      // chat 컨텍스트는 roomId 가 필수. 누락된 메시지는 신뢰하지 않고 무시.
+      if (payload.context === "chat" && !payload.roomId) {
+        console.warn("[WebViewScreen] PICK_IMAGE chat without roomId");
+        return;
+      }
 
       const perm =
         payload.source === "camera"
@@ -263,18 +285,27 @@ export default function WebViewScreen() {
 
       const asset = picked.assets[0];
       try {
-        const result = await uploadChatImageFromNative(
-          session,
-          payload.roomId,
-          asset.uri,
-          asset.mimeType ?? undefined,
-          asset.fileSize ?? undefined,
-        );
-        postFileUploadedToWeb(result);
+        const result =
+          payload.context === "mentoring"
+            ? await uploadMentoringImageFromNative(
+                session,
+                asset.uri,
+                asset.mimeType ?? undefined,
+                asset.fileSize ?? undefined,
+              )
+            : await uploadChatImageFromNative(
+                session,
+                payload.roomId!,
+                asset.uri,
+                asset.mimeType ?? undefined,
+                asset.fileSize ?? undefined,
+              );
+        postFileUploadedToWeb(result, payload.context);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
+          payload.context,
         );
       }
     },
@@ -282,9 +313,14 @@ export default function WebViewScreen() {
   );
 
   const handlePickFile = useCallback(
-    async (payload: { roomId: string }) => {
+    async (payload: { context: "chat" | "mentoring"; roomId?: string }) => {
       const session = sessionRef.current;
       if (!session?.access_token) return;
+
+      if (payload.context === "chat" && !payload.roomId) {
+        console.warn("[WebViewScreen] PICK_FILE chat without roomId");
+        return;
+      }
 
       const picked = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
@@ -295,19 +331,29 @@ export default function WebViewScreen() {
 
       const asset = picked.assets[0];
       try {
-        const result = await uploadChatFileFromNative(
-          session,
-          payload.roomId,
-          asset.uri,
-          asset.name ?? "file",
-          asset.mimeType ?? undefined,
-          asset.size ?? null,
-        );
-        postFileUploadedToWeb(result);
+        const result =
+          payload.context === "mentoring"
+            ? await uploadMentoringFileFromNative(
+                session,
+                asset.uri,
+                asset.name ?? "file",
+                asset.mimeType ?? undefined,
+                asset.size ?? null,
+              )
+            : await uploadChatFileFromNative(
+                session,
+                payload.roomId!,
+                asset.uri,
+                asset.name ?? "file",
+                asset.mimeType ?? undefined,
+                asset.size ?? null,
+              );
+        postFileUploadedToWeb(result, payload.context);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "파일 업로드에 실패했습니다.",
+          payload.context,
         );
       }
     },

@@ -322,8 +322,13 @@ export function ChatRoom({
             filename?: string;
             mime_type?: string;
             message?: string;
+            context?: string;
           };
         };
+        // context echo 가 없거나 'chat' 인 메시지만 채팅이 처리.
+        // (구버전 네이티브 앱은 context 미포함이라 폴백 허용; 신버전에서는 반드시 'chat' 만)
+        const ctx = parsed.payload?.context;
+        if (ctx != null && ctx !== 'chat') return;
         if (parsed.type === 'FILE_UPLOAD_ERROR') {
           setIsSending(false);
           alert(parsed.payload?.message ?? '파일 업로드에 실패했습니다.');

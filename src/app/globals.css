@@ -12,6 +12,8 @@
   --color-success: #86efac;
   --color-warning: #fde68a;
   --color-error: #fca5a5;
+  /* 폼 검증 실패·삭제 등 강조 빨강. --color-error(연한 분홍)는 배너용이라 텍스트엔 가독성 부족. */
+  --color-destructive: #dc2626;
 }
 
 @theme inline {
@@ -26,6 +28,7 @@
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-error: var(--color-error);
+  --color-destructive: var(--color-destructive);
 
   /* Pretendard 폰트 */
   --font-pretendard:
