@@ -67,6 +67,11 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // 개인정보처리방침 — 로그인 여부와 관계없이 항상 접근 가능해야 하는 정적 페이지.
+  if (pathname === '/privacy') {
+    return supabaseResponse;
+  }
+
   // 인증이 필요없는 경로
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron', '/account/withdrawn'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
