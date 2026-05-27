@@ -35,7 +35,7 @@ function getResetTimeUTC(): { hour: number; minute: number } {
 async function evaluateDailyFocus(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   studyDateStr: string,
-  opts: { skipNotify?: boolean } = {},
+  opts: { skipNotify?: boolean; createdAt?: string } = {},
 ): Promise<{
   evaluated: number;
   granted: number;
@@ -142,6 +142,8 @@ async function evaluateDailyFocus(
       // 부여 케이스만 먼저 points 인서트해서 pointId 확정 → upsert 한 번에 점수까지 연결.
       let pointId: string | null = null;
       if (didGrant && presetId) {
+        // 백필 모드일 때만 created_at 명시 — uq_points_daily_preset(student_id, preset_id, KST date)
+        // 충돌 방지. 정규 cron 은 NOW() default 그대로 사용.
         const { data: point, error: pointErr } = await supabase
           .from('points')
           .insert({
@@ -154,6 +156,7 @@ async function evaluateDailyFocus(
             event_kind: 'auto_daily_focus',
             preset_id: presetId,
             preset_type: 'reward',
+            ...(opts.createdAt ? { created_at: opts.createdAt } : {}),
           })
           .select('id')
           .maybeSingle();
@@ -231,12 +234,20 @@ export async function GET(request: Request) {
       );
     }
     try {
-      const focusResult = await evaluateDailyFocus(supabase, backfillStudyDate, { skipNotify });
+      // 정상 cron 이 학습일 종료 시점(다음날 KST 03:00 = 학습일 18:00 UTC)에 부여했을
+      // created_at 으로 박아 uq_points_daily_preset (student_id, preset_id, KST date) 충돌 회피.
+      const [y, m, d] = backfillStudyDate.split('-').map(Number);
+      const backfillCreatedAt = new Date(Date.UTC(y, m - 1, d, 18, 0, 0)).toISOString();
+      const focusResult = await evaluateDailyFocus(supabase, backfillStudyDate, {
+        skipNotify,
+        createdAt: backfillCreatedAt,
+      });
       return NextResponse.json({
         success: true,
         mode: 'backfill',
         studyDate: backfillStudyDate,
         notify: !skipNotify,
+        backfillCreatedAt,
         dailyFocus: focusResult,
       });
     } catch (error) {
