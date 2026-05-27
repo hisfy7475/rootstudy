@@ -71,7 +71,7 @@ export function PolicyAcknowledgementModal({
                 분기 벌점 {PENALTY_RULES.withdrawAt}점 도달 시
               </p>
               <p className='text-text-muted text-xs'>
-                보유 상점과 1:1 상계됩니다. 가용 상점이 없으면 강제 퇴원 대상으로 마크되며, 관리자
+                보유 상점과 1:1 상계됩니다. 가용 상점이 없으면 강제 퇴원 대상으로 분류되며, 관리자
                 면담 후 처리됩니다. (발급 대기 상점은 상계 대상에서 보호)
               </p>
             </div>

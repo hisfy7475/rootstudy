@@ -121,10 +121,9 @@ export function PointsPageClient({
           <div className='flex items-start gap-3'>
             <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-red-600' />
             <div className='space-y-1'>
-              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 마크되었습니다</p>
+              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-700'>
-                벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다. 원장님께서 곧
-                안내해 드릴게요.
+                벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다.
               </p>
             </div>
           </div>
@@ -137,9 +136,9 @@ export function PointsPageClient({
           <div className='flex items-start gap-3'>
             <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-red-500' />
             <div className='space-y-1'>
-              <p className='text-sm font-bold text-red-700'>원장님과 면담이 필요합니다</p>
+              <p className='text-sm font-bold text-red-700'>퇴원 검토 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-600'>
-                분기 벌점 30점에 도달하여 검토 대상이 되었습니다. 잠시 후 안내해 드릴게요.
+                분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.
               </p>
             </div>
           </div>

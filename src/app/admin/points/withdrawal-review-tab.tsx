@@ -98,7 +98,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
             )}
           </p>
           <p className='text-text-muted text-xs'>
-            {row.kind === 'review' ? '검토 진입' : '강제 퇴원 대상 마크'}{' '}
+            {row.kind === 'review' ? '검토 진입' : '강제 퇴원 대상 분류'}{' '}
             {row.markedAt
               ? new Date(row.markedAt).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
               : '-'}
@@ -160,7 +160,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
                 onClick={() => setConfirm({ type: 'cancel_required', row })}
               >
                 <RotateCcw className='mr-1 h-3.5 w-3.5' />
-                마크 취소
+                분류 취소
               </Button>
               <Button
                 size='sm'
@@ -192,8 +192,8 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
               강제 퇴원 대상 ({requiredQueue.length}명)
             </h2>
             <p className='text-text-muted mt-1 text-xs'>
-              벌점 30점 도달 시점에 가용 상점이 없어 자동 마크된 학생입니다. 강제 퇴원은 비가역
-              조치이므로 신중히 처리하세요.
+              벌점 30점 도달 시점에 가용 상점이 없어 자동으로 분류된 학생입니다. 강제 퇴원은 되돌릴
+              수 없으니 신중히 처리하세요.
             </p>
           </div>
           <div className='divide-y'>{requiredQueue.map(renderRow)}</div>
@@ -225,7 +225,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
                 (confirm.row.kind === 'required' ? '강제 퇴원 실행' : '퇴원 확정')}
               {confirm.type === 'cancel_with_restore' && '검토 취소 (상점 복구)'}
               {confirm.type === 'cancel_no_restore' && '검토 취소 (복구 없음)'}
-              {confirm.type === 'cancel_required' && '강제 퇴원 대상 마크 취소'}
+              {confirm.type === 'cancel_required' && '강제 퇴원 대상 분류 취소'}
             </h3>
             <p className='text-text-muted mb-4 text-sm'>
               {confirm.type === 'withdraw' && (
@@ -250,7 +250,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
               {confirm.type === 'cancel_required' && (
                 <>
                   <strong className='text-text'>{confirm.row.name}</strong> 학생의 강제 퇴원 대상
-                  마크를 해제하여 재원 상태로 돌립니다. 이미 발생한 상계는 보존됩니다.
+                  분류를 해제하여 재원 상태로 돌립니다. 이미 발생한 상계는 보존됩니다.
                 </>
               )}
             </p>
