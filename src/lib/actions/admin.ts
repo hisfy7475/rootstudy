@@ -1140,9 +1140,8 @@ export async function givePoints(
       await createStudentNotification({
         studentId,
         type: 'point',
-        title: '면담이 필요합니다 — 강제 퇴원 대상',
-        message:
-          '가용 상점이 없어 강제 퇴원 대상으로 마크되었습니다. 원장님께서 곧 안내해드릴게요.',
+        title: '강제 퇴원 대상으로 분류되었습니다',
+        message: '가용 상점이 없어 강제 퇴원 대상으로 분류되었습니다.',
         link: '/student/points',
       }).catch(console.error);
     }
@@ -1772,7 +1771,7 @@ export async function confirmWithdrawal(studentId: string, reason?: string) {
   return { success: true, warning: 'warning' in result ? result.warning : undefined };
 }
 
-// 신규 정책: 강제 퇴원 대상 마크 취소 (재원 유지). 상계 자체는 보존.
+// 신규 정책: 강제 퇴원 대상 분류 취소 (재원 유지). 상계 자체는 보존.
 export async function cancelRequiredWithdrawal(studentId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('cancel_withdrawal_review', {

@@ -39,14 +39,14 @@ export default function PointsPolicyPage() {
         <h2 className='text-base font-bold text-red-700'>③ 30점 도달 시 1:1 상계</h2>
         <p className='text-text text-sm'>
           분기 누적 벌점이 30점에 도달하면 보유한 가용 상점과 1:1로 상계됩니다. 양쪽에서 작은 값만큼
-          동시에 차감되며, 상점이 부족하면 강제 퇴원 대상으로 자동 마크됩니다.
+          동시에 차감되며, 상점이 부족하면 강제 퇴원 대상으로 자동 분류됩니다.
         </p>
         <p className='text-text-muted text-xs'>
           예시 ① 상점 14 + 벌점 30 → 양쪽 14씩 차감 → 상점 0 / 잔존 벌점 16
           <br />
           예시 ② 상점 50 + 벌점 30 → 양쪽 30씩 차감 → 상점 20 / 벌점 0
           <br />
-          예시 ③ 상점 0 + 벌점 30 → 차감 불가 → 강제 퇴원 대상 마크
+          예시 ③ 상점 0 + 벌점 30 → 차감 불가 → 강제 퇴원 대상 분류
         </p>
         <p className='text-text-muted text-xs'>
           ※ 이미 상품권 발급 대기에 등록된 100점 단위(신청 + 자동 대기)는 상계 대상에서 보호됩니다.

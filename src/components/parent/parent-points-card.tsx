@@ -45,10 +45,9 @@ export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
           <div className='flex items-start gap-2'>
             <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-700' />
             <div className='space-y-0.5'>
-              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 마크되었습니다</p>
+              <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-700'>
-                자녀가 벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다. 원장이 곧
-                직접 연락드립니다.
+                자녀가 벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다.
               </p>
             </div>
           </div>
@@ -59,11 +58,11 @@ export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
           <div className='flex items-start gap-2'>
             <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-600' />
             <div className='space-y-0.5'>
-              <p className='text-sm font-bold text-red-700'>면담이 필요합니다</p>
+              <p className='text-sm font-bold text-red-700'>퇴원 검토 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-600'>
                 {penaltyOffsetInQuarter > 0
                   ? `자녀가 벌점 30점에 도달하여 상점 ${penaltyOffsetInQuarter}점과 상계되었습니다. 잔존 벌점 ${penaltyQuarter}점.`
-                  : '자녀가 분기 벌점 30점에 도달했습니다. 원장이 곧 직접 연락드립니다.'}
+                  : '자녀가 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.'}
               </p>
             </div>
           </div>
