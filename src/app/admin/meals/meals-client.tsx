@@ -1,15 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import { MealImage } from '@/components/shared/meal-image';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MealProduct, MealProductVariant } from '@/types/database';
-import type { MealProductsListResult } from '@/lib/actions/meal';
+import { deleteMealProduct, type MealProductsListResult } from '@/lib/actions/meal';
 
 const statusLabel: Record<MealProduct['status'], string> = {
   active: '판매중',
@@ -42,12 +43,35 @@ function variantSummary(variants: MealProductVariant[]): string {
 
 export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const sp = useSearchParams();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const products = initialResult.rows;
   const total = initialResult.total;
   const page = initialResult.page;
   const pageSize = initialResult.pageSize;
+
+  const handleDelete = async (
+    e: React.MouseEvent<HTMLButtonElement>,
+    product: { id: string; name: string },
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (deletingId) return;
+    const ok = window.confirm(
+      `"${product.name}" 상품을 영구 삭제하시겠습니까?\n신청 이력이 있으면 삭제할 수 없습니다.`,
+    );
+    if (!ok) return;
+    setDeletingId(product.id);
+    const res = await deleteMealProduct(product.id);
+    setDeletingId(null);
+    if (res.error) {
+      window.alert(res.error);
+      return;
+    }
+    router.refresh();
+  };
 
   return (
     <div className='mx-auto max-w-6xl space-y-6 p-4 md:p-8'>
@@ -95,12 +119,13 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
                 <th className='p-3 font-medium'>옵션</th>
                 <th className='p-3 font-medium'>가격</th>
                 <th className='p-3 font-medium'>상태</th>
+                <th className='w-16 p-3 text-right font-medium'></th>
               </tr>
             </thead>
             <tbody>
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className='text-muted-foreground p-8 text-center'>
+                  <td colSpan={7} className='text-muted-foreground p-8 text-center'>
                     등록된 상품이 없습니다.
                   </td>
                 </tr>
@@ -141,6 +166,22 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
                       >
                         {statusLabel[p.status]}
                       </span>
+                    </td>
+                    <td className='p-3 text-right'>
+                      <button
+                        type='button'
+                        onClick={(e) => handleDelete(e, p)}
+                        disabled={deletingId === p.id}
+                        title='상품 삭제'
+                        aria-label={`${p.name} 상품 삭제`}
+                        className={cn(
+                          'inline-flex items-center justify-center rounded-md p-2 transition-colors',
+                          'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
+                          'disabled:cursor-not-allowed disabled:opacity-50',
+                        )}
+                      >
+                        <Trash2 className='size-4' />
+                      </button>
                     </td>
                   </tr>
                 ))

@@ -11,11 +11,12 @@ import {
   updateMealProductAndVariant,
   uploadMealProductImage,
   deleteMealProductImage,
+  deleteMealProduct,
   type MealProductWithVariants,
   type MockExamOptionGroupWithOptions,
 } from '@/lib/actions/meal';
 import type { MealProduct, MealProductVariant } from '@/types/database';
-import { ListOrdered, Loader2 } from 'lucide-react';
+import { ListOrdered, Loader2, Trash2 } from 'lucide-react';
 import {
   MockExamOptionEditor,
   optionEditorValueFromServer,
@@ -39,6 +40,7 @@ export function AdminMockExamsDetailClient({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [form, setForm] = useState({
     name: initial.name,
@@ -138,6 +140,22 @@ export function AdminMockExamsDetailClient({
         : prev,
     );
     setMessage('저장되었습니다.');
+  };
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    const ok = window.confirm(
+      `"${product.name}" 모의고사를 영구 삭제하시겠습니까?\n신청 이력이 있으면 삭제할 수 없습니다.`,
+    );
+    if (!ok) return;
+    setDeleting(true);
+    const res = await deleteMealProduct(product.id);
+    if (res.error) {
+      setDeleting(false);
+      window.alert(res.error);
+      return;
+    }
+    router.push('/admin/mock-exams');
   };
 
   return (
@@ -276,9 +294,20 @@ export function AdminMockExamsDetailClient({
             placeholderSrc='/images/meal-product-placeholder.png'
           />
 
-          <Button type='submit' disabled={loading}>
-            {loading ? <Loader2 className='size-4 animate-spin' /> : '저장'}
-          </Button>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <Button type='submit' disabled={loading}>
+              {loading ? <Loader2 className='size-4 animate-spin' /> : '저장'}
+            </Button>
+            <Button type='button' variant='danger' disabled={deleting} onClick={handleDelete}>
+              {deleting ? (
+                <Loader2 className='size-4 animate-spin' />
+              ) : (
+                <>
+                  <Trash2 className='mr-1 size-4' /> 상품 삭제
+                </>
+              )}
+            </Button>
+          </div>
         </form>
       </Card>
     </div>

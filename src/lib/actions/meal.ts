@@ -644,6 +644,91 @@ export async function deleteMealProductVariant(
   return { success: true };
 }
 
+/**
+ * 상품 영구 삭제(hard delete).
+ * - 신청·결제 이력이 1건이라도 있으면 거부 (DB 단 RESTRICT 보호 + 사전 가드로 친절한 메시지).
+ * - 통과 시 CASCADE 로 variants / menus / mock_exam_option_groups / mock_exam_options 자동 정리.
+ * - Storage 의 상품 본체 + 메뉴 이미지도 함께 정리(DELETE 전에 수집 필수).
+ */
+export async function deleteMealProduct(
+  productId: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const product = await assertMealProductInBranch(supabase, productId, ctx);
+  if (!product) return { error: '상품을 찾을 수 없습니다.' };
+
+  // 1) 주문 가드: variant 목록 → meal_orders 카운트.
+  const { data: variantRows } = await supabase
+    .from('meal_product_variants')
+    .select('id')
+    .eq('product_id', productId);
+  const variantIds = (variantRows ?? []).map((v) => v.id as string);
+
+  if (variantIds.length > 0) {
+    const { count } = await supabase
+      .from('meal_orders')
+      .select('*', { count: 'exact', head: true })
+      .in('variant_id', variantIds);
+    if ((count ?? 0) > 0) {
+      return {
+        error: `신청 또는 결제 이력이 ${count}건 있어 삭제할 수 없습니다. 비활성으로 변경해 주세요.`,
+      };
+    }
+  }
+
+  // 2) Storage 이미지 수집 — CASCADE 후엔 image_url 조회 불가하므로 DELETE 전에 모음.
+  const pathsToRemove: string[] = [];
+  if (product.image_url) {
+    const p = storagePathFromPublicUrl(product.image_url);
+    if (p) pathsToRemove.push(p);
+  }
+  const { data: menuRows } = await supabase
+    .from('meal_menus')
+    .select('image_url')
+    .eq('product_id', productId);
+  for (const m of menuRows ?? []) {
+    const url = (m as { image_url: string | null }).image_url;
+    if (url) {
+      const p = storagePathFromPublicUrl(url);
+      if (p) pathsToRemove.push(p);
+    }
+  }
+  if (pathsToRemove.length > 0) {
+    await supabase.storage.from(MEAL_IMAGES_BUCKET).remove(pathsToRemove);
+  }
+
+  // 3) 본체 DELETE. CASCADE 로 variants/menus/option_groups/options 자동 정리.
+  let delQ = supabase.from('meal_products').delete().eq('id', productId);
+  if (!ctx.isSuperAdmin && ctx.branchId) delQ = delQ.eq('branch_id', ctx.branchId);
+  const { error } = await delQ;
+  if (error) {
+    logPostgrestQueryError('[deleteMealProduct]', error);
+    // PG 23503 = FK 위반 (가드 통과 직후 race 로 신청 발생한 경우)
+    if ((error as { code?: string }).code === '23503') {
+      return { error: '방금 신청이 발생하여 삭제할 수 없습니다. 새로고침 후 다시 시도해 주세요.' };
+    }
+    return { error: '상품 삭제에 실패했습니다.' };
+  }
+
+  // 4) 캐시 무효화 — 어드민/학생/학부모 영역의 카테고리별 경로 + 합집합 경로.
+  const base = adminBasePath(product.category);
+  revalidatePath(base);
+  revalidatePath(studentBasePath(product.category));
+  revalidatePath(parentBasePath(product.category));
+  if (product.category === 'meal') {
+    revalidatePath('/student/meals', 'layout');
+    revalidatePath('/parent/meals', 'layout');
+  } else {
+    revalidatePath('/student/mock-exams', 'layout');
+    revalidatePath('/parent/mock-exams', 'layout');
+  }
+
+  return { success: true };
+}
+
 // ---------------------------------------------------------------------------
 // Admin: 메뉴 (product FK 유지)
 // ---------------------------------------------------------------------------

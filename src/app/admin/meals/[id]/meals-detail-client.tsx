@@ -14,6 +14,7 @@ import {
   createMealProductVariant,
   updateMealProductVariant,
   deleteMealProductVariant,
+  deleteMealProduct,
   type VariantInput,
   type VariantKind,
   type MealProductWithVariants,
@@ -202,6 +203,23 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
     setVariants((prev) => prev.filter((x) => x.id !== v.id));
   };
 
+  const [productDeleting, setProductDeleting] = useState(false);
+  const handleDeleteProduct = async () => {
+    if (productDeleting) return;
+    const ok = window.confirm(
+      `"${product.name}" 상품을 영구 삭제하시겠습니까?\n신청 이력이 있으면 삭제할 수 없습니다.`,
+    );
+    if (!ok) return;
+    setProductDeleting(true);
+    const res = await deleteMealProduct(product.id);
+    if (res.error) {
+      setProductDeleting(false);
+      window.alert(res.error);
+      return;
+    }
+    router.push('/admin/meals');
+  };
+
   return (
     <div className='space-y-6'>
       <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
@@ -301,9 +319,25 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
             placeholderSrc='/images/meal-product-placeholder.png'
           />
 
-          <Button type='submit' disabled={productLoading || !productDirty}>
-            {productLoading ? <Loader2 className='size-4 animate-spin' /> : '상품 정보 저장'}
-          </Button>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <Button type='submit' disabled={productLoading || !productDirty}>
+              {productLoading ? <Loader2 className='size-4 animate-spin' /> : '상품 정보 저장'}
+            </Button>
+            <Button
+              type='button'
+              variant='danger'
+              disabled={productDeleting}
+              onClick={handleDeleteProduct}
+            >
+              {productDeleting ? (
+                <Loader2 className='size-4 animate-spin' />
+              ) : (
+                <>
+                  <Trash2 className='mr-1 size-4' /> 상품 삭제
+                </>
+              )}
+            </Button>
+          </div>
         </form>
       </Card>
 
