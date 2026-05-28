@@ -61,20 +61,12 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  // 계정 삭제 안내 — 스토어 심사용 정적 페이지. 로그인 여부와 관계없이 항상 접근 가능해야 하므로
-  // 어떤 리다이렉트(미인증 → /login, 인증 → 타입별 홈)도 수행하지 않는다.
-  if (pathname === '/account-deletion') {
-    return supabaseResponse;
-  }
-
-  // 개인정보처리방침 — 로그인 여부와 관계없이 항상 접근 가능해야 하는 정적 페이지.
-  if (pathname === '/privacy') {
-    return supabaseResponse;
-  }
-
-  // 인증이 필요없는 경로
+  // 인증이 필요없는 경로 (로그인 사용자는 본인 타입 페이지로 리다이렉트됨)
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron', '/account/withdrawn'];
-  const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
+  // 누구나 접근 가능한 정책/안내 페이지 (로그인 여부와 무관하게 그대로 표시)
+  const alwaysPublicPaths = ['/privacy', '/account-deletion', '/policy'];
+  const isAlwaysPublic = alwaysPublicPaths.some((path) => pathname.startsWith(path));
+  const isPublicPath = isAlwaysPublic || publicPaths.some((path) => pathname.startsWith(path));
 
   // 사용자 타입별 경로 매핑
   const userTypeRoutes: Record<string, string> = {
@@ -138,6 +130,11 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = '/student';
       return NextResponse.redirect(url);
+    }
+
+    // 정책/안내 페이지는 로그인 여부와 무관하게 그대로 표시
+    if (isAlwaysPublic) {
+      return supabaseResponse;
     }
 
     // 인증된 사용자가 공개 경로(로그인, 회원가입 등) 접근 시 → 본인 타입 페이지로 리다이렉트

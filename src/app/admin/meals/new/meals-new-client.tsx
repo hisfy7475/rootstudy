@@ -230,9 +230,14 @@ export function AdminMealsNewClient({
             </div>
 
             <div>
-              <label className='mb-1 block text-sm font-medium'>설명 (선택)</label>
+              <div className='mb-1 flex items-center gap-2'>
+                <label className='block text-sm font-medium'>설명 (선택)</label>
+                <span className='text-muted-foreground text-xs'>
+                  · 우측 하단을 드래그하여 크기 조절 가능
+                </span>
+              </div>
               <textarea
-                className='border-input bg-background min-h-[80px] w-full rounded-md border px-3 py-2 text-sm'
+                className='border-input bg-background min-h-[160px] w-full resize-y rounded-md border px-3 py-2 text-sm'
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />

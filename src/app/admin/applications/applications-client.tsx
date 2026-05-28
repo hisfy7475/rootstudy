@@ -530,30 +530,73 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
   );
 }
 
+/**
+ * meta.option_selections (exam 도메인) 을 { group_name: option_name } 맵으로 평탄화.
+ * view 에서 meta.option_selections 는 [{ group_id, group_name, option_id, option_name }] 형태.
+ */
+function extractOptionSelectionsMap(row: UnifiedAppRow): Record<string, string> {
+  if (row.domain !== 'exam') return {};
+  const raw = (row.meta as Record<string, unknown>).option_selections;
+  if (!Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const item of raw) {
+    if (item && typeof item === 'object') {
+      const groupName = (item as Record<string, unknown>).group_name;
+      const optionName = (item as Record<string, unknown>).option_name;
+      if (typeof groupName === 'string' && typeof optionName === 'string') {
+        out[groupName] = optionName;
+      }
+    }
+  }
+  return out;
+}
+
 async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
-  const sheet = rows.map((r) => ({
-    신청일: formatDateTime(r.applied_at),
-    도메인: DOMAIN_LABEL[r.domain],
-    상태: statusToText(r.status_normalized),
-    상태원본: r.status_raw,
-    지점: r.branch_name ?? '',
-    좌석: formatSeatSnapshot(r.seat_number_snapshot, r.student_seat_number_current),
-    학생: r.student_name ?? '',
-    학생전화: r.student_phone ?? '',
-    퇴원여부: r.student_withdrawn_at ? '퇴원' : '',
-    신청자: r.user_name ?? '',
-    내역: r.item_name ?? '',
-    세부유형: describeSubCategory(r.domain, r.sub_category),
-    옵션: r.domain === 'exam' ? (r.option_summary ?? '') : '',
-    이용일자: formatServiceDateForExcel(r),
-    이용시간: formatServiceTimeForExcel(r),
-    금액: r.amount ?? '',
-    결제일: formatDateTime(r.paid_at),
-    취소사유:
-      ((r.meta as Record<string, unknown>).cancel_reason as string | null | undefined) ?? '',
-    거절사유:
-      ((r.meta as Record<string, unknown>).reject_reason as string | null | undefined) ?? '',
-  }));
+  // 1) 전체 rows 를 한 번 훑어 등장하는 모든 옵션 그룹명을 수집 (등장 순서 유지).
+  const optionGroupNames: string[] = [];
+  const seenGroupNames = new Set<string>();
+  const perRowOptions: Record<string, string>[] = rows.map((r) => {
+    const map = extractOptionSelectionsMap(r);
+    for (const name of Object.keys(map)) {
+      if (!seenGroupNames.has(name)) {
+        seenGroupNames.add(name);
+        optionGroupNames.push(name);
+      }
+    }
+    return map;
+  });
+
+  // 2) 행마다 그룹 컬럼을 동적으로 펼쳐서 시트 작성.
+  const sheet = rows.map((r, idx) => {
+    const optionMap = perRowOptions[idx];
+    const optionCols: Record<string, string> = {};
+    for (const name of optionGroupNames) {
+      optionCols[name] = optionMap[name] ?? '';
+    }
+    return {
+      신청일: formatDateTime(r.applied_at),
+      도메인: DOMAIN_LABEL[r.domain],
+      상태: statusToText(r.status_normalized),
+      상태원본: r.status_raw,
+      지점: r.branch_name ?? '',
+      좌석: formatSeatSnapshot(r.seat_number_snapshot, r.student_seat_number_current),
+      학생: r.student_name ?? '',
+      학생전화: r.student_phone ?? '',
+      퇴원여부: r.student_withdrawn_at ? '퇴원' : '',
+      신청자: r.user_name ?? '',
+      내역: r.item_name ?? '',
+      세부유형: describeSubCategory(r.domain, r.sub_category),
+      ...optionCols,
+      이용일자: formatServiceDateForExcel(r),
+      이용시간: formatServiceTimeForExcel(r),
+      금액: r.amount ?? '',
+      결제일: formatDateTime(r.paid_at),
+      취소사유:
+        ((r.meta as Record<string, unknown>).cancel_reason as string | null | undefined) ?? '',
+      거절사유:
+        ((r.meta as Record<string, unknown>).reject_reason as string | null | undefined) ?? '',
+    };
+  });
 
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
