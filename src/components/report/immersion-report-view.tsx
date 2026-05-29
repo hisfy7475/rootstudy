@@ -8,6 +8,7 @@ import { FocusScoreCard } from './focus-score-card';
 import { SubjectBandChart } from './subject-band-chart';
 import { WeeklyTrendChart } from './weekly-trend-chart';
 import { PointsSummaryCard } from './points-summary-card';
+import { ExamScoreCard } from './exam-score-card';
 import {
   CounselingReportCard,
   type CounselingReportCardSavePayload,
@@ -45,6 +46,7 @@ export function ImmersionReportView({
             gradeAvgSeconds={report.gradeStudyPeerAvgSeconds}
           />
           <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
+          <ExamScoreCard data={report.examScores} />
           <SubjectBandChart data={report.subjectByDay} />
           <WeeklyTrendChart data={weeklyTrend} />
           <PointsSummaryCard points={report.points} />
@@ -54,6 +56,7 @@ export function ImmersionReportView({
               studentName={report.studentName}
               studentTypeName={report.studentTypeName}
               editable={editable}
+              mentoringRecords={report.mentoringRecords}
               onSave={onSaveCounseling}
               onReapplyTemplate={onReapplyCounseling}
             />
@@ -71,6 +74,7 @@ export function ImmersionReportView({
         gradeAvgSeconds={report.gradeStudyPeerAvgSeconds}
       />
       <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
+      <ExamScoreCard data={report.examScores} />
       <SubjectBandChart data={report.subjectByDay} />
       <WeeklyTrendChart data={weeklyTrend} />
       <PointsSummaryCard points={report.points} />
@@ -79,6 +83,7 @@ export function ImmersionReportView({
         studentName={report.studentName}
         studentTypeName={report.studentTypeName}
         editable={editable}
+        mentoringRecords={report.mentoringRecords}
         onSave={onSaveCounseling}
         onReapplyTemplate={onReapplyCounseling}
       />

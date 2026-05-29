@@ -77,6 +77,44 @@ export interface CounselingReportData {
   scoreLabel?: string;
 }
 
+/** 성적 1행(과목 단위) */
+export interface ExamScoreRow {
+  id: string;
+  examName: string;
+  examType: string;
+  examDate: string; // 'YYYY-MM-DD'
+  subject: string;
+  rawScore: number | null;
+  grade: number | null;
+  percentile: number | null;
+  standardScore: number | null;
+  memo: string | null;
+}
+
+/** 추이 차트용 회차 포인트 — (examName, examDate) 그룹 */
+export interface ExamTrendPoint {
+  examName: string;
+  examDate: string;
+  bySubject: Record<string, { grade: number | null; percentile: number | null }>;
+}
+
+export interface ExamScoreReportData {
+  /** 해당 주차(시험일 기준)에 속한 성적 */
+  weekScores: ExamScoreRow[];
+  /** 최근 N회차 과목별 등급/백분위 추이 */
+  trend: ExamTrendPoint[];
+  /** 추이에 등장하는 과목(범례·정렬용) */
+  subjects: string[];
+}
+
+/** 멘토링/상담 결과 기록 1건 */
+export interface MentoringRecordItem {
+  date: string; // 'YYYY-MM-DD'
+  type: string; // mentoring | clinic | consult
+  mentorName: string | null;
+  resultNote: string;
+}
+
 export interface ImmersionReportData {
   studentId: string;
   studentName: string;
@@ -91,6 +129,9 @@ export interface ImmersionReportData {
   subjectByDay: DailySubjectData[];
   points: PointsSummary;
   counseling: CounselingReportData;
+  examScores: ExamScoreReportData;
+  /** 해당 주차에 기록된 멘토링/상담 결과 */
+  mentoringRecords: MentoringRecordItem[];
 }
 
 export interface WeeklyTrendPoint {
@@ -420,6 +461,8 @@ export async function getImmersionReportData(
     { data: subjectRows },
     { data: pointRows },
     { data: counselingRow },
+    { data: examScoreRows },
+    { data: mentoringResultRows },
   ] = await Promise.all([
     studentTypeId
       ? peerAdmin
@@ -453,6 +496,22 @@ export async function getImmersionReportData(
       .eq('student_id', studentId)
       .eq('week_start', weekStartMonday)
       .maybeSingle(),
+    // 성적: 전체 회차를 받아 주차 소속(weekScores)과 추이(trend)로 가공
+    supabase
+      .from('student_exam_scores')
+      .select(
+        'id, exam_name, exam_type, exam_date, subject, raw_score, grade, percentile, standard_score, memo',
+      )
+      .eq('student_id', studentId)
+      .order('exam_date', { ascending: true }),
+    // 멘토링/상담 결과: 확정된 신청 중 결과가 기록된 건(슬롯 날짜는 JS에서 주차 필터)
+    supabase
+      .from('mentoring_applications')
+      .select(
+        'status, slot:mentoring_slots!inner(date, type, mentors(name)), result:mentoring_results!inner(result_note)',
+      )
+      .eq('student_id', studentId)
+      .eq('status', 'confirmed'),
   ]);
 
   const attendance = (attendanceRows ?? []) as AttendanceRecord[];
@@ -621,6 +680,93 @@ export async function getImmersionReportData(
     };
   }
 
+  // === 성적: weekScores(주차 소속) + trend(최근 6회차) ===
+  const allExamRows = (examScoreRows ?? []) as Array<{
+    id: string;
+    exam_name: string;
+    exam_type: string;
+    exam_date: string;
+    subject: string;
+    raw_score: number | null;
+    grade: number | null;
+    percentile: number | null;
+    standard_score: number | null;
+    memo: string | null;
+  }>;
+
+  const toExamRow = (r: (typeof allExamRows)[number]): ExamScoreRow => ({
+    id: r.id,
+    examName: r.exam_name,
+    examType: r.exam_type,
+    examDate: r.exam_date,
+    subject: r.subject,
+    rawScore: r.raw_score !== null ? Number(r.raw_score) : null,
+    grade: r.grade,
+    percentile: r.percentile !== null ? Number(r.percentile) : null,
+    standardScore: r.standard_score,
+    memo: r.memo,
+  });
+
+  // 주차 소속: exam_date(date)가 이번 주 7일 문자열에 포함되는 행만
+  const weekScores = allExamRows.filter((r) => weekDates.includes(r.exam_date)).map(toExamRow);
+
+  // 추이: (exam_name, exam_date) 회차 그룹 → 최근 6회차
+  const trendMap = new Map<string, ExamTrendPoint>();
+  for (const r of allExamRows) {
+    const key = `${r.exam_date}__${r.exam_name}`;
+    let point = trendMap.get(key);
+    if (!point) {
+      point = { examName: r.exam_name, examDate: r.exam_date, bySubject: {} };
+      trendMap.set(key, point);
+    }
+    point.bySubject[r.subject] = {
+      grade: r.grade,
+      percentile: r.percentile !== null ? Number(r.percentile) : null,
+    };
+  }
+  const trend = Array.from(trendMap.values())
+    .sort((a, b) => a.examDate.localeCompare(b.examDate))
+    .slice(-6);
+  const examSubjectSet = new Set<string>();
+  for (const point of trend) {
+    for (const subj of Object.keys(point.bySubject)) examSubjectSet.add(subj);
+  }
+  const examScores: ExamScoreReportData = {
+    weekScores,
+    trend,
+    subjects: Array.from(examSubjectSet),
+  };
+
+  // === 멘토링/상담 결과: 슬롯 날짜가 이번 주에 속한 확정 건 ===
+  // PostgREST 임베드는 관계를 배열로 추론하므로 unknown 경유 후 배열/객체 모두 정규화한다.
+  type RawMentoringRow = {
+    slot:
+      | { date: string; type: string; mentors: { name: string } | { name: string }[] | null }
+      | { date: string; type: string; mentors: { name: string } | { name: string }[] | null }[]
+      | null;
+    result: { result_note: string } | { result_note: string }[] | null;
+  };
+  const firstOf = <T>(v: T | T[] | null | undefined): T | null =>
+    Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+
+  const mentoringRecords: MentoringRecordItem[] = (
+    (mentoringResultRows ?? []) as unknown as RawMentoringRow[]
+  )
+    .map((row) => {
+      const slot = firstOf(row.slot);
+      if (!slot || !weekDates.includes(slot.date)) return null;
+      const result = firstOf(row.result);
+      const mentor = firstOf(slot.mentors);
+      return {
+        date: slot.date,
+        type: slot.type,
+        mentorName: mentor?.name ?? null,
+        resultNote: result?.result_note ?? '',
+      };
+    })
+    .filter((r): r is MentoringRecordItem => r !== null && r.resultNote.trim() !== '')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   const { start: calStart } = getCalendarWeekBoundsKST(weekStartMonday);
   const { endExclusive } = getCalendarWeekBoundsKST(weekStartMonday);
   const weekEndIso = new Date(endExclusive.getTime() - 1).toISOString();
@@ -645,6 +791,8 @@ export async function getImmersionReportData(
     subjectByDay,
     points,
     counseling,
+    examScores,
+    mentoringRecords,
   };
 }
 
@@ -1015,6 +1163,167 @@ export async function saveCounselingReport(params: {
   if (error) {
     console.error('saveCounselingReport', error);
     return { success: false, error: '저장에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/report');
+  revalidatePath('/parent/report');
+  revalidatePath('/student/report');
+  return { success: true };
+}
+
+// === 성적(student_exam_scores) CRUD — 관리자 전용 ===
+
+/** 한 학생의 전체 성적 회차를 시험일 내림차순으로 반환 (성적 관리 모달용) */
+export async function getExamScores(studentId: string): Promise<ExamScoreRow[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') return [];
+
+  const { data, error } = await supabase
+    .from('student_exam_scores')
+    .select(
+      'id, exam_name, exam_type, exam_date, subject, raw_score, grade, percentile, standard_score, memo',
+    )
+    .eq('student_id', studentId)
+    .order('exam_date', { ascending: false });
+
+  if (error || !data) return [];
+
+  return data.map((r) => ({
+    id: r.id,
+    examName: r.exam_name,
+    examType: r.exam_type,
+    examDate: r.exam_date,
+    subject: r.subject,
+    rawScore: r.raw_score !== null ? Number(r.raw_score) : null,
+    grade: r.grade,
+    percentile: r.percentile !== null ? Number(r.percentile) : null,
+    standardScore: r.standard_score,
+    memo: r.memo,
+  }));
+}
+
+export interface SaveExamScoreParams {
+  id?: string;
+  studentId: string;
+  examName: string;
+  examType: string;
+  examDate: string; // 'YYYY-MM-DD'
+  subject: string;
+  rawScore: number | null;
+  grade: number | null;
+  percentile: number | null;
+  standardScore: number | null;
+  memo: string | null;
+}
+
+/** 성적 1행 저장 — id 있으면 update, 없으면 insert */
+export async function saveExamScore(
+  params: SaveExamScoreParams,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') {
+    return { success: false, error: '관리자만 저장할 수 있습니다.' };
+  }
+
+  const examName = params.examName.trim();
+  const subject = params.subject.trim();
+  if (!examName) return { success: false, error: '시험명을 입력해주세요.' };
+  if (!params.examDate) return { success: false, error: '시험일을 입력해주세요.' };
+  if (!subject) return { success: false, error: '과목을 입력해주세요.' };
+
+  if (params.id) {
+    const { error } = await supabase
+      .from('student_exam_scores')
+      .update({
+        exam_name: examName,
+        exam_type: params.examType || '모의고사',
+        exam_date: params.examDate,
+        subject,
+        raw_score: params.rawScore,
+        grade: params.grade,
+        percentile: params.percentile,
+        standard_score: params.standardScore,
+        memo: params.memo || null,
+      })
+      .eq('id', params.id);
+    if (error) {
+      console.error('saveExamScore(update)', error);
+      return { success: false, error: '저장에 실패했습니다.' };
+    }
+  } else {
+    // branch_id 는 학생 프로필에서 채움 (RLS 일관성·표시용)
+    const { data: studentProfile } = await supabase
+      .from('profiles')
+      .select('branch_id')
+      .eq('id', params.studentId)
+      .single();
+
+    const { error } = await supabase.from('student_exam_scores').insert({
+      student_id: params.studentId,
+      branch_id: studentProfile?.branch_id ?? null,
+      exam_name: examName,
+      exam_type: params.examType || '모의고사',
+      exam_date: params.examDate,
+      subject,
+      raw_score: params.rawScore,
+      grade: params.grade,
+      percentile: params.percentile,
+      standard_score: params.standardScore,
+      memo: params.memo || null,
+      created_by: user.id,
+    });
+    if (error) {
+      console.error('saveExamScore(insert)', error);
+      return { success: false, error: '저장에 실패했습니다.' };
+    }
+  }
+
+  revalidatePath('/admin/report');
+  revalidatePath('/parent/report');
+  revalidatePath('/student/report');
+  return { success: true };
+}
+
+export async function deleteExamScore(id: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: '로그인이 필요합니다.' };
+
+  const { data: adminProfile } = await supabase
+    .from('profiles')
+    .select('user_type')
+    .eq('id', user.id)
+    .single();
+  if (adminProfile?.user_type !== 'admin') {
+    return { success: false, error: '관리자만 삭제할 수 있습니다.' };
+  }
+
+  const { error } = await supabase.from('student_exam_scores').delete().eq('id', id);
+  if (error) {
+    console.error('deleteExamScore', error);
+    return { success: false, error: '삭제에 실패했습니다.' };
   }
 
   revalidatePath('/admin/report');

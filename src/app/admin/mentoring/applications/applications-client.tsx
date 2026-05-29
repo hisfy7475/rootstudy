@@ -13,6 +13,7 @@ import {
   confirmMentoringApplication,
   rejectMentoringApplication,
   adminCancelMentoringApplication,
+  saveMentoringResult,
 } from '@/lib/actions/mentoring';
 
 interface Props {
@@ -39,6 +40,8 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
   const [pending, startTransition] = useTransition();
   const [rejectReason, setRejectReason] = useState<Record<string, string>>({});
   const [cancelReason, setCancelReason] = useState<Record<string, string>>({});
+  const [resultNote, setResultNote] = useState<Record<string, string>>({});
+  const [resultEditing, setResultEditing] = useState<Record<string, boolean>>({});
 
   const [local, setLocal] = useState<{
     fromDate: string;
@@ -115,6 +118,24 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
         setRows((prev) =>
           prev.map((a) => (a.id === appId ? { ...a, status: 'cancelled' as const } : a)),
         );
+        router.refresh();
+      }
+    });
+  }
+
+  function saveResult(appId: string) {
+    const note = (resultNote[appId] ?? '').trim();
+    if (!note) {
+      setError('상담 결과 내용을 입력해 주세요.');
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await saveMentoringResult(appId, note);
+      if (res.error) setError(res.error);
+      else {
+        setRows((prev) => prev.map((a) => (a.id === appId ? { ...a, result_note: note } : a)));
+        setResultEditing((s) => ({ ...s, [appId]: false }));
         router.refresh();
       }
     });
@@ -214,12 +235,13 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
               <th className='p-3 font-medium'>멘토·과목</th>
               <th className='p-3 font-medium'>상태</th>
               <th className='p-3 font-medium'>처리</th>
+              <th className='p-3 font-medium'>상담 결과</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className='text-muted-foreground p-6 text-center'>
+                <td colSpan={7} className='text-muted-foreground p-6 text-center'>
                   내역이 없습니다.
                 </td>
               </tr>
@@ -303,6 +325,47 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
                             className='bg-muted rounded px-2 py-1 text-xs'
                           >
                             강제 취소
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td className='p-3 align-top'>
+                      {a.status !== 'confirmed' ? (
+                        <span className='text-muted-foreground text-xs'>확정 후 입력</span>
+                      ) : resultEditing[a.id] || !a.result_note ? (
+                        <div className='space-y-1'>
+                          <textarea
+                            placeholder='상담 결과 내용'
+                            rows={2}
+                            className='border-input w-full min-w-[180px] rounded border px-2 py-1 text-xs'
+                            value={resultNote[a.id] ?? a.result_note ?? ''}
+                            onChange={(e) =>
+                              setResultNote((r) => ({ ...r, [a.id]: e.target.value }))
+                            }
+                          />
+                          <button
+                            type='button'
+                            disabled={pending}
+                            onClick={() => saveResult(a.id)}
+                            className='bg-primary text-primary-foreground rounded px-2 py-1 text-xs'
+                          >
+                            결과 저장
+                          </button>
+                        </div>
+                      ) : (
+                        <div className='space-y-1'>
+                          <p className='text-text max-w-[220px] text-xs whitespace-pre-wrap'>
+                            {a.result_note}
+                          </p>
+                          <button
+                            type='button'
+                            onClick={() => {
+                              setResultNote((r) => ({ ...r, [a.id]: a.result_note ?? '' }));
+                              setResultEditing((s) => ({ ...s, [a.id]: true }));
+                            }}
+                            className='rounded border px-2 py-1 text-xs'
+                          >
+                            수정
                           </button>
                         </div>
                       )}

@@ -1291,6 +1291,85 @@ export interface Database {
           updated_at?: string;
         };
       };
+      student_exam_scores: {
+        Row: {
+          id: string;
+          student_id: string;
+          branch_id: string | null;
+          exam_name: string;
+          exam_type: string;
+          exam_date: string;
+          subject: string;
+          raw_score: number | null;
+          grade: number | null;
+          percentile: number | null;
+          standard_score: number | null;
+          memo: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          branch_id?: string | null;
+          exam_name: string;
+          exam_type?: string;
+          exam_date: string;
+          subject: string;
+          raw_score?: number | null;
+          grade?: number | null;
+          percentile?: number | null;
+          standard_score?: number | null;
+          memo?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          branch_id?: string | null;
+          exam_name?: string;
+          exam_type?: string;
+          exam_date?: string;
+          subject?: string;
+          raw_score?: number | null;
+          grade?: number | null;
+          percentile?: number | null;
+          standard_score?: number | null;
+          memo?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      mentoring_results: {
+        Row: {
+          id: string;
+          application_id: string;
+          result_note: string;
+          recorded_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          application_id: string;
+          result_note: string;
+          recorded_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          application_id?: string;
+          result_note?: string;
+          recorded_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       counseling_templates: {
         Row: {
           id: string;
@@ -1898,6 +1977,8 @@ export type WeeklyGoalSetting = Database['public']['Tables']['weekly_goal_settin
 export type WeeklyPointHistory = Database['public']['Tables']['weekly_point_history']['Row'];
 export type CounselingReport = Database['public']['Tables']['counseling_reports']['Row'];
 export type CounselingTemplate = Database['public']['Tables']['counseling_templates']['Row'];
+export type StudentExamScore = Database['public']['Tables']['student_exam_scores']['Row'];
+export type MentoringResult = Database['public']['Tables']['mentoring_results']['Row'];
 export type MealProduct = Database['public']['Tables']['meal_products']['Row'];
 export type MealProductVariant = Database['public']['Tables']['meal_product_variants']['Row'];
 export type MealMenu = Database['public']['Tables']['meal_menus']['Row'];

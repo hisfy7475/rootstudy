@@ -784,6 +784,8 @@ export type AdminMentoringApplicationRow = MentoringApplication & {
   student_withdrawn_at: string | null;
   /** 신청자(학부모/학생)가 퇴원 처리된 시각. */
   applicant_withdrawn_at: string | null;
+  /** 상담/멘토링 결과 기록(있으면). 확정 건에 한해 관리자가 작성. */
+  result_note: string | null;
 };
 
 export type AdminMentoringApplicationFilters = {
@@ -1065,7 +1067,8 @@ export async function getAdminMentoringApplications(
         subject,
         location,
         mentors ( id, name, subject, subjects, headline, profile_image_url )
-      )
+      ),
+      mentoring_results ( result_note )
     `,
     )
     .order('applied_at', { ascending: false });
@@ -1113,6 +1116,7 @@ export async function getAdminMentoringApplications(
             'id' | 'name' | 'subject' | 'subjects' | 'headline' | 'profile_image_url'
           > | null;
         })[];
+    mentoring_results: { result_note: string } | { result_note: string }[] | null;
   })[];
 
   const userIds = [...new Set(apps.flatMap((a) => [a.user_id, a.student_id]))];
@@ -1128,6 +1132,9 @@ export async function getAdminMentoringApplications(
 
   return apps.map((a) => {
     const slotJoin = Array.isArray(a.mentoring_slots) ? a.mentoring_slots[0] : a.mentoring_slots;
+    const resultJoin = Array.isArray(a.mentoring_results)
+      ? a.mentoring_results[0]
+      : a.mentoring_results;
     return {
       ...a,
       mentoring_slots: slotJoin ?? null,
@@ -1135,6 +1142,7 @@ export async function getAdminMentoringApplications(
       applicant_name: nameById.get(a.user_id) ?? '',
       student_withdrawn_at: withdrawnById.get(a.student_id) ?? null,
       applicant_withdrawn_at: withdrawnById.get(a.user_id) ?? null,
+      result_note: resultJoin?.result_note ?? null,
     };
   });
 }
@@ -1844,6 +1852,96 @@ export async function confirmMentoringApplication(
   });
 
   revalidateMentoringAdmin();
+  return { success: true };
+}
+
+/**
+ * 상담/멘토링 결과 저장 (관리자 전용). 확정된 신청에만 기록 가능.
+ * 결과는 별도 테이블(mentoring_results)에 저장 — application_id 기준 upsert.
+ */
+export async function saveMentoringResult(
+  applicationId: string,
+  resultNote: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const trimmed = resultNote.trim();
+  if (!trimmed) return { error: '상담 결과 내용을 입력해 주세요.' };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('mentoring_applications')
+    .select('id, status, mentoring_slots!inner ( branch_id )')
+    .eq('id', applicationId)
+    .maybeSingle();
+
+  if (fetchErr || !row) return { error: '신청을 찾을 수 없습니다.' };
+
+  const slotsRaw = (row as { mentoring_slots: { branch_id: string } | { branch_id: string }[] })
+    .mentoring_slots;
+  const slotJoin = Array.isArray(slotsRaw) ? slotsRaw[0] : slotsRaw;
+  if (!slotJoin) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
+  if (row.status !== 'confirmed') {
+    return { error: '확정된 신청에만 결과를 기록할 수 있습니다.' };
+  }
+
+  const { error } = await supabase.from('mentoring_results').upsert(
+    {
+      application_id: applicationId,
+      result_note: trimmed,
+      recorded_by: ctx.userId,
+    },
+    { onConflict: 'application_id' },
+  );
+
+  if (error) {
+    logPostgrestQueryError('[saveMentoringResult]', error);
+    return { error: '저장에 실패했습니다.' };
+  }
+
+  revalidateMentoringAdmin();
+  revalidatePath('/admin/report');
+  revalidatePath('/parent/report');
+  revalidatePath('/student/report');
+  return { success: true };
+}
+
+export async function deleteMentoringResult(
+  applicationId: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const { data: row } = await supabase
+    .from('mentoring_applications')
+    .select('id, mentoring_slots!inner ( branch_id )')
+    .eq('id', applicationId)
+    .maybeSingle();
+  if (!row) return { error: '신청을 찾을 수 없습니다.' };
+  const slotsRaw = (row as { mentoring_slots: { branch_id: string } | { branch_id: string }[] })
+    .mentoring_slots;
+  const slotJoin = Array.isArray(slotsRaw) ? slotsRaw[0] : slotsRaw;
+  if (!slotJoin) return { error: '권한이 없습니다.' };
+  if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
+    return { error: '권한이 없습니다.' };
+  }
+
+  const { error } = await supabase
+    .from('mentoring_results')
+    .delete()
+    .eq('application_id', applicationId);
+  if (error) {
+    logPostgrestQueryError('[deleteMentoringResult]', error);
+    return { error: '삭제에 실패했습니다.' };
+  }
+
+  revalidateMentoringAdmin();
+  revalidatePath('/admin/report');
   return { success: true };
 }
 
