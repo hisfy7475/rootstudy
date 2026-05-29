@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { CounselingReportData } from '@/lib/actions/report';
+import type { CounselingReportData, MentoringRecordItem } from '@/lib/actions/report';
 
 export interface CounselingReportCardSavePayload {
   studyFeedback: string;
@@ -13,11 +13,19 @@ export interface CounselingReportCardSavePayload {
   parentSummary: string;
 }
 
+const MENTORING_TYPE_LABEL: Record<string, string> = {
+  mentoring: '멘토링',
+  clinic: '클리닉',
+  consult: '상담',
+};
+
 export interface CounselingReportCardProps {
   counseling: CounselingReportData;
   studentName: string;
   studentTypeName: string | null;
   editable?: boolean;
+  /** 해당 주차 멘토링/상담 결과 기록(읽기 전용). */
+  mentoringRecords?: MentoringRecordItem[];
   onSave?: (data: CounselingReportCardSavePayload) => void;
   /** 관리자: 템플릿 재적용. 인자는 입력 중인 관리자 메모(폼 상태 유지) */
   onReapplyTemplate?: (currentAdminNotes: string) => void | Promise<void>;
@@ -28,6 +36,7 @@ export function CounselingReportCard({
   studentName,
   studentTypeName,
   editable = false,
+  mentoringRecords = [],
   onSave,
   onReapplyTemplate,
 }: CounselingReportCardProps) {
@@ -99,6 +108,30 @@ export function CounselingReportCard({
             <p className='text-text text-sm whitespace-pre-wrap'>{studyFeedback}</p>
           )}
         </div>
+
+        {mentoringRecords.length > 0 && (
+          <div>
+            <p className='text-text-muted mb-1.5 text-xs font-semibold'>멘토링/상담 기록</p>
+            <div className='space-y-2'>
+              {mentoringRecords.map((rec, i) => (
+                <div key={i} className='rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3'>
+                  <p className='text-text-muted mb-1 text-xs'>
+                    {rec.date}
+                    <span className='mx-1.5'>·</span>
+                    {MENTORING_TYPE_LABEL[rec.type] ?? rec.type}
+                    {rec.mentorName ? (
+                      <>
+                        <span className='mx-1.5'>·</span>
+                        {rec.mentorName}
+                      </>
+                    ) : null}
+                  </p>
+                  <p className='text-text text-sm whitespace-pre-wrap'>{rec.resultNote}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {showGuidanceNotes && (
           <div>

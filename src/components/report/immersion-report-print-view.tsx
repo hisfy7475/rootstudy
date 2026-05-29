@@ -7,6 +7,13 @@ import { FocusScoreCard } from './focus-score-card';
 import { SubjectBandChart } from './subject-band-chart';
 import { WeeklyTrendChart } from './weekly-trend-chart';
 import { PointsSummaryCard } from './points-summary-card';
+import { ExamScoreCard } from './exam-score-card';
+
+const MENTORING_TYPE_LABEL: Record<string, string> = {
+  mentoring: '멘토링',
+  clinic: '클리닉',
+  consult: '상담',
+};
 
 export interface ImmersionReportPrintViewProps {
   report: ImmersionReportData;
@@ -135,6 +142,12 @@ export function ImmersionReportPrintView({
           className='print-report-card'
           style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
+          <ExamScoreCard data={report.examScores} />
+        </div>
+        <div
+          className='print-report-card'
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
           <SubjectBandChart data={report.subjectByDay} />
         </div>
         <div
@@ -189,6 +202,19 @@ export function ImmersionReportPrintView({
           </span>
         </p>
         <PrintTextSection label='학습 태도' value={studyFeedbackForPrint} />
+        {report.mentoringRecords.length > 0 && (
+          <PrintTextSection
+            label='멘토링/상담 기록'
+            value={report.mentoringRecords
+              .map(
+                (rec) =>
+                  `[${rec.date} · ${MENTORING_TYPE_LABEL[rec.type] ?? rec.type}${
+                    rec.mentorName ? ` · ${rec.mentorName}` : ''
+                  }] ${rec.resultNote}`,
+              )
+              .join('\n')}
+          />
+        )}
         <PrintTextSection label='상담/멘토링 레터' value={c.guidanceNotes} />
         <PrintTextSection label='추가 메모/첨언' value={c.mentoringLetter} />
         <PrintTextSection label='학부모 상담 요약' value={c.parentSummary} />

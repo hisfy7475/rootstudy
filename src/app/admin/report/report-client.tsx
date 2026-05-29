@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { addDays } from 'date-fns';
-import { ChevronLeft, ChevronRight, Loader2, Printer } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Printer, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import type {
 } from '@/lib/actions/report';
 import { ImmersionReportView } from '@/components/report/immersion-report-view';
 import { ImmersionReportPrintView } from '@/components/report/immersion-report-print-view';
+import { ExamScoreManageModal } from './_components/exam-score-manage-modal';
 
 export interface ReportStudentRow {
   id: string;
@@ -119,6 +120,7 @@ export function AdminReportClient({
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [saveHint, setSaveHint] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<'report' | 'templates'>('report');
+  const [examModalOpen, setExamModalOpen] = useState(false);
   const [templateRows, setTemplateRows] = useState<CounselingTemplateDTO[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateHint, setTemplateHint] = useState<string | null>(null);
@@ -669,6 +671,16 @@ export function AdminReportClient({
                     type='button'
                     variant='outline'
                     className='gap-2 rounded-xl'
+                    onClick={() => setExamModalOpen(true)}
+                    disabled={!activeId || bulkLoading}
+                  >
+                    <GraduationCap className='h-4 w-4' />
+                    성적 관리
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='gap-2 rounded-xl'
                     onClick={handleSinglePrint}
                     disabled={!report || bulkLoading || singleForPrint !== null}
                   >
@@ -756,6 +768,15 @@ export function AdminReportClient({
             />
           ))}
         </div>
+      )}
+
+      {examModalOpen && activeId && activeStudent && (
+        <ExamScoreManageModal
+          studentId={activeId}
+          studentName={activeStudent.name}
+          onClose={() => setExamModalOpen(false)}
+          onSaved={() => loadReport(activeId, weekStart)}
+        />
       )}
     </>
   );
