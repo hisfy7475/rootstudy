@@ -7,7 +7,6 @@ import type { CounselingReportData, MentoringRecordItem } from '@/lib/actions/re
 
 export interface CounselingReportCardSavePayload {
   studyFeedback: string;
-  mentoringLetter: string;
   adminNotes: string;
   parentSummary: string;
 }
@@ -40,7 +39,6 @@ export function CounselingReportCard({
   onReapplyTemplate,
 }: CounselingReportCardProps) {
   const [studyFeedback, setStudyFeedback] = useState(counseling.studyFeedback);
-  const [mentoringLetter, setMentoringLetter] = useState(counseling.mentoringLetter);
   const [adminNotes, setAdminNotes] = useState(counseling.adminNotes ?? '');
   const [parentSummary, setParentSummary] = useState(counseling.parentSummary);
 
@@ -49,7 +47,6 @@ export function CounselingReportCard({
   // 이전 prop snapshot 과 비교 후 setState 호출.
   const counselingSig = [
     counseling.studyFeedback,
-    counseling.mentoringLetter,
     counseling.adminNotes ?? '',
     counseling.parentSummary,
   ].join('\x00');
@@ -57,7 +54,6 @@ export function CounselingReportCard({
   if (counselingSig !== prevCounselingSig) {
     setPrevCounselingSig(counselingSig);
     setStudyFeedback(counseling.studyFeedback);
-    setMentoringLetter(counseling.mentoringLetter);
     setAdminNotes(counseling.adminNotes ?? '');
     setParentSummary(counseling.parentSummary);
   }
@@ -65,7 +61,6 @@ export function CounselingReportCard({
   const focusLabel = counseling.focusAvg !== null ? `평균 ${counseling.focusAvg}점` : '미측정';
 
   const stageLabel = counseling.scoreLabel?.trim();
-  const showMentoringLetter = editable || counseling.mentoringLetter.trim() !== '';
   const adminNotesText = counseling.adminNotes ?? '';
   const showAdminNotes = editable || adminNotesText.trim() !== '';
 
@@ -106,7 +101,7 @@ export function CounselingReportCard({
 
         {mentoringRecords.length > 0 && (
           <div>
-            <p className='text-text-muted mb-1.5 text-xs font-semibold'>멘토링/상담 기록</p>
+            <p className='text-text-muted mb-1.5 text-xs font-semibold'>상담/멘토링 레터</p>
             <div className='space-y-2'>
               {mentoringRecords.map((rec, i) => (
                 <div key={i} className='rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3'>
@@ -125,24 +120,6 @@ export function CounselingReportCard({
                 </div>
               ))}
             </div>
-          </div>
-        )}
-
-        {showMentoringLetter && (
-          <div>
-            <p className='text-text-muted mb-1.5 text-xs font-semibold'>추가 메모/첨언</p>
-            {editable ? (
-              <textarea
-                value={mentoringLetter}
-                onChange={(e) => setMentoringLetter(e.target.value)}
-                rows={3}
-                maxLength={2000}
-                placeholder='추가로 남길 메모를 입력하세요.'
-                className='bg-card text-text focus:ring-primary/30 w-full resize-y rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2'
-              />
-            ) : (
-              <p className='text-text text-sm whitespace-pre-wrap'>{mentoringLetter}</p>
-            )}
           </div>
         )}
 
@@ -198,7 +175,6 @@ export function CounselingReportCard({
                 onClick={() =>
                   onSave({
                     studyFeedback,
-                    mentoringLetter,
                     adminNotes,
                     parentSummary,
                   })

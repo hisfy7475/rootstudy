@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import type { MentoringType } from '@/types/database';
@@ -42,6 +43,8 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
   const [cancelReason, setCancelReason] = useState<Record<string, string>>({});
   const [resultNote, setResultNote] = useState<Record<string, string>>({});
   const [resultEditing, setResultEditing] = useState<Record<string, boolean>>({});
+  // 상담/멘토링 레터 전송 확인 모달 대상 신청 id (null이면 닫힘)
+  const [confirmSendId, setConfirmSendId] = useState<string | null>(null);
 
   const [local, setLocal] = useState<{
     fromDate: string;
@@ -123,13 +126,26 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
     });
   }
 
-  function saveResult(appId: string) {
+  // [결과 저장] 클릭 → 내용 검증 후 전송 확인 모달을 띄운다.
+  function requestSaveResult(appId: string) {
     const note = (resultNote[appId] ?? '').trim();
     if (!note) {
       setError('상담 결과 내용을 입력해 주세요.');
       return;
     }
     setError(null);
+    setConfirmSendId(appId);
+  }
+
+  // 모달에서 [전송] 확정 시 실제 저장. 최초 저장이면 학생·학부모에게 알림이 발송된다.
+  function confirmSaveResult() {
+    const appId = confirmSendId;
+    if (!appId) return;
+    const note = (resultNote[appId] ?? '').trim();
+    if (!note) {
+      setConfirmSendId(null);
+      return;
+    }
     startTransition(async () => {
       const res = await saveMentoringResult(appId, note);
       if (res.error) setError(res.error);
@@ -138,6 +154,7 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
         setResultEditing((s) => ({ ...s, [appId]: false }));
         router.refresh();
       }
+      setConfirmSendId(null);
     });
   }
 
@@ -346,7 +363,7 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
                           <button
                             type='button'
                             disabled={pending}
-                            onClick={() => saveResult(a.id)}
+                            onClick={() => requestSaveResult(a.id)}
                             className='bg-primary text-primary-foreground rounded px-2 py-1 text-xs'
                           >
                             결과 저장
@@ -377,6 +394,21 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
           </tbody>
         </table>
       </Card>
+
+      <ConfirmDialog
+        open={confirmSendId !== null}
+        title='상담/멘토링 레터를 전송하시겠습니까?'
+        description={
+          confirmSendId && !rows.find((a) => a.id === confirmSendId)?.result_note
+            ? '전송하면 학생과 학부모에게 알림이 발송됩니다.'
+            : undefined
+        }
+        confirmText='전송'
+        cancelText='취소'
+        loading={pending}
+        onConfirm={confirmSaveResult}
+        onCancel={() => setConfirmSendId(null)}
+      />
     </div>
   );
 }
