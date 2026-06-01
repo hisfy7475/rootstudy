@@ -69,8 +69,8 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     branchId ? Promise.resolve([]) : getAllBranches(true),
   ]);
 
-  const branchNameById: Record<string, string> = {};
-  for (const b of branches) branchNameById[b.id] = b.name;
+  // 슈퍼관리자(전 지점)에서 규정을 지점별로 묶어 보여주기 위한 순서 있는 지점 목록
+  const branchList = branches.map((b) => ({ id: b.id, name: b.name }));
 
   return (
     <PointsClient
@@ -79,7 +79,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
       initialHistoryResult={history}
       students={students}
       branchId={branchId}
-      branchNameById={branchNameById}
+      branches={branchList}
       initialRewardPresets={rewardPresets}
       initialPenaltyPresets={penaltyPresets}
       initialReviewQueue={reviewQueue}
