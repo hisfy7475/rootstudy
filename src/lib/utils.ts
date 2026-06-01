@@ -271,21 +271,30 @@ export function getNextQuarterStartKST(now: Date = new Date()): Date {
 }
 
 /**
- * 주의 시작일(월요일) 반환
+ * 학습주의 시작 시각(월요일 06:00 KST) 반환
+ *
+ * 기준 시각이 속한 학습일(getStudyDate)을 구한 뒤, 그 주의 월요일 학습일의
+ * 시작 시각(06:00 KST = 전날 21:00 UTC)을 반환한다.
+ * - 주 시작은 월요일 (DAY_CONFIG.weekStartsOn = 1).
+ * - UTC 메서드만 사용하므로 서버 타임존(UTC)·로컬(KST) 어디서 실행해도 동일하다.
  *
  * @param date - 기준 날짜 (기본값: 현재 날짜)
- * @returns 해당 주의 시작일 (일요일)
+ * @returns 해당 학습주의 시작 시각 (월요일 06:00 KST에 해당하는 UTC Date)
  */
 export function getWeekStart(date: Date = new Date()): Date {
+  // 학습일(UTC 자정 기준 Date)
   const studyDate = getStudyDate(date);
-  const dayOfWeek = studyDate.getDay();
-  const diff = dayOfWeek - DAY_CONFIG.weekStartsOn;
 
-  const weekStart = new Date(studyDate);
-  weekStart.setDate(weekStart.getDate() - diff);
-  weekStart.setHours(0, 0, 0, 0);
+  // UTC 기준 요일 (studyDate가 UTC 자정이므로 타임존 무관)
+  const dayOfWeek = studyDate.getUTCDay(); // 0=일 ... 6=토
+  const diff = (dayOfWeek + 6) % 7; // 월요일까지 거슬러 갈 일수 (일요일=6)
 
-  return weekStart;
+  // 이 주의 월요일 학습일
+  const monday = new Date(studyDate);
+  monday.setUTCDate(monday.getUTCDate() - diff);
+
+  // 월요일 학습일의 시작(06:00 KST = 전날 21:00 UTC)을 주 시작으로 반환
+  return getStudyDayBounds(monday).start;
 }
 
 /**

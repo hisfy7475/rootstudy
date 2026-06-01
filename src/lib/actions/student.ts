@@ -2,7 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { getStudyDate, getStudyDayBounds, getWeekStart } from '@/lib/utils';
+import {
+  getStudyDate,
+  getStudyDayBounds,
+  getWeekStart,
+  formatDateKST,
+  getWeekDateStringsFromMondayKST,
+} from '@/lib/utils';
 import { getMandatoryTime } from './date-type';
 import { isInAbsencePeriod } from './absence-schedule';
 import { PENALTY_RULES, REWARD_RULES } from '@/lib/constants';
@@ -1235,15 +1241,9 @@ async function calculateWeeklyGoalHours(
 ): Promise<number> {
   const supabase = await createClient();
 
-  // 이번 주의 시작일(일요일)과 종료일(토요일) 계산
+  // 이번 학습주(월~일)의 날짜 문자열을 KST 기준으로 생성
   const weekStart = getWeekStart(new Date());
-  const weekDates: string[] = [];
-
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(weekStart);
-    date.setDate(date.getDate() + i);
-    weekDates.push(date.toISOString().split('T')[0]);
-  }
+  const weekDates = getWeekDateStringsFromMondayKST(formatDateKST(weekStart));
 
   // 해당 주의 날짜별 date_type 조회
   const { data: dateAssignments } = await supabase
