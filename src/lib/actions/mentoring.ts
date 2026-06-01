@@ -1830,8 +1830,52 @@ export async function confirmMentoringApplication(
 }
 
 /**
+ * 멘토링/상담 결과가 "최초로" 기록될 때 학생·학부모에게 알림(인앱+푸시) 발송.
+ * 기존 채팅 전달을 대체 — 결과 내용이 상담 리포트의 "멘토링/상담 기록"으로 노출되므로
+ * 알림을 누르면 각자의 리포트 화면으로 이동(딥링크)한다. 수정·재저장 시에는 호출되지 않는다.
+ */
+async function notifyMentoringResultRecorded(params: {
+  studentId: string;
+  slotType: MentoringType;
+  resultNote: string;
+}): Promise<void> {
+  const admin = createAdminClient();
+  const typeLabel = MENTORING_TYPE_LABEL[params.slotType];
+  // "상담 상담 기록..." 같은 중복을 피하려 타입라벨 + "기록"으로 마무리.
+  const title = `${typeLabel} 기록이 등록되었습니다`;
+  const note = params.resultNote.trim();
+  const body = note.length > 200 ? `${note.slice(0, 200)}…` : note;
+
+  await createStudentNotification({
+    studentId: params.studentId,
+    type: 'system',
+    title,
+    message: body,
+    link: '/student/report',
+  }).catch((e) => console.error('[notifyMentoringResultRecorded] student notif', e));
+
+  const { data: links } = await admin
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', params.studentId);
+
+  const parentIds = [...new Set((links ?? []).map((l) => l.parent_id))];
+
+  for (const parentId of parentIds) {
+    await createUserNotification({
+      userId: parentId,
+      type: 'system',
+      title,
+      message: body,
+      link: '/parent/report',
+    }).catch((e) => console.error('[notifyMentoringResultRecorded] parent notif', e));
+  }
+}
+
+/**
  * 상담/멘토링 결과 저장 (관리자 전용). 확정된 신청에만 기록 가능.
  * 결과는 별도 테이블(mentoring_results)에 저장 — application_id 기준 upsert.
+ * 최초 기록 시(기존 행 없음) 학생·학부모에게 알림을 발송한다.
  */
 export async function saveMentoringResult(
   applicationId: string,
@@ -1846,14 +1890,17 @@ export async function saveMentoringResult(
 
   const { data: row, error: fetchErr } = await supabase
     .from('mentoring_applications')
-    .select('id, status, mentoring_slots!inner ( branch_id )')
+    .select('id, status, student_id, mentoring_slots!inner ( branch_id, type )')
     .eq('id', applicationId)
     .maybeSingle();
 
   if (fetchErr || !row) return { error: '신청을 찾을 수 없습니다.' };
 
-  const slotsRaw = (row as { mentoring_slots: { branch_id: string } | { branch_id: string }[] })
-    .mentoring_slots;
+  const slotsRaw = (
+    row as {
+      mentoring_slots: { branch_id: string; type: string } | { branch_id: string; type: string }[];
+    }
+  ).mentoring_slots;
   const slotJoin = Array.isArray(slotsRaw) ? slotsRaw[0] : slotsRaw;
   if (!slotJoin) return { error: '권한이 없습니다.' };
   if (!ctx.isSuperAdmin && slotJoin.branch_id !== ctx.branchId) {
@@ -1862,6 +1909,14 @@ export async function saveMentoringResult(
   if (row.status !== 'confirmed') {
     return { error: '확정된 신청에만 결과를 기록할 수 있습니다.' };
   }
+
+  // 최초 기록 여부 판별 — 수정(upsert) 시에는 알림을 보내지 않기 위함.
+  const { data: existing } = await supabase
+    .from('mentoring_results')
+    .select('application_id')
+    .eq('application_id', applicationId)
+    .maybeSingle();
+  const isFirst = !existing;
 
   const { error } = await supabase.from('mentoring_results').upsert(
     {
@@ -1875,6 +1930,14 @@ export async function saveMentoringResult(
   if (error) {
     logPostgrestQueryError('[saveMentoringResult]', error);
     return { error: '저장에 실패했습니다.' };
+  }
+
+  if (isFirst) {
+    await notifyMentoringResultRecorded({
+      studentId: (row as { student_id: string }).student_id,
+      slotType: slotJoin.type as MentoringType,
+      resultNote: trimmed,
+    }).catch((e) => console.error('[saveMentoringResult] notify', e));
   }
 
   revalidateMentoringAdmin();

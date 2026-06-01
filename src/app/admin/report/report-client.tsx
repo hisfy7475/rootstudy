@@ -222,7 +222,6 @@ export function AdminReportClient({
 
   const handleSaveCounseling = async (data: {
     studyFeedback: string;
-    guidanceNotes: string;
     mentoringLetter: string;
     adminNotes: string;
     parentSummary: string;
@@ -233,7 +232,8 @@ export function AdminReportClient({
       weekStart,
       focusAvg: report.counseling.focusAvg,
       studyFeedback: data.studyFeedback,
-      guidanceNotes: data.guidanceNotes,
+      // '상담/멘토링 레터' 입력칸은 제거됐지만 컬럼은 보존 — 기존 저장값을 그대로 통과시킨다.
+      guidanceNotes: report.counseling.guidanceNotes,
       mentoringLetter: data.mentoringLetter,
       adminNotes: data.adminNotes,
       parentSummary: data.parentSummary,
