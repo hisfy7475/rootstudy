@@ -15,8 +15,8 @@ import {
   Award,
   CheckCircle,
   RefreshCw,
-  Settings,
-  MessageSquare,
+  GraduationCap,
+  UserCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,9 +28,14 @@ const typeConfig = {
   system: { label: '시스템', icon: Bell, color: 'text-text-muted', bgColor: 'bg-gray-100' },
 } as const;
 
+const recipientConfig = {
+  student: { label: '학생', icon: GraduationCap, color: 'text-blue-600', bgColor: 'bg-blue-100' },
+  parent: { label: '학부모', icon: UserCircle, color: 'text-green-600', bgColor: 'bg-green-100' },
+} as const;
+
 interface NotificationsClientProps {
   initialResult: NotificationsListResult;
-  stats: { total: number; sent: number; pending: number; today: number };
+  stats: { total: number; read: number; unread: number; today: number };
 }
 
 export function NotificationsClient({ initialResult, stats }: NotificationsClientProps) {
@@ -74,18 +79,12 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
       <div className='flex items-center justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>알림 관리</h1>
-          <p className='text-text-muted mt-1'>학부모에게 발송된 알림을 확인하세요</p>
+          <p className='text-text-muted mt-1'>학생·학부모에게 발송된 인앱/푸시 알림 내역입니다.</p>
         </div>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={refresh} disabled={isPending}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
-            새로고침
-          </Button>
-          <Button variant='outline'>
-            <Settings className='mr-2 h-4 w-4' />
-            알림 설정
-          </Button>
-        </div>
+        <Button variant='outline' onClick={refresh} disabled={isPending}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+          새로고침
+        </Button>
       </div>
 
       {/* 통계 카드 */}
@@ -107,8 +106,8 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
               <CheckCircle className='h-5 w-5 text-green-600' />
             </div>
             <div>
-              <p className='text-text-muted text-sm'>발송 완료</p>
-              <p className='text-2xl font-bold'>{stats.sent}</p>
+              <p className='text-text-muted text-sm'>읽음</p>
+              <p className='text-2xl font-bold'>{stats.read}</p>
             </div>
           </div>
         </Card>
@@ -118,8 +117,8 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
               <Clock className='h-5 w-5 text-yellow-600' />
             </div>
             <div>
-              <p className='text-text-muted text-sm'>발송 대기</p>
-              <p className='text-2xl font-bold'>{stats.pending}</p>
+              <p className='text-text-muted text-sm'>안 읽음</p>
+              <p className='text-2xl font-bold'>{stats.unread}</p>
             </div>
           </div>
         </Card>
@@ -136,22 +135,6 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
         </Card>
       </div>
 
-      {/* 자동 알림 설정 안내 */}
-      <Card className='from-primary/5 to-secondary/5 border-none bg-gradient-to-r p-6'>
-        <div className='flex items-start gap-4'>
-          <div className='flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm'>
-            <MessageSquare className='text-primary h-6 w-6' />
-          </div>
-          <div className='flex-1'>
-            <h3 className='mb-1 font-semibold'>카카오 알림톡 연동 예정</h3>
-            <p className='text-text-muted text-sm'>
-              카카오 비즈니스 채널 연동 후 지각/결석/상벌점 알림이 자동으로 학부모에게 발송됩니다.
-              현재는 알림 내역만 기록됩니다.
-            </p>
-          </div>
-        </div>
-      </Card>
-
       {/* 알림 목록 */}
       <Card className='p-6'>
         <div className='mb-4 flex items-center justify-between'>
@@ -159,8 +142,25 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
         </div>
 
         <DataTableToolbar
-          searchPlaceholder='메시지로 검색...'
+          searchPlaceholder='제목·내용으로 검색...'
           filters={[
+            {
+              key: 'period',
+              label: '기간',
+              allLabel: '최근 7일',
+              options: [
+                { value: '30d', label: '최근 30일' },
+                { value: 'all', label: '전체 기간' },
+              ],
+            },
+            {
+              key: 'recipientType',
+              label: '수신자',
+              options: [
+                { value: 'student', label: '학생' },
+                { value: 'parent', label: '학부모' },
+              ],
+            },
             {
               key: 'type',
               label: '유형',
@@ -184,52 +184,54 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
             </div>
           ) : (
             notifications.map((notification) => {
-              const config = typeConfig[notification.type];
-              const Icon = config.icon;
+              const config = typeConfig[notification.type] ?? typeConfig.system;
+              const recipient = recipientConfig[notification.recipient_type];
+              const RecipientIcon = recipient.icon;
 
               return (
                 <div
-                  key={notification.id}
+                  key={notification.row_key}
                   className='flex items-start gap-4 rounded-xl bg-gray-50 p-4'
                 >
-                  <div
-                    className={cn(
-                      'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl',
-                      config.bgColor,
-                    )}
-                  >
-                    <Icon className={cn('h-5 w-5', config.color)} />
-                  </div>
-
                   <div className='min-w-0 flex-1'>
-                    <div className='mb-1 flex items-center gap-2'>
-                      <span className='font-medium'>
-                        {notification.studentSeatNumber || '-'}번 {notification.studentName}
-                      </span>
+                    <div className='mb-1 flex flex-wrap items-center gap-2'>
+                      <span className='font-medium'>{notification.title}</span>
                       <span
                         className={cn('rounded px-2 py-0.5 text-xs', config.bgColor, config.color)}
                       >
                         {config.label}
                       </span>
-                      {notification.is_sent ? (
+                      {notification.is_read ? (
                         <span className='flex items-center gap-1 text-xs text-green-600'>
                           <CheckCircle className='h-3 w-3' />
-                          발송완료
+                          읽음
                         </span>
                       ) : (
                         <span className='flex items-center gap-1 text-xs text-yellow-600'>
-                          <Clock className='h-3 w-3' />
-                          대기중
+                          <Clock className='h-3 w-3' />안 읽음
                         </span>
                       )}
                     </div>
                     <p className='text-text-muted mb-1 text-sm'>{notification.message}</p>
-                    <div className='text-text-muted flex items-center gap-3 text-xs'>
-                      <span>수신: {notification.parentName}</span>
+                    <div className='text-text-muted flex flex-wrap items-center gap-2 text-xs'>
+                      <span
+                        className={cn(
+                          'flex items-center gap-1 rounded px-2 py-0.5',
+                          recipient.bgColor,
+                          recipient.color,
+                        )}
+                      >
+                        <RecipientIcon className='h-3 w-3' />
+                        {recipient.label}
+                      </span>
+                      <span>
+                        {notification.recipient_seat_number != null
+                          ? `${notification.recipient_seat_number}번 `
+                          : ''}
+                        {notification.recipient_name}
+                      </span>
                       <span>•</span>
-                      <span>카카오톡</span>
-                      <span>•</span>
-                      <span>{formatDate(notification.sent_at)}</span>
+                      <span>{formatDate(notification.created_at)}</span>
                     </div>
                   </div>
                 </div>

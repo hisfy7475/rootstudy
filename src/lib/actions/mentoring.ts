@@ -13,12 +13,7 @@ import type {
   MentoringSlot,
   MentoringType,
 } from '@/types/database';
-import {
-  createStudentNotification,
-  createUserNotification,
-  // [알림톡 비활성화 2026-05-26]
-  // sendMentoringAlimtalkToParent,
-} from '@/lib/actions/notification';
+import { createStudentNotification, createUserNotification } from '@/lib/actions/notification';
 export type {
   MentoringSlotWithMentor,
   MentoringApplicationWithDetails,
@@ -1710,7 +1705,7 @@ async function notifyStudentAndParentsMentoringDecision(params: {
   endTime: string;
   kind: 'confirmed' | 'rejected' | 'cancelled';
   rejectReason?: string;
-  /** true 이면 in-app 알림 제목을 "관리자가 대신 등록·확정" 뉘앙스로 분기. 알림톡 본문은 동일(템플릿 재사용). */
+  /** true 이면 in-app 알림 제목을 "관리자가 대신 등록·확정" 뉘앙스로 분기. */
   byAdmin?: boolean;
 }): Promise<void> {
   const admin = createAdminClient();
@@ -1719,14 +1714,6 @@ async function notifyStudentAndParentsMentoringDecision(params: {
     params.startTime,
     params.endTime,
   );
-
-  // [알림톡 비활성화 2026-05-26] studentName은 알림톡 발송용이었으므로 조회/변수 제거.
-  // const { data: studentProfile } = await admin
-  //   .from('profiles')
-  //   .select('name')
-  //   .eq('id', params.studentId)
-  //   .maybeSingle();
-  // const studentName = studentProfile?.name ?? '학생';
 
   const typeLabel = MENTORING_TYPE_LABEL[params.slotType];
   const title =
@@ -1768,19 +1755,6 @@ async function notifyStudentAndParentsMentoringDecision(params: {
       message: body,
       link: '/parent/mentoring/my',
     }).catch((e) => console.error('[notifyStudentAndParentsMentoringDecision] parent notif', e));
-
-    // [알림톡 비활성화 2026-05-26]
-    // void sendMentoringAlimtalkToParent({
-    //   parentId,
-    //   studentId: params.studentId,
-    //   slotType: params.slotType,
-    //   kind: params.kind,
-    //   studentName,
-    //   subjectLabel: params.subjectLabel,
-    //   dateLabel,
-    //   timeLabel,
-    //   reason: params.rejectReason,
-    // }).catch((e) => console.error('[notifyStudentAndParentsMentoringDecision] alimtalk', e));
   }
 }
 

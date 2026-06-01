@@ -234,7 +234,7 @@ export default function StudentSignupPage() {
                   />
                 </div>
                 <p className='text-text-muted mt-1 text-xs'>
-                  학원 알림톡(출결·상벌점·공지) 수신 및 비상 연락용입니다.
+                  학원 알림(출결·상벌점·공지) 수신 및 비상 연락용입니다.
                 </p>
               </div>
               <div className='relative'>

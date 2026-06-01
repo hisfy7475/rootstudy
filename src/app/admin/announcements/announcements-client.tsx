@@ -24,9 +24,6 @@ import {
   ANNOUNCEMENT_FILE_MAX_COUNT,
   resolveAnnouncementFileMime,
 } from '@/lib/announcement-config';
-// [알림톡 비활성화 2026-05-26] 카카오 알림톡 기능은 등록된 템플릿이 자유 입력 공지에
-// 매칭되지 않아 일시 비활성화. 부활 시 아래 import와 관련 블록의 주석을 해제하면 됨.
-// import { sendKakaoAlimtalkToParents, getAlimtalkConfig } from '@/lib/actions/notification';
 import {
   Megaphone,
   Plus,
@@ -39,7 +36,6 @@ import {
   Edit,
   X,
   Eye,
-  // MessageCircle, // [알림톡 비활성화 2026-05-26] 알림톡 UI 전용 아이콘
   Paperclip,
   FileText,
 } from 'lucide-react';
@@ -50,8 +46,6 @@ type Announcement = AnnouncementsListResult['rows'][number];
 interface AnnouncementsClientProps {
   initialResult: AnnouncementsListResult;
   stats: { total: number; important: number; today: number; totalReads: number };
-  // [알림톡 비활성화 2026-05-26]
-  // alimtalkConfigured?: boolean;
 }
 
 const audienceConfig = {
@@ -75,12 +69,7 @@ const audienceConfig = {
   },
 };
 
-export function AnnouncementsClient({
-  initialResult,
-  stats,
-}: // [알림톡 비활성화 2026-05-26]
-// alimtalkConfigured: initialAlimtalkConfigured,
-AnnouncementsClientProps) {
+export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -95,43 +84,17 @@ AnnouncementsClientProps) {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  // [알림톡 비활성화 2026-05-26]
-  // const [alimtalkConfigured, setAlimtalkConfigured] = useState(initialAlimtalkConfigured ?? false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AnnouncementAttachmentRow[]>([]);
   // 사용자가 X로 표시한 기존 첨부 — 모달의 "수정/등록" 버튼을 눌러야 실제 DB·Storage에서 삭제된다.
   const [markedDeletedIds, setMarkedDeletedIds] = useState<string[]>([]);
-  // [알림톡 비활성화 2026-05-26]
-  // const [alimtalkResult, setAlimtalkResult] = useState<{
-  //   show: boolean;
-  //   success: boolean;
-  //   sentCount: number;
-  //   failedCount: number;
-  //   noPhoneCount: number;
-  // } | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     isImportant: false,
     targetAudience: 'all' as 'all' | 'student' | 'parent',
     sendNotification: true,
-    // [알림톡 비활성화 2026-05-26]
-    // sendKakaoAlimtalk: false,
   });
-
-  // [알림톡 비활성화 2026-05-26] 알림톡 설정 상태 확인
-  // useEffect(() => {
-  //   const checkAlimtalkConfig = async () => {
-  //     const config = await getAlimtalkConfig();
-  //     setAlimtalkConfigured(config.isConfigured);
-  //   };
-  //   if (initialAlimtalkConfigured === undefined) {
-  //     checkAlimtalkConfig();
-  //   }
-  // }, [initialAlimtalkConfigured]);
-
-  // [알림톡 비활성화 2026-05-26] 대상이 학생 전용일 때 카카오 알림톡 비활성화
-  // const canSendKakaoAlimtalk = alimtalkConfigured && formData.targetAudience !== 'student';
 
   const refreshData = () => {
     startTransition(() => router.refresh());
@@ -170,11 +133,7 @@ AnnouncementsClientProps) {
       isImportant: false,
       targetAudience: 'all',
       sendNotification: true,
-      // [알림톡 비활성화 2026-05-26]
-      // sendKakaoAlimtalk: false,
     });
-    // [알림톡 비활성화 2026-05-26]
-    // setAlimtalkResult(null);
     setShowModal(true);
   };
 
@@ -188,11 +147,7 @@ AnnouncementsClientProps) {
       isImportant: announcement.is_important,
       targetAudience: announcement.target_audience,
       sendNotification: false,
-      // [알림톡 비활성화 2026-05-26]
-      // sendKakaoAlimtalk: false,
     });
-    // [알림톡 비활성화 2026-05-26]
-    // setAlimtalkResult(null);
     setShowModal(true);
     const full = await getAnnouncementById(announcement.id);
     setExistingAttachments(full?.attachments ?? []);
@@ -288,8 +243,6 @@ AnnouncementsClientProps) {
     }
 
     setLoading(true);
-    // [알림톡 비활성화 2026-05-26]
-    // setAlimtalkResult(null);
 
     try {
       if (editingId) {
@@ -375,26 +328,6 @@ AnnouncementsClientProps) {
           setPendingFiles([]);
         }
       }
-
-      // [알림톡 비활성화 2026-05-26] 카카오 알림톡 발송 (새 공지 생성 시에만)
-      // if (!editingId && formData.sendKakaoAlimtalk && canSendKakaoAlimtalk) {
-      //   const alimtalkMessage = `[${formData.title}]\n\n${formData.content}`;
-      //   const alimtalkRes = await sendKakaoAlimtalkToParents({
-      //     message: alimtalkMessage,
-      //   });
-      //
-      //   setAlimtalkResult({
-      //     show: true,
-      //     success: alimtalkRes.success,
-      //     sentCount: alimtalkRes.sentCount,
-      //     failedCount: alimtalkRes.failedCount,
-      //     noPhoneCount: alimtalkRes.noPhoneCount,
-      //   });
-      //
-      //   // 결과 표시 후 모달 닫지 않음 (사용자가 결과 확인 후 닫기)
-      //   await refreshData();
-      //   return;
-      // }
 
       setShowModal(false);
       await refreshData();
@@ -797,79 +730,19 @@ AnnouncementsClientProps) {
                 </label>
 
                 {!editingId && (
-                  <>
-                    <label className='flex cursor-pointer items-center gap-2'>
-                      <input
-                        type='checkbox'
-                        checked={formData.sendNotification}
-                        onChange={(e) =>
-                          setFormData({ ...formData, sendNotification: e.target.checked })
-                        }
-                        className='text-primary focus:ring-primary h-4 w-4 rounded border-gray-300'
-                      />
-                      <span className='text-sm'>앱 내 알림 발송</span>
-                    </label>
-
-                    {/* [알림톡 비활성화 2026-05-26] 카카오 알림톡 발송 토글
-                    <label
-                      className={cn(
-                        'flex items-center gap-2',
-                        canSendKakaoAlimtalk ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
-                      )}
-                    >
-                      <input
-                        type='checkbox'
-                        checked={formData.sendKakaoAlimtalk}
-                        onChange={(e) =>
-                          setFormData({ ...formData, sendKakaoAlimtalk: e.target.checked })
-                        }
-                        disabled={!canSendKakaoAlimtalk}
-                        className='h-4 w-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500'
-                      />
-                      <span className='flex items-center gap-1 text-sm'>
-                        <MessageCircle className='h-4 w-4 text-yellow-500' />
-                        카카오톡 알림톡 발송
-                        {formData.targetAudience === 'student' && (
-                          <span className='text-text-muted text-xs'>(학부모 대상만)</span>
-                        )}
-                        {!alimtalkConfigured && (
-                          <span className='text-text-muted text-xs'>(설정 필요)</span>
-                        )}
-                      </span>
-                    </label>
-                    */}
-                  </>
+                  <label className='flex cursor-pointer items-center gap-2'>
+                    <input
+                      type='checkbox'
+                      checked={formData.sendNotification}
+                      onChange={(e) =>
+                        setFormData({ ...formData, sendNotification: e.target.checked })
+                      }
+                      className='text-primary focus:ring-primary h-4 w-4 rounded border-gray-300'
+                    />
+                    <span className='text-sm'>앱 내 알림 발송</span>
+                  </label>
                 )}
               </div>
-
-              {/* [알림톡 비활성화 2026-05-26] 알림톡 발송 결과
-              {alimtalkResult?.show && (
-                <div
-                  className={cn(
-                    'rounded-lg p-3 text-sm',
-                    alimtalkResult.success
-                      ? 'bg-green-50 text-green-700'
-                      : 'bg-yellow-50 text-yellow-700',
-                  )}
-                >
-                  <div className='mb-1 flex items-center gap-2 font-medium'>
-                    <MessageCircle className='h-4 w-4' />
-                    카카오톡 알림톡 발송 결과
-                  </div>
-                  <div className='space-y-1'>
-                    <p>발송 성공: {alimtalkResult.sentCount}건</p>
-                    {alimtalkResult.failedCount > 0 && (
-                      <p>발송 실패: {alimtalkResult.failedCount}건</p>
-                    )}
-                    {alimtalkResult.noPhoneCount > 0 && (
-                      <p className='text-text-muted'>
-                        전화번호 미등록: {alimtalkResult.noPhoneCount}명
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-              */}
             </div>
 
             <div className='mt-6 flex justify-end gap-2'>

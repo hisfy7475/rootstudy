@@ -1024,80 +1024,8 @@ export async function givePoints(
 
   // 학생에게 알림 발송 (자동 부여가 아닌 경우만 - 자동은 student.ts에서 처리)
   if (!isAuto) {
-    const {
-      createStudentNotification,
-      notifyPointsGranted,
-      // [알림톡 비활성화 2026-05-26]
-      // sendKakaoAlimtalkToParent,
-      // sendKakaoAlimtalkToParentCritical,
-    } = await import('./notification');
+    const { createStudentNotification, notifyPointsGranted } = await import('./notification');
     await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
-
-    // [알림톡 비활성화 2026-05-26] 학부모 알림톡 — dedupe 매트릭스(G 섹션):
-    //   매 벌점마다 알림톡 발송하지 않고, 단계 알림(warn_25/30 reached) 또는 상점만.
-    //   상점은 매번 알림톡, 벌점은 25점/30점 도달 시점에 통합 알림톡 1회.
-    //   25/30 은 critical → 실패 시 큐 enqueue (백로그 6).
-    // const shouldSendKakao =
-    //   type === 'reward' || warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-    // const isCritical = warnings.includes('warn_25') || thresholdResult?.status === 'consumed';
-    //
-    // if (shouldSendKakao) {
-    //   try {
-    //     const { data: studentProfile } = await supabase
-    //       .from('profiles')
-    //       .select('name')
-    //       .eq('id', studentId)
-    //       .single();
-    //
-    //     const { data: parentLink } = await supabase
-    //       .from('parent_student_links')
-    //       .select('parent_id')
-    //       .eq('student_id', studentId)
-    //       .limit(1)
-    //       .maybeSingle();
-    //
-    //     if (parentLink?.parent_id && studentProfile?.name) {
-    //       let alimtalkMessage: string;
-    //       if (thresholdResult?.status === 'consumed') {
-    //         const burnt = thresholdResult.remainder_burnt;
-    //         const protectedCount = thresholdResult.auto_pending_created;
-    //         const protectedText =
-    //           protectedCount > 0
-    //             ? `\n보유 상점 중 100점 단위 ${protectedCount}건은 상품권 발급 대기로 보호되었고, 잔여 ${burnt}점은 소멸되었습니다.`
-    //             : burnt > 0
-    //               ? `\n보유 상점 ${burnt}점이 소멸되었습니다.`
-    //               : '';
-    //         alimtalkMessage = `[퇴원 검토 안내]\n\n자녀(${studentProfile.name}) 학생이 분기 벌점 30점에 도달하여 퇴원 검토 대상이 되었습니다.\n원장이 곧 직접 연락드립니다.${protectedText}`;
-    //       } else if (warnings.includes('warn_25')) {
-    //         alimtalkMessage = `[벌점 경고 안내]\n\n자녀(${studentProfile.name}) 학생의 이번 분기 누적 벌점이 25점에 도달했습니다.\n30점 도달 시 퇴원 검토 대상이 되며 보유 상점이 소멸됩니다.\n면담을 위해 곧 연락드리겠습니다.`;
-    //       } else {
-    //         const pointTypeText = type === 'reward' ? '상점' : '벌점';
-    //         const pointSign = type === 'reward' ? '+' : '-';
-    //         alimtalkMessage = `[${pointTypeText} 부여 알림]\n\n자녀(${studentProfile.name})에게 ${pointTypeText}이 부여되었습니다.\n\n사유: ${reason}\n점수: ${pointSign}${amount}점`;
-    //       }
-    //       if (isCritical) {
-    //         const category =
-    //           thresholdResult?.status === 'consumed' ? 'penalty_threshold30' : 'penalty_warn25';
-    //         await sendKakaoAlimtalkToParentCritical({
-    //           parentId: parentLink.parent_id,
-    //           studentId,
-    //           message: alimtalkMessage,
-    //           category,
-    //           type: 'point',
-    //         }).catch(console.error);
-    //       } else {
-    //         await sendKakaoAlimtalkToParent({
-    //           parentId: parentLink.parent_id,
-    //           studentId,
-    //           message: alimtalkMessage,
-    //           type: 'point',
-    //         }).catch(console.error);
-    //       }
-    //     }
-    //   } catch (err) {
-    //     console.error('Failed to send kakao alimtalk for points:', err);
-    //   }
-    // }
 
     // 학생 단계 알림 — 인앱 추가 발송 (warn_10/20/25 별 톤)
     if (warnings.length > 0) {
@@ -1161,8 +1089,7 @@ export async function givePoints(
 //     active preset 을 찾지 못하면 preset_id=null 로 INSERT 하지 않고 skip (KST 일자
 //     unique 인덱스가 preset_id IS NOT NULL 조건이라 null INSERT 는 중복 차단을 우회).
 //   - 23505 (오늘 이미 같은 항목) 는 부분 성공 허용 — 학생별 INSERT 직렬 처리.
-//   - 인앱 알림은 createBulkStudentNotifications 단일 호출. 학부모 카카오 알림톡은
-//     fire-and-forget (단건 경로와 동일한 best-effort 정책).
+//   - 인앱 알림은 createBulkStudentNotifications 단일 호출 (학생+학부모 앱 푸시 포함).
 //
 // 벌점은 임계치 hook 이 학생별로 RPC 트랜잭션을 타야 안전해 이 함수 범위 밖이다.
 export async function giveRewardBatch(params: {
@@ -1230,13 +1157,8 @@ export async function giveRewardBatch(params: {
   }
 
   // 사전 일괄 조회 (N+1 회피)
-  // [알림톡 비활성화 2026-05-26] parent_student_links 조회는 알림톡 발송용이었으므로 제거
   const [profilesRes] = await Promise.all([
     supabase.from('profiles').select('id, name, branch_id').in('id', studentIds),
-    // supabase
-    //   .from('parent_student_links')
-    //   .select('parent_id, student_id')
-    //   .in('student_id', studentIds),
   ]);
   const profilesById = new Map<string, { name: string; branch_id: string | null }>();
   for (const p of (profilesRes.data ?? []) as Array<{
@@ -1246,13 +1168,6 @@ export async function giveRewardBatch(params: {
   }>) {
     profilesById.set(p.id, { name: p.name ?? '', branch_id: p.branch_id });
   }
-  // [알림톡 비활성화 2026-05-26] 한 학생당 첫 학부모 1명만 (단건 givePoints 도 .limit(1).maybeSingle())
-  // const firstParentByStudent = new Map<string, string>();
-  // for (const l of (linksRes.data ?? []) as Array<{ parent_id: string; student_id: string }>) {
-  //   if (!firstParentByStudent.has(l.student_id)) {
-  //     firstParentByStudent.set(l.student_id, l.parent_id);
-  //   }
-  // }
 
   // 학생별 branch preset 재매칭 — 입력 presetId 가 학생 branch 와 다를 수 있음 (슈퍼관리자)
   async function resolveRewardPresetForStudent(
@@ -1323,7 +1238,6 @@ export async function giveRewardBatch(params: {
 
   // 알림 발송 — 성공 학생 한정
   if (successIds.length > 0) {
-    // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
     const { notifyPointsGranted } = await import('./notification');
 
     // 학생 + 모든 학부모 앱 푸시 — fire-and-forget. 학생 이름 매핑 활용해 N+1 회피.
@@ -1337,20 +1251,6 @@ export async function giveRewardBatch(params: {
         studentName: profile?.name || undefined,
       }).catch((e) => console.error('giveRewardBatch notifyPointsGranted error:', e));
     }
-
-    // [알림톡 비활성화 2026-05-26] 학부모 카카오 알림톡 — 기존 정책 유지 (첫 학부모에게만 발송).
-    // for (const studentId of successIds) {
-    //   const parentId = firstParentByStudent.get(studentId);
-    //   const profile = profilesById.get(studentId);
-    //   if (!parentId || !profile?.name) continue;
-    //   const alimtalkMessage = `[상점 부여 알림]\n\n자녀(${profile.name})에게 상점이 부여되었습니다.\n\n사유: ${reason}\n점수: +${amount}점`;
-    //   void sendKakaoAlimtalkToParent({
-    //     parentId,
-    //     studentId,
-    //     message: alimtalkMessage,
-    //     type: 'point',
-    //   }).catch((e) => console.error('giveRewardBatch alimtalk error:', e));
-    // }
   }
 
   revalidatePath('/admin');
@@ -1916,8 +1816,7 @@ export async function issueRedemption(params: {
     return { error: '이미 처리된 신청입니다.' };
   }
 
-  // 학생/학부모 알림
-  // [알림톡 비활성화 2026-05-26] sendKakaoAlimtalkToParent 제외
+  // 학생 알림
   const { createStudentNotification } = await import('./notification');
   await createStudentNotification({
     studentId: result.student_id,
@@ -1926,31 +1825,6 @@ export async function issueRedemption(params: {
     message: `${params.voucherAmount.toLocaleString()}원 / 코드: ${params.voucherCode}`,
     link: '/student/points',
   }).catch(console.error);
-
-  // [알림톡 비활성화 2026-05-26] 학부모 알림톡
-  // try {
-  //   const { data: parentLink } = await supabase
-  //     .from('parent_student_links')
-  //     .select('parent_id')
-  //     .eq('student_id', result.student_id)
-  //     .limit(1)
-  //     .maybeSingle();
-  //   const { data: studentProfile } = await supabase
-  //     .from('profiles')
-  //     .select('name')
-  //     .eq('id', result.student_id)
-  //     .single();
-  //   if (parentLink?.parent_id && studentProfile?.name) {
-  //     await sendKakaoAlimtalkToParent({
-  //       parentId: parentLink.parent_id,
-  //       studentId: result.student_id,
-  //       message: `[상품권 발급]\n\n자녀(${studentProfile.name}) 학생의 상품권이 발급되었습니다.\n\n금액: ${params.voucherAmount.toLocaleString()}원\n코드: ${params.voucherCode}`,
-  //       type: 'point',
-  //     }).catch(console.error);
-  //   }
-  // } catch (err) {
-  //   console.error('Failed to send kakao alimtalk for redemption:', err);
-  // }
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
@@ -2105,18 +1979,10 @@ export async function deletePoint(pointId: string) {
     await maybeRevertWithdrawalReview(supabase, pointData.student_id).catch(console.error);
   }
 
-  // 학생과 연결된 학부모 조회
-  const { data: parentLink } = await supabase
-    .from('parent_student_links')
-    .select('parent_id')
-    .eq('student_id', pointData.student_id)
-    .maybeSingle();
-
-  // 학생 및 학부모(있는 경우) 알림 발송 - notifications 테이블에도 기록됨
-  const { sendNotificationToAll } = await import('./notification');
-  await sendNotificationToAll({
+  // 학생 알림 발송 (인앱+푸시)
+  const { createStudentNotification } = await import('./notification');
+  await createStudentNotification({
     studentId: pointData.student_id,
-    parentId: parentLink?.parent_id ?? undefined,
     type: 'point',
     title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
     message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
@@ -2183,21 +2049,11 @@ export async function deletePoints(pointIds: string[]) {
     return { error: '상벌점 일괄 삭제에 실패했습니다.' };
   }
 
-  // 학생들과 연결된 학부모 조회
-  const studentIds = [...new Set(pointsData.map((p) => p.student_id))];
-  const { data: parentLinks } = await supabase
-    .from('parent_student_links')
-    .select('student_id, parent_id')
-    .in('student_id', studentIds);
-
-  const parentMap = new Map((parentLinks || []).map((l) => [l.student_id, l.parent_id]));
-
-  // 학생들 및 학부모(있는 경우) 알림 발송 - notifications 테이블에도 기록됨
-  const { sendNotificationToAll } = await import('./notification');
+  // 학생들 알림 발송 (인앱+푸시)
+  const { createStudentNotification } = await import('./notification');
   for (const pointData of pointsData) {
-    await sendNotificationToAll({
+    await createStudentNotification({
       studentId: pointData.student_id,
-      parentId: parentMap.get(pointData.student_id) ?? undefined,
       type: 'point',
       title: pointData.type === 'penalty' ? '벌점이 취소되었습니다' : '상점이 취소되었습니다',
       message: `${pointData.reason} (${pointData.type === 'penalty' ? '-' : '+'}${pointData.amount}점) - 관리자에 의해 취소됨`,
@@ -2768,174 +2624,131 @@ export async function updateStudentApprovalStatus(
 }
 
 // ============================================
-// 알림 관련
+// 알림 관련 (실제 인앱/푸시 알림 — student_notifications + user_notifications)
 // ============================================
+//
+// admin_notification_log view 를 service-role 로 조회한다. 두 알림 테이블엔 branch_id 가
+// 없고 학부모는 parent_student_links 로 지점을 도출하므로 view 에서 정규화한다. service-role
+// 은 RLS 를 우회하므로 지점 격리는 전적으로 아래 .eq('branch_id') 가 책임진다(누락 = 정보 유출).
 
-// 알림 목록 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호 (RLS 가 자동 격리).
+export type NotificationPeriod = '7d' | '30d' | 'all';
+export type NotificationRecipientType = 'student' | 'parent';
+
+// branchId === null 은 슈퍼관리자의 "전 지점" 신호.
 export interface NotificationsListParams {
   branchId: string | null;
   page: number;
   pageSize: number;
   q?: string;
-  sort: 'sent_at';
+  sort: 'created_at';
   dir: 'asc' | 'desc';
+  recipientType?: NotificationRecipientType;
   type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+  period?: NotificationPeriod;
 }
 
-export interface NotificationRow {
+export interface AdminNotificationRow {
+  row_key: string;
   id: string;
+  recipient_type: NotificationRecipientType;
+  recipient_id: string;
+  recipient_name: string;
+  recipient_seat_number: number | null;
   branch_id: string;
-  parent_id: string | null;
-  student_id: string | null;
   type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
+  title: string;
   message: string;
-  sent_via: string;
-  sent_at: string;
-  is_sent: boolean;
-  parentName: string;
-  studentName: string;
-  studentSeatNumber: number | null;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface NotificationsListResult {
-  rows: NotificationRow[];
+  rows: AdminNotificationRow[];
   total: number;
   page: number;
   pageSize: number;
 }
 
-// 알림 목록 — URL 페이지네이션. branch 격리는 RLS (Admins can view branch notifications) 자동 처리.
-export async function getNotifications(
+// period → 조회 시작 시각(ISO). 'all' 또는 미지정 외에는 기본 7일.
+function notificationPeriodSince(period: NotificationPeriod | undefined): string | null {
+  if (period === 'all') return null;
+  const days = period === '30d' ? 30 : 7; // 기본 7일
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// 알림 목록 — admin_notification_log(학생+학부모 실제 알림) 조회.
+// 최신순 + row_key(고유) tie-break 로 중복 created_at 에서도 페이지 경계가 결정적.
+export async function getAdminNotifications(
   params: NotificationsListParams,
 ): Promise<NotificationsListResult> {
-  const supabase = await createClient();
-  const { page, pageSize, q, sort, dir, type } = params;
+  const supabase = createAdminClient();
+  const { branchId, page, pageSize, q, dir, recipientType, type, period } = params;
   const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
   const to = from + pageSize - 1;
 
   let query = supabase
-    .from('notifications')
-    .select(
-      `
-      *,
-      parent:parent_id (profiles!inner (name)),
-      student:student_id (seat_number, profiles!inner (name))
-    `,
-      { count: 'exact' },
-    )
-    .order(sort, { ascending: dir === 'asc' })
+    .from('admin_notification_log')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: dir === 'asc' })
+    .order('row_key', { ascending: dir === 'asc' })
     .range(from, to);
 
+  if (branchId) query = query.eq('branch_id', branchId);
+  if (recipientType) query = query.eq('recipient_type', recipientType);
   if (type) query = query.eq('type', type);
+
+  const since = notificationPeriodSince(period);
+  if (since) query = query.gte('created_at', since);
+
   if (q && q.trim()) {
-    const pattern = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    query = query.ilike('message', pattern);
+    query = query.ilike('message', `%${escapeLike(q.trim())}%`);
   }
 
   const { data, count, error } = await query;
   if (error) {
-    console.error('[getNotifications]', error);
+    console.error('[getAdminNotifications]', error);
     return { rows: [], total: 0, page: 1, pageSize };
   }
-
-  const rows = (data || []).map((n): NotificationRow => {
-    const parentProfile = n.parent
-      ? Array.isArray(n.parent.profiles)
-        ? n.parent.profiles[0]
-        : n.parent.profiles
-      : null;
-    const studentProfile = n.student
-      ? Array.isArray(n.student.profiles)
-        ? n.student.profiles[0]
-        : n.student.profiles
-      : null;
-
-    return {
-      id: n.id,
-      branch_id: n.branch_id,
-      parent_id: n.parent_id,
-      student_id: n.student_id,
-      type: n.type,
-      message: n.message,
-      sent_via: n.sent_via,
-      sent_at: n.sent_at,
-      is_sent: n.is_sent,
-      parentName: parentProfile?.name || '알 수 없음',
-      studentName: studentProfile?.name || '알 수 없음',
-      studentSeatNumber: n.student?.seat_number ?? null,
-    };
-  });
 
   const total = count ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
   const clampedPage = total === 0 ? 1 : Math.min(Math.max(1, page), lastPage);
 
-  return { rows, total, page: clampedPage, pageSize };
+  return { rows: (data ?? []) as AdminNotificationRow[], total, page: clampedPage, pageSize };
 }
 
-// 알림 통계 — 전체/발송완료/대기/오늘. 페이지네이션과 별도 집계.
-// "오늘" 은 학습일 (KST 06:00 → 다음날 03:00) 기준. RLS 자동 branch 격리.
-export async function getNotificationStats() {
-  const supabase = await createClient();
-
+// 알림 통계 — 전체/읽음/안읽음/오늘. 모든 분기에 동일하게 branch_id(+period) 적용 (지점 격리).
+// "오늘" 은 학습일 (KST 06:00 → 다음날 03:00) 기준.
+export async function getAdminNotificationStats(
+  branchId: string | null,
+  period?: NotificationPeriod,
+) {
+  const supabase = createAdminClient();
+  const since = notificationPeriodSince(period);
   const { start, end } = getStudyDayBounds(getStudyDate());
 
-  const [totalRes, sentRes, todayRes] = await Promise.all([
-    supabase.from('notifications').select('*', { count: 'exact', head: true }),
-    supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_sent', true),
-    supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .gte('sent_at', start.toISOString())
-      .lt('sent_at', end.toISOString()),
+  const base = () => {
+    let qb = supabase.from('admin_notification_log').select('*', { count: 'exact', head: true });
+    if (branchId) qb = qb.eq('branch_id', branchId);
+    if (since) qb = qb.gte('created_at', since);
+    return qb;
+  };
+
+  const [totalRes, readRes, todayRes] = await Promise.all([
+    base(),
+    base().eq('is_read', true),
+    base().gte('created_at', start.toISOString()).lt('created_at', end.toISOString()),
   ]);
 
   const total = totalRes.count ?? 0;
-  const sent = sentRes.count ?? 0;
+  const read = readRes.count ?? 0;
   return {
     total,
-    sent,
-    pending: total - sent,
+    read,
+    unread: total - read,
     today: todayRes.count ?? 0,
   };
-}
-
-// 수동 알림 발송 (기록만)
-export async function sendNotification(
-  parentId: string,
-  studentId: string,
-  type: 'late' | 'absent' | 'point' | 'schedule',
-  message: string,
-) {
-  const supabase = await createClient();
-
-  // branch_id 도출 — 학생의 branch
-  const { data: studentProfile } = await supabase
-    .from('profiles')
-    .select('branch_id')
-    .eq('id', studentId)
-    .maybeSingle();
-  const branchId = studentProfile?.branch_id;
-  if (!branchId) {
-    return { error: '학생의 지점 정보를 찾을 수 없습니다.' };
-  }
-
-  const { error } = await supabase.from('notifications').insert({
-    branch_id: branchId,
-    parent_id: parentId,
-    student_id: studentId,
-    type,
-    message,
-    is_sent: false, // 실제 발송은 카카오 연동 후
-  });
-
-  if (error) {
-    console.error('Error sending notification:', error);
-    return { error: '알림 발송에 실패했습니다.' };
-  }
-
-  revalidatePath('/admin/notifications');
-  return { success: true };
 }
 
 // ============================================
@@ -5680,7 +5493,7 @@ export async function deleteMember(
     if (userType === 'parent') {
       // 활성 자녀가 1명이라도 있으면 학부모 탈퇴를 막는다.
       // 자녀 연결만 끊고 학부모만 남기는 과거 동작은 자녀 입장에서 학부모가 사라지는 효과라
-      // (채팅·알림톡·앱 노출 모두 끊김) 데이터·UX 일관성을 깬다.
+      // (채팅·앱 알림 노출 모두 끊김) 데이터·UX 일관성을 깬다.
       // 클라이언트가 자녀들을 먼저 탈퇴 처리한 뒤 학부모를 탈퇴시키도록 강제한다.
       const { data: links } = await adminClient
         .from('parent_student_links')

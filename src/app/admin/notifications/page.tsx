@@ -1,4 +1,9 @@
-import { getNotifications, getNotificationStats } from '@/lib/actions/admin';
+import {
+  getAdminNotifications,
+  getAdminNotificationStats,
+  type NotificationPeriod,
+  type NotificationRecipientType,
+} from '@/lib/actions/admin';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { NOTIFICATIONS_LIST_CONFIG } from './list-config';
@@ -22,23 +27,36 @@ export default async function NotificationsManagementPage({ searchParams }: Page
 
   const params = parseListParams(raw, NOTIFICATIONS_LIST_CONFIG);
 
+  // 필터값 화이트리스트 검증 — 잘못된 URL 값이 SQL .eq 로 새어들지 않도록.
   const allowedTypes = ['late', 'absent', 'point', 'schedule', 'system'] as const;
   const typeFilter =
     params.filters.type && (allowedTypes as readonly string[]).includes(params.filters.type)
       ? (params.filters.type as (typeof allowedTypes)[number])
       : undefined;
 
+  const recipientFilter =
+    params.filters.recipientType === 'student' || params.filters.recipientType === 'parent'
+      ? (params.filters.recipientType as NotificationRecipientType)
+      : undefined;
+
+  const period: NotificationPeriod =
+    params.filters.period === '30d' || params.filters.period === 'all'
+      ? params.filters.period
+      : '7d'; // 기본 최근 7일
+
   const [result, stats] = await Promise.all([
-    getNotifications({
+    getAdminNotifications({
       branchId: ctx.branchId,
       page: params.page,
       pageSize: params.pageSize,
       q: params.q,
       sort: params.sort,
       dir: params.dir,
+      recipientType: recipientFilter,
       type: typeFilter,
+      period,
     }),
-    getNotificationStats(),
+    getAdminNotificationStats(ctx.branchId, period),
   ]);
 
   return <NotificationsClient initialResult={result} stats={stats} />;

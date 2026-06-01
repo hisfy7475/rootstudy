@@ -872,41 +872,6 @@ export interface Database {
           updated_at?: string;
         };
       };
-      notifications: {
-        Row: {
-          id: string;
-          branch_id: string;
-          parent_id: string | null;
-          student_id: string | null;
-          type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
-          message: string;
-          sent_via: 'kakao';
-          sent_at: string;
-          is_sent: boolean;
-        };
-        Insert: {
-          id?: string;
-          branch_id: string;
-          parent_id?: string | null;
-          student_id?: string | null;
-          type: 'late' | 'absent' | 'point' | 'schedule' | 'system';
-          message: string;
-          sent_via?: 'kakao';
-          sent_at?: string;
-          is_sent?: boolean;
-        };
-        Update: {
-          id?: string;
-          branch_id?: string;
-          parent_id?: string | null;
-          student_id?: string | null;
-          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system';
-          message?: string;
-          sent_via?: 'kakao';
-          sent_at?: string;
-          is_sent?: boolean;
-        };
-      };
       student_notifications: {
         Row: {
           id: string;
@@ -1970,7 +1935,6 @@ export type Point = Database['public']['Tables']['points']['Row'];
 export type Schedule = Database['public']['Tables']['schedules']['Row'];
 export type ChatRoom = Database['public']['Tables']['chat_rooms']['Row'];
 export type ChatMessage = Database['public']['Tables']['chat_messages']['Row'];
-export type Notification = Database['public']['Tables']['notifications']['Row'];
 export type Branch = Database['public']['Tables']['branches']['Row'];
 export type DateTypeDefinition = Database['public']['Tables']['date_type_definitions']['Row'];
 export type DateAssignment = Database['public']['Tables']['date_assignments']['Row'];
