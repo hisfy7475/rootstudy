@@ -714,7 +714,7 @@ export async function removeChildFromParent(studentId: string) {
 //
 // 어드민 deleteMember 는 활성 자녀가 있으면 차단하지만, 셀프 탈퇴는
 // Apple 정책상 막을 수 없으므로 자녀 연결을 자동 해제 후 soft delete.
-// 자녀 계정·학습 기록은 그대로 보존되고, 단지 알림톡 채널이 끊긴다.
+// 자녀 계정·학습 기록은 그대로 보존되고, 단지 자녀 알림 연결이 끊긴다.
 export async function withdrawSelf(
   currentPassword: string,
 ): Promise<{ success?: boolean; warning?: string; error?: string }> {

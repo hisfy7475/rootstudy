@@ -96,7 +96,7 @@ export async function GET(request: Request) {
     console.error('quarterly-reset misc error:', resetMiscError);
   }
 
-  // 3) 학생/관리자 인앱 알림 (학부모는 노이즈 방지로 알림톡 미발송)
+  // 3) 학생/관리자 인앱 알림
   const { createBulkStudentNotifications } = await import('@/lib/actions/notification');
 
   if (reviewReset.length > 0) {

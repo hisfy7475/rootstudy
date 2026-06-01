@@ -302,7 +302,7 @@ export default function ParentSignupPage() {
                   />
                 </div>
                 <p className='text-text-muted mt-1 text-xs'>
-                  자녀의 출결·상벌점·결제 알림톡 수신을 위한 번호입니다.
+                  자녀의 출결·상벌점·결제 알림 수신 및 비상 연락을 위한 번호입니다.
                 </p>
               </div>
 

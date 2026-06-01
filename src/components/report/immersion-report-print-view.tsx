@@ -215,7 +215,6 @@ export function ImmersionReportPrintView({
               .join('\n')}
           />
         )}
-        <PrintTextSection label='상담/멘토링 레터' value={c.guidanceNotes} />
         <PrintTextSection label='추가 메모/첨언' value={c.mentoringLetter} />
         <PrintTextSection label='학부모 상담 요약' value={c.parentSummary} />
         <PrintTextSection label='관리자 추가 메모' value={c.adminNotes ?? ''} />

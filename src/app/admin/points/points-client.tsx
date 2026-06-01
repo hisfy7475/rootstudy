@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, Fragment } from 'react';
+import { useState, useTransition, Fragment, type ReactNode } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
   deleteRewardPreset,
   createPenaltyPreset,
   deletePenaltyPreset,
+  setPenaltyPresetAutoEnabled,
   getRewardPresets,
   getPenaltyPresets,
   deletePoint,
@@ -123,6 +124,8 @@ interface PointsClientProps {
   students: Student[];
   /** null = 전 지점 (슈퍼관리자) */
   branchId: string | null;
+  /** 지점 목록(표시 순서). 슈퍼관리자(전 지점)에서 규정을 지점별로 묶어 표시 */
+  branches: { id: string; name: string }[];
   initialRewardPresets: RewardPreset[];
   initialPenaltyPresets: PenaltyPreset[];
   initialReviewQueue: ReviewQueueRow[];
@@ -139,6 +142,7 @@ export function PointsClient({
   initialHistoryResult,
   students,
   branchId,
+  branches,
   initialRewardPresets,
   initialPenaltyPresets,
   initialReviewQueue,
@@ -603,6 +607,22 @@ export function PointsClient({
       const presets = await getPenaltyPresets(branchId);
       setPenaltyPresets(presets);
       showSuccess('벌점 규정 삭제 완료');
+    } else if (result.error) {
+      alert(result.error);
+    }
+    setLoading(false);
+  }
+
+  async function handleToggleAutoEnabled(presetId: string, enabled: boolean) {
+    setLoading(true);
+    const result = await setPenaltyPresetAutoEnabled(presetId, enabled);
+    if (result.success) {
+      setPenaltyPresets((prev) =>
+        prev.map((p) => (p.id === presetId ? { ...p, auto_enabled: enabled } : p)),
+      );
+      showSuccess(enabled ? '자동 부과 켜짐' : '자동 부과 꺼짐');
+    } else if (result.error) {
+      alert(result.error);
     }
     setLoading(false);
   }
@@ -655,6 +675,106 @@ export function PointsClient({
     }
   }
 
+  // 슈퍼관리자(전 지점)는 규정을 지점별 섹션으로 묶어 보여준다.
+  const isAllBranches = !branchId;
+
+  function groupByBranch<T extends { branch_id: string }>(
+    items: T[],
+  ): { id: string; name: string; items: T[] }[] {
+    const groups = branches.map((b) => ({ id: b.id, name: b.name, items: [] as T[] }));
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    const orphan = { id: '__etc__', name: '기타', items: [] as T[] };
+    for (const it of items) {
+      (byId.get(it.branch_id) ?? orphan).items.push(it);
+    }
+    const result = groups.filter((g) => g.items.length > 0);
+    if (orphan.items.length > 0) result.push(orphan);
+    return result;
+  }
+
+  function renderRewardRow(preset: RewardPreset) {
+    return (
+      <div
+        key={preset.id}
+        className='flex items-center justify-between rounded-lg border bg-white p-2'
+      >
+        <span className='truncate text-sm'>{preset.reason}</span>
+        <div className='flex shrink-0 items-center gap-2'>
+          <span className='font-semibold text-green-600'>+{preset.amount}점</span>
+          <button
+            onClick={() => handleDeleteRewardPreset(preset.id)}
+            className='text-gray-400 hover:text-red-500'
+          >
+            <X className='h-4 w-4' />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderPenaltyRow(preset: PenaltyPreset) {
+    return (
+      <div
+        key={preset.id}
+        className='flex items-center justify-between rounded-lg border bg-white p-2'
+      >
+        <div className='flex min-w-0 items-center gap-2'>
+          <span className='truncate text-sm'>{preset.reason}</span>
+          {preset.is_system && (
+            <span className='shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500'>
+              자동
+            </span>
+          )}
+        </div>
+        <div className='flex shrink-0 items-center gap-2'>
+          {preset.amount === 999 ? (
+            <span className='text-xs font-semibold text-gray-800'>이유 불문 제적</span>
+          ) : (
+            <span className='font-semibold text-red-500'>-{preset.amount}점</span>
+          )}
+          {preset.is_system ? (
+            // 시스템 프리셋(지각/조기퇴실): 자동 부과 ON/OFF 토글 (삭제 불가)
+            <button
+              type='button'
+              onClick={() => handleToggleAutoEnabled(preset.id, !preset.auto_enabled)}
+              disabled={loading}
+              className={cn(
+                'rounded px-2 py-1 text-xs font-semibold transition-colors',
+                preset.auto_enabled
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+              )}
+            >
+              {preset.auto_enabled ? '자동 ON' : '자동 OFF'}
+            </button>
+          ) : (
+            <button
+              onClick={() => handleDeletePenaltyPreset(preset.id)}
+              className='text-gray-400 hover:text-red-500'
+            >
+              <X className='h-4 w-4' />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 지점 섹션 헤더 + 해당 지점 규정 행들
+  function renderGrouped<T extends { branch_id: string }>(
+    items: T[],
+    renderRow: (p: T) => ReactNode,
+  ) {
+    return groupByBranch(items).map((g) => (
+      <div key={g.id} className='space-y-2'>
+        <p className='text-text-muted sticky top-0 bg-gray-50 py-0.5 text-xs font-semibold'>
+          {g.name}
+        </p>
+        {g.items.map(renderRow)}
+      </div>
+    ));
+  }
+
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
@@ -697,24 +817,10 @@ export function PointsClient({
           <div className='grid grid-cols-2 gap-6'>
             <div>
               <p className='mb-2 text-sm font-medium text-green-700'>상점 규정</p>
-              <div className='mb-3 max-h-48 space-y-2 overflow-y-auto'>
-                {rewardPresets.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className='flex items-center justify-between rounded-lg border bg-white p-2'
-                  >
-                    <span className='text-sm'>{preset.reason}</span>
-                    <div className='flex items-center gap-2'>
-                      <span className='font-semibold text-green-600'>+{preset.amount}점</span>
-                      <button
-                        onClick={() => handleDeleteRewardPreset(preset.id)}
-                        className='text-gray-400 hover:text-red-500'
-                      >
-                        <X className='h-4 w-4' />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className='mb-3 max-h-48 space-y-3 overflow-y-auto'>
+                {isAllBranches
+                  ? renderGrouped(rewardPresets, renderRewardRow)
+                  : rewardPresets.map(renderRewardRow)}
               </div>
               <div className='flex gap-2'>
                 <Input
@@ -739,28 +845,10 @@ export function PointsClient({
 
             <div>
               <p className='mb-2 text-sm font-medium text-red-700'>벌점 규정</p>
-              <div className='mb-3 max-h-48 space-y-2 overflow-y-auto'>
-                {penaltyPresets.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className='flex items-center justify-between rounded-lg border bg-white p-2'
-                  >
-                    <span className='text-sm'>{preset.reason}</span>
-                    <div className='flex items-center gap-2'>
-                      {preset.amount === 999 ? (
-                        <span className='text-xs font-semibold text-gray-800'>이유 불문 제적</span>
-                      ) : (
-                        <span className='font-semibold text-red-500'>-{preset.amount}점</span>
-                      )}
-                      <button
-                        onClick={() => handleDeletePenaltyPreset(preset.id)}
-                        className='text-gray-400 hover:text-red-500'
-                      >
-                        <X className='h-4 w-4' />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className='mb-3 max-h-48 space-y-3 overflow-y-auto'>
+                {isAllBranches
+                  ? renderGrouped(penaltyPresets, renderPenaltyRow)
+                  : penaltyPresets.map(renderPenaltyRow)}
               </div>
               <div className='flex gap-2'>
                 <Input

@@ -367,7 +367,7 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
                 <p>
                   · 연결된 자녀 <strong className='text-red-600'>{activeChildCount}명</strong>과의
                   연결이 자동 해제됩니다. 자녀 계정·학습 기록은 유지되지만, 앞으로 자녀의
-                  출결·알림톡을 받을 수 없습니다.
+                  출결·알림을 받을 수 없습니다.
                 </p>
               ) : null}
               <p>· 탈퇴 후 본 계정으로 다시 로그인할 수 없습니다.</p>

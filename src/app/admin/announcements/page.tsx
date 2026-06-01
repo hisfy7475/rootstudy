@@ -1,6 +1,4 @@
 import { getAnnouncementsForAdmin, getAnnouncementStatsForAdmin } from '@/lib/actions/announcement';
-// [알림톡 비활성화 2026-05-26]
-// import { getAlimtalkConfig } from '@/lib/actions/notification';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { ANNOUNCEMENTS_LIST_CONFIG } from './list-config';
@@ -45,15 +43,7 @@ export default async function AnnouncementsManagementPage({ searchParams }: Page
       important: importantFilter,
     }),
     getAnnouncementStatsForAdmin(ctx.branchId),
-    // [알림톡 비활성화 2026-05-26] getAlimtalkConfig() 호출 제거
   ]);
 
-  return (
-    <AnnouncementsClient
-      initialResult={result}
-      stats={stats}
-      // [알림톡 비활성화 2026-05-26]
-      // alimtalkConfigured={alimtalkConfig.isConfigured}
-    />
-  );
+  return <AnnouncementsClient initialResult={result} stats={stats} />;
 }

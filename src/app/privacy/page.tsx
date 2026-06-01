@@ -19,7 +19,7 @@ export default function PrivacyPage() {
           </p>
           <ul className='mt-2 list-disc space-y-1 pl-5'>
             <li>회원 가입 및 인증: 이름, 이메일, 비밀번호</li>
-            <li>알림톡 수신(선택): 전화번호 — 학원 출결·상벌점·결제·멘토링 알림 발송</li>
+            <li>연락처: 전화번호 — 결제·비상 연락 및 학원 알림 수신</li>
             <li>학습 관리: 출석 기록, 학습 시간, 좌석 정보</li>
             <li>채팅 및 상담: 채팅 메시지, 업로드된 이미지·파일</li>
             <li>푸시 알림: 기기 토큰(Push Token)</li>
