@@ -7,6 +7,7 @@ import {
   getWithdrawalReviewQueue,
   getRedemptionQueue,
 } from '@/lib/actions/admin';
+import { getAllBranches } from '@/lib/actions/branch';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { POINTS_HISTORY_LIST_CONFIG, parseTab } from './list-config';
@@ -42,6 +43,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     reviewQueue,
     requiredQueue,
     redemptionQueue,
+    branches,
   ] = await Promise.all([
     getPointsOverview({ branchId }),
     getAllPointsHistory({
@@ -63,7 +65,12 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     getWithdrawalReviewQueue(branchId, 'review'),
     getWithdrawalReviewQueue(branchId, 'required'),
     getRedemptionQueue(branchId),
+    // 슈퍼관리자(전 지점)는 규정이 지점별로 합쳐 보이므로 지점명 뱃지용 맵을 함께 전달
+    branchId ? Promise.resolve([]) : getAllBranches(true),
   ]);
+
+  const branchNameById: Record<string, string> = {};
+  for (const b of branches) branchNameById[b.id] = b.name;
 
   return (
     <PointsClient
@@ -72,6 +79,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
       initialHistoryResult={history}
       students={students}
       branchId={branchId}
+      branchNameById={branchNameById}
       initialRewardPresets={rewardPresets}
       initialPenaltyPresets={penaltyPresets}
       initialReviewQueue={reviewQueue}

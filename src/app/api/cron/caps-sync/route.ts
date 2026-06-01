@@ -9,6 +9,13 @@ import {
 } from '@/lib/caps/client';
 import type { CapsGate } from '@/lib/caps/types';
 import { sendPushToUsers } from '@/lib/push';
+import { getStudyDate } from '@/lib/utils';
+import {
+  evaluateAttendancePenalty,
+  fetchMandatoryTime,
+  type MandatoryTime,
+  type PenaltyClient,
+} from '@/lib/attendance/penalty';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -332,6 +339,60 @@ export async function GET(request: Request) {
           );
         } catch (notifError) {
           console.error('[caps-sync] attendance notification error', notifError);
+        }
+
+        // 지각/조기퇴실 실시간 자동 벌점 평가 (CAPS 실제 출입 시각 기준).
+        // 지점 시스템 프리셋의 auto_enabled=true 일 때만 실제 부과되며, 같은 학습일 중복은 차단된다.
+        try {
+          // service-role 클라이언트(비타입드)를 모듈의 타입드 클라이언트로 수용
+          const penaltyClient = supabase as unknown as PenaltyClient;
+          const todayStudyStr = getStudyDate(new Date()).toISOString().split('T')[0];
+
+          const penaltyStudentIds = [...new Set(newRecords.map((r) => r.student_id))];
+          const { data: penaltyProfiles } = await supabase
+            .from('profiles')
+            .select('id, branch_id')
+            .in('id', penaltyStudentIds);
+          const branchByStudent = new Map<string, string | null>();
+          penaltyProfiles?.forEach((p) =>
+            branchByStudent.set(p.id, (p.branch_id as string | null) ?? null),
+          );
+
+          // 의무시간 (branchId, 학습일) 캐시 — 레코드별 재조회(N+1) 방지
+          const mandatoryCache = new Map<string, MandatoryTime>();
+          const getMandatory = async (
+            branchId: string,
+            dateStr: string,
+          ): Promise<MandatoryTime> => {
+            const key = `${branchId}:${dateStr}`;
+            const hit = mandatoryCache.get(key);
+            if (hit) return hit;
+            const m = await fetchMandatoryTime(penaltyClient, branchId, dateStr);
+            mandatoryCache.set(key, m);
+            return m;
+          };
+
+          for (const r of newRecords) {
+            const at = new Date(r.timestamp);
+            const studyStr = getStudyDate(at).toISOString().split('T')[0];
+            // 백필/재동기화로 유입된 과거 학습일 레코드는 소급 부과하지 않음
+            if (studyStr !== todayStudyStr) continue;
+
+            const branchId = branchByStudent.get(r.student_id) ?? null;
+            if (!branchId) continue;
+
+            const mandatory = await getMandatory(branchId, studyStr);
+            await evaluateAttendancePenalty({
+              supabase: penaltyClient,
+              studentId: r.student_id,
+              type: r.type === 'check_in' ? 'late' : 'early',
+              at,
+              branchId,
+              mandatory,
+            }).catch((e) => console.error('[caps-sync] penalty eval error', e));
+          }
+        } catch (penaltyError) {
+          console.error('[caps-sync] attendance penalty error', penaltyError);
         }
       }
     }

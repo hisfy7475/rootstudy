@@ -556,6 +556,7 @@ export interface Database {
             | 'redeem'
             | 'offset_against_penalty'
             | 'offset_against_penalty_revert';
+          study_date: string | null;
         };
         Insert: {
           id?: string;
@@ -580,6 +581,7 @@ export interface Database {
             | 'redeem'
             | 'offset_against_penalty'
             | 'offset_against_penalty_revert';
+          study_date?: string | null;
         };
         Update: {
           id?: string;
@@ -604,6 +606,7 @@ export interface Database {
             | 'redeem'
             | 'offset_against_penalty'
             | 'offset_against_penalty_revert';
+          study_date?: string | null;
         };
       };
       reward_redemptions: {
@@ -1038,6 +1041,9 @@ export interface Database {
           color: string;
           sort_order: number;
           is_active: boolean;
+          code: string | null;
+          is_system: boolean;
+          auto_enabled: boolean;
           created_at: string;
         };
         Insert: {
@@ -1048,6 +1054,9 @@ export interface Database {
           color?: string;
           sort_order?: number;
           is_active?: boolean;
+          code?: string | null;
+          is_system?: boolean;
+          auto_enabled?: boolean;
           created_at?: string;
         };
         Update: {
@@ -1058,6 +1067,9 @@ export interface Database {
           color?: string;
           sort_order?: number;
           is_active?: boolean;
+          code?: string | null;
+          is_system?: boolean;
+          auto_enabled?: boolean;
           created_at?: string;
         };
       };

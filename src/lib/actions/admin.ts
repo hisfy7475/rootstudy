@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { escapeLike } from '@/lib/list-params';
 import { softDeleteUser } from '@/lib/withdraw';
 import { requireSuperAdmin } from '@/lib/auth/require-super-admin';
+import { requireAdminBranch } from '@/lib/auth/admin-context';
 import {
   getStudyDate,
   getStudyDayBounds,
@@ -4683,6 +4684,8 @@ export interface PenaltyPreset {
   /** 시스템 preset (자동 부여) 식별자. 'late_checkin' | 'early_checkout' 등. */
   code?: string | null;
   is_system?: boolean;
+  /** 시스템 preset 의 자동 부과 ON/OFF. 기본 false. */
+  auto_enabled?: boolean;
 }
 
 // 벌점 프리셋 조회. branchId === null 은 슈퍼관리자의 "전 지점" 신호.
@@ -4751,6 +4754,19 @@ export async function createPenaltyPreset(
 export async function deletePenaltyPreset(id: string) {
   const supabase = await createClient();
 
+  // 시스템 프리셋(지각/조기퇴실)은 삭제 불가 — 비활성화 시 토글 UI 에서 사라지고
+  // 시드 재생성도 WHERE NOT EXISTS 로 막혀 복구가 어렵다. 자동 부과는 토글로만 제어.
+  const { data: target } = await supabase
+    .from('penalty_presets')
+    .select('is_system')
+    .eq('id', id)
+    .maybeSingle();
+  if (target?.is_system) {
+    return {
+      error: '시스템 프리셋(지각/조기퇴실)은 삭제할 수 없습니다. 자동 부과 토글로 관리하세요.',
+    };
+  }
+
   const { error } = await supabase
     .from('penalty_presets')
     .update({ is_active: false })
@@ -4763,6 +4779,43 @@ export async function deletePenaltyPreset(id: string) {
 
   revalidatePath('/admin/focus');
   revalidatePath('/admin/points');
+  return { success: true };
+}
+
+// 시스템 벌점 프리셋(지각/조기퇴실)의 자동 부과 ON/OFF 토글.
+// 권한: 슈퍼관리자 또는 해당 지점 어드민. 시스템 프리셋만 대상.
+export async function setPenaltyPresetAutoEnabled(presetId: string, enabled: boolean) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const supabase = await createClient();
+
+  const { data: preset } = await supabase
+    .from('penalty_presets')
+    .select('id, branch_id, is_system')
+    .eq('id', presetId)
+    .maybeSingle();
+
+  if (!preset) return { error: '프리셋을 찾을 수 없습니다.' };
+  if (!ctx.isSuperAdmin && preset.branch_id !== ctx.branchId) {
+    return { error: '해당 지점 프리셋에 대한 권한이 없습니다.' };
+  }
+  if (!preset.is_system) {
+    return { error: '시스템 프리셋만 자동 부과를 설정할 수 있습니다.' };
+  }
+
+  const { error } = await supabase
+    .from('penalty_presets')
+    .update({ auto_enabled: enabled })
+    .eq('id', presetId);
+
+  if (error) {
+    console.error('Error toggling penalty preset auto_enabled:', error);
+    return { error: '자동 부과 설정 변경에 실패했습니다.' };
+  }
+
+  revalidatePath('/admin/points');
+  revalidatePath('/student/points');
   return { success: true };
 }
 

@@ -129,6 +129,9 @@ export const ATTENDANCE_CONFIG = {
 export const PENALTY_RULES = {
   lateCheckIn: { amount: 1, reason: '지각' },
   earlyCheckOut: { amount: 1, reason: '조기퇴실' },
+  // 지각/조기퇴실 자동 부과 유예(버퍼) — 의무시간 ±이 분 안의 입·퇴실은 미부과.
+  // 외출 허용(ATTENDANCE_CONFIG.gracePeriodMinutes=15)과는 별개 의미.
+  graceMinutes: 10,
   // 분기 누적 임계치 (4단계: 관심·주의·경고·검토 진입)
   warn10: 10,
   warn20: 20,

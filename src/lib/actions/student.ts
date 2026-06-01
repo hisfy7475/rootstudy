@@ -9,11 +9,9 @@ import {
   formatDateKST,
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
-import { getMandatoryTime } from './date-type';
-import { isInAbsencePeriod } from './absence-schedule';
-import { PENALTY_RULES, REWARD_RULES } from '@/lib/constants';
+import { REWARD_RULES } from '@/lib/constants';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
-import { notifyPointsGranted } from './notification';
+import { evaluateAttendancePenalty } from '@/lib/attendance/penalty';
 import {
   getRewardPresets,
   getPenaltyPresets,
@@ -21,61 +19,6 @@ import {
   type PenaltyPreset,
 } from './admin';
 import { softDeleteUser } from '@/lib/withdraw';
-
-// 내부용: 자동 벌점 부여 (관리자 로그인 없이)
-//
-// presetCode 가 주어지면 학생.branch 의 동일 code 시스템 preset 을 lookup 해 preset_id 와 함께 insert.
-// (student, preset, KST 일자) partial unique index 로 같은 날 중복 부과는 silent 차단.
-async function giveAutoPoints(
-  studentId: string,
-  type: 'reward' | 'penalty',
-  amount: number,
-  reason: string,
-  presetCode?: string,
-) {
-  const supabase = await createClient();
-
-  let presetId: string | null = null;
-  if (presetCode) {
-    const branchId = await getStudentBranchId(studentId);
-    if (branchId) {
-      const tableName = type === 'penalty' ? 'penalty_presets' : 'reward_presets';
-      const { data: preset } = await supabase
-        .from(tableName)
-        .select('id')
-        .eq('branch_id', branchId)
-        .eq('code', presetCode)
-        .maybeSingle();
-      presetId = (preset?.id as string | undefined) ?? null;
-    }
-  }
-
-  // INSERT 후 23505 (unique_violation) 시 silent skip — 자동 트리거는 사용자에게 응답하지 않음.
-  const { error } = await supabase.from('points').insert({
-    student_id: studentId,
-    admin_id: null,
-    type,
-    amount,
-    reason,
-    is_auto: true,
-    preset_id: presetId,
-    preset_type: presetId ? type : null,
-  });
-
-  if (error) {
-    if ((error as { code?: string }).code === '23505') {
-      // 같은 학생/preset/KST 일자에 이미 부여됨 → 정상 동작, 알림 발송 안 함
-      return { success: true, skipped: true };
-    }
-    console.error('Error giving auto points:', error);
-    return { error: '자동 벌점 부여에 실패했습니다.' };
-  }
-
-  // 학생 + 모든 학부모 앱 알림 + 푸시 발송
-  await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
-
-  return { success: true };
-}
 
 // 학생의 지점 정보 조회
 async function getStudentBranchId(studentId: string): Promise<string | null> {
@@ -88,91 +31,6 @@ async function getStudentBranchId(studentId: string): Promise<string | null> {
     .single();
 
   return profile?.branch_id || null;
-}
-
-// 지각 체크 및 자동 벌점 부여
-async function checkLateArrival(studentId: string) {
-  const branchId = await getStudentBranchId(studentId);
-  if (!branchId) return; // 지점 정보 없으면 체크 안함
-
-  const now = new Date();
-  const studyDate = getStudyDate();
-  const dateStr = studyDate.toISOString().split('T')[0];
-
-  // 의무 시간 조회
-  const mandatory = await getMandatoryTime(branchId, dateStr);
-  if (!mandatory.startTime) return; // 의무 시간 설정 없으면 체크 안함
-
-  // 의무 시작 시간 파싱
-  const [startHour, startMinute] = mandatory.startTime.split(':').map(Number);
-  const mandatoryStartTime = new Date(studyDate);
-  mandatoryStartTime.setHours(startHour, startMinute, 0, 0);
-
-  // 지각 여부 확인 (의무 시작 시간 이후 입실)
-  if (now <= mandatoryStartTime) return; // 정시 또는 이전 입실
-
-  // 부재 스케줄 면제 확인
-  const exemption = await isInAbsencePeriod(
-    studentId,
-    now,
-    mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined,
-  );
-  if (exemption.isExempted) return; // 면제 대상
-
-  // 자동 벌점 부여 — 'late_checkin' 시스템 preset 사용 (KST 일자 중복 차단)
-  await giveAutoPoints(
-    studentId,
-    'penalty',
-    PENALTY_RULES.lateCheckIn.amount,
-    PENALTY_RULES.lateCheckIn.reason,
-    'late_checkin',
-  );
-}
-
-// 조기퇴실 체크 및 자동 벌점 부여
-async function checkEarlyDeparture(studentId: string) {
-  const branchId = await getStudentBranchId(studentId);
-  if (!branchId) return; // 지점 정보 없으면 체크 안함
-
-  const now = new Date();
-  const studyDate = getStudyDate();
-  const dateStr = studyDate.toISOString().split('T')[0];
-
-  // 의무 시간 조회
-  const mandatory = await getMandatoryTime(branchId, dateStr);
-  if (!mandatory.endTime) return; // 의무 시간 설정 없으면 체크 안함
-
-  // 의무 종료 시간 파싱
-  const [endHour, endMinute] = mandatory.endTime.split(':').map(Number);
-  const mandatoryEndTime = new Date(studyDate);
-
-  // 시간이 24시를 넘는 경우 처리 (예: 25:30 = 다음날 01:30)
-  if (endHour >= 24) {
-    mandatoryEndTime.setDate(mandatoryEndTime.getDate() + 1);
-    mandatoryEndTime.setHours(endHour - 24, endMinute, 0, 0);
-  } else {
-    mandatoryEndTime.setHours(endHour, endMinute, 0, 0);
-  }
-
-  // 조기퇴실 여부 확인 (의무 종료 시간 이전 퇴실)
-  if (now >= mandatoryEndTime) return; // 정시 또는 이후 퇴실
-
-  // 부재 스케줄 면제 확인
-  const exemption = await isInAbsencePeriod(
-    studentId,
-    now,
-    mandatory.dateTypeName as 'semester' | 'vacation' | 'special' | undefined,
-  );
-  if (exemption.isExempted) return; // 면제 대상
-
-  // 자동 벌점 부여 — 'early_checkout' 시스템 preset 사용
-  await giveAutoPoints(
-    studentId,
-    'penalty',
-    PENALTY_RULES.earlyCheckOut.amount,
-    PENALTY_RULES.earlyCheckOut.reason,
-    'early_checkout',
-  );
 }
 
 // 학생의 오늘(학습일 기준) 입실/퇴실 기록 조회
@@ -360,8 +218,14 @@ export async function checkIn() {
     return { error: '입실 처리에 실패했습니다.' };
   }
 
-  // 지각 체크 및 자동 벌점 (비동기로 실행, 입실 처리에는 영향 없음)
-  checkLateArrival(user.id).catch(console.error);
+  // 지각 자동 벌점 평가 (비동기 — 입실 처리에는 영향 없음).
+  // 지점 시스템 프리셋의 auto_enabled=true 일 때만 실제 부과된다.
+  evaluateAttendancePenalty({
+    supabase,
+    studentId: user.id,
+    type: 'late',
+    at: new Date(),
+  }).catch(console.error);
 
   revalidatePath('/student');
   return { success: true };
@@ -376,8 +240,14 @@ export async function checkOut() {
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
-  // 조기퇴실 체크 및 자동 벌점 (비동기로 실행, 퇴실 처리에는 영향 없음)
-  checkEarlyDeparture(user.id).catch(console.error);
+  // 조기퇴실 자동 벌점 평가 (비동기 — 퇴실 처리에는 영향 없음).
+  // 지점 시스템 프리셋의 auto_enabled=true 일 때만 실제 부과된다.
+  evaluateAttendancePenalty({
+    supabase,
+    studentId: user.id,
+    type: 'early',
+    at: new Date(),
+  }).catch(console.error);
 
   // 현재 학습 중인 과목 자동 종료
   await supabase
@@ -1062,7 +932,13 @@ export async function getPointPresets(): Promise<{
     getPenaltyPresets(branchId),
   ]);
 
-  return { rewardPresets, penaltyPresets };
+  // 자동 부과가 꺼진(auto_enabled=false) 시스템 프리셋(지각/조기퇴실)은 학생/학부모 규정 표에서 숨긴다.
+  // (관리자 수동 부과 목록·규정 관리에는 계속 노출 — getPenaltyPresets 는 그대로 사용)
+  const visiblePenaltyPresets = penaltyPresets.filter(
+    (p) => !p.is_system || p.auto_enabled === true,
+  );
+
+  return { rewardPresets, penaltyPresets: visiblePenaltyPresets };
 }
 
 // 오늘(학습일 기준)의 과목 기록 조회

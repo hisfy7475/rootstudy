@@ -16,6 +16,7 @@ import {
   deleteRewardPreset,
   createPenaltyPreset,
   deletePenaltyPreset,
+  setPenaltyPresetAutoEnabled,
   getRewardPresets,
   getPenaltyPresets,
   deletePoint,
@@ -123,6 +124,8 @@ interface PointsClientProps {
   students: Student[];
   /** null = 전 지점 (슈퍼관리자) */
   branchId: string | null;
+  /** 지점 id → 이름. 슈퍼관리자(전 지점)에서 규정 행에 지점 뱃지 표시용 */
+  branchNameById: Record<string, string>;
   initialRewardPresets: RewardPreset[];
   initialPenaltyPresets: PenaltyPreset[];
   initialReviewQueue: ReviewQueueRow[];
@@ -139,6 +142,7 @@ export function PointsClient({
   initialHistoryResult,
   students,
   branchId,
+  branchNameById,
   initialRewardPresets,
   initialPenaltyPresets,
   initialReviewQueue,
@@ -603,6 +607,22 @@ export function PointsClient({
       const presets = await getPenaltyPresets(branchId);
       setPenaltyPresets(presets);
       showSuccess('벌점 규정 삭제 완료');
+    } else if (result.error) {
+      alert(result.error);
+    }
+    setLoading(false);
+  }
+
+  async function handleToggleAutoEnabled(presetId: string, enabled: boolean) {
+    setLoading(true);
+    const result = await setPenaltyPresetAutoEnabled(presetId, enabled);
+    if (result.success) {
+      setPenaltyPresets((prev) =>
+        prev.map((p) => (p.id === presetId ? { ...p, auto_enabled: enabled } : p)),
+      );
+      showSuccess(enabled ? '자동 부과 켜짐' : '자동 부과 꺼짐');
+    } else if (result.error) {
+      alert(result.error);
     }
     setLoading(false);
   }
@@ -703,8 +723,15 @@ export function PointsClient({
                     key={preset.id}
                     className='flex items-center justify-between rounded-lg border bg-white p-2'
                   >
-                    <span className='text-sm'>{preset.reason}</span>
-                    <div className='flex items-center gap-2'>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <span className='truncate text-sm'>{preset.reason}</span>
+                      {!branchId && branchNameById[preset.branch_id] && (
+                        <span className='shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600'>
+                          {branchNameById[preset.branch_id]}
+                        </span>
+                      )}
+                    </div>
+                    <div className='flex shrink-0 items-center gap-2'>
                       <span className='font-semibold text-green-600'>+{preset.amount}점</span>
                       <button
                         onClick={() => handleDeleteRewardPreset(preset.id)}
@@ -745,19 +772,48 @@ export function PointsClient({
                     key={preset.id}
                     className='flex items-center justify-between rounded-lg border bg-white p-2'
                   >
-                    <span className='text-sm'>{preset.reason}</span>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <span className='truncate text-sm'>{preset.reason}</span>
+                      {preset.is_system && (
+                        <span className='shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500'>
+                          자동
+                        </span>
+                      )}
+                      {!branchId && branchNameById[preset.branch_id] && (
+                        <span className='shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600'>
+                          {branchNameById[preset.branch_id]}
+                        </span>
+                      )}
+                    </div>
                     <div className='flex items-center gap-2'>
                       {preset.amount === 999 ? (
                         <span className='text-xs font-semibold text-gray-800'>이유 불문 제적</span>
                       ) : (
                         <span className='font-semibold text-red-500'>-{preset.amount}점</span>
                       )}
-                      <button
-                        onClick={() => handleDeletePenaltyPreset(preset.id)}
-                        className='text-gray-400 hover:text-red-500'
-                      >
-                        <X className='h-4 w-4' />
-                      </button>
+                      {preset.is_system ? (
+                        // 시스템 프리셋(지각/조기퇴실): 자동 부과 ON/OFF 토글 (삭제 불가)
+                        <button
+                          type='button'
+                          onClick={() => handleToggleAutoEnabled(preset.id, !preset.auto_enabled)}
+                          disabled={loading}
+                          className={cn(
+                            'rounded px-2 py-1 text-xs font-semibold transition-colors',
+                            preset.auto_enabled
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+                          )}
+                        >
+                          {preset.auto_enabled ? '자동 ON' : '자동 OFF'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleDeletePenaltyPreset(preset.id)}
+                          className='text-gray-400 hover:text-red-500'
+                        >
+                          <X className='h-4 w-4' />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

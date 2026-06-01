@@ -81,6 +81,7 @@ export async function createBranch(name: string, address?: string) {
       is_system: true,
       sort_order: -1000,
       is_active: true,
+      auto_enabled: false,
     },
     {
       branch_id: data.id,
@@ -90,6 +91,7 @@ export async function createBranch(name: string, address?: string) {
       is_system: true,
       sort_order: -999,
       is_active: true,
+      auto_enabled: false,
     },
   ]);
   if (presetError) {
