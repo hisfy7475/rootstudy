@@ -204,7 +204,7 @@ export function ImmersionReportPrintView({
         <PrintTextSection label='학습 태도' value={studyFeedbackForPrint} />
         {report.mentoringRecords.length > 0 && (
           <PrintTextSection
-            label='멘토링/상담 기록'
+            label='상담/멘토링 레터'
             value={report.mentoringRecords
               .map(
                 (rec) =>
@@ -215,7 +215,6 @@ export function ImmersionReportPrintView({
               .join('\n')}
           />
         )}
-        <PrintTextSection label='추가 메모/첨언' value={c.mentoringLetter} />
         <PrintTextSection label='학부모 상담 요약' value={c.parentSummary} />
         <PrintTextSection label='관리자 추가 메모' value={c.adminNotes ?? ''} />
       </div>
