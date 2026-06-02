@@ -11,6 +11,7 @@ import {
 } from '@/lib/utils';
 import { REWARD_RULES } from '@/lib/constants';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
+import { isStudyExcluded } from '@/lib/study-time';
 import { evaluateAttendancePenalty } from '@/lib/attendance/penalty';
 import {
   getRewardPresets,
@@ -59,17 +60,20 @@ export async function getTodayAttendance() {
     return { attendance: [], status: 'checked_out' as const };
   }
 
+  // 직원/경비 게이트(소프트 제외) 기록은 상태/세션 계산에서 배제
+  const studyAttendance = (attendance ?? []).filter((r) => !isStudyExcluded(r));
+
   // 현재 상태 계산
   let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
-  if (attendance && attendance.length > 0) {
-    const lastRecord = attendance[attendance.length - 1];
+  if (studyAttendance.length > 0) {
+    const lastRecord = studyAttendance[studyAttendance.length - 1];
     if (lastRecord.type === 'check_in') status = 'checked_in';
     else if (lastRecord.type === 'check_out') status = 'checked_out';
     else if (lastRecord.type === 'break_start') status = 'on_break';
     else if (lastRecord.type === 'break_end') status = 'checked_in';
   }
 
-  return { attendance: attendance || [], status };
+  return { attendance: studyAttendance, status };
 }
 
 // 오늘(학습일 기준)의 학습시간 계산 (초 단위)
@@ -101,7 +105,8 @@ export async function getTodayStudyTime() {
   let checkInTime: Date | null = null;
   let breakStartTime: Date | null = null;
 
-  for (const record of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록은 순공 계산에서 배제
+  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
     const timestamp = new Date(record.timestamp);
 
     switch (record.type) {
@@ -815,7 +820,7 @@ export async function getTodayFocusProgress() {
   const [{ data: attendance }, { data: subjects }] = await Promise.all([
     supabase
       .from('attendance')
-      .select('type, timestamp')
+      .select('type, timestamp, source, gate_name')
       .eq('student_id', user.id)
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
@@ -1000,7 +1005,8 @@ export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
   let totalMinutes = 0;
   let checkInTime: Date | null = null;
 
-  for (const record of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록은 순공 계산에서 배제
+  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
     const timestamp = new Date(record.timestamp);
 
     switch (record.type) {
@@ -1235,13 +1241,19 @@ function getPeriodBounds(
 
 // 출석 기록에서 학습 세션 추출
 function extractStudySessions(
-  attendance: Array<{ type: string; timestamp: string }>,
+  attendance: Array<{
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  }>,
   periodEnd: Date,
 ): StudySession[] {
   const sessions: StudySession[] = [];
   let checkInTime: Date | null = null;
 
-  for (const record of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록은 세션 계산에서 배제
+  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
     const timestamp = new Date(record.timestamp);
 
     switch (record.type) {

@@ -17,7 +17,7 @@ import {
   formatDateKST,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
-import { extractStudySessions } from '@/lib/study-time';
+import { extractStudySessions, isStudyExcluded } from '@/lib/study-time';
 
 function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
   return items.reduce(
@@ -91,7 +91,12 @@ type StudySessionFocus = { startTime: Date; endTime: Date };
 
 /** attendance 이벤트에서 학습 세션 구간 추출 (미퇴실 시 학습일 종료 또는 현재 시각까지) */
 function extractStudySessionsForFocusDay(
-  attendance: Array<{ type: string; timestamp: string }>,
+  attendance: Array<{
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  }>,
   studyDayEnd: Date,
 ): StudySessionFocus[] {
   const sessions: StudySessionFocus[] = [];
@@ -99,7 +104,8 @@ function extractStudySessionsForFocusDay(
   const now = new Date();
   const cap = now.getTime() < studyDayEnd.getTime() ? now : studyDayEnd;
 
-  for (const record of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록은 세션 계산에서 배제
+  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
     const timestamp = new Date(record.timestamp);
     switch (record.type) {
       case 'check_in':
@@ -171,13 +177,19 @@ export async function getStudentsPresentDuringPeriod(
   const studentIds = students.map((s) => s.id);
   const { start: dayStart, end: dayEnd } = getStudyDayBounds(dateStr);
 
-  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  type AttendanceRecord = {
+    student_id: string;
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  };
   let allAttendance: AttendanceRecord[] = [];
   {
     const baseQuery = () =>
       supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', studentIds)
         .gte('timestamp', dayStart.toISOString())
         .lte('timestamp', dayEnd.toISOString())
@@ -269,13 +281,19 @@ export async function getAllStudents(
   const { start: todayStart, end: todayEnd } = getStudyDayBounds(studyDate);
 
   // Supabase max-rows(1000) 제한 우회 페이지네이션
-  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  type AttendanceRecord = {
+    student_id: string;
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  };
   let allAttendance: AttendanceRecord[] = [];
   {
     const baseQuery = () =>
       supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', studentIds)
         .gte('timestamp', todayStart.toISOString())
         .lte('timestamp', todayEnd.toISOString())
@@ -334,7 +352,8 @@ export async function getAllStudents(
     if (attendance.length > 0) {
       let tempCheckInTime: Date | null = null;
 
-      for (const record of attendance) {
+      // 직원/경비 게이트(소프트 제외) 기록은 상태/순공 계산에서 배제
+      for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
         const timestamp = new Date(record.timestamp);
 
         switch (record.type) {
@@ -372,7 +391,7 @@ export async function getAllStudents(
         checkInTime = tempCheckInTime.toISOString();
       }
 
-      const firstCheckIn = attendance.find((a) => a.type === 'check_in');
+      const firstCheckIn = attendance.find((a) => a.type === 'check_in' && !isStudyExcluded(a));
       if (firstCheckIn) {
         checkInTime = firstCheckIn.timestamp;
       }
@@ -550,13 +569,19 @@ export async function getDashboardStudents(params: {
   const studentIds = students.map((s) => s.id);
 
   // 3) 보조 데이터 — 검색된 학생 ID로만
-  type AttendanceRecord = { student_id: string; type: string; timestamp: string };
+  type AttendanceRecord = {
+    student_id: string;
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  };
   let allAttendance: AttendanceRecord[] = [];
   {
     const baseQuery = () =>
       supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', studentIds)
         .gte('timestamp', todayStart.toISOString())
         .lte('timestamp', todayEnd.toISOString())
@@ -606,9 +631,11 @@ export async function getDashboardStudents(params: {
     let checkInTime: string | null = null;
     let totalStudySeconds = 0;
 
-    if (attendance.length > 0) {
+    // 직원/경비 게이트(소프트 제외) 기록은 상태/순공 계산에서 배제
+    const studyAttendance = attendance.filter((r) => !isStudyExcluded(r));
+    if (studyAttendance.length > 0) {
       let tempCheckInTime: Date | null = null;
-      for (const record of attendance) {
+      for (const record of studyAttendance) {
         const timestamp = new Date(record.timestamp);
         switch (record.type) {
           case 'check_in':
@@ -643,7 +670,7 @@ export async function getDashboardStudents(params: {
         totalStudySeconds += Math.floor((new Date().getTime() - tempCheckInTime.getTime()) / 1000);
         checkInTime = tempCheckInTime.toISOString();
       }
-      const firstCheckIn = attendance.find((a) => a.type === 'check_in');
+      const firstCheckIn = studyAttendance.find((a) => a.type === 'check_in');
       if (firstCheckIn) checkInTime = firstCheckIn.timestamp;
     }
 
@@ -2394,7 +2421,7 @@ export async function getStudentDetail(studentId: string) {
     stats: {
       attendanceDays: new Set(
         (attendance || [])
-          .filter((a) => a.type === 'check_in')
+          .filter((a) => a.type === 'check_in' && !isStudyExcluded(a))
           .map((a) => new Date(a.timestamp).toISOString().split('T')[0]),
       ).size,
       avgFocus:
@@ -2826,12 +2853,18 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
   }
 
   // 배치 쿼리: 학습일 경계를 모두 포함하도록 timestamp 범위 확장
-  let allExportAttendance: { student_id: string; type: string; timestamp: string }[] = [];
+  let allExportAttendance: {
+    student_id: string;
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  }[] = [];
   {
     const baseQ = () =>
       supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', studentIds)
         .gte('timestamp', queryStart.toISOString())
         .lte('timestamp', queryEnd.toISOString())
@@ -2873,6 +2906,7 @@ export async function getAttendanceDataForExport(startDate: string, endDate: str
       const { start, end } = getStudyDayBounds(dateStr);
       const dayAttendance = attendance
         .filter((r) => {
+          if (isStudyExcluded(r)) return false; // 직원/경비 게이트 소프트 제외
           const t = new Date(r.timestamp);
           return t >= start && t <= end;
         })
@@ -4778,7 +4812,7 @@ export async function getAttendanceBoard(
     const baseQ = () =>
       supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', allStudentIds)
         .gte('timestamp', todayStart.toISOString())
         .lte('timestamp', todayEnd.toISOString())
@@ -4937,16 +4971,18 @@ export async function getAttendanceBoard(
   const attendanceData = (students || []).map((student) => {
     const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
     const attendance = allAttendanceByStudent[student.id] ?? [];
+    // 직원/경비 게이트(소프트 제외) 기록은 상태/순공 계산에서 배제
+    const studyAttendance = attendance.filter((r) => !isStudyExcluded(r));
 
     let status: 'checked_in' | 'checked_out' | 'on_break' = 'checked_out';
     let firstCheckInTime: string | null = null;
     let lastCheckOutTime: string | null = null;
 
-    if (attendance.length > 0) {
-      const firstCheckIn = attendance.find((a) => a.type === 'check_in');
+    if (studyAttendance.length > 0) {
+      const firstCheckIn = studyAttendance.find((a) => a.type === 'check_in');
       if (firstCheckIn) firstCheckInTime = firstCheckIn.timestamp;
 
-      const lastRecord = attendance[attendance.length - 1];
+      const lastRecord = studyAttendance[studyAttendance.length - 1];
       if (lastRecord.type === 'check_in') status = 'checked_in';
       else if (lastRecord.type === 'check_out') {
         status = 'checked_out';
@@ -4976,7 +5012,7 @@ export async function getAttendanceBoard(
     // 당일 순공시간(분) — 주간 뷰와 동일 알고리즘. 미퇴실은 min(now, todayEnd)까지 누적.
     let todayStudyMinutes = 0;
     let tempStart: Date | null = null;
-    for (const record of attendance) {
+    for (const record of studyAttendance) {
       const ts = new Date(record.timestamp);
       if (record.type === 'check_in' || record.type === 'break_end') {
         tempStart = ts;
@@ -5100,7 +5136,7 @@ export async function getWeeklyAttendance(
     while (true) {
       const { data } = await supabase
         .from('attendance')
-        .select('student_id, type, timestamp')
+        .select('student_id, type, timestamp, source, gate_name')
         .in('student_id', studentIds)
         .gte('timestamp', weekStart.toISOString())
         .lt('timestamp', weekEndExclusive.toISOString())
@@ -5144,7 +5180,10 @@ export async function getWeeklyAttendance(
     let weeklyStudyMinutes = 0;
     let tempCheckIn: Date | null = null;
 
-    const studentWeekAttendance = (allAttendance || []).filter((a) => a.student_id === student.id);
+    // 직원/경비 게이트(소프트 제외) 기록은 순공/출석 판정에서 배제
+    const studentWeekAttendance = (allAttendance || []).filter(
+      (a) => a.student_id === student.id && !isStudyExcluded(a),
+    );
 
     for (const record of studentWeekAttendance) {
       const ts = new Date(record.timestamp);

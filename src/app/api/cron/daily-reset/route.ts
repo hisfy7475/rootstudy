@@ -106,7 +106,7 @@ async function evaluateDailyFocus(
       const [{ data: attendance }, { data: subjects }] = await Promise.all([
         supabase
           .from('attendance')
-          .select('type, timestamp')
+          .select('type, timestamp, source, gate_name')
           .eq('student_id', s.id)
           .gte('timestamp', dayStart.toISOString())
           .lte('timestamp', dayEnd.toISOString())

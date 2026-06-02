@@ -83,6 +83,22 @@ export async function getEnterRecordsAfter(
   return result.recordset;
 }
 
+// 특정 기간(CAPS 형식 YYYYMMDDHHmmss)의 모든 출입 기록 조회.
+// 과거 게이트 출처 백필(소프트 제외 정정)에 사용. from/to 는 CONCAT(e_date, e_time) 비교.
+export async function getEnterRecordsBetween(from: string, to: string): Promise<CapsEnterRecord[]> {
+  const pool = await getPool();
+  const result = await pool.request().input('from', sql.VarChar, from).input('to', sql.VarChar, to)
+    .query<CapsEnterRecord>(`
+      SELECT e_date, e_time, g_id, e_id, e_idno, e_name
+      FROM tenter
+      WHERE CONCAT(e_date, e_time) >= @from
+        AND CONCAT(e_date, e_time) <= @to
+        AND e_id > 0
+      ORDER BY e_date, e_time
+    `);
+  return result.recordset;
+}
+
 // Date를 CAPS 형식(YYYYMMDDHHmmss)으로 변환 (KST 기준)
 function formatCapsDatetimeKST(date: Date): string {
   const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
