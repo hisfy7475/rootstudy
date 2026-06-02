@@ -7,6 +7,7 @@ import {
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
 import { notifyPointsGranted } from '@/lib/actions/notification';
+import { isStudyExcluded } from '@/lib/study-time';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -60,17 +61,22 @@ function getTargetWeekStartKST(weekParam?: string): Date {
 
 // 출석 기록에서 학습 시간(분) 계산
 function calculateStudyMinutes(
-  attendance: Array<{ type: string; timestamp: string }>,
+  attendance: Array<{
+    type: string;
+    timestamp: string;
+    source?: string | null;
+    gate_name?: string | null;
+  }>,
   weekStart: Date,
   weekEnd: Date,
 ): number {
   let totalMinutes = 0;
   let checkInTime: Date | null = null;
 
-  // 타임스탬프 순으로 정렬
-  const sorted = [...attendance].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-  );
+  // 타임스탬프 순으로 정렬 (직원/경비 게이트 소프트 제외 기록은 배제)
+  const sorted = [...attendance]
+    .filter((r) => !isStudyExcluded(r))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   for (const record of sorted) {
     const timestamp = new Date(record.timestamp);
@@ -330,11 +336,14 @@ export async function GET(request: Request) {
 
     // 6. 학생별 출석 기록 조회
     // PostgREST max-rows 제한(기본 1000행)을 우회하기 위해 학생 1명씩 개별 조회
-    const attendanceByStudent = new Map<string, Array<{ type: string; timestamp: string }>>();
+    const attendanceByStudent = new Map<
+      string,
+      Array<{ type: string; timestamp: string; source: string | null; gate_name: string | null }>
+    >();
     for (const studentId of studentIds) {
       const { data: studentAttendance } = await supabase
         .from('attendance')
-        .select('type, timestamp')
+        .select('type, timestamp, source, gate_name')
         .eq('student_id', studentId)
         .gte('timestamp', lastWeekStart.toISOString())
         .lt('timestamp', lastWeekEnd.toISOString())
@@ -343,7 +352,12 @@ export async function GET(request: Request) {
       if (studentAttendance && studentAttendance.length > 0) {
         attendanceByStudent.set(
           studentId,
-          studentAttendance.map((a) => ({ type: a.type, timestamp: a.timestamp })),
+          studentAttendance.map((a) => ({
+            type: a.type,
+            timestamp: a.timestamp,
+            source: a.source,
+            gate_name: a.gate_name,
+          })),
         );
       }
     }

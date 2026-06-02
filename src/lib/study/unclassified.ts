@@ -11,6 +11,8 @@
  *   미분류 카운트에서 제외.
  */
 
+import { isStudyExcluded } from '@/lib/study-time';
+
 export interface UnclassifiedSegment {
   id: string;
   startTime: string;
@@ -29,6 +31,8 @@ export interface UnclassifiedMetrics {
 interface AttendanceLike {
   type: string;
   timestamp: string;
+  source?: string | null;
+  gate_name?: string | null;
 }
 
 interface SubjectLike {
@@ -54,7 +58,8 @@ function extractInSessions(
   const sessions: Array<[number, number]> = [];
   let inStart: number | null = null;
 
-  for (const a of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록 배제. source/gate_name 미선택 호출부엔 무영향.
+  for (const a of attendance.filter((r) => !isStudyExcluded(r))) {
     const t = new Date(a.timestamp).getTime();
     if (a.type === 'check_in' || a.type === 'break_end') {
       if (inStart === null) inStart = t;

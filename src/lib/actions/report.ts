@@ -22,6 +22,7 @@ import type { CounselingTemplate } from '@/types/database';
 import type { SubjectCategory } from '@/lib/constants';
 import {
   extractStudySessions,
+  isStudyExcluded,
   type AttendanceRecord,
   type StudySessionChunk,
 } from '@/lib/study-time';
@@ -165,10 +166,16 @@ async function fetchPaginatedAttendance(
   endExclusive = false,
 ): Promise<Array<{ student_id: string; type: string; timestamp: string }>> {
   const admin = createAdminClient();
-  return fetchAllPaged<{ student_id: string; type: string; timestamp: string }>((from, to) => {
+  return fetchAllPaged<{
+    student_id: string;
+    type: string;
+    timestamp: string;
+    source: string | null;
+    gate_name: string | null;
+  }>((from, to) => {
     const query = admin
       .from('attendance')
-      .select('student_id, type, timestamp')
+      .select('student_id, type, timestamp, source, gate_name')
       .in('student_id', studentIds)
       .gte('timestamp', startIso);
 
@@ -190,7 +197,7 @@ function calculateStudySeconds(
     })
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-  const hasAttendance = dayAttendance.some((r) => r.type === 'check_in');
+  const hasAttendance = dayAttendance.some((r) => r.type === 'check_in' && !isStudyExcluded(r));
   const sessions = extractStudySessions(dayAttendance, dayEnd);
   const studySeconds = sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
   return { studySeconds, hasAttendance };
@@ -473,7 +480,7 @@ export async function getImmersionReportData(
       : Promise.resolve({ data: [] as { id: string }[] }),
     supabase
       .from('attendance')
-      .select('type, timestamp')
+      .select('type, timestamp, source, gate_name')
       .eq('student_id', studentId)
       .gte('timestamp', periodStart.toISOString())
       .lte('timestamp', periodEnd.toISOString())
@@ -1019,7 +1026,7 @@ export async function getCounselingReport(
     const { end: pe } = getStudyDayBounds(weekDates2[6]!);
     const { data: attRows2 } = await supabase
       .from('attendance')
-      .select('type, timestamp')
+      .select('type, timestamp, source, gate_name')
       .eq('student_id', studentId)
       .gte('timestamp', ps.toISOString())
       .lte('timestamp', pe.toISOString())
@@ -1075,7 +1082,7 @@ export async function getCounselingReport(
 
   const { data: attRows } = await supabase
     .from('attendance')
-    .select('type, timestamp')
+    .select('type, timestamp, source, gate_name')
     .eq('student_id', studentId)
     .gte('timestamp', periodStart.toISOString())
     .lte('timestamp', periodEnd.toISOString())
@@ -1454,7 +1461,7 @@ export async function getCounselingAutoFillForWeek(
   const [{ data: attendanceRows }, { data: focusScores }] = await Promise.all([
     supabase
       .from('attendance')
-      .select('type, timestamp')
+      .select('type, timestamp, source, gate_name')
       .eq('student_id', studentId)
       .gte('timestamp', periodStart.toISOString())
       .lte('timestamp', periodEnd.toISOString())

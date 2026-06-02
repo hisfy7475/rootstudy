@@ -8,6 +8,7 @@ import {
   closeConnection,
 } from '@/lib/caps/client';
 import type { CapsGate } from '@/lib/caps/types';
+import { classifyGate } from '@/lib/caps/gate';
 import { sendPushToUsers } from '@/lib/push';
 import { getStudyDate } from '@/lib/utils';
 import {
@@ -22,20 +23,6 @@ function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(supabaseUrl, supabaseServiceKey);
-}
-
-// 출입문 이름으로 출입 타입 결정
-function getAttendanceType(gateName: string): 'check_in' | 'check_out' | null {
-  const name = gateName.toLowerCase();
-  if (name.includes('입실')) {
-    return 'check_in';
-  }
-  if (name.includes('퇴실')) {
-    return 'check_out';
-  }
-  // 입실/퇴실 구분이 안 되는 경우 (루트_5F 등)는 입실로 처리
-  // 또는 null로 반환하여 스킵할 수 있음
-  return 'check_in';
 }
 
 export async function GET(request: Request) {
@@ -69,6 +56,20 @@ export async function GET(request: Request) {
     const gateMap = new Map<number, CapsGate>();
     gates.forEach((gate) => gateMap.set(gate.id, gate));
 
+    // 학생용(입실/퇴실) 게이트로 분류되지 않는 단말기 목록 — 순공 산정에서 제외되는 게이트.
+    // 직원/경비/등록용 단말기는 정상적으로 여기 포함된다.
+    // ⚠️ '입실'은 있는데 '퇴실' 라벨이 누락된 학생 게이트가 끼면 세션이 닫히지 않아
+    //    순공이 과대 계상될 수 있으므로(입실 누락보다 위험), 운영 감시용으로 경보를 남긴다.
+    const skippedGates = gates
+      .filter((gate) => classifyGate(gate.name) === null)
+      .map((gate) => ({ id: gate.id, name: gate.name }));
+    if (skippedGates.length > 0) {
+      console.warn(
+        '[caps-sync] 순공 제외 게이트(입실/퇴실 라벨 없음):',
+        JSON.stringify(skippedGates),
+      );
+    }
+
     // 4. CAPS DB에서 새 출입 기록 조회
     const enterRecords = await getEnterRecordsAfter(afterDatetime);
 
@@ -86,6 +87,7 @@ export async function GET(request: Request) {
         success: true,
         message: 'No new records',
         recordsSynced: 0,
+        skippedGates,
       });
     }
 
@@ -124,6 +126,8 @@ export async function GET(request: Request) {
       type: 'check_in' | 'check_out';
       timestamp: string;
       source: 'caps';
+      gate_id: number;
+      gate_name: string;
     }[] = [];
 
     for (const record of enterRecords) {
@@ -137,7 +141,8 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const attendanceType = getAttendanceType(gate.name);
+      // 학생용(입실/퇴실) 게이트만 적재. 직원/경비/등록용 단말기는 null → 스킵.
+      const attendanceType = classifyGate(gate.name);
       if (!attendanceType) {
         continue;
       }
@@ -158,6 +163,8 @@ export async function GET(request: Request) {
         type: attendanceType,
         timestamp,
         source: 'caps',
+        gate_id: record.g_id,
+        gate_name: gate.name,
       });
     }
 
@@ -412,6 +419,7 @@ export async function GET(request: Request) {
       message: `Synced ${recordsSynced} records`,
       recordsSynced,
       lastCapsDatetime,
+      skippedGates,
     });
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -434,21 +434,27 @@ export interface Database {
           student_id: string;
           type: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp: string;
-          source: 'caps' | 'manual';
+          source: 'caps' | 'manual' | 'auto_reset';
+          gate_id: number | null;
+          gate_name: string | null;
         };
         Insert: {
           id?: string;
           student_id: string;
           type: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp?: string;
-          source?: 'caps' | 'manual';
+          source?: 'caps' | 'manual' | 'auto_reset';
+          gate_id?: number | null;
+          gate_name?: string | null;
         };
         Update: {
           id?: string;
           student_id?: string;
           type?: 'check_in' | 'check_out' | 'break_start' | 'break_end';
           timestamp?: string;
-          source?: 'caps' | 'manual';
+          source?: 'caps' | 'manual' | 'auto_reset';
+          gate_id?: number | null;
+          gate_name?: string | null;
         };
       };
       study_goals: {

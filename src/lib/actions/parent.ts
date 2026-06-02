@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
 import { softDeleteUser } from '@/lib/withdraw';
+import { isStudyExcluded } from '@/lib/study-time';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -124,7 +125,7 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
   const studyDate = getStudyDate();
   const { start, end } = getStudyDayBounds(studyDate);
 
-  const { data: attendance } = await supabase
+  const { data: attendanceRaw } = await supabase
     .from('attendance')
     .select('*')
     .eq('student_id', studentId)
@@ -132,7 +133,10 @@ export async function getStudentStatus(studentId: string, options?: { forParentV
     .lte('timestamp', end.toISOString())
     .order('timestamp', { ascending: true });
 
-  if (!attendance || attendance.length === 0) {
+  // 직원/경비 게이트(소프트 제외) 기록은 상태 판정에서 배제
+  const attendance = (attendanceRaw ?? []).filter((r) => !isStudyExcluded(r));
+
+  if (attendance.length === 0) {
     return {
       status: 'checked_out' as const,
       lastUpdate: null,
@@ -187,7 +191,8 @@ export async function getStudentStudyTime(studentId: string) {
   let totalSeconds = 0;
   let checkInTime: Date | null = null;
 
-  for (const record of attendance) {
+  // 직원/경비 게이트(소프트 제외) 기록은 순공 계산에서 배제
+  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
     const timestamp = new Date(record.timestamp);
 
     switch (record.type) {
@@ -591,8 +596,9 @@ export async function getWeeklyReportData(
     const dateStr = day.toISOString().split('T')[0];
     const { start, end } = getStudyDayBounds(day);
 
-    // 해당 날의 출석 기록 필터
+    // 해당 날의 출석 기록 필터 (직원/경비 게이트 소프트 제외 포함)
     const dayAttendance = (attendanceRecords || []).filter((r) => {
+      if (isStudyExcluded(r)) return false;
       const t = new Date(r.timestamp);
       return t >= start && t <= end;
     });
