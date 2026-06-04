@@ -60,7 +60,7 @@ export function AdminMockExamsClient({
   };
 
   return (
-    <div className='mx-auto max-w-6xl space-y-6 p-4 md:p-8'>
+    <div className='space-y-6 p-6'>
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold tracking-tight'>모의고사 관리 ({total}건)</h1>

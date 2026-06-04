@@ -5,7 +5,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
-import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
+import { DataTableToolbar, type ToolbarFilter } from '@/components/ui/data-table-toolbar';
 import type { NotificationsListResult } from '@/lib/actions/admin';
 import {
   Bell,
@@ -33,12 +33,17 @@ const recipientConfig = {
   parent: { label: '학부모', icon: UserCircle, color: 'text-green-600', bgColor: 'bg-green-100' },
 } as const;
 
-interface NotificationsClientProps {
+interface BranchNotificationLogProps {
   initialResult: NotificationsListResult;
   stats: { total: number; read: number; unread: number; today: number };
+  branches: { id: string; name: string }[];
 }
 
-export function NotificationsClient({ initialResult, stats }: NotificationsClientProps) {
+export function BranchNotificationLog({
+  initialResult,
+  stats,
+  branches,
+}: BranchNotificationLogProps) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -73,20 +78,46 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
     });
   }
 
-  return (
-    <div className='space-y-6 p-6'>
-      {/* 헤더 */}
-      <div className='flex items-center justify-between'>
-        <div>
-          <h1 className='text-2xl font-bold'>알림 관리</h1>
-          <p className='text-text-muted mt-1'>학생·학부모에게 발송된 인앱/푸시 알림 내역입니다.</p>
-        </div>
-        <Button variant='outline' onClick={refresh} disabled={isPending}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
-          새로고침
-        </Button>
-      </div>
+  // 슈퍼 관리자 전용 화면 — 전 지점 통합 + 지점 드롭다운으로 좁혀보기.
+  const filters: ToolbarFilter[] = [
+    {
+      key: 'branch',
+      label: '지점',
+      allLabel: '전체 지점',
+      options: branches.map((b) => ({ value: b.id, label: b.name })),
+    },
+    {
+      key: 'period',
+      label: '기간',
+      allLabel: '최근 30일',
+      options: [
+        { value: '7d', label: '최근 7일' },
+        { value: 'all', label: '전체 기간' },
+      ],
+    },
+    {
+      key: 'recipientType',
+      label: '수신자',
+      options: [
+        { value: 'student', label: '학생' },
+        { value: 'parent', label: '학부모' },
+      ],
+    },
+    {
+      key: 'type',
+      label: '유형',
+      options: [
+        { value: 'late', label: '지각' },
+        { value: 'absent', label: '결석' },
+        { value: 'point', label: '상벌점' },
+        { value: 'schedule', label: '스케줄' },
+        { value: 'system', label: '시스템' },
+      ],
+    },
+  ];
 
+  return (
+    <div className='space-y-6'>
       {/* 통계 카드 */}
       <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
         <Card className='p-4'>
@@ -138,41 +169,16 @@ export function NotificationsClient({ initialResult, stats }: NotificationsClien
       {/* 알림 목록 */}
       <Card className='p-6'>
         <div className='mb-4 flex items-center justify-between'>
-          <h2 className='text-lg font-semibold'>알림 내역 ({total}건)</h2>
+          <h2 className='text-lg font-semibold'>발송 내역 ({total}건)</h2>
+          <Button variant='outline' onClick={refresh} disabled={isPending}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+            새로고침
+          </Button>
         </div>
 
         <DataTableToolbar
           searchPlaceholder='제목·내용으로 검색...'
-          filters={[
-            {
-              key: 'period',
-              label: '기간',
-              allLabel: '최근 7일',
-              options: [
-                { value: '30d', label: '최근 30일' },
-                { value: 'all', label: '전체 기간' },
-              ],
-            },
-            {
-              key: 'recipientType',
-              label: '수신자',
-              options: [
-                { value: 'student', label: '학생' },
-                { value: 'parent', label: '학부모' },
-              ],
-            },
-            {
-              key: 'type',
-              label: '유형',
-              options: [
-                { value: 'late', label: '지각' },
-                { value: 'absent', label: '결석' },
-                { value: 'point', label: '상벌점' },
-                { value: 'schedule', label: '스케줄' },
-                { value: 'system', label: '시스템' },
-              ],
-            },
-          ]}
+          filters={filters}
           className='mb-4'
         />
 

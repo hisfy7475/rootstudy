@@ -7,6 +7,7 @@ import { postToNative } from '@/lib/native-bridge';
 import {
   ATTACHMENT_FILE_ACCEPT,
   ATTACHMENT_FILE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MAX_BYTES,
   resolveAttachmentFileMime,
 } from '@shared/uploads/attachments';
 import Image from 'next/image';
@@ -24,7 +25,6 @@ interface ChatInputProps {
   placeholder?: string;
 }
 
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB (ROADMAP Phase 4)
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 export function ChatInput({
@@ -54,8 +54,8 @@ export function ChatInput({
     }
 
     // 파일 크기 검증
-    if (file.size > MAX_IMAGE_SIZE) {
-      alert('이미지 크기는 10MB 이하여야 합니다.');
+    if (file.size > ATTACHMENT_IMAGE_MAX_BYTES) {
+      alert('이미지 크기는 50MB 이하여야 합니다.');
       return;
     }
 
@@ -112,7 +112,7 @@ export function ChatInput({
       return;
     }
     if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
-      alert('파일 크기는 20MB 이하여야 합니다.');
+      alert('파일 크기는 50MB 이하여야 합니다.');
       return;
     }
     clearImage();

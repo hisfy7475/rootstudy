@@ -162,7 +162,7 @@ export default async function AdminMentoringPage({ searchParams }: PageProps) {
   const subTitle = view === 'week' ? `${fromYmd} ~ ${toYmd} (KST)` : `${year}년 ${month}월`;
 
   return (
-    <div className='mx-auto max-w-[1600px] space-y-6 p-4 md:p-6'>
+    <div className='space-y-6 p-6'>
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
         <div>
           <h1 className='text-2xl font-bold tracking-tight'>멘토링/클리닉/상담 일정</h1>

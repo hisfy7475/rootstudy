@@ -4,15 +4,15 @@
 // 채팅/멘토링 등 도메인 공용 첨부 SSOT. 도메인별 정책 차이가 생기기 전까지 한 곳에서 관리한다.
 
 import {
-  FILE_SIZE_10MB,
-  FILE_SIZE_20MB,
+  FILE_SIZE_50MB,
   resolveMimeFromTable,
   sanitizeStorageSegment,
   type ExtMimeTable,
 } from './file-utils';
 
-export const ATTACHMENT_IMAGE_MAX_BYTES = FILE_SIZE_10MB;
-export const ATTACHMENT_FILE_MAX_BYTES = FILE_SIZE_20MB;
+// 웹 직접 업로드 전환과 함께 이미지/파일 첨부 한도를 50MB로 통일.
+export const ATTACHMENT_IMAGE_MAX_BYTES = FILE_SIZE_50MB;
+export const ATTACHMENT_FILE_MAX_BYTES = FILE_SIZE_50MB;
 
 export const ATTACHMENT_IMAGE_MIME_TYPES = [
   'image/jpeg',

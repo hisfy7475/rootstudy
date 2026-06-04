@@ -12,7 +12,7 @@ import {
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
-  uploadAnnouncementAttachment,
+  recordAnnouncementAttachment,
   deleteAnnouncementAttachment,
   finalizeAnnouncementNotifications,
   type AnnouncementAttachmentRow,
@@ -23,7 +23,9 @@ import {
   ANNOUNCEMENT_FILE_MAX_BYTES,
   ANNOUNCEMENT_FILE_MAX_COUNT,
   resolveAnnouncementFileMime,
+  sanitizeAnnouncementFileSegment,
 } from '@/lib/announcement-config';
+import { uploadToBucketAsUser, deleteStorageObjectAsUser } from '@/lib/uploads/client';
 import {
   Megaphone,
   Plus,
@@ -168,7 +170,7 @@ export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClien
         break;
       }
       if (f.size > ANNOUNCEMENT_FILE_MAX_BYTES) {
-        alert(`${f.name}: 20MB 이하만 첨부할 수 있습니다.`);
+        alert(`${f.name}: 50MB 이하만 첨부할 수 있습니다.`);
         continue;
       }
       // 확장자 우선으로 결정한다. 브라우저가 file.type을 비워서 주는
@@ -210,17 +212,50 @@ export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClien
   }> => {
     const uploadedIds: string[] = [];
     for (const file of pendingFiles) {
-      const fd = new FormData();
-      fd.append('file', file);
-      const up = await uploadAnnouncementAttachment(announcementId, fd);
-      if (up.error || !up.data) {
+      // 확장자 우선으로 MIME 결정(빈 file.type 보정).
+      const resolvedMime = resolveAnnouncementFileMime(file.type, file.name);
+      if (!resolvedMime) {
         return {
           success: false,
           uploadedIds,
-          failure: { fileName: file.name, reason: up.error || '업로드 실패' },
+          failure: { fileName: file.name, reason: '지원하지 않는 파일 형식입니다.' },
         };
       }
-      uploadedIds.push(up.data.id);
+      // 브라우저에서 Supabase Storage로 직접 업로드(서버 액션 우회 → 4.5MB 한계 없음).
+      // 경로 prefix `${user.id}/`는 헬퍼가 강제하고, 그 뒤에 announcementId 폴더를 둔다.
+      const safeBase = sanitizeAnnouncementFileSegment(file.name);
+      const isImage = resolvedMime.startsWith('image/');
+      const up = await uploadToBucketAsUser({
+        bucket: 'announcement-files',
+        pathWithinUser: `${announcementId}/${Date.now()}_${safeBase}`,
+        file,
+        contentType: resolvedMime,
+        // 이미지는 인라인 미리보기 유지(미지정), 그 외는 원본 파일명 보존 다운로드.
+        downloadFileName: isImage ? undefined : file.name,
+      });
+      if (!up.ok) {
+        return {
+          success: false,
+          uploadedIds,
+          failure: { fileName: file.name, reason: up.error },
+        };
+      }
+      // 업로드 성공 → DB 메타 기록. 기록 실패 시 방금 올린 Storage 객체를 정리(orphan 방지).
+      const rec = await recordAnnouncementAttachment(announcementId, {
+        fileUrl: up.url,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: resolvedMime,
+      });
+      if (rec.error || !rec.data) {
+        await deleteStorageObjectAsUser('announcement-files', up.path);
+        return {
+          success: false,
+          uploadedIds,
+          failure: { fileName: file.name, reason: rec.error || '첨부 정보 저장 실패' },
+        };
+      }
+      uploadedIds.push(rec.data.id);
     }
     return { success: true, uploadedIds };
   };
@@ -611,7 +646,7 @@ export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClien
                   </p>
                   <p className='text-text-muted mt-0.5'>
                     <span className='font-medium text-gray-700'>제한</span>
-                    {' · '}파일당 20MB, 최대 {ANNOUNCEMENT_FILE_MAX_COUNT}개
+                    {' · '}파일당 50MB, 최대 {ANNOUNCEMENT_FILE_MAX_COUNT}개
                   </p>
                 </div>
                 {existingAttachments.length > 0 && (

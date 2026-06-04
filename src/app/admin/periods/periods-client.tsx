@@ -232,11 +232,11 @@ export default function PeriodsClient({
   );
 
   return (
-    <div className='mx-auto max-w-6xl p-6'>
+    <div className='p-6'>
       {/* 헤더 */}
       <div className='mb-6'>
-        <h1 className='text-text mb-2 text-2xl font-bold'>교시 관리</h1>
-        <p className='text-text-muted'>날짜 타입별 시간표(교시)를 설정합니다.</p>
+        <h1 className='text-text text-2xl font-bold'>교시 관리</h1>
+        <p className='text-text-muted mt-1'>날짜 타입별 시간표(교시)를 설정합니다.</p>
       </div>
 
       {/* 필터 */}

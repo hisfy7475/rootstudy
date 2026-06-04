@@ -9,8 +9,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   applyMentoring,
-  uploadMentoringApplicationAttachment,
-  uploadMentoringApplicationFile,
   removeMentoringApplicationAttachment,
   type MentoringSlotWithMentor,
 } from '@/lib/actions/mentoring';
@@ -18,11 +16,19 @@ import type { MentoringAttachment } from '@/types/database';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import { cn, isNativeApp, isNativeAppAtLeast } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
+import { uploadToBucketAsUser } from '@/lib/uploads/client';
 import {
   ATTACHMENT_FILE_ACCEPT,
   ATTACHMENT_FILE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MAX_BYTES,
+  ATTACHMENT_IMAGE_MIME_TYPES,
   resolveAttachmentFileMime,
+  sanitizeAttachmentSegment,
 } from '@shared/uploads/attachments';
+
+// 멘토링 첨부 버킷 (sanitizeAttachmentList의 경로 검증과 일치해야 함)
+const MENTORING_IMAGES_BUCKET = 'mentoring-attachments';
+const MENTORING_FILES_BUCKET = 'mentoring-files';
 
 const MAX_ATTACHMENTS = 3;
 const CONTENT_MIN = 5;
@@ -145,14 +151,32 @@ export function MentoringApplyClient({
     setUploading(true);
     const accumulated: MentoringAttachment[] = [];
     for (const file of targets) {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await uploadMentoringApplicationAttachment(fd);
-      if (res.error || !res.data) {
-        setUploadErr(res.error ?? '업로드에 실패했습니다.');
+      if (!(ATTACHMENT_IMAGE_MIME_TYPES as readonly string[]).includes(file.type)) {
+        setUploadErr('JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.');
         break;
       }
-      accumulated.push(res.data);
+      if (file.size > ATTACHMENT_IMAGE_MAX_BYTES) {
+        setUploadErr('이미지 크기는 50MB 이하여야 합니다.');
+        break;
+      }
+      // 브라우저에서 Supabase Storage로 직접 업로드 (경로 prefix `${user.id}/`는 헬퍼가 강제).
+      const safeName = sanitizeAttachmentSegment(file.name);
+      const res = await uploadToBucketAsUser({
+        bucket: MENTORING_IMAGES_BUCKET,
+        pathWithinUser: `applications/${Date.now()}_${safeName}`,
+        file,
+        contentType: file.type || 'image/jpeg',
+      });
+      if (!res.ok) {
+        setUploadErr(res.error);
+        break;
+      }
+      accumulated.push({
+        url: res.url,
+        name: file.name.slice(0, 200),
+        mime_type: file.type || 'image/jpeg',
+        size: file.size,
+      });
     }
     if (accumulated.length > 0) {
       setAttachments((prev) => [...prev, ...accumulated]);
@@ -172,22 +196,37 @@ export function MentoringApplyClient({
       setUploadErr('이미지는 이미지 첨부 버튼을 사용해 주세요.');
       return;
     }
-    if (!resolveAttachmentFileMime(file.type, file.name)) {
+    const resolvedMime = resolveAttachmentFileMime(file.type, file.name);
+    if (!resolvedMime) {
       setUploadErr('지원하지 않는 파일 형식입니다. (PDF, Office, TXT, CSV, ZIP)');
       return;
     }
     if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
-      setUploadErr('파일 크기는 20MB 이하여야 합니다.');
+      setUploadErr('파일 크기는 50MB 이하여야 합니다.');
       return;
     }
     setUploading(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await uploadMentoringApplicationFile(fd);
-    if (res.error || !res.data) {
-      setUploadErr(res.error ?? '업로드에 실패했습니다.');
+    const safeBase = sanitizeAttachmentSegment(file.name || 'file');
+    const downloadName = file.name || safeBase;
+    const res = await uploadToBucketAsUser({
+      bucket: MENTORING_FILES_BUCKET,
+      pathWithinUser: `applications/${Date.now()}_${safeBase}`,
+      file,
+      contentType: resolvedMime,
+      downloadFileName: downloadName, // 다운로드 시 원본(한글) 파일명 보존
+    });
+    if (!res.ok) {
+      setUploadErr(res.error);
     } else {
-      setAttachments((prev) => [...prev, res.data!]);
+      setAttachments((prev) => [
+        ...prev,
+        {
+          url: res.url,
+          name: downloadName.slice(0, 200),
+          mime_type: resolvedMime,
+          size: file.size,
+        },
+      ]);
     }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -453,7 +492,7 @@ export function MentoringApplyClient({
                   </span>
                 </div>
                 <p className='text-muted-foreground mt-1 text-xs'>
-                  이미지 10MB · 파일 20MB까지, 합쳐서 최대 {MAX_ATTACHMENTS}개.
+                  이미지·파일 각 50MB까지, 합쳐서 최대 {MAX_ATTACHMENTS}개.
                 </p>
               </>
             )}

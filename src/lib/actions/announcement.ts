@@ -7,7 +7,6 @@ import { getUserScope } from '@/lib/auth/scope';
 import {
   ANNOUNCEMENT_FILE_MAX_BYTES,
   resolveAnnouncementFileMime,
-  sanitizeAnnouncementFileSegment,
 } from '@/lib/announcement-config';
 
 // ============================================
@@ -654,8 +653,25 @@ export async function getAnnouncementAttachments(
   return (data || []) as AnnouncementAttachmentRow[];
 }
 
-/** 관리자: 공지에 파일 첨부 (Storage `announcement-files` + DB) */
-export async function uploadAnnouncementAttachment(announcementId: string, formData: FormData) {
+export type AnnouncementAttachmentMeta = {
+  fileUrl: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
+/**
+ * 관리자: 공지 첨부 메타데이터 기록 (DB `announcement_attachments`).
+ *
+ * 파일 자체는 브라우저에서 Supabase Storage(`announcement-files`)로 직접 업로드한 뒤,
+ * 그 결과 URL/메타를 이 액션으로 넘긴다(Vercel 서버 액션 본문 한계 ~4.5MB 우회).
+ * 클라가 URL을 만들므로, 본인 폴더(`${user.id}/${announcementId}/`)의 정상 버킷 객체인지,
+ * MIME·크기가 정책에 맞는지 서버에서 재검증한다. INSERT 실패 시 Storage orphan을 정리한다.
+ */
+export async function recordAnnouncementAttachment(
+  announcementId: string,
+  meta: AnnouncementAttachmentMeta,
+) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -682,63 +698,38 @@ export async function uploadAnnouncementAttachment(announcementId: string, formD
     return { error: '공지를 찾을 수 없습니다.' };
   }
 
-  const file = formData.get('file') as File;
-  if (!file) return { error: '파일이 없습니다.' };
+  // URL 재검증: 본인 폴더 + 해당 공지에 종속된 announcement-files 객체만 허용.
+  const storagePath = storageObjectPathFromPublicUrl(meta.fileUrl, 'announcement-files');
+  if (!storagePath || !storagePath.startsWith(`${user.id}/${announcementId}/`)) {
+    return { error: '유효하지 않은 첨부입니다.' };
+  }
 
-  // MIME은 확장자 우선으로 결정한다. 브라우저가 file.type을 빈 문자열로 주는
-  // 한글/특수문자 파일명에서도 확장자가 화이트리스트면 통과시키기 위함.
-  const resolvedMime = resolveAnnouncementFileMime(file.type, file.name);
+  // MIME은 확장자 우선으로 재결정(클라 전달값 신뢰 금지).
+  const resolvedMime = resolveAnnouncementFileMime(meta.mimeType, meta.fileName);
   if (!resolvedMime) {
     return { error: '지원하지 않는 파일 형식입니다.' };
   }
 
-  if (file.size > ANNOUNCEMENT_FILE_MAX_BYTES) {
-    return { error: '파일 크기는 20MB 이하여야 합니다.' };
+  if (!Number.isFinite(meta.fileSize) || meta.fileSize > ANNOUNCEMENT_FILE_MAX_BYTES) {
+    return { error: '파일 크기는 50MB 이하여야 합니다.' };
   }
-
-  const safeBase = sanitizeAnnouncementFileSegment(file.name);
-  const path = `${user.id}/${announcementId}/${Date.now()}_${safeBase}`;
-
-  const { data: uploaded, error: upErr } = await supabase.storage
-    .from('announcement-files')
-    .upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: resolvedMime,
-    });
-
-  if (upErr) {
-    console.error('[uploadAnnouncementAttachment] storage', upErr);
-    return { error: '파일 업로드에 실패했습니다.' };
-  }
-
-  // 이미지가 아닌 첨부는 다운로드 시 원본 파일명(한글 등)이 보존되도록
-  // ?download=<원본이름> 쿼리를 박아 Content-Disposition 헤더를 강제한다.
-  // 이미지는 인라인 미리보기를 유지해야 하므로 옵션 미적용.
-  const isImage = resolvedMime.startsWith('image/');
-  const { data: pub } = isImage
-    ? supabase.storage.from('announcement-files').getPublicUrl(uploaded.path)
-    : supabase.storage
-        .from('announcement-files')
-        .getPublicUrl(uploaded.path, { download: file.name });
-  const publicUrl = pub.publicUrl;
 
   const { data: row, error: insErr } = await supabase
     .from('announcement_attachments')
     .insert({
       announcement_id: announcementId,
-      file_url: publicUrl,
-      file_name: file.name,
-      file_size: file.size,
+      file_url: meta.fileUrl,
+      file_name: meta.fileName,
+      file_size: meta.fileSize,
       mime_type: resolvedMime,
     })
     .select()
     .single();
 
   if (insErr) {
-    console.error('[uploadAnnouncementAttachment] insert', insErr);
+    console.error('[recordAnnouncementAttachment] insert', insErr);
     // DB INSERT 실패 시 Storage에 남은 객체를 정리해 orphan을 막는다.
-    await supabase.storage.from('announcement-files').remove([uploaded.path]);
+    await supabase.storage.from('announcement-files').remove([storagePath]);
     return { error: '첨부 정보 저장에 실패했습니다.' };
   }
 

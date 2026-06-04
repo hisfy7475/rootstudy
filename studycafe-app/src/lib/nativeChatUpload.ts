@@ -8,7 +8,6 @@ import {
   resolveAttachmentFileMime,
   sanitizeAttachmentSegment,
 } from '@shared/uploads/attachments';
-import { FILE_SIZE_10MB } from '@shared/uploads/file-utils';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg',
@@ -83,8 +82,8 @@ export async function uploadChatImageFromNative(
   if (!ALLOWED_IMAGE_TYPES.has(mt)) {
     throw new Error('지원하지 않는 이미지 형식입니다.');
   }
-  if (size != null && size > FILE_SIZE_10MB) {
-    throw new Error('이미지 크기는 10MB 이하여야 합니다.');
+  if (size != null && size > ATTACHMENT_IMAGE_MAX_BYTES) {
+    throw new Error('이미지 크기는 50MB 이하여야 합니다.');
   }
 
   const supabase = createAuthedClient(session);
@@ -140,7 +139,7 @@ export async function uploadChatFileFromNative(
     throw new Error('지원하지 않는 파일 형식입니다.');
   }
   if (size != null && size > ATTACHMENT_FILE_MAX_BYTES) {
-    throw new Error('파일 크기는 20MB 이하여야 합니다.');
+    throw new Error('파일 크기는 50MB 이하여야 합니다.');
   }
 
   const supabase = createAuthedClient(session);
@@ -185,7 +184,7 @@ export async function uploadMentoringImageFromNative(
     throw new Error('지원하지 않는 이미지 형식입니다.');
   }
   if (size != null && size > ATTACHMENT_IMAGE_MAX_BYTES) {
-    throw new Error('이미지 크기는 10MB 이하여야 합니다.');
+    throw new Error('이미지 크기는 50MB 이하여야 합니다.');
   }
 
   const supabase = createAuthedClient(session);
@@ -237,7 +236,7 @@ export async function uploadMentoringFileFromNative(
     throw new Error('지원하지 않는 파일 형식입니다.');
   }
   if (size != null && size > ATTACHMENT_FILE_MAX_BYTES) {
-    throw new Error('파일 크기는 20MB 이하여야 합니다.');
+    throw new Error('파일 크기는 50MB 이하여야 합니다.');
   }
 
   const supabase = createAuthedClient(session);
