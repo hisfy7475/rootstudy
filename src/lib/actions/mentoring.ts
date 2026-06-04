@@ -23,23 +23,13 @@ import {
   type MentoringSlotWithMentor,
   type MentoringApplicationWithDetails,
 } from '@/lib/mentoring-utils';
-import {
-  ATTACHMENT_FILE_MAX_BYTES,
-  ATTACHMENT_IMAGE_MAX_BYTES,
-  ATTACHMENT_IMAGE_MIME_TYPES,
-  resolveAttachmentFileMime,
-  sanitizeAttachmentSegment,
-} from '@shared/uploads/attachments';
-
 // 멘토링/클리닉/상담 신청 첨부.
-// - mentoring-attachments: 이미지 전용 (DB allowed_mime_types로 4종 화이트리스트, 10MB)
-// - mentoring-files: 파일 전용 (PDF·Office·ZIP 등, 20MB, 코드 레이어에서 화이트리스트)
+// - mentoring-attachments: 이미지 전용 (DB allowed_mime_types로 4종 화이트리스트, 50MB)
+// - mentoring-files: 파일 전용 (PDF·Office·ZIP 등, 50MB, 코드 레이어에서 화이트리스트)
+// 업로드는 브라우저에서 직접 수행하고(apply-client.tsx + src/lib/uploads/client.ts),
+// applyMentoring의 sanitizeAttachmentList가 버킷·본인폴더·MIME 정합성을 서버에서 재검증한다.
 const MENTORING_IMAGES_BUCKET = 'mentoring-attachments';
 const MENTORING_FILES_BUCKET = 'mentoring-files';
-// 기존 코드 호환용 별칭
-const MENTORING_ATTACHMENTS_BUCKET = MENTORING_IMAGES_BUCKET;
-const APPLICATION_ATTACHMENT_ALLOWED_TYPES: string[] = [...ATTACHMENT_IMAGE_MIME_TYPES];
-const APPLICATION_ATTACHMENT_MAX_SIZE = ATTACHMENT_IMAGE_MAX_BYTES;
 
 function logPostgrestQueryError(scope: string, error: unknown): void {
   if (error == null) return;
@@ -1533,113 +1523,11 @@ function applicationAttachmentLocateFromPublicUrl(
   return null;
 }
 
-export async function uploadMentoringApplicationAttachment(
-  formData: FormData,
-): Promise<{ data?: MentoringAttachment; error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
-
-  if (!APPLICATION_ATTACHMENT_ALLOWED_TYPES.includes(file.type)) {
-    return { error: 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.' };
-  }
-  if (file.size > APPLICATION_ATTACHMENT_MAX_SIZE) {
-    return { error: '이미지 크기는 10MB 이하여야 합니다.' };
-  }
-
-  const safeName = sanitizeFileName(file.name);
-  const storagePath = `${user.id}/applications/${Date.now()}_${safeName}`;
-
-  const { data: uploaded, error: upErr } = await supabase.storage
-    .from(MENTORING_ATTACHMENTS_BUCKET)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-
-  if (upErr || !uploaded) {
-    console.error('[uploadMentoringApplicationAttachment] storage', upErr);
-    return { error: '이미지 업로드에 실패했습니다.' };
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(MENTORING_ATTACHMENTS_BUCKET).getPublicUrl(uploaded.path);
-
-  return {
-    data: {
-      url: publicUrl,
-      name: file.name.slice(0, 200),
-      mime_type: file.type || 'image/jpeg',
-      size: file.size,
-    },
-  };
-}
-
-export async function uploadMentoringApplicationFile(
-  formData: FormData,
-): Promise<{ data?: MentoringAttachment; error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
-
-  // 위장 이미지 차단: 이미지는 이미지 전용 업로드 함수 사용
-  if (file.type && file.type.toLowerCase().startsWith('image/')) {
-    return { error: '이미지는 이미지 첨부 버튼을 사용해 주세요.' };
-  }
-
-  const resolvedMime = resolveAttachmentFileMime(file.type, file.name);
-  if (!resolvedMime) {
-    return { error: '지원하지 않는 파일 형식입니다.' };
-  }
-  if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
-    return { error: '파일 크기는 20MB 이하여야 합니다.' };
-  }
-
-  const safeBase = sanitizeAttachmentSegment(file.name || 'file');
-  const storagePath = `${user.id}/applications/${Date.now()}_${safeBase}`;
-
-  const { data: uploaded, error: upErr } = await supabase.storage
-    .from(MENTORING_FILES_BUCKET)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: resolvedMime,
-    });
-
-  if (upErr || !uploaded) {
-    console.error('[uploadMentoringApplicationFile] storage', upErr);
-    return { error: '파일 업로드에 실패했습니다.' };
-  }
-
-  // 다운로드 시 원본 한글 파일명이 보존되도록 ?download=<원본이름> 강제.
-  const downloadName = file.name || safeBase;
-  const {
-    data: { publicUrl },
-  } = supabase.storage
-    .from(MENTORING_FILES_BUCKET)
-    .getPublicUrl(uploaded.path, { download: downloadName });
-
-  return {
-    data: {
-      url: publicUrl,
-      name: downloadName.slice(0, 200),
-      mime_type: resolvedMime,
-      size: file.size,
-    },
-  };
-}
+// 멘토링 신청 첨부 업로드는 브라우저에서 Supabase Storage로 직접 수행한다.
+// (uploadMentoringApplicationAttachment/File 서버 액션은 제거됨 — apply-client.tsx의
+//  uploadToBucketAsUser 사용. Vercel 서버 액션 본문 한계(~4.5MB) 우회 목적.)
+// 업로드된 URL은 applyMentoring → sanitizeAttachmentList에서 본인 폴더·버킷·MIME 정합성을
+// 서버에서 재검증한다.
 
 export async function removeMentoringApplicationAttachment(
   url: string,

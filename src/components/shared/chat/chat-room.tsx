@@ -6,13 +6,13 @@ import { ChatInput } from './chat-input';
 import {
   sendMessage,
   markAsRead,
-  uploadChatImage,
-  uploadChatFile,
   getOlderMessages,
   deleteMessage,
   type ChatFileAttachment,
 } from '@/lib/actions/chat';
 import { createClient } from '@/lib/supabase/client';
+import { uploadToBucketAsUser } from '@/lib/uploads/client';
+import { resolveAttachmentFileMime, sanitizeAttachmentSegment } from '@shared/uploads/attachments';
 import { isNativeApp, randomUUID } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -381,38 +381,54 @@ export function ChatRoom({
       if (imageFile) {
         tempImagePreview = URL.createObjectURL(imageFile);
 
-        const formData = new FormData();
-        formData.append('file', imageFile);
-
-        const uploadResult = await uploadChatImage(roomId, formData);
-        if (uploadResult.error) {
+        // 브라우저에서 Supabase Storage로 직접 업로드(서버 액션 우회 → 4.5MB 한계 없음).
+        // 경로 prefix(`${user.id}/`)는 헬퍼가 강제한다.
+        const ext = imageFile.name.split('.').pop() || 'jpg';
+        const uploadResult = await uploadToBucketAsUser({
+          bucket: 'chat-images',
+          pathWithinUser: `${roomId}/${Date.now()}.${ext}`,
+          file: imageFile,
+          contentType: imageFile.type || 'image/jpeg',
+        });
+        if (!uploadResult.ok) {
           console.error('Image upload error:', uploadResult.error);
           alert(uploadResult.error);
           setIsSending(false);
           if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
           return;
         }
-        imageUrl = uploadResult.data?.url || null;
+        imageUrl = uploadResult.url;
       }
 
       if (dataFile) {
-        const formData = new FormData();
-        formData.append('file', dataFile);
-        const uploadResult = await uploadChatFile(roomId, formData);
-        if (uploadResult.error) {
+        // 확장자 우선으로 MIME 결정(빈 file.type 보정). 서버 액션이 하던 로직을 그대로 미러.
+        const resolvedMime = resolveAttachmentFileMime(dataFile.type, dataFile.name);
+        if (!resolvedMime) {
+          alert('지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)');
+          setIsSending(false);
+          if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
+          return;
+        }
+        const safeBase = sanitizeAttachmentSegment(dataFile.name);
+        const uploadResult = await uploadToBucketAsUser({
+          bucket: 'chat-files',
+          pathWithinUser: `${roomId}/${Date.now()}_${safeBase}`,
+          file: dataFile,
+          contentType: resolvedMime,
+          downloadFileName: dataFile.name, // 다운로드 시 원본(한글) 파일명 보존
+        });
+        if (!uploadResult.ok) {
           console.error('File upload error:', uploadResult.error);
           alert(uploadResult.error);
           setIsSending(false);
           if (tempImagePreview) URL.revokeObjectURL(tempImagePreview);
           return;
         }
-        if (uploadResult.data) {
-          fileAttachment = {
-            url: uploadResult.data.url,
-            fileName: uploadResult.data.fileName,
-            mimeType: uploadResult.data.mimeType,
-          };
-        }
+        fileAttachment = {
+          url: uploadResult.url,
+          fileName: dataFile.name,
+          mimeType: resolvedMime,
+        };
       }
 
       const optimisticMessage: ChatMessageData = {

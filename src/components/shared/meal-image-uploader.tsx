@@ -92,14 +92,14 @@ export function MealImageUploader({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <label className="mb-1 block text-sm font-medium">이미지</label>
+      <label className='mb-1 block text-sm font-medium'>이미지</label>
 
       <div
         className={cn(
           'relative flex items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors',
           dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25',
           !preview && !placeholderSrc && 'min-h-[160px]',
-          'cursor-pointer'
+          'cursor-pointer',
         )}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => {
@@ -112,66 +112,66 @@ export function MealImageUploader({
         {displaySrc ? (
           <Image
             src={displaySrc}
-            alt="미리보기"
+            alt='미리보기'
             width={400}
             height={300}
-            className="h-auto max-h-[240px] w-full object-cover"
+            className='h-auto max-h-[240px] w-full object-cover'
             unoptimized={displaySrc.startsWith('http') || displaySrc.startsWith('blob:')}
           />
         ) : (
-          <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-            <ImagePlus className="size-8" />
-            <span className="text-sm">클릭 또는 드래그하여 이미지 업로드</span>
-            <span className="text-xs">JPG, PNG, WebP, GIF (최대 5MB)</span>
+          <div className='text-muted-foreground flex flex-col items-center gap-2 py-8'>
+            <ImagePlus className='size-8' />
+            <span className='text-sm'>클릭 또는 드래그하여 이미지 업로드</span>
+            <span className='text-xs'>JPG, PNG, WebP, GIF (최대 50MB)</span>
           </div>
         )}
 
         {uploading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-            <Loader2 className="size-6 animate-spin text-primary" />
+          <div className='bg-background/60 absolute inset-0 flex items-center justify-center'>
+            <Loader2 className='text-primary size-6 animate-spin' />
           </div>
         )}
       </div>
 
       <input
         ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        className="hidden"
+        type='file'
+        accept='image/jpeg,image/png,image/webp,image/gif'
+        className='hidden'
         onChange={handleChange}
       />
 
       {preview && (
-        <div className="flex gap-2">
+        <div className='flex gap-2'>
           <Button
-            type="button"
-            variant="outline"
-            size="sm"
+            type='button'
+            variant='outline'
+            size='sm'
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
           >
-            <ImagePlus className="mr-1 size-3.5" />
+            <ImagePlus className='mr-1 size-3.5' />
             변경
           </Button>
           <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="text-destructive hover:text-destructive"
+            type='button'
+            variant='outline'
+            size='sm'
+            className='text-destructive hover:text-destructive'
             onClick={() => void handleDelete()}
             disabled={deleting || uploading}
           >
             {deleting ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className='size-3.5 animate-spin' />
             ) : (
-              <Trash2 className="mr-1 size-3.5" />
+              <Trash2 className='mr-1 size-3.5' />
             )}
             삭제
           </Button>
         </div>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className='text-destructive text-sm'>{error}</p>}
     </div>
   );
 }

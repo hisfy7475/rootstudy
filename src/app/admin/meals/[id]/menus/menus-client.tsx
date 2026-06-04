@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import {
   deleteMealMenu,
   upsertMealMenu,
-  uploadMealMenuImage,
   deleteMealMenuImage,
   type MealProductWithVariants,
 } from '@/lib/actions/meal';
+import { uploadMealMenuImage } from '@/lib/uploads/meal-client';
 import type { MealMenu } from '@/types/database';
 import { ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 import { MenuConflictModal } from './menu-conflict-modal';

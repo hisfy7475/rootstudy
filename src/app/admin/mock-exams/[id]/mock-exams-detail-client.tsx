@@ -9,12 +9,12 @@ import { Input } from '@/components/ui/input';
 import { MealImageUploader } from '@/components/shared/meal-image-uploader';
 import {
   updateMealProductAndVariant,
-  uploadMealProductImage,
   deleteMealProductImage,
   deleteMealProduct,
   type MealProductWithVariants,
   type MockExamOptionGroupWithOptions,
 } from '@/lib/actions/meal';
+import { uploadMealProductImage } from '@/lib/uploads/meal-client';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import { ListOrdered, Loader2, Trash2 } from 'lucide-react';
 import {

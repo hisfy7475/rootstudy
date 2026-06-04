@@ -7,11 +7,8 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  createMealProduct,
-  uploadMealProductImage,
-  type MealProductCreateInput,
-} from '@/lib/actions/meal';
+import { createMealProduct, type MealProductCreateInput } from '@/lib/actions/meal';
+import { uploadMealProductImage } from '@/lib/uploads/meal-client';
 import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
 import {
   MockExamOptionEditor,
@@ -303,7 +300,7 @@ export function AdminMockExamsNewClient({
                 <div className='text-muted-foreground flex flex-col items-center gap-2 py-8'>
                   <ImagePlus className='size-8' />
                   <span className='text-sm'>클릭하여 이미지 선택</span>
-                  <span className='text-xs'>JPG, PNG, WebP, GIF (최대 5MB)</span>
+                  <span className='text-xs'>JPG, PNG, WebP, GIF (최대 50MB)</span>
                 </div>
               )}
             </div>

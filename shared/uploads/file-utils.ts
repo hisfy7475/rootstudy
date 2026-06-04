@@ -5,6 +5,9 @@ export type ExtMimeTable = Readonly<Record<string, string>>;
 
 export const FILE_SIZE_10MB = 10 * 1024 * 1024;
 export const FILE_SIZE_20MB = 20 * 1024 * 1024;
+// 웹이 Supabase Storage로 직접 업로드하도록 전환하면서 첨부 한도를 50MB로 통일.
+// (FILE_SIZE_10MB/20MB는 RN nativeChatUpload 등에서 여전히 import하므로 제거하지 말 것.)
+export const FILE_SIZE_50MB = 50 * 1024 * 1024;
 
 export function getExt(name: string): string {
   if (!name) return '';

@@ -1,11 +1,6 @@
 'use server';
 
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import {
-  ATTACHMENT_FILE_MAX_BYTES,
-  resolveAttachmentFileMime,
-  sanitizeAttachmentSegment,
-} from '@shared/uploads/attachments';
 
 // ============================================
 // 채팅방 관련
@@ -394,115 +389,10 @@ export async function getOlderMessages(roomId: string, before: string, limit = 5
   return { data: formatMessages(reversed), hasMore: (messages || []).length >= limit };
 }
 
-// 이미지 업로드
-export async function uploadChatImage(roomId: string, formData: FormData) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { error: '로그인이 필요합니다.' };
-  }
-
-  const file = formData.get('file') as File;
-  if (!file) {
-    return { error: '파일이 없습니다.' };
-  }
-
-  // 파일 타입 검증
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  if (!allowedTypes.includes(file.type)) {
-    return { error: '지원하지 않는 이미지 형식입니다.' };
-  }
-
-  // 파일 크기 검증 (10MB — ROADMAP Phase 4)
-  if (file.size > 10 * 1024 * 1024) {
-    return { error: '이미지 크기는 10MB 이하여야 합니다.' };
-  }
-
-  // 파일명 생성 (user_id/roomId/timestamp.ext)
-  const ext = file.name.split('.').pop() || 'jpg';
-  const fileName = `${user.id}/${roomId}/${Date.now()}.${ext}`;
-
-  const { data, error } = await supabase.storage.from('chat-images').upload(fileName, file, {
-    cacheControl: '3600',
-    upsert: false,
-  });
-
-  if (error) {
-    console.error('Error uploading image:', error);
-    return { error: '이미지 업로드에 실패했습니다.' };
-  }
-
-  // public URL 생성
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('chat-images').getPublicUrl(data.path);
-
-  return { data: { url: publicUrl } };
-}
-
-/** 일반 파일 첨부 업로드 (이미지 제외 → `uploadChatImage` 사용) */
-export async function uploadChatFile(roomId: string, formData: FormData) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { error: '로그인이 필요합니다.' };
-  }
-
-  const file = formData.get('file') as File;
-  if (!file) {
-    return { error: '파일이 없습니다.' };
-  }
-
-  // 위장 이미지 차단은 MIME 결정 이전에 처리.
-  if (file.type.startsWith('image/')) {
-    return { error: '이미지는 이미지 첨부 버튼을 사용해 주세요.' };
-  }
-
-  // 확장자 우선으로 MIME을 결정. 브라우저가 한글/대괄호 파일명에서
-  // file.type 을 비워 보내도 확장자가 화이트리스트면 통과한다.
-  const resolvedMime = resolveAttachmentFileMime(file.type, file.name);
-  if (!resolvedMime) {
-    return { error: '지원하지 않는 파일 형식입니다. (PDF, Office 문서, TXT, CSV, ZIP 등)' };
-  }
-
-  if (file.size > ATTACHMENT_FILE_MAX_BYTES) {
-    return { error: '파일 크기는 20MB 이하여야 합니다.' };
-  }
-
-  const safeBase = sanitizeAttachmentSegment(file.name);
-  const fileName = `${user.id}/${roomId}/${Date.now()}_${safeBase}`;
-
-  const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, {
-    cacheControl: '3600',
-    upsert: false,
-    contentType: resolvedMime,
-  });
-
-  if (error) {
-    console.error('Error uploading chat file:', error);
-    return { error: '파일 업로드에 실패했습니다.' };
-  }
-
-  // ?download=<원본이름> 쿼리로 Content-Disposition을 강제해
-  // 다운로드 시 한글 원본 파일명이 보존되도록 한다.
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('chat-files').getPublicUrl(data.path, { download: file.name });
-
-  return {
-    data: {
-      url: publicUrl,
-      fileName: file.name,
-      mimeType: resolvedMime,
-    },
-  };
-}
+// 첨부 업로드는 브라우저에서 Supabase Storage로 직접 수행한다.
+// (uploadChatImage/uploadChatFile 서버 액션은 제거됨 — `src/lib/uploads/client.ts`의
+//  uploadToBucketAsUser 사용. Vercel 서버 액션 본문 한계(~4.5MB) 우회 목적.)
+// sendMessage는 결과 URL만 받아 검증 후 기록한다.
 
 export type ChatFileAttachment = {
   url: string;
@@ -536,6 +426,18 @@ export async function sendMessage(
 
   if (imageUrl && fileAttachment) {
     return { error: '이미지와 파일을 동시에 보낼 수 없습니다.' };
+  }
+
+  // 첨부 URL 경량 검증: 웹/네이티브가 Storage에 직접 업로드하므로 클라가 URL을 만든다.
+  // 본인 폴더의 정상 버킷 객체만 허용해 타 버킷/타인 파일 링크 주입을 차단한다.
+  if (imageUrl && !imageUrl.includes(`/object/public/chat-images/${user.id}/`)) {
+    return { error: '유효하지 않은 이미지 첨부입니다.' };
+  }
+  if (
+    fileAttachment?.url &&
+    !fileAttachment.url.includes(`/object/public/chat-files/${user.id}/`)
+  ) {
+    return { error: '유효하지 않은 파일 첨부입니다.' };
   }
 
   // 사용자 타입 및 이름 확인

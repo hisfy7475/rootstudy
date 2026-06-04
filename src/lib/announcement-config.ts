@@ -2,13 +2,13 @@
 // 서버 액션 파일(`announcement.ts`)이 'use server'라 const export가 불가능하기 때문에 별도 모듈로 분리한다.
 
 import {
-  FILE_SIZE_20MB,
+  FILE_SIZE_50MB,
   resolveMimeFromTable,
   sanitizeStorageSegment,
   type ExtMimeTable,
 } from '@shared/uploads/file-utils';
 
-export const ANNOUNCEMENT_FILE_MAX_BYTES = FILE_SIZE_20MB;
+export const ANNOUNCEMENT_FILE_MAX_BYTES = FILE_SIZE_50MB;
 export const ANNOUNCEMENT_FILE_MAX_COUNT = 15;
 
 // 공지는 이미지도 첨부 가능 — 채팅과 다름.

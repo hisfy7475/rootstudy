@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { MealImageUploader } from '@/components/shared/meal-image-uploader';
 import {
   updateMealProduct,
-  uploadMealProductImage,
   deleteMealProductImage,
   createMealProductVariant,
   updateMealProductVariant,
@@ -19,6 +18,7 @@ import {
   type VariantKind,
   type MealProductWithVariants,
 } from '@/lib/actions/meal';
+import { uploadMealProductImage } from '@/lib/uploads/meal-client';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import { CalendarDays, ListOrdered, Loader2, Plus, Trash2 } from 'lucide-react';
 

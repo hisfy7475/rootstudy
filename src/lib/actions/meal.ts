@@ -1864,34 +1864,14 @@ function storagePathFromPublicUrl(publicUrl: string): string | null {
   }
 }
 
-function sanitizeFileName(name: string): string {
-  const base = name
-    .replace(/[/\\]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/[^\x20-\x7E]/g, '');
-  const dotIdx = base.lastIndexOf('.');
-  const ext = dotIdx >= 0 ? base.slice(dotIdx) : '';
-  const stem = dotIdx >= 0 ? base.slice(0, dotIdx) : base;
-  const cleanStem = stem.replace(/[^a-zA-Z0-9_-]/g, '') || 'image';
-  return (cleanStem + ext).slice(0, 200);
-}
+// 식사/모의고사 이미지는 브라우저에서 meal-images 버킷으로 직접 업로드한 뒤
+// (src/lib/uploads/meal-client.ts) 그 URL을 아래 record* 액션으로 넘겨 DB에 기록한다.
+// 클라가 URL을 만들므로 본인 폴더·상품/메뉴 경로를 서버에서 재검증한다.
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-
-function validateImageFile(file: File): string | null {
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-    return 'JPG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.';
-  }
-  if (file.size > MAX_IMAGE_SIZE) {
-    return '이미지 크기는 5MB 이하여야 합니다.';
-  }
-  return null;
-}
-
-export async function uploadMealProductImage(
+/** 관리자: 상품 이미지 URL 기록 (지점 권한·구이미지 정리·branch-scoped UPDATE 유지). */
+export async function recordMealProductImage(
   productId: string,
-  formData: FormData,
+  meta: { url: string },
 ): Promise<{ data?: { url: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -1900,48 +1880,29 @@ export async function uploadMealProductImage(
   const product = await assertMealProductInBranch(supabase, productId, ctx);
   if (!product) return { error: '상품을 찾을 수 없습니다.' };
 
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
+  // URL 재검증: 본인 폴더 + 해당 상품 경로의 meal-images 객체만 허용.
+  const newPath = storagePathFromPublicUrl(meta.url);
+  if (!newPath || !newPath.startsWith(`${ctx.userId}/products/${productId}/`)) {
+    return { error: '유효하지 않은 이미지입니다.' };
+  }
 
-  const validationErr = validateImageFile(file);
-  if (validationErr) return { error: validationErr };
-
+  // 기존 이미지 정리(새 URL 확정 후).
   if (product.image_url) {
     const oldPath = storagePathFromPublicUrl(product.image_url);
-    if (oldPath) {
+    if (oldPath && oldPath !== newPath) {
       await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
     }
   }
 
-  const safeName = sanitizeFileName(file.name);
-  const storagePath = `${ctx.userId}/products/${productId}/${Date.now()}_${safeName}`;
-
-  const { data: uploaded, error: upErr } = await supabase.storage
-    .from(MEAL_IMAGES_BUCKET)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-
-  if (upErr || !uploaded) {
-    console.error('[uploadMealProductImage] storage', upErr);
-    return { error: '이미지 업로드에 실패했습니다.' };
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
-
   let imgUpQ = supabase
     .from('meal_products')
-    .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
+    .update({ image_url: meta.url, updated_at: new Date().toISOString() })
     .eq('id', productId);
   if (!ctx.isSuperAdmin && ctx.branchId) imgUpQ = imgUpQ.eq('branch_id', ctx.branchId);
   const { error: dbErr } = await imgUpQ;
 
   if (dbErr) {
-    console.error('[uploadMealProductImage] db', dbErr);
+    console.error('[recordMealProductImage] db', dbErr);
     return { error: '이미지 정보 저장에 실패했습니다.' };
   }
 
@@ -1951,7 +1912,7 @@ export async function uploadMealProductImage(
   revalidatePath(studentBasePath(product.category));
   revalidatePath(parentBasePath(product.category));
 
-  return { data: { url: publicUrl } };
+  return { data: { url: meta.url } };
 }
 
 export async function deleteMealProductImage(
@@ -1992,10 +1953,11 @@ export async function deleteMealProductImage(
   return { success: true };
 }
 
-export async function uploadMealMenuImage(
+/** 관리자: 메뉴 이미지 URL 기록 (지점 권한·메뉴 소유·구이미지 정리 유지). */
+export async function recordMealMenuImage(
   productId: string,
   menuId: string,
-  formData: FormData,
+  meta: { url: string },
 ): Promise<{ data?: { url: string }; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
@@ -2013,46 +1975,26 @@ export async function uploadMealMenuImage(
 
   if (!menu) return { error: '메뉴를 찾을 수 없습니다.' };
 
-  const file = formData.get('file') as File | null;
-  if (!file) return { error: '파일을 선택해 주세요.' };
-
-  const validationErr = validateImageFile(file);
-  if (validationErr) return { error: validationErr };
+  // URL 재검증: 본인 폴더 + 해당 메뉴 경로의 meal-images 객체만 허용.
+  const newPath = storagePathFromPublicUrl(meta.url);
+  if (!newPath || !newPath.startsWith(`${ctx.userId}/menus/${menuId}/`)) {
+    return { error: '유효하지 않은 이미지입니다.' };
+  }
 
   if (menu.image_url) {
     const oldPath = storagePathFromPublicUrl(menu.image_url);
-    if (oldPath) {
+    if (oldPath && oldPath !== newPath) {
       await supabase.storage.from(MEAL_IMAGES_BUCKET).remove([oldPath]);
     }
   }
 
-  const safeName = sanitizeFileName(file.name);
-  const storagePath = `${ctx.userId}/menus/${menuId}/${Date.now()}_${safeName}`;
-
-  const { data: uploaded, error: upErr } = await supabase.storage
-    .from(MEAL_IMAGES_BUCKET)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-
-  if (upErr || !uploaded) {
-    console.error('[uploadMealMenuImage] storage', upErr);
-    return { error: '이미지 업로드에 실패했습니다.' };
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(MEAL_IMAGES_BUCKET).getPublicUrl(uploaded.path);
-
   const { error: dbErr } = await supabase
     .from('meal_menus')
-    .update({ image_url: publicUrl })
+    .update({ image_url: meta.url })
     .eq('id', menuId);
 
   if (dbErr) {
-    console.error('[uploadMealMenuImage] db', dbErr);
+    console.error('[recordMealMenuImage] db', dbErr);
     return { error: '이미지 정보 저장에 실패했습니다.' };
   }
 
@@ -2060,7 +2002,7 @@ export async function uploadMealMenuImage(
   revalidatePath(`${studentBasePath('meal')}/${productId}`);
   revalidatePath(`${parentBasePath('meal')}/${productId}`);
 
-  return { data: { url: publicUrl } };
+  return { data: { url: meta.url } };
 }
 
 export async function deleteMealMenuImage(
