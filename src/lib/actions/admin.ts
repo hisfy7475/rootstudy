@@ -2709,8 +2709,14 @@ function notificationPeriodSince(period: NotificationPeriod | undefined): string
 export async function getAdminNotifications(
   params: NotificationsListParams,
 ): Promise<NotificationsListResult> {
+  // 지점 격리 가드: service-role 조회라 RLS 가 없으므로 인자 branchId 를 신뢰하면 안 된다.
+  // 일반 관리자는 본인 지점 강제, 슈퍼만 임의 지점(또는 null=전체) 허용.
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { rows: [], total: 0, page: 1, pageSize: params.pageSize };
+
   const supabase = createAdminClient();
-  const { branchId, page, pageSize, q, dir, recipientType, type, period } = params;
+  const { page, pageSize, q, dir, recipientType, type, period } = params;
+  const branchId = ctx.isSuperAdmin ? params.branchId : ctx.branchId;
   const from = Math.max(0, (Math.max(1, page) - 1) * pageSize);
   const to = from + pageSize - 1;
 
@@ -2751,13 +2757,18 @@ export async function getAdminNotificationStats(
   branchId: string | null,
   period?: NotificationPeriod,
 ) {
+  // 지점 격리 가드(getAdminNotifications 와 동일 정책).
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { total: 0, read: 0, unread: 0, today: 0 };
+  const effectiveBranchId = ctx.isSuperAdmin ? branchId : ctx.branchId;
+
   const supabase = createAdminClient();
   const since = notificationPeriodSince(period);
   const { start, end } = getStudyDayBounds(getStudyDate());
 
   const base = () => {
     let qb = supabase.from('admin_notification_log').select('*', { count: 'exact', head: true });
-    if (branchId) qb = qb.eq('branch_id', branchId);
+    if (effectiveBranchId) qb = qb.eq('branch_id', effectiveBranchId);
     if (since) qb = qb.gte('created_at', since);
     return qb;
   };
