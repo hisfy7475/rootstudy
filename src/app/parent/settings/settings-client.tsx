@@ -14,7 +14,10 @@ import {
   Lock,
   LogOut,
   UserX,
+  FileText,
+  ShieldCheck,
 } from 'lucide-react';
+import Link from 'next/link';
 import { addChildToParent, removeChildFromParent, withdrawSelf } from '@/lib/actions/parent';
 import { verifyParentCode } from '@/app/(auth)/actions';
 import { signOutWithNativeSync } from '@/lib/sign-out-app';
@@ -323,6 +326,18 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
           <h2 className='text-text font-semibold'>계정 관리</h2>
         </div>
         <div className='space-y-2'>
+          <Link href='/terms' className='block'>
+            <Button variant='outline' className='w-full justify-start gap-3'>
+              <FileText className='h-4 w-4' />
+              서비스 이용약관
+            </Button>
+          </Link>
+          <Link href='/privacy' className='block'>
+            <Button variant='outline' className='w-full justify-start gap-3'>
+              <ShieldCheck className='h-4 w-4' />
+              개인정보처리방침
+            </Button>
+          </Link>
           <Button
             variant='outline'
             className='w-full justify-start gap-3 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600'

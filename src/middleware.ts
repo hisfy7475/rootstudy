@@ -64,7 +64,7 @@ export async function middleware(request: NextRequest) {
   // 인증이 필요없는 경로 (로그인 사용자는 본인 타입 페이지로 리다이렉트됨)
   const publicPaths = ['/login', '/signup', '/forgot-password', '/api/cron', '/account/withdrawn'];
   // 누구나 접근 가능한 정책/안내 페이지 (로그인 여부와 무관하게 그대로 표시)
-  const alwaysPublicPaths = ['/privacy', '/account-deletion', '/policy'];
+  const alwaysPublicPaths = ['/privacy', '/terms', '/account-deletion', '/policy'];
   const isAlwaysPublic = alwaysPublicPaths.some((path) => pathname.startsWith(path));
   const isPublicPath = isAlwaysPublic || publicPaths.some((path) => pathname.startsWith(path));
 

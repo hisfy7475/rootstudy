@@ -23,6 +23,8 @@ import {
   Hash,
   UserX,
   AlertTriangle,
+  FileText,
+  ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -425,6 +427,18 @@ export function SettingsClient({ profile, linkedParents, studentTypes }: Setting
               <Lock className='h-4 w-4' />
               비밀번호 변경
             </Button>
+            <Link href='/terms' className='block'>
+              <Button variant='outline' className='w-full justify-start gap-3'>
+                <FileText className='h-4 w-4' />
+                서비스 이용약관
+              </Button>
+            </Link>
+            <Link href='/privacy' className='block'>
+              <Button variant='outline' className='w-full justify-start gap-3'>
+                <ShieldCheck className='h-4 w-4' />
+                개인정보처리방침
+              </Button>
+            </Link>
             <SignOutForm>
               <Button
                 type='submit'
