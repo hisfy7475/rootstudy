@@ -118,14 +118,6 @@ export function BranchNotificationLog({
 
   return (
     <div className='space-y-6'>
-      <div className='flex items-center justify-between'>
-        <p className='text-text-muted text-sm'>학생·학부모에게 발송된 인앱/푸시 알림 내역입니다.</p>
-        <Button variant='outline' onClick={refresh} disabled={isPending}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
-          새로고침
-        </Button>
-      </div>
-
       {/* 통계 카드 */}
       <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
         <Card className='p-4'>
@@ -178,6 +170,10 @@ export function BranchNotificationLog({
       <Card className='p-6'>
         <div className='mb-4 flex items-center justify-between'>
           <h2 className='text-lg font-semibold'>발송 내역 ({total}건)</h2>
+          <Button variant='outline' onClick={refresh} disabled={isPending}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+            새로고침
+          </Button>
         </div>
 
         <DataTableToolbar

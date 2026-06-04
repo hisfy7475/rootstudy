@@ -23,11 +23,12 @@ function pickFirst(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ subtitle, children }: { subtitle?: string; children: ReactNode }) {
   return (
     <div className='space-y-6 p-6'>
       <div>
         <h1 className='text-2xl font-bold'>알림 관리</h1>
+        {subtitle && <p className='text-text-muted mt-1 text-sm'>{subtitle}</p>}
       </div>
       {children}
     </div>
@@ -88,7 +89,7 @@ export default async function NotificationsManagementPage({ searchParams }: Page
     ]);
 
     return (
-      <Shell>
+      <Shell subtitle='학생·학부모에게 발송된 인앱/푸시 알림 내역입니다.'>
         <BranchNotificationLog
           initialResult={branchResult}
           stats={branchStats}
