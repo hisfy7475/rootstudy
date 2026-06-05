@@ -72,8 +72,8 @@ export function ScheduleClient({
   const [customReason, setCustomReason] = useState('');
   const [isRecurring, setIsRecurring] = useState(true);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime] = useState('22:00');
   const [specificDate, setSpecificDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [recurringStartDate, setRecurringStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [recurringEndDate, setRecurringEndDate] = useState('');
@@ -317,8 +317,8 @@ export function ScheduleClient({
         setReasonType('');
         setCustomReason('');
         setSelectedDays([]);
-        setStartTime('');
-        setEndTime('');
+        setStartTime('08:00');
+        setEndTime('22:00');
         setSpecificDate(format(new Date(), 'yyyy-MM-dd'));
         setRecurringStartDate(format(new Date(), 'yyyy-MM-dd'));
         setRecurringEndDate('');
