@@ -153,7 +153,13 @@ interface CreateUserNotificationParams {
 // 호출자(메시지 송신자) auth 컨텍스트의 RLS에 막혀 silent fail 되던 회귀를 차단하기 위함.
 // SELECT/UPDATE/DELETE는 본인 한정으로 user client + RLS 유지(보안 경계 보존).
 // admin client는 helper 내부에서만 생성/사용 — export하거나 인자로 받지 않는다.
-export async function createUserNotification(params: CreateUserNotificationParams) {
+// opts.awaitPush=true 면 푸시 fetch 완료까지 await 한다. 서버리스 크론처럼
+// 응답 직후 핸들러가 동결돼 fire-and-forget 푸시가 누락될 수 있는 환경에서 사용.
+// 기본(false)은 기존 호출처 동작 유지(인앱 INSERT만 await, 푸시는 비동기).
+export async function createUserNotification(
+  params: CreateUserNotificationParams,
+  opts: { awaitPush?: boolean } = {},
+) {
   const supabase = createAdminClient();
 
   const { error } = await supabase.from('user_notifications').insert({
@@ -172,12 +178,13 @@ export async function createUserNotification(params: CreateUserNotificationParam
     return { error: '알림 생성에 실패했습니다.' };
   }
 
-  void sendPushToUser(
+  const pushPromise = sendPushToUser(
     params.userId,
     params.title,
     params.message,
     pushDataFromLink(params.link),
   ).catch((e) => console.error('[push] createUserNotification', e));
+  if (opts.awaitPush) await pushPromise;
 
   return { success: true };
 }
@@ -289,7 +296,10 @@ export async function markAllUserNotificationsAsRead() {
 
 // 학생 알림 생성 (앱 내 알림)
 // invariant: createUserNotification 위 주석 참조 — INSERT는 admin client.
-export async function createStudentNotification(params: CreateNotificationParams) {
+export async function createStudentNotification(
+  params: CreateNotificationParams,
+  opts: { awaitPush?: boolean } = {},
+) {
   const supabase = createAdminClient();
 
   const { error } = await supabase.from('student_notifications').insert({
@@ -305,12 +315,13 @@ export async function createStudentNotification(params: CreateNotificationParams
     return { error: '알림 생성에 실패했습니다.' };
   }
 
-  void sendPushToUser(
+  const pushPromise = sendPushToUser(
     params.studentId,
     params.title,
     params.message,
     pushDataFromLink(params.link),
   ).catch((e) => console.error('[push] createStudentNotification', e));
+  if (opts.awaitPush) await pushPromise;
 
   return { success: true };
 }
@@ -355,13 +366,16 @@ export async function createBulkStudentNotifications(
 // 진입점: givePoints / givePointsBatch / giveRewardBatch / giveAutoPoints /
 //        weekly-points cron / daily-reset cron 6곳에서 호출.
 // 학생 본인 + 연결된 모든 학부모에게 앱 알림 + 푸시 동시 발송.
-export async function notifyPointsGranted(params: {
-  studentId: string;
-  type: 'reward' | 'penalty';
-  amount: number;
-  reason: string;
-  studentName?: string; // 호출자가 보유 시 전달 — N+1 회피
-}): Promise<void> {
+export async function notifyPointsGranted(
+  params: {
+    studentId: string;
+    type: 'reward' | 'penalty';
+    amount: number;
+    reason: string;
+    studentName?: string; // 호출자가 보유 시 전달 — N+1 회피
+  },
+  opts: { awaitPush?: boolean } = {},
+): Promise<void> {
   const supabase = createAdminClient();
 
   let studentName = params.studentName;
@@ -385,24 +399,30 @@ export async function notifyPointsGranted(params: {
   const message = `${studentName} 학생, ${params.reason} (${sign}${params.amount}점)`;
 
   const tasks: Promise<unknown>[] = [
-    createStudentNotification({
-      studentId: params.studentId,
-      type: 'point',
-      title,
-      message,
-      link: '/student/points',
-    }),
+    createStudentNotification(
+      {
+        studentId: params.studentId,
+        type: 'point',
+        title,
+        message,
+        link: '/student/points',
+      },
+      { awaitPush: opts.awaitPush },
+    ),
   ];
 
   for (const parentId of parentIds) {
     tasks.push(
-      createUserNotification({
-        userId: parentId,
-        type: 'point',
-        title,
-        message,
-        link: '/parent',
-      }),
+      createUserNotification(
+        {
+          userId: parentId,
+          type: 'point',
+          title,
+          message,
+          link: '/parent',
+        },
+        { awaitPush: opts.awaitPush },
+      ),
     );
   }
 

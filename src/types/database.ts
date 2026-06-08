@@ -695,6 +695,7 @@ export interface Database {
           granted_reason: string | null;
           point_id: string | null;
           evaluated_at: string;
+          notified_at: string | null;
         };
         Insert: {
           id?: string;
@@ -707,6 +708,7 @@ export interface Database {
           granted_reason?: string | null;
           point_id?: string | null;
           evaluated_at?: string;
+          notified_at?: string | null;
         };
         Update: {
           id?: string;
@@ -719,6 +721,7 @@ export interface Database {
           granted_reason?: string | null;
           point_id?: string | null;
           evaluated_at?: string;
+          notified_at?: string | null;
         };
       };
       policy_acknowledgements: {
