@@ -284,7 +284,18 @@ export async function resetPassword(formData: FormData): Promise<AuthResult> {
   const { error } = await supabase.auth.resetPasswordForEmail(email);
 
   if (error) {
-    return { success: false, error: error.message };
+    const msg = error.message;
+    // Supabase가 반환하는 영어 에러를 한국어로 변환한다.
+    if (/rate limit/i.test(msg) || /only request this after/i.test(msg)) {
+      return {
+        success: false,
+        error: '잠시 후 다시 시도해주세요. 잠깐 동안만 재요청이 제한됩니다.',
+      };
+    }
+    if (/invalid format/i.test(msg) || /Unable to validate email/i.test(msg)) {
+      return { success: false, error: '올바른 이메일 형식이 아닙니다.' };
+    }
+    return { success: false, error: '이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' };
   }
 
   return { success: true };
@@ -371,7 +382,21 @@ export async function resetUpdatePassword(
   });
 
   if (error) {
-    return { success: false, error: error.message };
+    const msg = error.message;
+    // Supabase가 반환하는 영어 에러를 한국어로 변환한다.
+    if (/should be different from the old password/i.test(msg)) {
+      return { success: false, error: '기존 비밀번호와 다른 비밀번호를 입력해주세요.' };
+    }
+    if (/at least 6 characters/i.test(msg) || /Password should be at least/i.test(msg)) {
+      return { success: false, error: '비밀번호는 6자 이상이어야 합니다.' };
+    }
+    if (/weak/i.test(msg) || /password is too/i.test(msg)) {
+      return { success: false, error: '비밀번호가 너무 단순합니다. 다른 비밀번호를 입력해주세요.' };
+    }
+    if (/expired/i.test(msg) || /invalid/i.test(msg)) {
+      return { success: false, error: '인증 정보가 만료되었습니다. 처음부터 다시 시도해주세요.' };
+    }
+    return { success: false, error: '비밀번호 변경에 실패했습니다. 잠시 후 다시 시도해주세요.' };
   }
 
   return { success: true };
