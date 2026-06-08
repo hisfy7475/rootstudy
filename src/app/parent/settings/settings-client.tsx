@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import {
   User,
   UserPlus,
@@ -395,34 +396,31 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
             <div className='space-y-3 rounded-xl border border-gray-100 p-3'>
               <div>
                 <label className='text-text-muted text-xs'>현재 비밀번호</label>
-                <Input
-                  type='password'
+                <PasswordInput
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder='현재 비밀번호'
-                  className='mt-1'
+                  wrapperClassName='mt-1'
                   disabled={isPending}
                 />
               </div>
               <div>
                 <label className='text-text-muted text-xs'>새 비밀번호</label>
-                <Input
-                  type='password'
+                <PasswordInput
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder='새 비밀번호 (6자 이상)'
-                  className='mt-1'
+                  wrapperClassName='mt-1'
                   disabled={isPending}
                 />
               </div>
               <div>
                 <label className='text-text-muted text-xs'>새 비밀번호 확인</label>
-                <Input
-                  type='password'
+                <PasswordInput
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder='새 비밀번호 확인'
-                  className='mt-1'
+                  wrapperClassName='mt-1'
                   disabled={isPending}
                 />
               </div>
@@ -520,12 +518,11 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
             <div className='space-y-3'>
               <div>
                 <label className='text-text-muted text-xs'>현재 비밀번호</label>
-                <Input
-                  type='password'
+                <PasswordInput
                   value={withdrawPassword}
                   onChange={(e) => setWithdrawPassword(e.target.value)}
                   placeholder='현재 비밀번호'
-                  className='mt-1'
+                  wrapperClassName='mt-1'
                   disabled={isPending}
                 />
               </div>

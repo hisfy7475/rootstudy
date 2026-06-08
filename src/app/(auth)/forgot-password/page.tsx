@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Mail, ArrowLeft, KeyRound, Check, Send, ShieldCheck, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import {
   Card,
   CardHeader,
@@ -197,31 +198,29 @@ export default function ForgotPasswordPage() {
           </CardHeader>
           <CardContent>
             <div className='space-y-4'>
-              <div className='relative'>
-                <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
-                <Input
-                  type='password'
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder='새 비밀번호 (6자 이상)'
-                  className='pl-12'
-                  disabled={isLoading}
-                />
-              </div>
-              <div className='relative'>
-                <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
-                <Input
-                  type='password'
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder='비밀번호 확인'
-                  className='pl-12'
-                  disabled={isLoading}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleUpdatePassword();
-                  }}
-                />
-              </div>
+              <PasswordInput
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder='새 비밀번호 (6자 이상)'
+                className='pl-12'
+                disabled={isLoading}
+                leftIcon={
+                  <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
+                }
+              />
+              <PasswordInput
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder='비밀번호 확인'
+                className='pl-12'
+                disabled={isLoading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleUpdatePassword();
+                }}
+                leftIcon={
+                  <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
+                }
+              />
 
               {error && (
                 <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
