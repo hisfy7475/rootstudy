@@ -52,3 +52,29 @@ export function createAdminClient(): ReturnType<typeof createSupabaseClient<any>
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
+
+/**
+ * 쿠키 비바인딩 raw 클라이언트 (anon key, 세션 미영속).
+ * 현재 비밀번호 재인증·recovery OTP 검증처럼, 본 세션 쿠키를 오염시키면 안 되는
+ * 일회성 auth 호출에 사용한다. 쿠키 바인딩 createClient()로 두 번째 auth write를 하면
+ * SSR setAll 콜백이 세션 쿠키를 회전/덮어써 서버 액션/미들웨어와 충돌하므로 이 클라이언트로 격리한다.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createIsolatedAuthClient(): ReturnType<typeof createSupabaseClient<any>> {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    },
+  );
+}
+
+/**
+ * 현재 비밀번호를 본 세션을 건드리지 않고 검증한다. 일치하면 true.
+ * 격리 클라이언트로 signInWithPassword를 시도해, 검증 부작용(세션 쿠키 회전)을 차단한다.
+ */
+export async function verifyCurrentPassword(email: string, password: string): Promise<boolean> {
+  const { error } = await createIsolatedAuthClient().auth.signInWithPassword({ email, password });
+  return !error;
+}

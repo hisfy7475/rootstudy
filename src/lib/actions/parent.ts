@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient, verifyCurrentPassword } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
@@ -716,6 +716,50 @@ export async function removeChildFromParent(studentId: string) {
   return { success: true };
 }
 
+// 학부모 본인 비밀번호 변경
+//
+// 현재 비밀번호를 격리 클라이언트로 재인증한 뒤 본 세션으로 비밀번호를 변경한다.
+// (학생 changePassword 와 동일 패턴 — 검증은 verifyCurrentPassword 로 본 세션 격리)
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !user.email) return { error: '로그인이 필요합니다.' };
+
+  if (!currentPassword || !newPassword) {
+    return { error: '현재 비밀번호와 새 비밀번호를 모두 입력해주세요.' };
+  }
+
+  if (newPassword.length < 6) {
+    return { error: '새 비밀번호는 6자 이상이어야 합니다.' };
+  }
+
+  if (currentPassword === newPassword) {
+    return { error: '새 비밀번호가 현재 비밀번호와 같습니다.' };
+  }
+
+  // 현재 비밀번호 확인 — 본 세션을 건드리지 않도록 격리 클라이언트로 검증
+  if (!(await verifyCurrentPassword(user.email, currentPassword))) {
+    return { error: '현재 비밀번호가 올바르지 않습니다.' };
+  }
+
+  const { error: updateError } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (updateError) {
+    console.error('Error changing parent password:', updateError);
+    return { error: '비밀번호 변경에 실패했습니다.' };
+  }
+
+  return { success: true };
+}
+
 // 학부모 본인 회원 탈퇴 (Apple App Store 5.1.1(v) 대응)
 //
 // 어드민 deleteMember 는 활성 자녀가 있으면 차단하지만, 셀프 탈퇴는
@@ -735,11 +779,8 @@ export async function withdrawSelf(
     return { error: '현재 비밀번호를 입력해주세요.' };
   }
 
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: currentPassword,
-  });
-  if (signInError) {
+  // 현재 비밀번호 확인 — 본 세션을 건드리지 않도록 격리 클라이언트로 검증
+  if (!(await verifyCurrentPassword(user.email, currentPassword))) {
     return { error: '현재 비밀번호가 올바르지 않습니다.' };
   }
 

@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient, verifyCurrentPassword } from '@/lib/supabase/server';
 import { fetchAllPaged } from '@/lib/supabase/paginate';
 import { revalidatePath } from 'next/cache';
 import { escapeLike } from '@/lib/list-params';
@@ -4352,19 +4352,9 @@ export async function updateMyPassword(currentPassword: string, newPassword: str
     return { error: '새 비밀번호가 현재 비밀번호와 같습니다.' };
   }
 
-  const { createClient: createRawClient } = await import('@supabase/supabase-js');
-  const verifyClient = createRawClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    },
-  );
-  const { error: verifyError } = await verifyClient.auth.signInWithPassword({
-    email: user.email,
-    password: currentPassword,
-  });
-  if (verifyError) return { error: '현재 비밀번호가 일치하지 않습니다.' };
+  if (!(await verifyCurrentPassword(user.email, currentPassword))) {
+    return { error: '현재 비밀번호가 일치하지 않습니다.' };
+  }
 
   const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
   if (updateError) {

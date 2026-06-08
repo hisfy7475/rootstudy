@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { Mail, Lock, User, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardHeader, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { signIn } from '../actions';
 import { setRememberCookie } from '@/lib/remember-me';
@@ -94,20 +95,19 @@ export default function LoginPage() {
                 autoComplete='email'
               />
             </div>
-            <div className='relative'>
-              <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
-              <Input
-                type='password'
-                name='password'
-                placeholder='비밀번호'
-                className='pl-12'
-                required
-                disabled={isLoading}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete='current-password'
-              />
-            </div>
+            <PasswordInput
+              name='password'
+              placeholder='비밀번호'
+              className='pl-12'
+              required
+              disabled={isLoading}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete='current-password'
+              leftIcon={
+                <Lock className='text-text-muted absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 transform' />
+              }
+            />
 
             <label className='flex cursor-pointer items-center gap-2 text-sm select-none'>
               <input

@@ -35,7 +35,7 @@ function getResetTimeUTC(): { hour: number; minute: number } {
 async function evaluateDailyFocus(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   studyDateStr: string,
-  opts: { skipNotify?: boolean; createdAt?: string } = {},
+  opts: { skipNotify?: boolean; markNotifiedNow?: boolean; createdAt?: string } = {},
 ): Promise<{
   evaluated: number;
   granted: number;
@@ -191,6 +191,9 @@ async function evaluateDailyFocus(
           granted: didGrant && pointId !== null,
           granted_reason: reason,
           point_id: pointId,
+          // markNotifiedNow=true (백필) 면 즉시 마킹해 09:00 알림 크론이 재발송하지 않도록 한다.
+          // 정규 03:00 경로는 markNotifiedNow=false → notified_at NULL → 09:00 크론이 픽업.
+          notified_at: opts.markNotifiedNow ? new Date().toISOString() : null,
         },
         { onConflict: 'student_id,study_date' },
       );
@@ -240,6 +243,8 @@ export async function GET(request: Request) {
       const backfillCreatedAt = new Date(Date.UTC(y, m - 1, d, 18, 0, 0)).toISOString();
       const focusResult = await evaluateDailyFocus(supabase, backfillStudyDate, {
         skipNotify,
+        // 백필은 인라인 발송 여부와 무관하게 항상 마킹 → 09:00 알림 크론의 과거분 폭주 차단.
+        markNotifiedNow: true,
         createdAt: backfillCreatedAt,
       });
       return NextResponse.json({
@@ -381,7 +386,11 @@ export async function GET(request: Request) {
     //    - 결과는 daily_focus_evaluations 에 UPSERT (사후 분석용)
     //    - 부여 시 points INSERT (event_kind='auto_daily_focus', preset='daily_focus')
     // -------------------------------------------------------
-    const focusResult = await evaluateDailyFocus(supabase, phoneSubmissionStudyDate);
+    // 적립은 지금(KST 03:00) 하되 알림은 보류 — notified_at NULL 로 남겨
+    // daily-focus-notify 크론(KST 09:00)이 픽업해 발송하도록 한다.
+    const focusResult = await evaluateDailyFocus(supabase, phoneSubmissionStudyDate, {
+      skipNotify: true,
+    });
 
     return NextResponse.json({
       success: true,

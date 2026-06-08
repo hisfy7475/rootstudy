@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient, createIsolatedAuthClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { generateParentCode } from '@/lib/utils';
@@ -14,6 +14,9 @@ export type AuthResult = {
     studentId?: string;
     /** 실패 후 클라이언트에서 라우팅할 경로 (예: 퇴원 회원 안내 페이지). */
     redirect?: string;
+    /** 비밀번호 찾기: OTP 검증으로 발급된 recovery 세션 토큰. 마지막 단계에서 setSession에 사용. */
+    recoveryAccessToken?: string;
+    recoveryRefreshToken?: string;
   };
 };
 
@@ -288,16 +291,20 @@ export async function resetPassword(formData: FormData): Promise<AuthResult> {
 }
 
 /**
- * 비밀번호 재설정 OTP 코드 검증
+ * 비밀번호 재설정 OTP 코드 검증 (OTP 단계에서 즉시 검증)
+ *
+ * 쿠키 비바인딩 격리 클라이언트로 verifyOtp를 실행하므로 브라우저에 recovery 세션 쿠키가
+ * 생성되지 않는다(미들웨어 리다이렉트 충돌 방지). 검증으로 발급된 recovery 세션 토큰을
+ * 반환값으로 클라이언트에 전달하고, 마지막 비밀번호 설정 단계에서 setSession으로 복원해 사용한다.
  */
 export async function verifyResetCode(email: string, token: string): Promise<AuthResult> {
   if (!email || !token) {
     return { success: false, error: '이메일과 인증 코드를 입력해주세요.' };
   }
 
-  const supabase = await createClient();
+  const client = createIsolatedAuthClient();
 
-  const { error } = await supabase.auth.verifyOtp({
+  const { data, error } = await client.auth.verifyOtp({
     email,
     token,
     type: 'recovery',
@@ -310,13 +317,32 @@ export async function verifyResetCode(email: string, token: string): Promise<Aut
     return { success: false, error: '인증 코드가 올바르지 않습니다.' };
   }
 
-  return { success: true };
+  // verifyOtp 성공이지만 세션이 비어 있는 경우 방어 (정상 recovery 흐름에선 발생하지 않음)
+  if (!data.session) {
+    return { success: false, error: '인증에 실패했습니다. 다시 시도해주세요.' };
+  }
+
+  return {
+    success: true,
+    data: {
+      recoveryAccessToken: data.session.access_token,
+      recoveryRefreshToken: data.session.refresh_token,
+    },
+  };
 }
 
 /**
  * OTP 인증 후 새 비밀번호 설정
+ *
+ * verifyResetCode가 발급한 recovery 토큰을 받아 격리 클라이언트에 setSession으로 복원한 뒤
+ * 같은 인스턴스로 updateUser를 호출한다. 쿠키 바인딩 클라이언트를 쓰지 않으므로 본 세션을
+ * 만들지 않고(따라서 signOut도 불필요), 사용자는 끝까지 비로그인 상태를 유지한다.
  */
-export async function resetUpdatePassword(newPassword: string): Promise<AuthResult> {
+export async function resetUpdatePassword(
+  newPassword: string,
+  accessToken: string,
+  refreshToken: string,
+): Promise<AuthResult> {
   if (!newPassword) {
     return { success: false, error: '새 비밀번호를 입력해주세요.' };
   }
@@ -325,17 +351,28 @@ export async function resetUpdatePassword(newPassword: string): Promise<AuthResu
     return { success: false, error: '비밀번호는 6자 이상이어야 합니다.' };
   }
 
-  const supabase = await createClient();
+  if (!accessToken || !refreshToken) {
+    return { success: false, error: '인증 정보가 만료되었습니다. 처음부터 다시 시도해주세요.' };
+  }
 
-  const { error } = await supabase.auth.updateUser({
+  const client = createIsolatedAuthClient();
+
+  const { error: sessionError } = await client.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  if (sessionError) {
+    return { success: false, error: '인증 정보가 만료되었습니다. 처음부터 다시 시도해주세요.' };
+  }
+
+  const { error } = await client.auth.updateUser({
     password: newPassword,
   });
 
   if (error) {
     return { success: false, error: error.message };
   }
-
-  await supabase.auth.signOut();
 
   return { success: true };
 }
