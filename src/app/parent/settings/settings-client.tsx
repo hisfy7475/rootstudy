@@ -18,7 +18,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
-import { addChildToParent, removeChildFromParent, withdrawSelf } from '@/lib/actions/parent';
+import {
+  addChildToParent,
+  removeChildFromParent,
+  withdrawSelf,
+  changePassword,
+} from '@/lib/actions/parent';
 import { verifyParentCode } from '@/app/(auth)/actions';
 import { signOutWithNativeSync } from '@/lib/sign-out-app';
 
@@ -51,6 +56,53 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
   const [withdrawPassword, setWithdrawPassword] = useState('');
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const activeChildCount = students.filter((s) => !s.withdrawnAt).length;
+
+  // 비밀번호 변경 상태 (자녀 추가/탈퇴와 분리된 전용 state)
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+
+  function handleCancelPasswordChange() {
+    setIsChangingPassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError(null);
+  }
+
+  function handleChangePassword() {
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError('모든 필드를 입력해주세요.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('새 비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError('새 비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await changePassword(currentPassword, newPassword);
+
+      if (result.success) {
+        setPasswordSuccess('비밀번호가 변경되었습니다.');
+        handleCancelPasswordChange();
+      } else {
+        setPasswordError(result.error || '비밀번호 변경에 실패했습니다.');
+      }
+    });
+  }
 
   async function handleVerifyCode() {
     if (!newCode) {
@@ -326,6 +378,81 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
           <h2 className='text-text font-semibold'>계정 관리</h2>
         </div>
         <div className='space-y-2'>
+          {/* 비밀번호 변경 */}
+          {!isChangingPassword ? (
+            <Button
+              variant='outline'
+              className='w-full justify-start gap-3'
+              onClick={() => {
+                setIsChangingPassword(true);
+                setPasswordSuccess(null);
+              }}
+            >
+              <Key className='h-4 w-4' />
+              비밀번호 변경
+            </Button>
+          ) : (
+            <div className='space-y-3 rounded-xl border border-gray-100 p-3'>
+              <div>
+                <label className='text-text-muted text-xs'>현재 비밀번호</label>
+                <Input
+                  type='password'
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder='현재 비밀번호'
+                  className='mt-1'
+                  disabled={isPending}
+                />
+              </div>
+              <div>
+                <label className='text-text-muted text-xs'>새 비밀번호</label>
+                <Input
+                  type='password'
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder='새 비밀번호 (6자 이상)'
+                  className='mt-1'
+                  disabled={isPending}
+                />
+              </div>
+              <div>
+                <label className='text-text-muted text-xs'>새 비밀번호 확인</label>
+                <Input
+                  type='password'
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder='새 비밀번호 확인'
+                  className='mt-1'
+                  disabled={isPending}
+                />
+              </div>
+              {passwordError && (
+                <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
+                  {passwordError}
+                </div>
+              )}
+              <div className='flex gap-2'>
+                <Button
+                  variant='outline'
+                  className='flex-1'
+                  onClick={handleCancelPasswordChange}
+                  disabled={isPending}
+                >
+                  취소
+                </Button>
+                <Button className='flex-1' onClick={handleChangePassword} disabled={isPending}>
+                  {isPending ? '변경 중...' : '변경하기'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {passwordSuccess && !isChangingPassword && (
+            <div className='bg-success/10 text-success flex items-center gap-2 rounded-xl p-3 text-sm'>
+              <CheckCircle className='h-4 w-4' />
+              {passwordSuccess}
+            </div>
+          )}
+
           <Link href='/terms' className='block'>
             <Button variant='outline' className='w-full justify-start gap-3'>
               <FileText className='h-4 w-4' />

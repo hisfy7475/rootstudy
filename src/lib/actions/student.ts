@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, verifyCurrentPassword } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import {
   getStudyDate,
@@ -1860,13 +1860,12 @@ export async function changePassword(
     return { error: '새 비밀번호는 6자 이상이어야 합니다.' };
   }
 
-  // 현재 비밀번호 확인 (재로그인 시도)
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: currentPassword,
-  });
+  if (currentPassword === newPassword) {
+    return { error: '새 비밀번호가 현재 비밀번호와 같습니다.' };
+  }
 
-  if (signInError) {
+  // 현재 비밀번호 확인 — 본 세션을 건드리지 않도록 격리 클라이언트로 검증
+  if (!(await verifyCurrentPassword(user.email, currentPassword))) {
     return { error: '현재 비밀번호가 올바르지 않습니다.' };
   }
 
@@ -1903,12 +1902,8 @@ export async function withdrawSelf(
     return { error: '현재 비밀번호를 입력해주세요.' };
   }
 
-  // 현재 비밀번호 확인 (재인증)
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: currentPassword,
-  });
-  if (signInError) {
+  // 현재 비밀번호 확인 — 본 세션을 건드리지 않도록 격리 클라이언트로 검증
+  if (!(await verifyCurrentPassword(user.email, currentPassword))) {
     return { error: '현재 비밀번호가 올바르지 않습니다.' };
   }
 
