@@ -24,8 +24,8 @@ export function StudentChatClient({
       style={{
         // 헤더·하단탭 컴포넌트가 ResizeObserver 로 publish 하는 CSS 변수.
         // 사용자 이름 줄바꿈 등으로 헤더 높이가 변해도 자동 보정된다.
-        top: 'calc(env(safe-area-inset-top, 0px) + var(--app-header-height, 4.5rem))',
-        bottom: 'var(--app-bottom-nav-height, calc(env(safe-area-inset-bottom, 0px) + 5rem))',
+        top: 'calc(var(--app-safe-top) + var(--app-header-height, 4.5rem))',
+        bottom: 'var(--app-bottom-nav-height, calc(var(--app-safe-bottom) + 5rem))',
       }}
     >
       <div className='h-full w-full max-w-lg bg-white'>
