@@ -42,14 +42,8 @@ export default function StudentSignupPage() {
 
   useEffect(() => {
     // 지점 목록 로드 (display_order 순으로 정렬됨)
-    getAllBranches().then((data) => {
-      setBranches(data);
-      // 반포점을 기본값으로 설정 (없으면 첫 번째 지점)
-      if (data.length > 0 && !selectedBranchId) {
-        const defaultBranch = data.find((branch) => branch.name === '반포점') ?? data[0];
-        setSelectedBranchId(defaultBranch.id);
-      }
-    });
+    // 지점은 학생이 직접 선택하도록 기본값을 두지 않음 ("지점 선택" placeholder 표시)
+    getAllBranches().then(setBranches);
 
     // 학생 타입 목록 로드 (지점 무관, 전체 조회)
     getStudentTypes().then(setStudentTypes);
