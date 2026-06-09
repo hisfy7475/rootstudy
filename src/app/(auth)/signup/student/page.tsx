@@ -44,9 +44,10 @@ export default function StudentSignupPage() {
     // 지점 목록 로드 (display_order 순으로 정렬됨)
     getAllBranches().then((data) => {
       setBranches(data);
-      // 첫 번째 지점을 기본값으로 설정
+      // 반포점을 기본값으로 설정 (없으면 첫 번째 지점)
       if (data.length > 0 && !selectedBranchId) {
-        setSelectedBranchId(data[0].id);
+        const defaultBranch = data.find((branch) => branch.name === '반포점') ?? data[0];
+        setSelectedBranchId(defaultBranch.id);
       }
     });
 
