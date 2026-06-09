@@ -110,10 +110,13 @@ html {
 }
 
 /* Safe area 단일 진실 출처.
-   - iOS WKWebView: env(safe-area-inset-*) 정상 동작.
-   - Android System WebView: env() 가 0 을 반환하므로 네이티브 쉘이 useSafeAreaInsets 값을
-     --app-native-safe-* 로 주입 (studycafe-app/src/WebViewScreen.tsx 참고).
-   - 일반 웹: 두 값 모두 0. */
+   - 일반 웹(브라우저/PWA): env(safe-area-inset-*) 만 사용 (--app-native-safe-* 는 0).
+   - 네이티브 앱(iOS/Android): 쉘이 SafeAreaView 로 top 을 흡수하고 bottom 을 측정해,
+     아래 --app-safe-* 를 env() 없는 native 값으로 런타임에 덮어쓴다
+     (studycafe-app/src/WebViewScreen.tsx 의 injectSafeAreaVars 참고).
+     ⚠ Android WebView 도 viewport-fit=cover + edge-to-edge 에서는 env() 가 실제 inset 을
+     반환한다. 그래서 native 쪽에서 env 를 max() 로 섞지 않고 통째로 덮어써 더블 적용을 막는다.
+   - 직접 env() 를 쓰지 말고 항상 var(--app-safe-top/bottom) 을 경유할 것. */
 :root {
   --app-native-safe-bottom: 0px;
   --app-native-safe-top: 0px;

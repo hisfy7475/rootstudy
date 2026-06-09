@@ -81,7 +81,7 @@ export default function RootLayout({
           position='top-center'
           richColors
           closeButton
-          offset='calc(env(safe-area-inset-top, 0px) + 1rem)'
+          offset='calc(var(--app-safe-top) + 1rem)'
         />
       </body>
     </html>

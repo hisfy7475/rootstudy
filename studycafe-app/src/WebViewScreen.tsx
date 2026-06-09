@@ -62,10 +62,14 @@ export default function WebViewScreen() {
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
 
-  // 네이티브가 측정한 bottom inset을 WebView의 CSS 변수로 브릿지.
-  // Android System WebView는 env(safe-area-inset-*)을 0으로 반환하므로 bottom은 native 측정값이 필요.
-  // top은 SafeAreaView(edges=["top",...])가 WebView 자체를 상태바 아래로 밀어 단일 출처로 흡수하므로
-  // 여기서 주입하지 않는다. (주입 시 SafeAreaView padding + .pt-safe 가 더블 적용되어 헤더 위 빈 공간 발생)
+  // 네이티브 앱 안에서는 safe-area 단일 출처를 "네이티브"로 고정한다.
+  //  - top: SafeAreaView(edges=["top",...])가 WebView 자체를 상태바 아래로 이미 밀었으므로
+  //    web 기준 top inset 은 0. (--app-native-safe-top = 0)
+  //  - bottom: SafeAreaView 가 흡수하지 않으므로 native 측정값(insets.bottom)을 주입.
+  // 핵심: 과거엔 "Android WebView 는 env() 가 0" 이라 가정했으나, viewport-fit=cover +
+  // edge-to-edge 창에서는 최신 Chromium WebView 가 env(safe-area-inset-*) 에 실제 inset 을 반환한다.
+  // 그러면 SafeAreaView(네이티브) + env(웹) 가 동시에 적용돼 헤더 위/하단에 더블 패딩이 생긴다.
+  // 이를 막기 위해 web 의 --app-safe-top/bottom 을 env 가 섞이지 않은 native 값으로 덮어쓴다.
   const insets = useSafeAreaInsets();
   const insetsRef = useRef(insets);
   useEffect(() => {
@@ -76,7 +80,10 @@ export default function WebViewScreen() {
   // (서버 HTML에는 style 속성이 없는데 네이티브 주입으로 클라이언트 DOM에는 생김)
   // 대신 <head>에 전용 <style> 노드를 추가/갱신한다. 외부 추가 노드는 React hydration이 허용.
   const injectSafeAreaVars = useCallback((bottom: number) => {
-    const script = `(()=>{try{var id='__app-native-safe-area';var el=document.getElementById(id);if(!el){el=document.createElement('style');el.id=id;(document.head||document.documentElement).appendChild(el);}el.textContent=':root{--app-native-safe-bottom:${bottom}px;}';}catch(e){}})();true;`;
+    // 주입 <style> 는 번들 CSS(:root) 보다 늦게 head 에 붙어 동일 명시도에서 우선한다.
+    // --app-safe-* 를 env() 없이 native 값으로 재정의해 네이티브 앱 내 env() 더블 적용을 차단.
+    const css = `:root{--app-native-safe-top:0px;--app-native-safe-bottom:${bottom}px;--app-safe-top:var(--app-native-safe-top);--app-safe-bottom:var(--app-native-safe-bottom);}`;
+    const script = `(()=>{try{var id='__app-native-safe-area';var el=document.getElementById(id);if(!el){el=document.createElement('style');el.id=id;(document.head||document.documentElement).appendChild(el);}el.textContent='${css}';}catch(e){}})();true;`;
     webViewRef.current?.injectJavaScript(script);
   }, []);
 

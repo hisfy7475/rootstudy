@@ -323,7 +323,7 @@ export function Sidebar({
       <button
         type='button'
         onClick={toggleMobile}
-        className='no-print bg-card text-text fixed top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 md:hidden'
+        className='no-print bg-card text-text fixed top-[max(1rem,var(--app-safe-top))] left-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 md:hidden'
         aria-label={mobileOpen ? '메뉴 닫기' : '메뉴 열기'}
       >
         {mobileOpen ? <X className='h-5 w-5' /> : <Menu className='h-5 w-5' />}
