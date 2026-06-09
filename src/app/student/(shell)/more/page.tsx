@@ -27,8 +27,6 @@ const links = [
 export default function StudentMorePage() {
   return (
     <div className='px-4 pt-4 pb-6'>
-      <h1 className='mb-1 text-xl font-bold'>더보기</h1>
-      <p className='text-muted-foreground mb-4 text-sm'>자주 쓰는 메뉴입니다.</p>
       <ul className='border-border bg-card divide-border divide-y overflow-hidden rounded-2xl border'>
         {links.map(({ href, label, icon: Icon }) => (
           <li key={href}>

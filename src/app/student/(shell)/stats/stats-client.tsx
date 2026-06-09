@@ -2,26 +2,26 @@
 
 import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/card';
-import { 
-  BarChart3, 
-  ChevronLeft, 
+import {
+  BarChart3,
+  ChevronLeft,
   ChevronRight,
   TrendingUp,
   TrendingDown,
   Minus,
   Clock,
   BookOpen,
-  AlertCircle
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { 
-  getStudyStatsByPeriod, 
-  getSubjectStudyTime, 
+import {
+  getStudyStatsByPeriod,
+  getSubjectStudyTime,
   getDailyStudyTrend,
   getStudyComparison,
-  type StudyPeriod
+  type StudyPeriod,
 } from '@/lib/actions/student';
 import { SubjectTimeList } from '@/components/student/subject-time-list';
 import { StudyTrendChart } from '@/components/student/study-trend-chart';
@@ -71,7 +71,7 @@ const periodLabels: Record<StudyPeriod, string> = {
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  
+
   if (hours > 0) {
     return `${hours}시간 ${minutes}분`;
   }
@@ -107,7 +107,7 @@ export function StatsPageClient({
   const [trend, setTrend] = useState(initialTrend);
   const [comparison, setComparison] = useState(initialComparison);
   const [isPending, startTransition] = useTransition();
-  
+
   // 미분류 모달 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState<UnclassifiedSegment | null>(null);
@@ -119,13 +119,13 @@ export function StatsPageClient({
         getSubjectStudyTime(newPeriod, date),
         getStudyComparison(newPeriod, date),
       ]);
-      
+
       // 주간/월간일 때만 추이 데이터 갱신
       if (newPeriod !== 'daily') {
         const newTrend = await getDailyStudyTrend(newPeriod as 'weekly' | 'monthly', date);
         setTrend(newTrend);
       }
-      
+
       setStats({
         totalSeconds: newStats.totalSeconds,
         periodStart: newStats.periodStart,
@@ -148,7 +148,7 @@ export function StatsPageClient({
 
   const handleDateNav = (direction: 'prev' | 'next') => {
     let newDate: Date;
-    
+
     switch (period) {
       case 'daily':
         newDate = direction === 'prev' ? subDays(currentDate, 1) : addDays(currentDate, 1);
@@ -160,12 +160,12 @@ export function StatsPageClient({
         newDate = direction === 'prev' ? subMonths(currentDate, 1) : addMonths(currentDate, 1);
         break;
     }
-    
+
     // 미래 날짜 방지
     if (newDate > new Date()) {
       newDate = new Date();
     }
-    
+
     setCurrentDate(newDate);
     fetchData(period, newDate);
   };
@@ -189,30 +189,25 @@ export function StatsPageClient({
   const isToday = format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <div className="p-4 space-y-4">
+    <div className='space-y-4 p-4'>
       {/* 헤더 */}
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-          <BarChart3 className="w-6 h-6 text-primary" />
-        </div>
+      <div className='flex items-center gap-3'>
         <div>
-          <h1 className="text-xl font-bold text-text">학습 통계</h1>
-          <p className="text-sm text-text-muted">학습 시간을 확인하세요</p>
+          <h1 className='text-text text-xl font-bold'>학습 통계</h1>
+          <p className='text-text-muted text-sm'>학습 시간을 확인하세요</p>
         </div>
       </div>
 
       {/* 기간 선택 탭 */}
-      <div className="flex gap-2 bg-gray-100 rounded-xl p-1">
+      <div className='flex gap-2 rounded-xl bg-gray-100 p-1'>
         {(['daily', 'weekly', 'monthly'] as StudyPeriod[]).map((p) => (
           <button
             key={p}
             onClick={() => handlePeriodChange(p)}
             disabled={isPending}
             className={cn(
-              'flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all',
-              period === p
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-text-muted hover:text-text'
+              'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+              period === p ? 'text-primary bg-white shadow-sm' : 'text-text-muted hover:text-text',
             )}
           >
             {periodLabels[p]}
@@ -221,79 +216,79 @@ export function StatsPageClient({
       </div>
 
       {/* 날짜 네비게이션 */}
-      <div className="flex items-center justify-between bg-card rounded-xl p-3">
+      <div className='bg-card flex items-center justify-between rounded-xl p-3'>
         <button
           onClick={() => handleDateNav('prev')}
           disabled={isPending}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          className='rounded-lg p-2 transition-colors hover:bg-gray-100'
         >
-          <ChevronLeft className="w-5 h-5 text-text-muted" />
+          <ChevronLeft className='text-text-muted h-5 w-5' />
         </button>
-        <span className="font-medium text-text">
-          {formatPeriodLabel(period, currentDate)}
-        </span>
+        <span className='text-text font-medium'>{formatPeriodLabel(period, currentDate)}</span>
         <button
           onClick={() => handleDateNav('next')}
           disabled={isPending || isToday}
           className={cn(
-            'p-2 rounded-lg transition-colors',
-            isToday ? 'opacity-30 cursor-not-allowed' : 'hover:bg-gray-100'
+            'rounded-lg p-2 transition-colors',
+            isToday ? 'cursor-not-allowed opacity-30' : 'hover:bg-gray-100',
           )}
         >
-          <ChevronRight className="w-5 h-5 text-text-muted" />
+          <ChevronRight className='text-text-muted h-5 w-5' />
         </button>
       </div>
 
       {/* 총 학습 시간 카드 */}
       <Card className={cn('p-4', isPending && 'opacity-60')}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-primary" />
-            <span className="font-medium text-text">총 학습시간</span>
+        <div className='mb-3 flex items-center justify-between'>
+          <div className='flex items-center gap-2'>
+            <Clock className='text-primary h-5 w-5' />
+            <span className='text-text font-medium'>총 학습시간</span>
           </div>
           {/* 비교 지표 */}
-          <div className={cn(
-            'flex items-center gap-1 text-sm font-medium',
-            comparison.changeDirection === 'up' && 'text-success',
-            comparison.changeDirection === 'down' && 'text-error',
-            comparison.changeDirection === 'same' && 'text-text-muted'
-          )}>
-            {comparison.changeDirection === 'up' && <TrendingUp className="w-4 h-4" />}
-            {comparison.changeDirection === 'down' && <TrendingDown className="w-4 h-4" />}
-            {comparison.changeDirection === 'same' && <Minus className="w-4 h-4" />}
+          <div
+            className={cn(
+              'flex items-center gap-1 text-sm font-medium',
+              comparison.changeDirection === 'up' && 'text-success',
+              comparison.changeDirection === 'down' && 'text-error',
+              comparison.changeDirection === 'same' && 'text-text-muted',
+            )}
+          >
+            {comparison.changeDirection === 'up' && <TrendingUp className='h-4 w-4' />}
+            {comparison.changeDirection === 'down' && <TrendingDown className='h-4 w-4' />}
+            {comparison.changeDirection === 'same' && <Minus className='h-4 w-4' />}
             <span>
-              {comparison.changeDirection === 'same' 
-                ? '변동없음' 
+              {comparison.changeDirection === 'same'
+                ? '변동없음'
                 : `${comparison.changeDirection === 'up' ? '+' : '-'}${comparison.changePercent}%`}
             </span>
           </div>
         </div>
-        <p className="text-3xl font-bold text-primary">
-          {formatDuration(stats.totalSeconds)}
-        </p>
+        <p className='text-primary text-3xl font-bold'>{formatDuration(stats.totalSeconds)}</p>
         {period === 'weekly' && weeklyProgress.goalHours > 0 && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-sm mb-1">
-              <span className="text-text-muted">주간 목표 달성률</span>
-              <span className={cn(
-                'font-medium',
-                weeklyProgress.progressPercent >= 100 ? 'text-success' : 'text-primary'
-              )}>
+          <div className='mt-3'>
+            <div className='mb-1 flex items-center justify-between text-sm'>
+              <span className='text-text-muted'>주간 목표 달성률</span>
+              <span
+                className={cn(
+                  'font-medium',
+                  weeklyProgress.progressPercent >= 100 ? 'text-success' : 'text-primary',
+                )}
+              >
                 {weeklyProgress.progressPercent}%
               </span>
             </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className='h-2 overflow-hidden rounded-full bg-gray-100'>
               <div
                 className={cn(
                   'h-full rounded-full transition-all duration-500',
-                  weeklyProgress.progressPercent >= 100 
-                    ? 'bg-success' 
-                    : 'bg-gradient-to-r from-primary to-accent'
+                  weeklyProgress.progressPercent >= 100
+                    ? 'bg-success'
+                    : 'from-primary to-accent bg-gradient-to-r',
                 )}
                 style={{ width: `${Math.min(100, weeklyProgress.progressPercent)}%` }}
               />
             </div>
-            <p className="text-xs text-text-muted mt-1">
+            <p className='text-text-muted mt-1 text-xs'>
               목표: {weeklyProgress.goalHours}시간 ({weeklyProgress.studentTypeName || '미설정'})
             </p>
           </div>
@@ -302,14 +297,15 @@ export function StatsPageClient({
 
       {/* 과목별 학습시간 */}
       <Card className={cn('p-4', isPending && 'opacity-60')}>
-        <div className="flex items-center gap-2 mb-4">
-          <BookOpen className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold text-text">과목별 학습시간</h3>
+        <div className='mb-4 flex items-center gap-2'>
+          <BookOpen className='text-primary h-5 w-5' />
+          <h3 className='text-text font-semibold'>과목별 학습시간</h3>
         </div>
-        
-        {Object.keys(subjectTime.subjectTimes).length === 0 && subjectTime.unclassifiedSeconds === 0 ? (
-          <div className="text-center py-6 text-text-muted">
-            <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
+
+        {Object.keys(subjectTime.subjectTimes).length === 0 &&
+        subjectTime.unclassifiedSeconds === 0 ? (
+          <div className='text-text-muted py-6 text-center'>
+            <Clock className='mx-auto mb-2 h-10 w-10 opacity-30' />
             <p>학습 기록이 없습니다</p>
           </div>
         ) : (
@@ -326,10 +322,10 @@ export function StatsPageClient({
       {/* 추이 그래프 (주간/월간에서만 표시) */}
       {period !== 'daily' && trend.length > 0 && (
         <Card className={cn('p-4', isPending && 'opacity-60')}>
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold text-text">
-              {period === 'weekly' ? '일별' : '일별'} 학습 추이
+          <div className='mb-4 flex items-center gap-2'>
+            <BarChart3 className='text-primary h-5 w-5' />
+            <h3 className='text-text font-semibold'>
+              {period === 'weekly' ? '일별 학습 추이' : '주별 학습 추이'}
             </h3>
           </div>
           <StudyTrendChart data={trend} period={period} />
@@ -338,11 +334,11 @@ export function StatsPageClient({
 
       {/* 미분류 시간 안내 */}
       {subjectTime.unclassifiedSegments.length > 0 && (
-        <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-xl">
-          <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <p className="font-medium text-warning">미분류 시간이 있습니다</p>
-            <p className="text-text-muted mt-1">
+        <div className='bg-warning/10 flex items-start gap-2 rounded-xl p-3'>
+          <AlertCircle className='text-warning mt-0.5 h-5 w-5 flex-shrink-0' />
+          <div className='text-sm'>
+            <p className='text-warning font-medium'>미분류 시간이 있습니다</p>
+            <p className='text-text-muted mt-1'>
               과목이 지정되지 않은 학습 시간을 클릭하여 과목을 할당할 수 있습니다.
             </p>
           </div>

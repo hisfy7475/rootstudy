@@ -1205,13 +1205,10 @@ interface UnclassifiedSegment {
   durationSeconds: number;
 }
 
-// 월의 시작일 반환
+// 월의 시작 학습일(1일) 반환 — UTC 자정 기준
 function getMonthStart(date: Date = new Date()): Date {
   const studyDate = getStudyDate(date);
-  const monthStart = new Date(studyDate);
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  return monthStart;
+  return new Date(Date.UTC(studyDate.getUTCFullYear(), studyDate.getUTCMonth(), 1));
 }
 
 // 기간별 날짜 범위 계산
@@ -1231,10 +1228,15 @@ function getPeriodBounds(
       return { start: weekStart, end: weekEnd };
     }
     case 'monthly': {
-      const monthStart = getMonthStart(baseDate);
-      const monthEnd = new Date(monthStart);
-      monthEnd.setMonth(monthEnd.getMonth() + 1);
-      return { start: monthStart, end: monthEnd };
+      // 이번 달 1일 학습일 ~ 다음 달 1일 학습일(미포함)을 학습일 경계(06:00 KST)로 정렬
+      const firstOfMonth = getMonthStart(baseDate);
+      const firstOfNextMonth = new Date(
+        Date.UTC(firstOfMonth.getUTCFullYear(), firstOfMonth.getUTCMonth() + 1, 1),
+      );
+      return {
+        start: getStudyDayBounds(firstOfMonth).start,
+        end: getStudyDayBounds(firstOfNextMonth).start,
+      };
     }
   }
 }
@@ -1472,12 +1474,12 @@ export async function getDailyStudyTrend(
     }
   > = new Map();
 
-  // 기간 내 모든 날짜 초기화
+  // 기간 내 모든 날짜 초기화 (분류와 동일하게 학습일 기준 키 사용)
   const current = new Date(start);
   while (current < end) {
-    const dateStr = current.toISOString().split('T')[0];
+    const dateStr = getStudyDate(current).toISOString().split('T')[0];
     dailyData.set(dateStr, { attendance: [], subjects: [] });
-    current.setDate(current.getDate() + 1);
+    current.setUTCDate(current.getUTCDate() + 1);
   }
 
   // 출석 기록 분류
@@ -1526,7 +1528,29 @@ export async function getDailyStudyTrend(
     result.push({ date: dateStr, totalSeconds, subjectTimes });
   }
 
-  return result.sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = result.sort((a, b) => a.date.localeCompare(b.date));
+
+  // 월간은 일별 데이터를 주(週) 단위로 묶어 반환 (각 주의 월요일 학습일을 키로 사용)
+  if (period === 'monthly') {
+    const weekMap = new Map<string, { totalSeconds: number; subjectTimes: Record<string, number> }>();
+    for (const day of sorted) {
+      // getWeekStart는 월요일 06:00 KST(=일요일 21:00 UTC)를 반환하므로, getStudyDate로 다시 월요일 학습일로 변환
+      const mondayKey = getStudyDate(getWeekStart(new Date(`${day.date}T00:00:00.000Z`)))
+        .toISOString()
+        .split('T')[0];
+      const bucket = weekMap.get(mondayKey) || { totalSeconds: 0, subjectTimes: {} };
+      bucket.totalSeconds += day.totalSeconds;
+      for (const [name, sec] of Object.entries(day.subjectTimes)) {
+        bucket.subjectTimes[name] = (bucket.subjectTimes[name] || 0) + sec;
+      }
+      weekMap.set(mondayKey, bucket);
+    }
+    return Array.from(weekMap.entries())
+      .map(([date, b]) => ({ date, totalSeconds: b.totalSeconds, subjectTimes: b.subjectTimes }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  return sorted;
 }
 
 // 이전 기간 대비 비교
