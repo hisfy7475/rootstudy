@@ -6,7 +6,7 @@ import {
   getTodayFocusScoresByPeriod,
   getPhoneSubmissions,
 } from '@/lib/actions/admin';
-import { getTodayPeriods } from '@/lib/actions/period';
+import { getFocusGridPeriods } from '@/lib/actions/period';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { getStudyDate, formatDate } from '@/lib/utils';
 import { FocusClient } from './focus-client';
@@ -34,7 +34,7 @@ export default async function FocusManagementPage() {
   ] = await Promise.all([
     getAllStudents('all', branchId),
     getWeeklyFocusReport(branchId),
-    getTodayPeriods(branchId),
+    getFocusGridPeriods(branchId),
     getPenaltyPresets(branchId),
     getFocusScorePresets(branchId),
     getTodayFocusScoresByPeriod(branchId),

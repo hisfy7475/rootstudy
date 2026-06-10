@@ -2076,10 +2076,9 @@ export async function adminApplyMentoring(
     return { error: '권한이 없습니다.' };
   }
 
-  const startMs = mentoringSlotStartMs(slotRow.date, slotRow.start_time);
-  if (Date.now() >= startMs) {
-    return { error: '이미 시작된 슬롯에는 신청할 수 없습니다.' };
-  }
+  // 관리자 대리 등록은 일정 경과와 무관하게 허용한다(사전 신청 없이 진행된 멘토링의 사후 등록 케이스).
+  // 단, 이미 지난 슬롯은 "확정" 알림을 보내지 않는다(이미 진행된 멘토링에 대한 혼란 방지). 아래 분기 참고.
+  const isPastSlot = Date.now() >= mentoringSlotStartMs(slotRow.date, slotRow.start_time);
 
   const { data: studentProfile } = await supabase
     .from('profiles')
@@ -2147,16 +2146,18 @@ export async function adminApplyMentoring(
         return { error: '신청 처리에 실패했습니다.' };
       }
 
-      await notifyStudentAndParentsMentoringDecision({
-        studentId,
-        subjectLabel,
-        slotType: slotRow.type,
-        dateYmd: slotRow.date,
-        startTime: slotRow.start_time,
-        endTime: slotRow.end_time,
-        kind: 'confirmed',
-        byAdmin: true,
-      });
+      if (!isPastSlot) {
+        await notifyStudentAndParentsMentoringDecision({
+          studentId,
+          subjectLabel,
+          slotType: slotRow.type,
+          dateYmd: slotRow.date,
+          startTime: slotRow.start_time,
+          endTime: slotRow.end_time,
+          kind: 'confirmed',
+          byAdmin: true,
+        });
+      }
 
       revalidateMentoringAdmin();
       return { success: true, applicationId: existing.id };
@@ -2188,16 +2189,18 @@ export async function adminApplyMentoring(
       return { error: '재신청 처리에 실패했습니다.' };
     }
 
-    await notifyStudentAndParentsMentoringDecision({
-      studentId,
-      subjectLabel,
-      slotType: slotRow.type,
-      dateYmd: slotRow.date,
-      startTime: slotRow.start_time,
-      endTime: slotRow.end_time,
-      kind: 'confirmed',
-      byAdmin: true,
-    });
+    if (!isPastSlot) {
+      await notifyStudentAndParentsMentoringDecision({
+        studentId,
+        subjectLabel,
+        slotType: slotRow.type,
+        dateYmd: slotRow.date,
+        startTime: slotRow.start_time,
+        endTime: slotRow.end_time,
+        kind: 'confirmed',
+        byAdmin: true,
+      });
+    }
 
     revalidateMentoringAdmin();
     return { success: true, applicationId: existing.id };
@@ -2228,16 +2231,18 @@ export async function adminApplyMentoring(
     return { error: '신청에 실패했습니다.' };
   }
 
-  await notifyStudentAndParentsMentoringDecision({
-    studentId,
-    subjectLabel,
-    slotType: slotRow.type,
-    dateYmd: slotRow.date,
-    startTime: slotRow.start_time,
-    endTime: slotRow.end_time,
-    kind: 'confirmed',
-    byAdmin: true,
-  });
+  if (!isPastSlot) {
+    await notifyStudentAndParentsMentoringDecision({
+      studentId,
+      subjectLabel,
+      slotType: slotRow.type,
+      dateYmd: slotRow.date,
+      startTime: slotRow.start_time,
+      endTime: slotRow.end_time,
+      kind: 'confirmed',
+      byAdmin: true,
+    });
+  }
 
   revalidateMentoringAdmin();
   return { success: true, applicationId: inserted.id as string };

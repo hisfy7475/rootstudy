@@ -38,6 +38,7 @@ export function AdminMealsNewClient({
   const [form, setForm] = useState({
     name: '',
     meal_type: 'lunch' as 'lunch' | 'dinner',
+    is_bento: false,
     description: '',
     productStatus: 'active' as 'active' | 'inactive' | 'sold_out',
     variantKind: 'one_time' as VariantKind,
@@ -100,6 +101,7 @@ export function AdminMealsNewClient({
     const payload: MealProductCreateInput = {
       name: form.name,
       meal_type: form.meal_type,
+      is_bento: form.is_bento,
       description: form.description.trim() || null,
       status: form.productStatus,
       variant: {
@@ -209,6 +211,21 @@ export function AdminMealsNewClient({
                 <option value='lunch'>중식</option>
                 <option value='dinner'>석식</option>
               </select>
+            </div>
+
+            <div>
+              <label className='flex items-center gap-2 text-sm font-medium'>
+                <input
+                  type='checkbox'
+                  className='size-4'
+                  checked={form.is_bento}
+                  onChange={(e) => setForm((f) => ({ ...f, is_bento: e.target.checked }))}
+                />
+                도시락 메뉴
+              </label>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                체크하면 같은 날짜에 여러 메뉴가 있을 때 먼저(왼쪽) 노출됩니다.
+              </p>
             </div>
 
             <div>

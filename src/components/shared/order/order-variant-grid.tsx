@@ -15,7 +15,10 @@ function formatHeader(dateStr: string): string {
 function compareItems(a: OrderVariantCardItem, b: OrderVariantCardItem): number {
   const dateDiff = a.variant.product_start_date.localeCompare(b.variant.product_start_date);
   if (dateDiff !== 0) return dateDiff;
-  // 같은 이용일자 그룹 내: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
+  // 같은 이용일자 그룹 내: 도시락 메뉴(is_bento) 먼저(왼쪽). undefined→NaN 방어로 ?? false.
+  const bentoDiff = Number(b.product.is_bento ?? false) - Number(a.product.is_bento ?? false);
+  if (bentoDiff !== 0) return bentoDiff;
+  // 도시락 우선순위가 같으면: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
   const productDiff = a.product.created_at.localeCompare(b.product.created_at);
   if (productDiff !== 0) return productDiff;
   // 동일 상품의 여러 variant: variant 생성 순서

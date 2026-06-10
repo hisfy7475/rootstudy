@@ -372,6 +372,7 @@ export interface Database {
           start_time: string;
           end_time: string;
           created_at: string;
+          archived_at: string | null;
         };
         Insert: {
           id?: string;
@@ -382,6 +383,7 @@ export interface Database {
           start_time: string;
           end_time: string;
           created_at?: string;
+          archived_at?: string | null;
         };
         Update: {
           id?: string;
@@ -392,6 +394,7 @@ export interface Database {
           start_time?: string;
           end_time?: string;
           created_at?: string;
+          archived_at?: string | null;
         };
       };
       parent_profiles: {
@@ -1398,6 +1401,7 @@ export interface Database {
           status: 'active' | 'inactive' | 'sold_out';
           description: string | null;
           image_url: string | null;
+          is_bento: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -1410,6 +1414,7 @@ export interface Database {
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
+          is_bento?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -1422,6 +1427,7 @@ export interface Database {
           status?: 'active' | 'inactive' | 'sold_out';
           description?: string | null;
           image_url?: string | null;
+          is_bento?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -1477,6 +1483,7 @@ export interface Database {
           name: string;
           sort_order: number;
           is_required: boolean;
+          select_type: 'single' | 'multiple';
           status: 'active' | 'inactive';
           created_at: string;
           updated_at: string;
@@ -1487,6 +1494,7 @@ export interface Database {
           name: string;
           sort_order?: number;
           is_required?: boolean;
+          select_type?: 'single' | 'multiple';
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;
@@ -1497,6 +1505,7 @@ export interface Database {
           name?: string;
           sort_order?: number;
           is_required?: boolean;
+          select_type?: 'single' | 'multiple';
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;

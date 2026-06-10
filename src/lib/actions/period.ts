@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { getStudyDate, formatDate } from '@/lib/utils';
+import { getStudyDate, getStudyDayBounds, formatDate } from '@/lib/utils';
 
 // ============================================
 // 교시(Period) 관련
@@ -17,6 +17,7 @@ export interface PeriodDefinition {
   start_time: string;
   end_time: string;
   created_at: string;
+  archived_at: string | null;
   date_type?: {
     id: string;
     name: string;
@@ -44,6 +45,7 @@ export async function getPeriodDefinitions(
     `,
     )
     .eq('branch_id', branchId)
+    .is('archived_at', null)
     .order('period_number', { ascending: true });
 
   if (dateTypeId) {
@@ -129,6 +131,23 @@ export async function deletePeriodDefinition(id: string) {
   const { error } = await supabase.from('period_definitions').delete().eq('id', id);
 
   if (error) {
+    // 몰입도 기록(focus_scores) 등이 참조 중이면 물리 삭제가 FK(23503) 위반으로 막힌다.
+    // 이 경우 과거 기록 보존을 위해 물리 삭제 대신 archived_at 으로 은퇴(보관) 처리한다.
+    if (error.code === '23503') {
+      const { error: archiveError } = await supabase
+        .from('period_definitions')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (archiveError) {
+        console.error('Error archiving period definition:', archiveError);
+        return { error: '교시 삭제에 실패했습니다.' };
+      }
+
+      revalidatePath('/admin/periods');
+      return { success: true };
+    }
+
     console.error('Error deleting period definition:', error);
     return { error: '교시 삭제에 실패했습니다.' };
   }
@@ -153,6 +172,7 @@ export async function getCurrentPeriod(
     .select('*')
     .eq('branch_id', branchId)
     .eq('date_type_id', dateTypeId)
+    .is('archived_at', null)
     .lte('start_time', now)
     .gte('end_time', now)
     .single();
@@ -241,12 +261,13 @@ export async function getTodayPeriods(
 
   const dateType = assignment.date_type as unknown as { id: string; name: string };
 
-  // 해당 날짜 타입의 교시 목록 조회
+  // 해당 날짜 타입의 활성 교시 목록 조회 (은퇴 교시 제외)
   const { data: periods, error: periodsError } = await supabase
     .from('period_definitions')
     .select('*')
     .eq('branch_id', branchId)
     .eq('date_type_id', assignment.date_type_id)
+    .is('archived_at', null)
     .order('period_number', { ascending: true });
 
   if (periodsError) {
@@ -265,6 +286,57 @@ export async function getTodayPeriods(
   };
 }
 
+// 몰입도 그리드용 교시 목록 조회.
+// (그 날짜의 활성 교시) ∪ (그 날짜에 점수가 기록된 은퇴 교시) 를 병합해 반환한다.
+// 은퇴(archived)된 교시라도 해당 날짜에 몰입도 점수가 있으면 "삭제됨" 열로 다시 보여주기 위함이다.
+// 활성 교시만 필요한 출결 등은 기존 getTodayPeriods 를 그대로 사용한다.
+export async function getFocusGridPeriods(
+  branchId: string | null,
+  targetDate?: string,
+): Promise<{
+  periods: PeriodDefinition[];
+  dateTypeName: string | null;
+  dateTypeId: string | null;
+}> {
+  // 활성 교시 + 날짜 타입 (기존 로직 재사용)
+  const base = await getTodayPeriods(branchId, targetDate);
+  if (!branchId || !base.dateTypeId) return base;
+
+  const supabase = await createClient();
+
+  // 그 날짜 학습일 범위에서 점수가 기록된 period_id 수집
+  const studyDate = targetDate ? new Date(targetDate + 'T00:00:00.000Z') : getStudyDate();
+  const { start, end } = getStudyDayBounds(studyDate);
+
+  const { data: scoreRows } = await supabase
+    .from('focus_scores')
+    .select('period_id')
+    .gte('recorded_at', start.toISOString())
+    .lte('recorded_at', end.toISOString())
+    .not('period_id', 'is', null);
+
+  const scoredIds = new Set((scoreRows || []).map((r) => r.period_id as string));
+  const activeIds = new Set(base.periods.map((p) => p.id));
+  const missingIds = [...scoredIds].filter((id) => !activeIds.has(id));
+
+  if (missingIds.length === 0) return base;
+
+  // 활성 목록에 없는(=은퇴) 교시를 id로 직접 조회. 같은 지점/날짜 타입으로 한정해
+  // 다른 지점의 교시가 열로 섞이지 않게 한다 (archived 포함).
+  const { data: archived } = await supabase
+    .from('period_definitions')
+    .select('*')
+    .in('id', missingIds)
+    .eq('branch_id', branchId)
+    .eq('date_type_id', base.dateTypeId);
+
+  if (!archived || archived.length === 0) return base;
+
+  const merged = [...base.periods, ...archived].sort((a, b) => a.period_number - b.period_number);
+
+  return { ...base, periods: merged };
+}
+
 // 날짜 타입별 교시 복사 (다른 지점으로도 복사 가능)
 export async function copyPeriodsToDateType(
   sourceBranchId: string,
@@ -274,12 +346,13 @@ export async function copyPeriodsToDateType(
 ) {
   const supabase = await createClient();
 
-  // 원본 교시 조회
+  // 원본 활성 교시 조회 (은퇴 교시는 복사 제외)
   const { data: sourcePeriods, error: fetchError } = await supabase
     .from('period_definitions')
     .select('*')
     .eq('branch_id', sourceBranchId)
-    .eq('date_type_id', sourceDateTypeId);
+    .eq('date_type_id', sourceDateTypeId)
+    .is('archived_at', null);
 
   if (fetchError || !sourcePeriods || sourcePeriods.length === 0) {
     return { error: '복사할 교시가 없습니다.' };

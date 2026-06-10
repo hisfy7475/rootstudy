@@ -29,7 +29,7 @@ import {
   type PhoneSubmissionStatus,
   type PhoneSubmissionMap,
 } from '@/lib/actions/admin';
-import { getTodayPeriods } from '@/lib/actions/period';
+import { getFocusGridPeriods } from '@/lib/actions/period';
 import { getSubjectsForStudents } from '@/lib/actions/student-type';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -82,6 +82,7 @@ interface Period {
   name: string | null;
   start_time: string;
   end_time: string;
+  archived_at?: string | null;
 }
 
 type FocusScoreMap = Record<
@@ -333,7 +334,7 @@ export function FocusClient({
       try {
         const [periodsResult, scoresResult, phoneResult] = await Promise.all([
           branchId
-            ? getTodayPeriods(branchId, selectedDate)
+            ? getFocusGridPeriods(branchId, selectedDate)
             : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
           getTodayFocusScoresByPeriod(branchId, selectedDate),
           getPhoneSubmissions(selectedDate, branchId),
@@ -484,7 +485,7 @@ export function FocusClient({
           getWeeklyFocusReport(branchId),
           getTodayFocusScoresByPeriod(branchId, selectedDate),
           branchId
-            ? getTodayPeriods(branchId, selectedDate)
+            ? getFocusGridPeriods(branchId, selectedDate)
             : Promise.resolve({ periods: [], dateTypeName: null, dateTypeId: null }),
           getPhoneSubmissions(selectedDate, branchId),
         ]);
@@ -1142,12 +1143,14 @@ export function FocusClient({
                   className='focus:ring-primary/50 rounded-md border border-gray-200 px-1.5 py-1 text-xs focus:ring-2 focus:outline-none'
                 >
                   <option value=''>선택</option>
-                  {periods.map((period) => (
-                    <option key={period.id} value={period.id}>
-                      {getPeriodLabel(period)} ({fmtTime(period.start_time)}~
-                      {fmtTime(period.end_time)})
-                    </option>
-                  ))}
+                  {periods
+                    .filter((period) => !period.archived_at)
+                    .map((period) => (
+                      <option key={period.id} value={period.id}>
+                        {getPeriodLabel(period)} ({fmtTime(period.start_time)}~
+                        {fmtTime(period.end_time)})
+                      </option>
+                    ))}
                 </select>
               </div>
             )}
@@ -1649,13 +1652,21 @@ function PeriodTableView({
                   key={period.id}
                   className={cn(
                     'min-w-[56px] px-1 py-1.5 text-center text-xs font-medium',
-                    currentPeriod?.id === period.id ? 'text-primary bg-primary/5' : 'text-gray-500',
+                    period.archived_at
+                      ? 'bg-gray-100 text-gray-400'
+                      : currentPeriod?.id === period.id
+                        ? 'text-primary bg-primary/5'
+                        : 'text-gray-500',
                   )}
                 >
                   <div>{getPeriodLabel(period)}</div>
-                  <div className='text-[10px] font-normal text-gray-400'>
-                    {fmtTime(period.start_time)}
-                  </div>
+                  {period.archived_at ? (
+                    <div className='text-[9px] font-normal text-gray-400'>삭제됨</div>
+                  ) : (
+                    <div className='text-[10px] font-normal text-gray-400'>
+                      {fmtTime(period.start_time)}
+                    </div>
+                  )}
                 </th>
               ))}
               <th className='w-12 border-l px-2 py-1.5 text-center text-xs font-medium text-gray-500'>
@@ -1739,17 +1750,23 @@ function PeriodTableView({
                     const isSaving = savingCell === cellKey;
                     const scoreData = studentScores[period.id];
                     const isCurrentPeriod = currentPeriod?.id === period.id;
+                    // 은퇴(삭제)된 교시는 신규 입력 불가 — 기록된 점수만 읽기전용으로 표시
+                    const isArchived = !!period.archived_at;
 
                     return (
                       <td
                         key={period.id}
                         className={cn(
                           'px-0.5 py-1 text-center',
-                          !isCheckedOut && isCurrentPeriod && 'bg-primary/5',
-                          !isCheckedOut && scoreData && getScoreBgOnly(scoreData.score),
+                          isArchived && 'bg-gray-50',
+                          !isCheckedOut && !isArchived && isCurrentPeriod && 'bg-primary/5',
+                          !isCheckedOut &&
+                            !isArchived &&
+                            scoreData &&
+                            getScoreBgOnly(scoreData.score),
                         )}
                       >
-                        {isCheckedOut ? (
+                        {isCheckedOut || isArchived ? (
                           <div className='flex min-h-[28px] w-full items-center justify-center'>
                             {scoreData ? (
                               <span

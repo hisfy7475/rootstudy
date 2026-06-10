@@ -143,6 +143,8 @@ export type MealProductCreateInput = {
   meal_type?: 'lunch' | 'dinner' | null;
   description: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
+  /** 도시락 메뉴 여부. 같은 이용일자 그룹에서 먼저 노출됨. 급식(meal)에서만 의미 있음. */
+  is_bento?: boolean;
   variant: VariantInput;
   /** 모의고사 옵션 그룹 (category='exam' 일 때만 의미 있음). */
   optionGroups?: MockExamOptionGroupInput[];
@@ -264,6 +266,7 @@ export async function createMealProduct(
     p_variant_product_end: variantInput.product_end_date,
     p_variant_max_capacity: variantInput.max_capacity,
     p_variant_status: variantInput.status ?? 'active',
+    p_is_bento: category === 'exam' ? false : (input.is_bento ?? false),
   });
 
   if (error || !data || !data.length) {
@@ -291,6 +294,7 @@ export type MealProductUpdateInput = {
   meal_type?: 'lunch' | 'dinner' | null;
   description?: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
+  is_bento?: boolean;
 };
 
 export async function updateMealProduct(
@@ -310,6 +314,7 @@ export async function updateMealProduct(
     patch.meal_type = input.meal_type;
   if (input.description !== undefined) patch.description = input.description?.trim() || null;
   if (input.status !== undefined) patch.status = input.status;
+  if (input.is_bento !== undefined && existing.category === 'meal') patch.is_bento = input.is_bento;
 
   let upQ = supabase.from('meal_products').update(patch).eq('id', productId);
   if (!ctx.isSuperAdmin && ctx.branchId) upQ = upQ.eq('branch_id', ctx.branchId);
@@ -2056,6 +2061,8 @@ export type MockExamOptionGroup = {
   name: string;
   sort_order: number;
   is_required: boolean;
+  /** 'single' = 옵션 1개만 선택, 'multiple' = 여러 개 선택 가능. */
+  select_type: 'single' | 'multiple';
   status: 'active' | 'inactive';
   created_at: string;
   updated_at: string;
@@ -2088,11 +2095,15 @@ export type MockExamOptionGroupInput = {
   name: string;
   sort_order?: number;
   is_required?: boolean;
+  select_type?: 'single' | 'multiple';
   status?: 'active' | 'inactive';
   options: MockExamOptionInput[];
 };
 
-/** 학생/부모가 결제 시 그룹별로 한 개씩 선택해 보내는 값. */
+/**
+ * 학생/부모가 결제 시 선택한 옵션. 단일 선택 그룹은 그룹당 1개,
+ * 복수 선택 그룹은 같은 group_id 로 여러 항목을 보낼 수 있다.
+ */
 export type MockExamOptionSelectionInput = {
   group_id: string;
   option_id: string;
@@ -2179,6 +2190,7 @@ export async function upsertMockExamOptionGroups(
     name: g.name.trim(),
     sort_order: g.sort_order ?? gi,
     is_required: g.is_required ?? true,
+    select_type: g.select_type ?? 'single',
     status: g.status ?? 'active',
     options: g.options.map((o, oi) => ({
       id: o.id ?? null,
@@ -2264,32 +2276,40 @@ export async function buildOptionSelectionSnapshots(
     return { data: [] };
   }
 
-  const selectionByGroup = new Map<string, string>();
+  // 그룹별 선택 옵션 ID 목록(복수 선택 그룹은 여러 개). 중복은 제거.
+  const selectionByGroup = new Map<string, string[]>();
   for (const s of selections ?? []) {
     if (!s.group_id || !s.option_id) continue;
-    selectionByGroup.set(s.group_id, s.option_id);
+    const arr = selectionByGroup.get(s.group_id) ?? [];
+    if (!arr.includes(s.option_id)) arr.push(s.option_id);
+    selectionByGroup.set(s.group_id, arr);
   }
 
   const snapshots: MockExamOptionSelectionSnapshot[] = [];
 
   for (const g of groups) {
-    const picked = selectionByGroup.get(g.id);
-    if (!picked) {
+    const picked = selectionByGroup.get(g.id) ?? [];
+    if (picked.length === 0) {
       if (g.is_required) {
         return { error: `"${g.name}" 옵션을 선택해 주세요.` };
       }
       continue;
     }
-    const opt = g.options.find((o) => o.id === picked);
-    if (!opt) {
-      return { error: `"${g.name}" 옵션 선택이 올바르지 않습니다.` };
+    if (g.select_type === 'single' && picked.length > 1) {
+      return { error: `"${g.name}" 옵션은 하나만 선택할 수 있습니다.` };
     }
-    snapshots.push({
-      group_id: g.id,
-      group_name: g.name,
-      option_id: opt.id,
-      option_name: opt.name,
-    });
+    for (const optionId of picked) {
+      const opt = g.options.find((o) => o.id === optionId);
+      if (!opt) {
+        return { error: `"${g.name}" 옵션 선택이 올바르지 않습니다.` };
+      }
+      snapshots.push({
+        group_id: g.id,
+        group_name: g.name,
+        option_id: opt.id,
+        option_name: opt.name,
+      });
+    }
   }
 
   return { data: snapshots };
