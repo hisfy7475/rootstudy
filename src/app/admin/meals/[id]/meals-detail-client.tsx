@@ -77,6 +77,7 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
   const [productForm, setProductForm] = useState({
     name: initial.name,
     meal_type: (initial.meal_type ?? 'lunch') as 'lunch' | 'dinner',
+    is_bento: initial.is_bento,
     description: initial.description ?? '',
     status: initial.status,
   });
@@ -99,6 +100,7 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
   const productDirty =
     productForm.name !== product.name ||
     productForm.meal_type !== (product.meal_type ?? 'lunch') ||
+    productForm.is_bento !== product.is_bento ||
     productForm.description !== (product.description ?? '') ||
     productForm.status !== product.status;
 
@@ -110,6 +112,7 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
     const res = await updateMealProduct(product.id, {
       name: productForm.name,
       meal_type: productForm.meal_type,
+      is_bento: productForm.is_bento,
       description: productForm.description.trim() || null,
       status: productForm.status,
     });
@@ -281,6 +284,21 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
               <option value='lunch'>중식</option>
               <option value='dinner'>석식</option>
             </select>
+          </div>
+
+          <div>
+            <label className='flex items-center gap-2 text-sm font-medium'>
+              <input
+                type='checkbox'
+                className='size-4'
+                checked={productForm.is_bento}
+                onChange={(e) => setProductForm((f) => ({ ...f, is_bento: e.target.checked }))}
+              />
+              도시락 메뉴
+            </label>
+            <p className='text-muted-foreground mt-1 text-xs'>
+              체크하면 같은 날짜에 여러 메뉴가 있을 때 먼저(왼쪽) 노출됩니다.
+            </p>
           </div>
 
           <div>

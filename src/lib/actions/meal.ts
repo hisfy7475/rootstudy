@@ -143,6 +143,8 @@ export type MealProductCreateInput = {
   meal_type?: 'lunch' | 'dinner' | null;
   description: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
+  /** 도시락 메뉴 여부. 같은 이용일자 그룹에서 먼저 노출됨. 급식(meal)에서만 의미 있음. */
+  is_bento?: boolean;
   variant: VariantInput;
   /** 모의고사 옵션 그룹 (category='exam' 일 때만 의미 있음). */
   optionGroups?: MockExamOptionGroupInput[];
@@ -264,6 +266,7 @@ export async function createMealProduct(
     p_variant_product_end: variantInput.product_end_date,
     p_variant_max_capacity: variantInput.max_capacity,
     p_variant_status: variantInput.status ?? 'active',
+    p_is_bento: category === 'exam' ? false : (input.is_bento ?? false),
   });
 
   if (error || !data || !data.length) {
@@ -291,6 +294,7 @@ export type MealProductUpdateInput = {
   meal_type?: 'lunch' | 'dinner' | null;
   description?: string | null;
   status?: 'active' | 'inactive' | 'sold_out';
+  is_bento?: boolean;
 };
 
 export async function updateMealProduct(
@@ -310,6 +314,7 @@ export async function updateMealProduct(
     patch.meal_type = input.meal_type;
   if (input.description !== undefined) patch.description = input.description?.trim() || null;
   if (input.status !== undefined) patch.status = input.status;
+  if (input.is_bento !== undefined && existing.category === 'meal') patch.is_bento = input.is_bento;
 
   let upQ = supabase.from('meal_products').update(patch).eq('id', productId);
   if (!ctx.isSuperAdmin && ctx.branchId) upQ = upQ.eq('branch_id', ctx.branchId);
