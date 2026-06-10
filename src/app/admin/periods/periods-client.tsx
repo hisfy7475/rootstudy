@@ -165,7 +165,12 @@ export default function PeriodsClient({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('이 교시를 삭제하시겠습니까?')) return;
+    if (
+      !confirm(
+        '이 교시를 삭제하시겠습니까?\n이미 몰입도 기록이 있는 교시는 과거 데이터 보존을 위해 완전 삭제 대신 목록에서만 숨겨집니다.',
+      )
+    )
+      return;
 
     setIsLoading(true);
     const result = await deletePeriodDefinition(id);
