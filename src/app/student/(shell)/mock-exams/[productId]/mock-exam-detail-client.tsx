@@ -50,15 +50,30 @@ export function MockExamDetailClient({
   const [pending, setPending] = useState<MealOrder | null>(
     variant ? (pendingOrderByVariant[variant.id] ?? null) : null,
   );
-  // groupId -> optionId
-  const [optionSelections, setOptionSelections] = useState<Record<string, string>>({});
+  // groupId -> 선택한 optionId 목록 (단일 그룹은 0~1개, 복수 그룹은 0개 이상)
+  const [optionSelections, setOptionSelections] = useState<Record<string, string[]>>({});
 
   const requiredGroupsAllSelected = useMemo(() => {
     for (const g of optionGroups) {
-      if (g.is_required && !optionSelections[g.id]) return false;
+      if (g.is_required && !optionSelections[g.id]?.length) return false;
     }
     return true;
   }, [optionGroups, optionSelections]);
+
+  const toggleOption = (group: MockExamOptionGroupWithOptions, optionId: string) => {
+    setOptionSelections((prev) => {
+      const current = prev[group.id] ?? [];
+      if (group.select_type === 'multiple') {
+        const next = current.includes(optionId)
+          ? current.filter((id) => id !== optionId)
+          : [...current, optionId];
+        return { ...prev, [group.id]: next };
+      }
+      // 단일 선택: 같은 옵션 재클릭 시 해제, 아니면 교체
+      const next = current.includes(optionId) ? [] : [optionId];
+      return { ...prev, [group.id]: next };
+    });
+  };
   const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
   const [conflictMode, setConflictMode] = useState<'new' | 'resume'>('new');
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -144,9 +159,12 @@ export function MockExamDetailClient({
     }
     setLoading(true);
     try {
-      const selections = optionGroups
-        .filter((g) => optionSelections[g.id])
-        .map((g) => ({ group_id: g.id, option_id: optionSelections[g.id]! }));
+      const selections = optionGroups.flatMap((g) =>
+        (optionSelections[g.id] ?? []).map((optionId) => ({
+          group_id: g.id,
+          option_id: optionId,
+        })),
+      );
       const res = await createMealOrder(variant.id, studentId, {
         force: force || undefined,
         optionSelections: selections.length > 0 ? selections : undefined,
@@ -223,15 +241,20 @@ export function MockExamDetailClient({
                 <p className='mb-2 text-sm font-medium'>
                   {g.name}
                   {g.is_required ? <span className='text-red-600'> *</span> : null}
+                  {g.select_type === 'multiple' ? (
+                    <span className='text-muted-foreground ml-1 text-xs font-normal'>
+                      (복수 선택 가능)
+                    </span>
+                  ) : null}
                 </p>
                 <div className='flex flex-wrap gap-2'>
                   {g.options.map((opt) => {
-                    const selected = optionSelections[g.id] === opt.id;
+                    const selected = (optionSelections[g.id] ?? []).includes(opt.id);
                     return (
                       <button
                         key={opt.id}
                         type='button'
-                        onClick={() => setOptionSelections((prev) => ({ ...prev, [g.id]: opt.id }))}
+                        onClick={() => toggleOption(g, opt.id)}
                         className={cn(
                           'rounded-full border px-3 py-1.5 text-sm transition-colors',
                           selected

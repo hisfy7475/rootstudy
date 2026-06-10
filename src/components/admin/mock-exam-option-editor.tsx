@@ -12,6 +12,8 @@ export type OptionEditorValue = {
   clientKey: string;
   name: string;
   is_required: boolean;
+  /** 'single' = 옵션 1개만 선택, 'multiple' = 여러 개 선택 가능. */
+  select_type: 'single' | 'multiple';
   options: Array<{
     id: string | null;
     clientKey: string;
@@ -33,6 +35,7 @@ export function optionEditorValueFromServer(
     clientKey: makeKey(),
     name: g.name,
     is_required: g.is_required,
+    select_type: g.select_type,
     options: g.options.map((o) => ({
       id: o.id,
       clientKey: makeKey(),
@@ -48,6 +51,7 @@ export function optionEditorValueToInput(value: OptionEditorValue[]): MockExamOp
       name: g.name.trim(),
       sort_order: gi,
       is_required: g.is_required,
+      select_type: g.select_type,
       status: 'active' as const,
       options: g.options
         .map((o, oi) => ({
@@ -77,6 +81,7 @@ export function MockExamOptionEditor({ value, onChange }: Props) {
         clientKey: makeKey(),
         name: '',
         is_required: true,
+        select_type: 'single',
         options: [{ id: null, clientKey: makeKey(), name: '' }],
       },
     ]);
@@ -149,6 +154,17 @@ export function MockExamOptionEditor({ value, onChange }: Props) {
               placeholder='그룹명 (예: 유형, 영역)'
               className='bg-background flex-1'
             />
+            <select
+              value={g.select_type}
+              onChange={(e) =>
+                patchGroup(gi, { select_type: e.target.value as 'single' | 'multiple' })
+              }
+              className='bg-background border-input shrink-0 rounded-md border px-2 py-1.5 text-xs'
+              aria-label='선택 방식'
+            >
+              <option value='single'>단일 선택</option>
+              <option value='multiple'>복수 선택</option>
+            </select>
             <label className='inline-flex shrink-0 items-center gap-1 text-xs'>
               <input
                 type='checkbox'

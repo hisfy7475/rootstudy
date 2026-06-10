@@ -533,6 +533,7 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
 /**
  * meta.option_selections (exam 도메인) 을 { group_name: option_name } 맵으로 평탄화.
  * view 에서 meta.option_selections 는 [{ group_id, group_name, option_id, option_name }] 형태.
+ * 복수 선택 그룹은 같은 group_name 이 여러 번 등장하므로, ", " 로 이어붙여 유실을 방지한다.
  */
 function extractOptionSelectionsMap(row: UnifiedAppRow): Record<string, string> {
   if (row.domain !== 'exam') return {};
@@ -544,7 +545,7 @@ function extractOptionSelectionsMap(row: UnifiedAppRow): Record<string, string> 
       const groupName = (item as Record<string, unknown>).group_name;
       const optionName = (item as Record<string, unknown>).option_name;
       if (typeof groupName === 'string' && typeof optionName === 'string') {
-        out[groupName] = optionName;
+        out[groupName] = out[groupName] ? `${out[groupName]}, ${optionName}` : optionName;
       }
     }
   }
