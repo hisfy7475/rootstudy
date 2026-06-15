@@ -2,7 +2,7 @@
 
 import { createClient, createAdminClient, verifyCurrentPassword } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
+import { getStudyDate, getStudyDayBounds, normalizePhone } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
 import { softDeleteUser } from '@/lib/withdraw';
 import { isStudyExcluded } from '@/lib/study-time';
@@ -480,6 +480,38 @@ export async function addChildToParent(code: string) {
 
   if (existingLink) {
     return { error: '이미 연결된 자녀입니다.' };
+  }
+
+  // 동일인(전화번호) 중복 연결 차단 — 이 자녀에 이미 연결된 다른 학부모 중
+  // 현재 학부모와 같은 전화번호(=같은 사람의 다른 계정)가 있으면 막는다.
+  // 서로 다른 번호의 부/모 동시 연결은 허용. profiles 는 RLS 상 직접 못 읽으므로 adminClient 사용.
+  const { data: myProfile } = await adminClient
+    .from('profiles')
+    .select('phone')
+    .eq('id', user.id)
+    .maybeSingle();
+  const myPhone = normalizePhone((myProfile as { phone: string | null } | null)?.phone);
+  if (myPhone) {
+    const { data: siblingLinks } = await adminClient
+      .from('parent_student_links')
+      .select('parent_id')
+      .eq('student_id', studentProfile.id);
+    const otherParentIds = (siblingLinks ?? [])
+      .map((l) => l.parent_id as string)
+      .filter((id) => id !== user.id);
+    if (otherParentIds.length > 0) {
+      const { data: otherParents } = await adminClient
+        .from('profiles')
+        .select('phone')
+        .in('id', otherParentIds)
+        .is('withdrawn_at', null);
+      const dup = (otherParents ?? []).some(
+        (p) => normalizePhone((p as { phone: string | null }).phone) === myPhone,
+      );
+      if (dup) {
+        return { error: '이미 동일한 학부모(전화번호)가 이 자녀에 연결되어 있습니다.' };
+      }
+    }
   }
 
   // 연결 추가

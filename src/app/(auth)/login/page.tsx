@@ -41,8 +41,12 @@ export default function LoginPage() {
     const result = await signIn(fd);
 
     if (result.success) {
-      router.push('/');
-      router.refresh();
+      // 서버 액션이 쿠키로 로그인하면, 소프트 내비게이션(router.push)에서는 이미 마운트된
+      // 브라우저 Supabase 클라이언트가 SIGNED_IN을 감지하지 못해 AuthBridge가 네이티브로
+      // LOGIN_SUCCESS를 보내지 못한다(→ 네이티브 SecureStore 빈 채로 남아 업로드 실패).
+      // 전체 페이지 로드로 클라이언트를 재초기화해 쿠키 세션을 채택하게 한다.
+      window.location.assign('/');
+      return;
     } else {
       // 퇴원 처리된 계정은 안내 페이지로 이동시켜 사용자가 사유를 알 수 있게 한다.
       if (result.data?.redirect) {

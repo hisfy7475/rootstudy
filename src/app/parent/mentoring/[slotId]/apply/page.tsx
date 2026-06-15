@@ -15,7 +15,8 @@ export default async function ParentMentoringApplyPage({
   const forStudentId = sp.for;
 
   const students = await getLinkedStudents();
-  const allowed = forStudentId && students.some((s) => s.id === forStudentId);
+  // 퇴원 자녀로의 신규 신청은 차단(URL 직접 접근 포함). 서버 액션에도 최후 방어선이 있음.
+  const allowed = forStudentId && students.some((s) => s.id === forStudentId && !s.withdrawnAt);
   if (!allowed) {
     redirect('/parent/mentoring');
   }
@@ -24,10 +25,6 @@ export default async function ParentMentoringApplyPage({
   if (!slot) notFound();
 
   return (
-    <MentoringApplyClient
-      slot={slot}
-      studentId={forStudentId!}
-      backHref="/parent/mentoring"
-    />
+    <MentoringApplyClient slot={slot} studentId={forStudentId!} backHref='/parent/mentoring' />
   );
 }

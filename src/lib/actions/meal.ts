@@ -2,7 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { generateExamOrderId, generateMealOrderId } from '@/lib/nicepay';
+import {
+  buildMealPaymentWindowParams,
+  generateExamOrderId,
+  generateMealOrderId,
+} from '@/lib/nicepay';
 import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from '@/lib/meal-payment-cancel';
 import { getUserScope } from '@/lib/auth/scope';
 import { getTodayKST } from '@/lib/utils';
@@ -1440,6 +1444,54 @@ export async function getMealOrderById(id: string): Promise<MealOrderWithProduct
   return { ...order, variant, product };
 }
 
+export type VariantForPayment = {
+  variantId: string;
+  productId: string;
+  productName: string;
+  category: ProductCategory;
+  price: number;
+  kind: 'one_time' | 'recurring';
+};
+
+/**
+ * 결제 페이지(variant 기준)에서 표시 정보를 구성하기 위한 variant+product 조회.
+ * 요청자 scope(지점) 내 variant 만 반환. 실제 결제 검증/생성은 startMealPayment 가 수행한다.
+ */
+export async function getVariantForPayment(variantId: string): Promise<VariantForPayment | null> {
+  const scope = await getUserScope();
+  if (!scope || !scope.hasAccess) return null;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('meal_product_variants')
+    .select('id, price, kind, product_id, meal_products!inner(id, name, category, branch_id)')
+    .eq('id', variantId)
+    .in('meal_products.branch_id', scope.branchIds)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  type ProductJoin = { id: string; name: string; category: ProductCategory; branch_id: string };
+  const v = data as {
+    id: string;
+    price: number;
+    kind: 'one_time' | 'recurring';
+    product_id: string;
+    meal_products: ProductJoin | ProductJoin[];
+  };
+  const p = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
+  if (!p) return null;
+
+  return {
+    variantId: v.id,
+    productId: v.product_id,
+    productName: p.name,
+    category: p.category,
+    price: v.price,
+    kind: v.kind,
+  };
+}
+
 export async function getExistingPendingOrder(
   variantId: string,
   studentId: string,
@@ -1583,11 +1635,33 @@ async function findOverlappingActiveOrders(
   return out;
 }
 
-export async function createMealOrder(
+type ProductJoinForOrder = {
+  id: string;
+  name: string;
+  branch_id: string;
+  category: ProductCategory;
+  meal_type: 'lunch' | 'dinner' | null;
+  status: string;
+};
+
+type ValidatedNewOrder = {
+  userId: string;
+  variant: MealProductVariant;
+  product: ProductJoinForOrder;
+  optionSnapshot: MockExamOptionSelectionSnapshot[] | null;
+  /** PG GoodsName 으로 쓸 표시명. meal=`상품명 · 일일/정기`, exam=`상품명`. */
+  goodsName: string;
+};
+
+/**
+ * 신규 주문 생성 직전까지의 모든 검증을 수행하되 DB 에 쓰지 않는다.
+ * createMealOrder / startMealPayment 가 공유한다.
+ */
+async function validateMealOrder(
   variantId: string,
   studentId: string,
   options?: { force?: boolean; optionSelections?: MockExamOptionSelectionInput[] },
-): Promise<CreateMealOrderResult> {
+): Promise<{ error?: string; conflict?: OrderConflictItem[]; ok?: ValidatedNewOrder }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1635,7 +1709,7 @@ export async function createMealOrder(
 
   const { data: variantRow, error: variantErr } = await supabase
     .from('meal_product_variants')
-    .select('*, meal_products!inner(id, branch_id, category, meal_type, status)')
+    .select('*, meal_products!inner(id, name, branch_id, category, meal_type, status)')
     .eq('id', variantId)
     .maybeSingle();
 
@@ -1643,13 +1717,6 @@ export async function createMealOrder(
     return { error: '옵션을 찾을 수 없습니다.' };
   }
 
-  type ProductJoinForOrder = {
-    id: string;
-    branch_id: string;
-    category: ProductCategory;
-    meal_type: 'lunch' | 'dinner' | null;
-    status: string;
-  };
   const v = variantRow as MealProductVariant & {
     meal_products: ProductJoinForOrder | ProductJoinForOrder[];
   };
@@ -1707,24 +1774,43 @@ export async function createMealOrder(
 
   // 모의고사: 옵션 그룹이 있으면 학생 선택 검증 후 스냅샷 생성.
   // 식사는 옵션 시스템을 쓰지 않으므로 null 저장.
-  let optionSelectionsSnapshot: MockExamOptionSelectionSnapshot[] | null = null;
+  let optionSnapshot: MockExamOptionSelectionSnapshot[] | null = null;
   if (product.category === 'exam') {
     const snap = await buildOptionSelectionSnapshots(product.id, options?.optionSelections ?? []);
     if (snap.error) return { error: snap.error };
-    optionSelectionsSnapshot = snap.data && snap.data.length > 0 ? snap.data : null;
+    optionSnapshot = snap.data && snap.data.length > 0 ? snap.data : null;
   }
 
-  const orderId = product.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
+  const goodsName =
+    product.category === 'exam'
+      ? product.name
+      : `${product.name} · ${v.kind === 'recurring' ? '정기' : '일일'}`;
+
+  return { ok: { userId: user.id, variant: v, product, optionSnapshot, goodsName } };
+}
+
+export async function createMealOrder(
+  variantId: string,
+  studentId: string,
+  options?: { force?: boolean; optionSelections?: MockExamOptionSelectionInput[] },
+): Promise<CreateMealOrderResult> {
+  const valid = await validateMealOrder(variantId, studentId, options);
+  if (valid.error) return { error: valid.error };
+  if (valid.conflict) return { conflict: valid.conflict };
+  const ok = valid.ok!;
+
+  const supabase = await createClient();
+  const orderId = ok.product.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
   const { data: inserted, error: insertErr } = await supabase
     .from('meal_orders')
     .insert({
-      user_id: user.id,
+      user_id: ok.userId,
       student_id: studentId,
       variant_id: variantId,
       order_id: orderId,
-      amount: v.price,
+      amount: ok.variant.price,
       status: 'pending',
-      option_selections: optionSelectionsSnapshot,
+      option_selections: ok.optionSnapshot,
     })
     .select()
     .single();
@@ -1734,10 +1820,98 @@ export async function createMealOrder(
     return { error: '주문 생성에 실패했습니다.' };
   }
 
-  revalidatePath(studentBasePath(product.category));
-  revalidatePath(parentBasePath(product.category));
+  revalidatePath(studentBasePath(ok.product.category));
+  revalidatePath(parentBasePath(ok.product.category));
 
   return { data: inserted as MealOrder };
+}
+
+export type StartMealPaymentResult = {
+  paymentInit?: NonNullable<ReturnType<typeof buildMealPaymentWindowParams>>;
+  orderRowId?: string;
+  error?: string;
+  conflict?: OrderConflictItem[];
+};
+
+/**
+ * 결제창 호출 직전("카드 결제하기" 클릭)에 주문을 생성하고 NICEPay 결제 파라미터를 만든다.
+ *
+ * 주문 INSERT 를 결제 직전으로 미뤄, 상품을 보기만 하고 결제 없이 이탈해도 유령 pending 주문이
+ * 남지 않게 한다(결제대기/신청대기 누적 방지).
+ *
+ * - 동일 variant+student 에 미완료(pending) 주문이 이미 있으면(이전에 카드결제하기→PG 미완료),
+ *   그 주문을 그대로 재사용한다("결제 계속하기"도 이 경로를 탄다). 중복 검증 없이 paymentInit 만 재생성.
+ * - 없으면 validateMealOrder 후 신규 INSERT.
+ */
+export async function startMealPayment(
+  variantId: string,
+  studentId: string,
+  options?: { force?: boolean; optionSelections?: MockExamOptionSelectionInput[] },
+): Promise<StartMealPaymentResult> {
+  // 1) 기존 pending 재사용(이어서 결제). getMealOrderById 가 접근 권한(본인/자녀)을 함께 검증한다.
+  const existing = await getExistingPendingOrder(variantId, studentId);
+  if (existing) {
+    const orderRow = await getMealOrderById(existing.id);
+    if (!orderRow || orderRow.status !== 'pending' || !orderRow.product || !orderRow.variant) {
+      return { error: '주문 정보를 불러오지 못했습니다.' };
+    }
+    const goodsName =
+      orderRow.product.category === 'exam'
+        ? orderRow.product.name
+        : `${orderRow.product.name} · ${orderRow.variant.kind === 'recurring' ? '정기' : '일일'}`;
+    const paymentInit = buildMealPaymentWindowParams({
+      orderId: orderRow.order_id,
+      amount: orderRow.amount,
+      goodsName,
+    });
+    if (!paymentInit) {
+      return { error: '결제 설정(NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY)을 확인해 주세요.' };
+    }
+    return { paymentInit, orderRowId: orderRow.id };
+  }
+
+  // 2) 신규 — 전체 검증 후 INSERT.
+  const valid = await validateMealOrder(variantId, studentId, options);
+  if (valid.error) return { error: valid.error };
+  if (valid.conflict) return { conflict: valid.conflict };
+  const ok = valid.ok!;
+
+  const supabase = await createClient();
+  const orderId = ok.product.category === 'exam' ? generateExamOrderId() : generateMealOrderId();
+  const { data: inserted, error: insertErr } = await supabase
+    .from('meal_orders')
+    .insert({
+      user_id: ok.userId,
+      student_id: studentId,
+      variant_id: variantId,
+      order_id: orderId,
+      amount: ok.variant.price,
+      status: 'pending',
+      option_selections: ok.optionSnapshot,
+    })
+    .select('id, order_id')
+    .single();
+
+  if (insertErr || !inserted) {
+    console.error('[startMealPayment]', insertErr);
+    return { error: '주문 생성에 실패했습니다.' };
+  }
+
+  const paymentInit = buildMealPaymentWindowParams({
+    orderId: inserted.order_id,
+    amount: ok.variant.price,
+    goodsName: ok.goodsName,
+  });
+  if (!paymentInit) {
+    // 결제 설정 미비 — 방금 만든 pending 주문을 정리하고 에러 반환.
+    await supabase.from('meal_orders').delete().eq('id', inserted.id).eq('status', 'pending');
+    return { error: '결제 설정(NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY)을 확인해 주세요.' };
+  }
+
+  revalidatePath(studentBasePath(ok.product.category));
+  revalidatePath(parentBasePath(ok.product.category));
+
+  return { paymentInit, orderRowId: inserted.id };
 }
 
 /**

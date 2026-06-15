@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/button';
 import { MealImage } from '@/components/shared/meal-image';
 import { ImageLightbox } from '@/components/shared/image-lightbox';
 import {
-  createMealOrder,
   cancelPendingMealOrder,
   getOrderResumeConflicts,
   type MealProductWithVariants,
   type OrderConflictItem,
 } from '@/lib/actions/meal';
+import { ConflictDialog } from '@/components/shared/payment/conflict-dialog';
 import { getRefundPolicy } from '@/lib/refund-policy';
 import type { MealMenu, MealOrder, MealProduct, MealProductVariant } from '@/types/database';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
@@ -66,7 +66,6 @@ export function ProductDetailClient({
     useState<Record<string, MealOrder | null>>(pendingOrderByVariant);
   const [menuOpen, setMenuOpen] = useState(false);
   const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
-  const [conflictMode, setConflictMode] = useState<'new' | 'resume'>('new');
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const selected = variants.find((v) => v.id === selectedVariantId) ?? null;
@@ -107,6 +106,13 @@ export function ProductDetailClient({
 
   const soldOut = capacityLeft != null && capacityLeft <= 0;
 
+  // 주문(pending)은 결제 페이지의 "카드 결제하기" 시점에 생성된다. 여기선 결제 페이지로 이동만 한다.
+  // (학생 결제 페이지는 for 쿼리를 무시하고, 학부모 결제 페이지만 사용한다.)
+  const goToPay = (variantId: string) => {
+    const sid = studentId ?? '';
+    router.push(`${payBasePath}/${variantId}?for=${encodeURIComponent(sid)}`);
+  };
+
   const handleResumePay = async () => {
     if (!pending) return;
     setError(null);
@@ -118,11 +124,10 @@ export function ProductDetailClient({
         return;
       }
       if (res.conflicts && res.conflicts.length > 0) {
-        setConflictMode('resume');
         setConflict(res.conflicts);
         return;
       }
-      router.push(`${payBasePath}/${pending.id}`);
+      goToPay(selected.id);
     } catch (e) {
       console.error(e);
       setError('오류가 발생했습니다.');
@@ -150,44 +155,13 @@ export function ProductDetailClient({
     }
   };
 
-  const submitOrder = async (force: boolean) => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await createMealOrder(
-        selected.id,
-        studentId,
-        force ? { force: true } : undefined,
-      );
-      if (res.conflict && res.conflict.length > 0 && !force) {
-        setConflictMode('new');
-        setConflict(res.conflict);
-        return;
-      }
-      if (res.error || !res.data) {
-        setError(res.error || '주문 생성에 실패했습니다.');
-        return;
-      }
-      router.push(`${payBasePath}/${res.data.id}`);
-    } catch (e) {
-      console.error(e);
-      setError('오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handlePay = () => {
-    setConflictMode('new');
-    void submitOrder(false);
+    goToPay(selected.id);
   };
+  // 이어서 결제(resume) 중 겹침 동의 → 결제 페이지로 이동(기존 pending 재사용).
   const handleForcePay = () => {
     setConflict(null);
-    if (conflictMode === 'resume') {
-      if (pending) router.push(`${payBasePath}/${pending.id}`);
-      return;
-    }
-    void submitOrder(true);
+    goToPay(selected.id);
   };
 
   return (
@@ -375,6 +349,7 @@ export function ProductDetailClient({
       {conflict && conflict.length > 0 ? (
         <ConflictDialog
           conflicts={conflict}
+          category='meal'
           loading={loading}
           onCancel={() => setConflict(null)}
           onConfirm={handleForcePay}
@@ -388,52 +363,6 @@ export function ProductDetailClient({
         fallbackType='product'
         onClose={() => setLightboxOpen(false)}
       />
-    </div>
-  );
-}
-
-function ConflictDialog({
-  conflicts,
-  loading,
-  onCancel,
-  onConfirm,
-}: {
-  conflicts: OrderConflictItem[];
-  loading: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className='pb-safe-nav fixed inset-0 z-[55] flex items-end justify-center bg-black/40 p-4 sm:items-center sm:pb-4'>
-      <Card className='w-full max-w-md space-y-3 p-5'>
-        <h2 className='text-base font-semibold'>이미 신청한 식사 일자와 겹칩니다</h2>
-        <div className='bg-muted/50 rounded-md p-3'>
-          <ul className='space-y-1 text-sm'>
-            {conflicts.map((c) => (
-              <li key={c.variant_id}>
-                <span className='font-medium'>{c.product_name}</span>
-                <span className='text-muted-foreground ml-1'>
-                  · {c.variant_kind === 'recurring' ? '정기' : '일일'} · {c.product_start_date} ~{' '}
-                  {c.product_end_date}
-                  {c.status === 'pending' ? ' (결제 대기)' : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className='text-sm text-red-600'>
-          부분 취소가 불가능하므로, 중복된 일자는 별도 환불 없이 두 번 결제됩니다. 그대로
-          진행하시겠습니까?
-        </p>
-        <div className='flex justify-end gap-2'>
-          <Button variant='outline' onClick={onCancel} disabled={loading}>
-            취소
-          </Button>
-          <Button onClick={onConfirm} disabled={loading}>
-            {loading ? <Loader2 className='size-4 animate-spin' /> : '그대로 결제'}
-          </Button>
-        </div>
-      </Card>
     </div>
   );
 }
