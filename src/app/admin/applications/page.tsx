@@ -8,10 +8,18 @@ import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { ApplicationsClient } from './applications-client';
 
-const FILTER_KEYS = ['domain', 'status', 'from', 'to', 'q', 'branchId'] as const;
-const SORT_KEYS = ['applied_at', 'amount', 'service_start_date'] as const;
+const FILTER_KEYS = ['domain', 'status', 'mealType', 'from', 'to', 'q', 'branchId'] as const;
+const SORT_KEYS = [
+  'applied_at',
+  'amount',
+  'service_start_date',
+  'seat_number_snapshot',
+  'item_name',
+  'student_name',
+] as const;
 
 const VALID_DOMAINS: UnifiedAppDomain[] = ['meal', 'exam', 'mentoring'];
+const VALID_MEAL_TYPES = ['lunch', 'dinner'] as const;
 const VALID_STATUSES: UnifiedAppStatus[] = [
   'pending',
   'completed',
@@ -48,6 +56,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
 
   const domainParam = params.filters.domain;
   const statusParam = params.filters.status;
+  const mealTypeParam = params.filters.mealType;
   const fromParam = params.filters.from;
   const toParam = params.filters.to;
   const branchIdParam = params.filters.branchId;
@@ -60,6 +69,10 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
     statusParam && (VALID_STATUSES as string[]).includes(statusParam)
       ? (statusParam as UnifiedAppStatus)
       : undefined;
+  const mealType =
+    mealTypeParam && (VALID_MEAL_TYPES as readonly string[]).includes(mealTypeParam)
+      ? (mealTypeParam as 'lunch' | 'dinner')
+      : undefined;
   const fromDate = fromParam && /^\d{4}-\d{2}-\d{2}$/.test(fromParam) ? fromParam : undefined;
   const toDate = toParam && /^\d{4}-\d{2}-\d{2}$/.test(toParam) ? toParam : undefined;
   const branchId = ctx.isSuperAdmin && branchIdParam ? branchIdParam : undefined;
@@ -67,6 +80,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
   const filters = {
     domain,
     status,
+    mealType,
     branchId,
     fromDate,
     toDate,
@@ -95,6 +109,7 @@ export default async function AdminApplicationsPage({ searchParams }: PageProps)
         initialFilters={{
           domain,
           status,
+          mealType,
           branchId,
           fromDate: fromDate ?? '',
           toDate: toDate ?? '',

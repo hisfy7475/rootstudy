@@ -977,6 +977,45 @@ export interface Database {
           created_at?: string;
         };
       };
+      // 지점 단위 1건 알림 (멘토링/상담 접수 등). is_read 는 지점 공유 읽음.
+      branch_notifications: {
+        Row: {
+          id: string;
+          branch_id: string;
+          type: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title: string;
+          message: string;
+          link: string | null;
+          is_read: boolean;
+          read_by: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          branch_id: string;
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title: string;
+          message: string;
+          link?: string | null;
+          is_read?: boolean;
+          read_by?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          branch_id?: string;
+          type?: 'late' | 'absent' | 'point' | 'schedule' | 'system' | 'chat';
+          title?: string;
+          message?: string;
+          link?: string | null;
+          is_read?: boolean;
+          read_by?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+      };
       focus_score_presets: {
         Row: {
           id: string;

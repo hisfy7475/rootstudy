@@ -18,6 +18,8 @@ export type UnifiedAppStatus =
 export interface UnifiedAppFilters {
   domain?: UnifiedAppDomain;
   status?: UnifiedAppStatus;
+  /** 급식 식사 구분. sub_category('lunch'/'dinner') 기준. 급식 도메인에서만 의미. */
+  mealType?: 'lunch' | 'dinner';
   /** 슈퍼관리자 전용. 일반 관리자는 입력 무시되고 자기 branch_id 강제. */
   branchId?: string;
   /** yyyy-MM-dd. 이용 기간이 검색 범위와 겹치는지 판정 (lower bound 포함). */
@@ -28,7 +30,13 @@ export interface UnifiedAppFilters {
   q?: string;
   page: number;
   pageSize: number;
-  sort: 'applied_at' | 'amount' | 'service_start_date';
+  sort:
+    | 'applied_at'
+    | 'amount'
+    | 'service_start_date'
+    | 'seat_number_snapshot'
+    | 'item_name'
+    | 'student_name';
   dir: 'asc' | 'desc';
 }
 
@@ -247,6 +255,8 @@ export async function getUnifiedApplicationsForAdmin(
   if (effectiveBranchId) query = query.eq('branch_id', effectiveBranchId);
   if (filters.domain) query = query.eq('domain', filters.domain);
   if (filters.status) query = query.eq('status_normalized', filters.status);
+  // 급식 식사 구분(중식/석식). sub_category 값은 meal 도메인에만 lunch/dinner 가 들어가므로 안전.
+  if (filters.mealType) query = query.eq('sub_category', filters.mealType);
   // 이용 기간 "겹침" 의미: service_start_date <= toDate AND service_end_date >= fromDate
   if (filters.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)) {
     query = query.gte('service_end_date', filters.fromDate);
@@ -299,6 +309,8 @@ export async function exportUnifiedApplicationsForAdmin(
     if (effectiveBranchId) query = query.eq('branch_id', effectiveBranchId);
     if (filters.domain) query = query.eq('domain', filters.domain);
     if (filters.status) query = query.eq('status_normalized', filters.status);
+    // 급식 식사 구분(중식/석식). sub_category 값은 meal 도메인에만 lunch/dinner 가 들어가므로 안전.
+    if (filters.mealType) query = query.eq('sub_category', filters.mealType);
     // 이용 기간 "겹침" 의미: service_start_date <= toDate AND service_end_date >= fromDate
     if (filters.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)) {
       query = query.gte('service_end_date', filters.fromDate);

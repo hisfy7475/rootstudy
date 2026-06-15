@@ -2367,6 +2367,7 @@ export async function getStudentDetail(studentId: string) {
     name: string | null;
     email: string | null;
     phone: string | null;
+    withdrawn_at: string | null;
   };
   type ParentObjectRow = {
     id: string;
@@ -2384,7 +2385,8 @@ export async function getStudentDetail(studentId: string) {
           ? parentObj.profiles[0]
           : parentObj.profiles
         : null;
-      if (!parentProfile) return null;
+      // 탈퇴(withdrawn) 학부모는 연결 목록에서 제외 (getMembersList 와 일관)
+      if (!parentProfile || parentProfile.withdrawn_at) return null;
       return {
         id: parentObj?.id || '',
         name: parentProfile.name ?? '',
@@ -2659,7 +2661,8 @@ export async function updateStudentApprovalStatus(
 // 은 RLS 를 우회하므로 지점 격리는 전적으로 아래 .eq('branch_id') 가 책임진다(누락 = 정보 유출).
 
 export type NotificationPeriod = '7d' | '30d' | 'all';
-export type NotificationRecipientType = 'student' | 'parent';
+// 'branch' = 지점 공용 알림(멘토링/상담 접수 등, branch_notifications). 지점당 1행.
+export type NotificationRecipientType = 'student' | 'parent' | 'branch';
 
 // branchId === null 은 슈퍼관리자의 "전 지점" 신호.
 export interface NotificationsListParams {
@@ -2787,6 +2790,47 @@ export async function getAdminNotificationStats(
     unread: total - read,
     today: todayRes.count ?? 0,
   };
+}
+
+// 지점 공용 알림(branch_notifications) 읽음 처리. 지점 공유 읽음 — 한 관리자가 읽으면 지점 전체 읽음.
+// service-role 조회라 RLS 우회 → 일반 관리자는 코드에서 본인 지점으로 강제(슈퍼는 전체 허용).
+export async function markBranchNotificationRead(id: string) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const supabase = createAdminClient();
+  let query = supabase
+    .from('branch_notifications')
+    .update({ is_read: true, read_by: ctx.userId, read_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('is_read', false);
+
+  // 슈퍼관리자는 branchId 가 null 이므로 .eq('branch_id', null) 을 걸면 0행 매칭된다 → 분기 필수.
+  if (!ctx.isSuperAdmin && ctx.branchId) query = query.eq('branch_id', ctx.branchId);
+
+  const { error } = await query;
+  if (error) {
+    console.error('[markBranchNotificationRead]', error);
+    return { error: '알림 처리에 실패했습니다.' };
+  }
+  return { success: true };
+}
+
+// 사이드바 뱃지용 — 본인 지점(슈퍼는 전 지점) 지점 공용 알림의 미읽음 수.
+export async function getUnreadBranchNotificationCount(): Promise<number> {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return 0;
+
+  const supabase = createAdminClient();
+  let query = supabase
+    .from('branch_notifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_read', false);
+
+  if (!ctx.isSuperAdmin && ctx.branchId) query = query.eq('branch_id', ctx.branchId);
+
+  const { count } = await query;
+  return count ?? 0;
 }
 
 // ============================================

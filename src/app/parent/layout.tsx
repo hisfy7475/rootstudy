@@ -1,6 +1,7 @@
 import { PushTokenListener } from '@/components/PushTokenListener';
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { ParentHeader } from '@/components/parent/header';
+import { ParentCountsProvider } from '@/components/shared/unread-counts-provider';
 import { createClient } from '@/lib/supabase/server';
 import { getLinkedStudents } from '@/lib/actions/parent';
 import { getParentUnreadChatCount } from '@/lib/actions/chat';
@@ -51,18 +52,19 @@ export default async function ParentLayout({ children }: LayoutProps) {
   return (
     <div className='bg-background min-h-screen'>
       <PushTokenListener />
-      <ParentHeader
-        userName={userName}
-        linkedChildren={linkedChildren}
+      <ParentCountsProvider
+        key={userId}
         userId={userId}
-        initialUnreadNotificationCount={initialUnreadNotificationCount}
-      />
-      <main className='mx-auto max-w-lg pb-24'>{children}</main>
-      <BottomNav
-        userType='parent'
-        basePath='/parent'
-        initialUnreadChatCount={initialUnreadChatCount}
-      />
+        initialNotif={initialUnreadNotificationCount}
+      >
+        <ParentHeader userName={userName} linkedChildren={linkedChildren} userId={userId} />
+        <main className='mx-auto max-w-lg pb-24'>{children}</main>
+        <BottomNav
+          userType='parent'
+          basePath='/parent'
+          initialUnreadChatCount={initialUnreadChatCount}
+        />
+      </ParentCountsProvider>
     </div>
   );
 }

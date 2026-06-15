@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
-import { sendPushToUser } from '@/lib/push';
+import { sendPushToUsers } from '@/lib/push';
 import { formatDateKST } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
@@ -700,22 +700,25 @@ async function notifyBranchAdminsMentoringApplied(
   const message = `${studentName}님의 ${typeLabel} 신청이 접수되었습니다.`;
   const link = '/admin/mentoring';
 
-  for (const ad of admins) {
-    try {
-      await admin.from('user_notifications').insert({
-        user_id: ad.id,
-        type: 'system',
-        title,
-        message,
-        link,
-      });
-    } catch (e) {
-      console.error('[notifyBranchAdminsMentoringApplied] insert notification', e);
-    }
-    void sendPushToUser(ad.id, title, message, { path: link }).catch((e) =>
-      console.error('[notifyBranchAdminsMentoringApplied] push', e),
-    );
-  }
+  // 인앱 알림은 지점 단위 1행만 적재(지점 관리자 누구나 조회·읽음 처리).
+  // 과거엔 관리자 N명에게 복제했으나, 지점 공유 알림이라 1건으로 충분하다.
+  const { error: bnErr } = await admin.from('branch_notifications').insert({
+    branch_id: branchId,
+    type: 'system',
+    title,
+    message,
+    link,
+  });
+  if (bnErr)
+    console.error('[notifyBranchAdminsMentoringApplied] insert branch_notification', bnErr);
+
+  // 푸시는 개별 전송이라 지점 관리자 전원에게 fan-out(인앱 적재와 독립).
+  void sendPushToUsers(
+    admins.map((a) => a.id),
+    title,
+    message,
+    { path: link },
+  ).catch((e) => console.error('[notifyBranchAdminsMentoringApplied] push', e));
 }
 
 // ─── Phase 8: 관리자 멘토링 ─────────────────────────────────────────

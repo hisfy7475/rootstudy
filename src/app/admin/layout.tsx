@@ -2,6 +2,7 @@ import { Sidebar } from '@/components/shared/sidebar';
 import { SidebarProvider, SidebarMain } from '@/components/shared/sidebar-context';
 import { createClient } from '@/lib/supabase/server';
 import { getAdminUnreadChatCount } from '@/lib/actions/chat';
+import { getUnreadBranchNotificationCount } from '@/lib/actions/admin';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -10,6 +11,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   } = await supabase.auth.getUser();
 
   let branchName: string | null = null;
+  let branchId: string | null = null;
   let isSuperAdmin = false;
 
   if (user) {
@@ -20,6 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       .single();
 
     isSuperAdmin = !!profile?.is_super_admin;
+    branchId = profile?.branch_id ?? null;
 
     if (profile?.branch_id) {
       const { data: branch } = await supabase
@@ -32,19 +35,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     }
   }
 
-  // 알림 뱃지는 chat type 제외(채팅 메뉴 뱃지가 별도 표시) — UX 분리 정책.
-  const [{ count: initialUnreadChatCount }, notifResult] = await Promise.all([
+  // 알림 뱃지 = 지점 공용 알림(멘토링/상담 접수 등) 미읽음. 채팅 뱃지는 별도(getAdminUnreadChatCount).
+  const [{ count: initialUnreadChatCount }, initialUnreadNotificationCount] = await Promise.all([
     getAdminUnreadChatCount(),
-    user
-      ? supabase
-          .from('user_notifications')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('is_read', false)
-          .neq('type', 'chat')
-      : Promise.resolve({ count: 0 as number | null }),
+    user ? getUnreadBranchNotificationCount() : Promise.resolve(0),
   ]);
-  const initialUnreadNotificationCount = notifResult.count ?? 0;
 
   return (
     <SidebarProvider>
@@ -54,6 +49,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           branchName={branchName}
           isSuperAdmin={isSuperAdmin}
           userId={user?.id}
+          branchId={branchId}
           initialUnreadChatCount={initialUnreadChatCount}
           initialUnreadNotificationCount={initialUnreadNotificationCount}
         />

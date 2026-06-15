@@ -9,7 +9,7 @@ import { SignOutForm } from '@/components/SignOutForm';
 import { useSidebar } from './sidebar-context';
 import { createClient } from '@/lib/supabase/client';
 import { getAdminUnreadChatCount } from '@/lib/actions/chat';
-import { getUnreadUserNotificationCount } from '@/lib/actions/notification';
+import { getUnreadBranchNotificationCount } from '@/lib/actions/admin';
 import {
   LayoutDashboard,
   Brain,
@@ -75,6 +75,8 @@ interface SidebarProps {
   branchName?: string | null;
   isSuperAdmin?: boolean;
   userId?: string;
+  /** 일반 관리자 본인 지점. 지점 공용 알림 realtime 구독 필터(슈퍼는 null=전체). */
+  branchId?: string | null;
   initialUnreadChatCount?: number;
   initialUnreadNotificationCount?: number;
 }
@@ -84,6 +86,7 @@ export function Sidebar({
   branchName,
   isSuperAdmin = false,
   userId,
+  branchId,
   initialUnreadChatCount = 0,
   initialUnreadNotificationCount = 0,
 }: SidebarProps) {
@@ -156,8 +159,8 @@ export function Sidebar({
     };
   }, [userId]);
 
-  // 알림 카운트 realtime (chat type 은 채팅 뱃지와 중복 노이즈 방지 위해 제외).
-  // sidebar.tsx 위 chat realtime 과 동일 패턴 — setAuth 후 subscribe.
+  // 지점 공용 알림(branch_notifications) 미읽음 realtime.
+  // 일반 관리자는 본인 지점 필터, 슈퍼는 무필터(RLS 가 전 지점 허용). setAuth 후 subscribe.
   useEffect(() => {
     if (!userId) return;
     const supabase = createClient();
@@ -165,9 +168,9 @@ export function Sidebar({
     let cancelled = false;
 
     const refetch = () => {
-      void getUnreadUserNotificationCount({ excludeTypes: ['chat'] })
+      void getUnreadBranchNotificationCount()
         .then(setUnreadNotificationCount)
-        .catch((e) => console.error('[Sidebar] unread notif refetch', e));
+        .catch((e) => console.error('[Sidebar] unread branch notif refetch', e));
     };
 
     (async () => {
@@ -178,18 +181,19 @@ export function Sidebar({
         await supabase.realtime.setAuth(session.access_token);
       }
       if (cancelled) return;
+      // realtime filter 는 단일 컬럼 eq 만 지원 → 일반 관리자만 branch_id 필터, 슈퍼는 무필터.
+      const changesFilter =
+        !isSuperAdmin && branchId
+          ? {
+              event: '*' as const,
+              schema: 'public',
+              table: 'branch_notifications',
+              filter: `branch_id=eq.${branchId}`,
+            }
+          : { event: '*' as const, schema: 'public', table: 'branch_notifications' };
       channel = supabase
-        .channel(`admin-sidebar-notif-${userId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'user_notifications',
-            filter: `user_id=eq.${userId}`,
-          },
-          refetch,
-        )
+        .channel(`admin-sidebar-branch-notif-${userId}`)
+        .on('postgres_changes', changesFilter, refetch)
         .subscribe();
     })();
 
@@ -197,7 +201,7 @@ export function Sidebar({
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, isSuperAdmin, branchId]);
 
   // 경로 변경 시 모바일 메뉴 닫기
   useEffect(() => {

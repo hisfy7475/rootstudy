@@ -8,8 +8,8 @@ import { User, Settings, LogOut, ChevronDown, Users, Megaphone, Bell } from 'luc
 import { cn, isNativeApp } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
-import { getUnreadUserNotificationCount } from '@/lib/actions/notification';
 import { createClient } from '@/lib/supabase/client';
+import { useUnreadCounts } from '@/components/shared/unread-counts-provider';
 
 interface Child {
   id: string;
@@ -23,7 +23,6 @@ interface ParentHeaderProps {
   linkedChildren?: Child[];
   userId?: string;
   initialUnreadAnnouncementCount?: number;
-  initialUnreadNotificationCount?: number;
 }
 
 export function ParentHeader({
@@ -31,16 +30,15 @@ export function ParentHeader({
   linkedChildren: children = [],
   userId,
   initialUnreadAnnouncementCount = 0,
-  initialUnreadNotificationCount = 0,
 }: ParentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(
     initialUnreadAnnouncementCount,
   );
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(
-    initialUnreadNotificationCount,
-  );
+  // 알림 배지 카운트는 공유 store(UnreadCountsProvider)에서 읽는다.
+  const { notif } = useUnreadCounts();
+  const unreadNotificationCount = notif.count;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -70,48 +68,6 @@ export function ParentHeader({
     () => isNativeApp(),
     () => false,
   );
-
-  // 알림 카운트 realtime — sidebar.tsx 패턴(setAuth 후 subscribe).
-  useEffect(() => {
-    if (!userId) return;
-    const supabase = createClient();
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    const refetch = () => {
-      void getUnreadUserNotificationCount({ excludeTypes: ['chat'] })
-        .then(setUnreadNotificationCount)
-        .catch((e) => console.error('[parent-header] unread notif refetch', e));
-    };
-
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        await supabase.realtime.setAuth(session.access_token);
-      }
-      if (cancelled) return;
-      channel = supabase
-        .channel(`parent-header-notif-${userId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'user_notifications',
-            filter: `user_id=eq.${userId}`,
-          },
-          refetch,
-        )
-        .subscribe();
-    })();
-
-    return () => {
-      cancelled = true;
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [userId]);
 
   // 공지 카운트 realtime.
   useEffect(() => {

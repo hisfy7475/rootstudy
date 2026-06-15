@@ -1,4 +1,4 @@
-import { getStudentNotifications, getUnreadNotificationCount } from '@/lib/actions/notification';
+import { getStudentNotifications } from '@/lib/actions/notification';
 import { createClient } from '@/lib/supabase/server';
 import { NotificationsClient } from './notifications-client';
 
@@ -10,15 +10,16 @@ export default async function NotificationsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [notifications, unreadCount] = await Promise.all([
-    getStudentNotifications({ limit: PAGE_SIZE, offset: 0, excludeTypes: ['chat'] }),
-    getUnreadNotificationCount({ excludeTypes: ['chat'] }),
-  ]);
+  // 배지 카운트는 헤더와 공유하는 store(layout Provider)가 보유 — 여기선 리스트만 SSR.
+  const notifications = await getStudentNotifications({
+    limit: PAGE_SIZE,
+    offset: 0,
+    excludeTypes: ['chat'],
+  });
 
   return (
     <NotificationsClient
       initialNotifications={notifications}
-      initialUnreadCount={unreadCount}
       userId={user?.id ?? null}
       pageSize={PAGE_SIZE}
     />
