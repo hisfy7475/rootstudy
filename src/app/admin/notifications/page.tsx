@@ -5,15 +5,11 @@ import {
   type NotificationPeriod,
   type NotificationRecipientType,
 } from '@/lib/actions/admin';
-import { getUserNotifications, getUnreadUserNotificationCount } from '@/lib/actions/notification';
 import { getAllBranches } from '@/lib/actions/branch';
 import { requireAdminBranch } from '@/lib/auth/admin-context';
 import { parseListParams } from '@/lib/list-params';
 import { NOTIFICATIONS_LIST_CONFIG } from './list-config';
-import { MyNotifications } from './my-notifications';
 import { BranchNotificationLog } from './branch-notification-log';
-
-export const PAGE_SIZE = 50;
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -21,6 +17,28 @@ interface PageProps {
 
 function pickFirst(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
+}
+
+// 공통 필터 산출 — 슈퍼/일반 관리자 분기가 동일하게 사용.
+const ALLOWED_TYPES = ['late', 'absent', 'point', 'schedule', 'system'] as const;
+function parseNotificationFilters(raw: Record<string, string | string[] | undefined>) {
+  const params = parseListParams(raw, NOTIFICATIONS_LIST_CONFIG);
+  const typeFilter =
+    params.filters.type && (ALLOWED_TYPES as readonly string[]).includes(params.filters.type)
+      ? (params.filters.type as (typeof ALLOWED_TYPES)[number])
+      : undefined;
+  const recipientFilter =
+    params.filters.recipientType === 'student' ||
+    params.filters.recipientType === 'parent' ||
+    params.filters.recipientType === 'branch'
+      ? (params.filters.recipientType as NotificationRecipientType)
+      : undefined;
+  // 기본 기간: 최근 30일(진입 시 빈 화면 방지). '7d'/'all' 은 명시 선택 시에만.
+  const period: NotificationPeriod =
+    params.filters.period === '7d' || params.filters.period === 'all'
+      ? params.filters.period
+      : '30d';
+  return { params, typeFilter, recipientFilter, period };
 }
 
 function Shell({ subtitle, children }: { subtitle?: string; children: ReactNode }) {
@@ -47,28 +65,13 @@ export default async function NotificationsManagementPage({ searchParams }: Page
     );
   }
 
+  const { params, typeFilter, recipientFilter, period } = parseNotificationFilters(raw);
+
   // ─────────────────────────────────────────────────────────────
-  // 슈퍼 관리자 → 전 지점 알림 내역(모니터링). 무지점이라 본인 수신함은 비어 의미가 없음.
+  // 슈퍼 관리자 → 전 지점 통합 모니터링(지점 드롭다운으로 좁혀보기).
   // ─────────────────────────────────────────────────────────────
   if (ctx.isSuperAdmin) {
     const branches = await getAllBranches();
-    const params = parseListParams(raw, NOTIFICATIONS_LIST_CONFIG);
-
-    const allowedTypes = ['late', 'absent', 'point', 'schedule', 'system'] as const;
-    const typeFilter =
-      params.filters.type && (allowedTypes as readonly string[]).includes(params.filters.type)
-        ? (params.filters.type as (typeof allowedTypes)[number])
-        : undefined;
-    const recipientFilter =
-      params.filters.recipientType === 'student' || params.filters.recipientType === 'parent'
-        ? (params.filters.recipientType as NotificationRecipientType)
-        : undefined;
-    // 기본 기간: 최근 30일(진입 시 빈 화면 방지). '7d'/'all' 은 명시 선택 시에만.
-    const period: NotificationPeriod =
-      params.filters.period === '7d' || params.filters.period === 'all'
-        ? params.filters.period
-        : '30d';
-
     const branchParam = pickFirst(raw.branch);
     const effectiveBranchId =
       branchParam && branches.some((b) => b.id === branchParam) ? branchParam : null;
@@ -89,7 +92,7 @@ export default async function NotificationsManagementPage({ searchParams }: Page
     ]);
 
     return (
-      <Shell subtitle='학생·학부모에게 발송된 인앱/푸시 알림 내역입니다.'>
+      <Shell subtitle='학생·학부모에게 발송된 인앱/푸시 알림 + 지점 공용 알림 내역입니다.'>
         <BranchNotificationLog
           initialResult={branchResult}
           stats={branchStats}
@@ -100,20 +103,30 @@ export default async function NotificationsManagementPage({ searchParams }: Page
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 일반 관리자 → 본인 수신함. 읽음 처리 시 사이드바 "알림 관리" 배지가 감소.
+  // 일반(지점) 관리자 → 본인 지점 통합 피드. branchId 는 액션 내부에서 ctx.branchId 로 강제됨.
   // ─────────────────────────────────────────────────────────────
-  const [myNotifications, unreadCount] = await Promise.all([
-    getUserNotifications({ limit: PAGE_SIZE, offset: 0, excludeTypes: ['chat'] }),
-    getUnreadUserNotificationCount({ excludeTypes: ['chat'] }),
+  const [branchResult, branchStats] = await Promise.all([
+    getAdminNotifications({
+      branchId: null,
+      page: params.page,
+      pageSize: params.pageSize,
+      q: params.q,
+      sort: params.sort,
+      dir: params.dir,
+      recipientType: recipientFilter,
+      type: typeFilter,
+      period,
+    }),
+    getAdminNotificationStats(null, period),
   ]);
 
   return (
-    <Shell>
-      <MyNotifications
-        initialNotifications={myNotifications}
-        initialUnreadCount={unreadCount}
-        userId={ctx.userId}
-        pageSize={PAGE_SIZE}
+    <Shell subtitle='본 지점의 학생·학부모 알림 + 지점 공용 알림 내역입니다.'>
+      <BranchNotificationLog
+        initialResult={branchResult}
+        stats={branchStats}
+        branches={[]}
+        isBranchAdmin
       />
     </Shell>
   );

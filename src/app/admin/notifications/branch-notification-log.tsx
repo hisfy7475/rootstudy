@@ -1,12 +1,13 @@
 'use client';
 
 import { useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar, type ToolbarFilter } from '@/components/ui/data-table-toolbar';
-import type { NotificationsListResult } from '@/lib/actions/admin';
+import { type NotificationsListResult, markBranchNotificationRead } from '@/lib/actions/admin';
 import {
   Bell,
   Clock,
@@ -17,6 +18,7 @@ import {
   RefreshCw,
   GraduationCap,
   UserCircle,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -31,18 +33,27 @@ const typeConfig = {
 const recipientConfig = {
   student: { label: '학생', icon: GraduationCap, color: 'text-blue-600', bgColor: 'bg-blue-100' },
   parent: { label: '학부모', icon: UserCircle, color: 'text-green-600', bgColor: 'bg-green-100' },
+  branch: {
+    label: '지점 공용',
+    icon: Building2,
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-100',
+  },
 } as const;
 
 interface BranchNotificationLogProps {
   initialResult: NotificationsListResult;
   stats: { total: number; read: number; unread: number; today: number };
   branches: { id: string; name: string }[];
+  /** 일반(지점) 관리자 모드 — 지점 드롭다운 숨김 + 학생/학부모 읽음 기준 통계 카드 숨김. */
+  isBranchAdmin?: boolean;
 }
 
 export function BranchNotificationLog({
   initialResult,
   stats,
   branches,
+  isBranchAdmin = false,
 }: BranchNotificationLogProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -56,6 +67,12 @@ export function BranchNotificationLog({
 
   function refresh() {
     startTransition(() => router.refresh());
+  }
+
+  // 지점 공용 알림(처리 항목) 클릭 시 읽음 처리(fire-and-forget). 보통 link 로 이동하므로
+  // 현재 화면 refresh 는 불필요하고, 다른 관리자 뱃지는 realtime 으로 갱신된다.
+  function markBranchReadOnClick(id: string, isRead: boolean) {
+    if (!isRead) void markBranchNotificationRead(id);
   }
 
   function formatDate(dateStr: string) {
@@ -78,14 +95,18 @@ export function BranchNotificationLog({
     });
   }
 
-  // 슈퍼 관리자 전용 화면 — 전 지점 통합 + 지점 드롭다운으로 좁혀보기.
+  // 지점 드롭다운은 슈퍼 관리자 전용(전 지점 좁혀보기). 일반 관리자는 본인 지점 고정이라 숨김.
   const filters: ToolbarFilter[] = [
-    {
-      key: 'branch',
-      label: '지점',
-      allLabel: '전체 지점',
-      options: branches.map((b) => ({ value: b.id, label: b.name })),
-    },
+    ...(isBranchAdmin
+      ? []
+      : [
+          {
+            key: 'branch',
+            label: '지점',
+            allLabel: '전체 지점',
+            options: branches.map((b) => ({ value: b.id, label: b.name })),
+          } satisfies ToolbarFilter,
+        ]),
     {
       key: 'period',
       label: '기간',
@@ -101,6 +122,7 @@ export function BranchNotificationLog({
       options: [
         { value: 'student', label: '학생' },
         { value: 'parent', label: '학부모' },
+        { value: 'branch', label: '지점 공용' },
       ],
     },
     {
@@ -131,28 +153,34 @@ export function BranchNotificationLog({
             </div>
           </div>
         </Card>
-        <Card className='p-4'>
-          <div className='flex items-center gap-3'>
-            <div className='bg-success/20 flex h-10 w-10 items-center justify-center rounded-xl'>
-              <CheckCircle className='h-5 w-5 text-green-600' />
-            </div>
-            <div>
-              <p className='text-text-muted text-sm'>읽음</p>
-              <p className='text-2xl font-bold'>{stats.read}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className='p-4'>
-          <div className='flex items-center gap-3'>
-            <div className='bg-warning/20 flex h-10 w-10 items-center justify-center rounded-xl'>
-              <Clock className='h-5 w-5 text-yellow-600' />
-            </div>
-            <div>
-              <p className='text-text-muted text-sm'>안 읽음</p>
-              <p className='text-2xl font-bold'>{stats.unread}</p>
-            </div>
-          </div>
-        </Card>
+        {/* 읽음/안읽음은 학생·학부모 본인 읽음 기준이라 관리자 행동과 무관 → 일반 관리자에겐 숨김.
+            지점 공용 알림의 미읽음은 사이드바 "알림 관리" 뱃지가 담당. */}
+        {!isBranchAdmin && (
+          <>
+            <Card className='p-4'>
+              <div className='flex items-center gap-3'>
+                <div className='bg-success/20 flex h-10 w-10 items-center justify-center rounded-xl'>
+                  <CheckCircle className='h-5 w-5 text-green-600' />
+                </div>
+                <div>
+                  <p className='text-text-muted text-sm'>읽음</p>
+                  <p className='text-2xl font-bold'>{stats.read}</p>
+                </div>
+              </div>
+            </Card>
+            <Card className='p-4'>
+              <div className='flex items-center gap-3'>
+                <div className='bg-warning/20 flex h-10 w-10 items-center justify-center rounded-xl'>
+                  <Clock className='h-5 w-5 text-yellow-600' />
+                </div>
+                <div>
+                  <p className='text-text-muted text-sm'>안 읽음</p>
+                  <p className='text-2xl font-bold'>{stats.unread}</p>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
         <Card className='p-4'>
           <div className='flex items-center gap-3'>
             <div className='bg-secondary/10 flex h-10 w-10 items-center justify-center rounded-xl'>
@@ -191,55 +219,79 @@ export function BranchNotificationLog({
           ) : (
             notifications.map((notification) => {
               const config = typeConfig[notification.type] ?? typeConfig.system;
-              const recipient = recipientConfig[notification.recipient_type];
+              // 미래에 새 recipient_type 이 추가돼도 크래시하지 않도록 fallback.
+              const recipient =
+                recipientConfig[notification.recipient_type] ?? recipientConfig.student;
               const RecipientIcon = recipient.icon;
+              // 지점 공용(처리 항목)이고 내부 링크가 있으면 클릭 시 읽음 처리 + 이동.
+              const isClickableBranch =
+                notification.recipient_type === 'branch' &&
+                typeof notification.link === 'string' &&
+                notification.link.startsWith('/');
+
+              const inner = (
+                <div className='min-w-0 flex-1'>
+                  <div className='mb-1 flex flex-wrap items-center gap-2'>
+                    <span className='font-medium'>{notification.title}</span>
+                    <span
+                      className={cn('rounded px-2 py-0.5 text-xs', config.bgColor, config.color)}
+                    >
+                      {config.label}
+                    </span>
+                    {notification.is_read ? (
+                      <span className='flex items-center gap-1 text-xs text-green-600'>
+                        <CheckCircle className='h-3 w-3' />
+                        읽음
+                      </span>
+                    ) : (
+                      <span className='flex items-center gap-1 text-xs text-yellow-600'>
+                        <Clock className='h-3 w-3' />안 읽음
+                      </span>
+                    )}
+                  </div>
+                  <p className='text-text-muted mb-1 text-sm'>{notification.message}</p>
+                  <div className='text-text-muted flex flex-wrap items-center gap-2 text-xs'>
+                    <span
+                      className={cn(
+                        'flex items-center gap-1 rounded px-2 py-0.5',
+                        recipient.bgColor,
+                        recipient.color,
+                      )}
+                    >
+                      <RecipientIcon className='h-3 w-3' />
+                      {recipient.label}
+                    </span>
+                    <span>
+                      {notification.recipient_seat_number != null
+                        ? `${notification.recipient_seat_number}번 `
+                        : ''}
+                      {notification.recipient_name}
+                    </span>
+                    <span>•</span>
+                    <span>{formatDate(notification.created_at)}</span>
+                  </div>
+                </div>
+              );
+
+              if (isClickableBranch) {
+                return (
+                  <Link
+                    key={notification.row_key}
+                    href={notification.link as string}
+                    onClick={() => markBranchReadOnClick(notification.id, notification.is_read)}
+                    className='flex items-start gap-4 rounded-xl bg-gray-50 p-4 transition-colors hover:bg-gray-100'
+                  >
+                    {inner}
+                  </Link>
+                );
+              }
 
               return (
                 <div
                   key={notification.row_key}
                   className='flex items-start gap-4 rounded-xl bg-gray-50 p-4'
                 >
-                  <div className='min-w-0 flex-1'>
-                    <div className='mb-1 flex flex-wrap items-center gap-2'>
-                      <span className='font-medium'>{notification.title}</span>
-                      <span
-                        className={cn('rounded px-2 py-0.5 text-xs', config.bgColor, config.color)}
-                      >
-                        {config.label}
-                      </span>
-                      {notification.is_read ? (
-                        <span className='flex items-center gap-1 text-xs text-green-600'>
-                          <CheckCircle className='h-3 w-3' />
-                          읽음
-                        </span>
-                      ) : (
-                        <span className='flex items-center gap-1 text-xs text-yellow-600'>
-                          <Clock className='h-3 w-3' />안 읽음
-                        </span>
-                      )}
-                    </div>
-                    <p className='text-text-muted mb-1 text-sm'>{notification.message}</p>
-                    <div className='text-text-muted flex flex-wrap items-center gap-2 text-xs'>
-                      <span
-                        className={cn(
-                          'flex items-center gap-1 rounded px-2 py-0.5',
-                          recipient.bgColor,
-                          recipient.color,
-                        )}
-                      >
-                        <RecipientIcon className='h-3 w-3' />
-                        {recipient.label}
-                      </span>
-                      <span>
-                        {notification.recipient_seat_number != null
-                          ? `${notification.recipient_seat_number}번 `
-                          : ''}
-                        {notification.recipient_name}
-                      </span>
-                      <span>•</span>
-                      <span>{formatDate(notification.created_at)}</span>
-                    </div>
-                  </div>
+                  {inner}
                 </div>
               );
             })
