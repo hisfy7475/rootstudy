@@ -24,7 +24,7 @@ import {
   type UnifiedAppRow,
   type UnifiedAppStatus,
 } from '@/lib/actions/unified-applications';
-import { formatSeatSnapshot } from '@/lib/seat-display';
+import { formatSeatMovedNote, formatSeatSnapshot } from '@/lib/seat-display';
 
 const DOMAIN_LABEL: Record<UnifiedAppDomain, string> = {
   meal: '급식',
@@ -580,7 +580,10 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
       상태: statusToText(r.status_normalized),
       상태원본: r.status_raw,
       지점: r.branch_name ?? '',
-      좌석: formatSeatSnapshot(r.seat_number_snapshot, r.student_seat_number_current),
+      // 좌석은 숫자 컬럼으로 분리해 엑셀에서 숫자 정렬이 되도록 한다(배식 좌석순 정렬).
+      // null 은 빈 셀로 둬야 컬럼 전체가 텍스트로 인식되지 않는다.
+      좌석: r.seat_number_snapshot ?? '',
+      좌석비고: formatSeatMovedNote(r.seat_number_snapshot, r.student_seat_number_current),
       학생: r.student_name ?? '',
       학생전화: r.student_phone ?? '',
       퇴원여부: r.student_withdrawn_at ? '퇴원' : '',
