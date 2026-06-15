@@ -56,6 +56,15 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // 토큰 갱신으로 setAll이 supabaseResponse에 심은 Set-Cookie를, 새로 생성하는 redirect/JSON
+  // 응답에도 복사한다. 안 하면 토큰 갱신이 리다이렉트와 겹치는 요청에서 갱신 쿠키가 유실돼
+  // 다음 요청이 만료 토큰을 재제출하게 된다. (@supabase/ssr 권장 패턴.
+  // ResponseCookies.getAll()은 httpOnly/secure/sameSite/path/maxAge 등 옵션까지 포함해 반환한다.)
+  const withSession = (res: NextResponse): NextResponse => {
+    supabaseResponse.cookies.getAll().forEach((cookie) => res.cookies.set(cookie));
+    return res;
+  };
+
   // 푸시 토큰 API — 세션 쿠키만 갱신하고 리다이렉트하지 않음 (공개 경로로 두면 로그인 사용자가 오히려 홈으로 보내짐)
   if (pathname.startsWith('/api/push')) {
     return supabaseResponse;
@@ -79,7 +88,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublicPath && pathname !== '/') {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
-    return NextResponse.redirect(url);
+    return withSession(NextResponse.redirect(url));
   }
 
   // 인증된 사용자 처리
@@ -101,15 +110,17 @@ export async function middleware(request: NextRequest) {
     // (/api/payments, /api/push, /api/cron 은 위 분기에서 이미 별도 처리되어 여기 도달하지 않음.)
     if (withdrawnAt) {
       if (pathname.startsWith('/api/')) {
-        return new NextResponse(JSON.stringify({ error: 'account_withdrawn' }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        });
+        return withSession(
+          new NextResponse(JSON.stringify({ error: 'account_withdrawn' }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
       }
       if (pathname !== '/account/withdrawn') {
         const url = request.nextUrl.clone();
         url.pathname = '/account/withdrawn';
-        return NextResponse.redirect(url);
+        return withSession(NextResponse.redirect(url));
       }
       return supabaseResponse;
     }
@@ -120,7 +131,7 @@ export async function middleware(request: NextRequest) {
       if (pathname !== '/student/pending') {
         const url = request.nextUrl.clone();
         url.pathname = '/student/pending';
-        return NextResponse.redirect(url);
+        return withSession(NextResponse.redirect(url));
       }
       return supabaseResponse;
     }
@@ -129,7 +140,7 @@ export async function middleware(request: NextRequest) {
     if (userType === 'student' && isApproved === true && pathname === '/student/pending') {
       const url = request.nextUrl.clone();
       url.pathname = '/student';
-      return NextResponse.redirect(url);
+      return withSession(NextResponse.redirect(url));
     }
 
     // 정책/안내 페이지는 로그인 여부와 무관하게 그대로 표시
@@ -141,14 +152,14 @@ export async function middleware(request: NextRequest) {
     if (isPublicPath && correctPath) {
       const url = request.nextUrl.clone();
       url.pathname = correctPath;
-      return NextResponse.redirect(url);
+      return withSession(NextResponse.redirect(url));
     }
 
     // 루트 경로 접근 시 → 본인 타입 페이지로 리다이렉트
     if (pathname === '/' && correctPath) {
       const url = request.nextUrl.clone();
       url.pathname = correctPath;
-      return NextResponse.redirect(url);
+      return withSession(NextResponse.redirect(url));
     }
 
     // 잘못된 타입의 경로 접근 시 → 본인 타입 페이지로 리다이렉트
@@ -160,7 +171,7 @@ export async function middleware(request: NextRequest) {
       if (isAccessingOtherUserPath) {
         const url = request.nextUrl.clone();
         url.pathname = correctPath;
-        return NextResponse.redirect(url);
+        return withSession(NextResponse.redirect(url));
       }
     }
 
@@ -168,7 +179,7 @@ export async function middleware(request: NextRequest) {
     if (!profile && !isPublicPath) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
-      return NextResponse.redirect(url);
+      return withSession(NextResponse.redirect(url));
     }
   }
 
