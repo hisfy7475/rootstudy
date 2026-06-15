@@ -6,15 +6,14 @@ import Image from 'next/image';
 import { User, Settings, LogOut, ChevronDown, Bell, Megaphone } from 'lucide-react';
 import { cn, isNativeApp } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
-import { getUnreadNotificationCount } from '@/lib/actions/notification';
 import { getUnreadAnnouncementCount } from '@/lib/actions/announcement';
 import { createClient } from '@/lib/supabase/client';
+import { useUnreadCounts } from '@/components/shared/unread-counts-provider';
 
 interface StudentHeaderProps {
   userName?: string;
   seatNumber?: number;
   userId?: string;
-  initialUnreadCount?: number;
   initialUnreadAnnouncementCount?: number;
 }
 
@@ -22,11 +21,12 @@ export function StudentHeader({
   userName,
   seatNumber,
   userId,
-  initialUnreadCount = 0,
   initialUnreadAnnouncementCount = 0,
 }: StudentHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  // 알림 배지 카운트는 공유 store(UnreadCountsProvider)에서 읽는다.
+  const { notif } = useUnreadCounts();
+  const unreadCount = notif.count;
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(
     initialUnreadAnnouncementCount,
   );
@@ -56,50 +56,6 @@ export function StudentHeader({
       document.documentElement.style.removeProperty('--app-header-height');
     };
   }, []);
-
-  // 알림 카운트 realtime — 페이지 표시와 일관되게 모든 type 포함.
-  // sidebar.tsx 패턴 — session 을 await + setAuth 한 뒤 subscribe 해야 realtime listener 가
-  // 'authenticated' 로 등록되어 RLS SELECT 가 통과되고 postgres_changes 이벤트가 도달한다.
-  useEffect(() => {
-    if (!userId) return;
-    const supabase = createClient();
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    const refetch = () => {
-      void getUnreadNotificationCount({ excludeTypes: ['chat'] })
-        .then(setUnreadCount)
-        .catch((e) => console.error('[student-header] unread notif refetch', e));
-    };
-
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        await supabase.realtime.setAuth(session.access_token);
-      }
-      if (cancelled) return;
-      channel = supabase
-        .channel(`student-header-notif-${userId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'student_notifications',
-            filter: `student_id=eq.${userId}`,
-          },
-          refetch,
-        )
-        .subscribe();
-    })();
-
-    return () => {
-      cancelled = true;
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [userId]);
 
   // 공지 카운트 realtime (announcements INSERT + announcement_reads 읽음 처리).
   useEffect(() => {

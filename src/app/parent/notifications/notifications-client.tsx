@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { useUnreadCounts } from '@/components/shared/unread-counts-provider';
 
 interface UserNotification {
   id: string;
@@ -37,14 +38,8 @@ interface UserNotification {
 
 interface ParentNotificationsClientProps {
   initialNotifications: UserNotification[];
-  initialUnreadCount: number;
   userId: string | null;
   pageSize: number;
-}
-
-// 페이지 표시와 일관: 모든 type의 unread 를 카운트.
-function countUnreadForBadge(items: UserNotification[]): number {
-  return items.filter((n) => !n.is_read).length;
 }
 
 function isSafeInternalLink(link: string | null | undefined): link is string {
@@ -98,12 +93,13 @@ const typeConfig = {
 
 export function ParentNotificationsClient({
   initialNotifications,
-  initialUnreadCount,
   userId,
   pageSize,
 }: ParentNotificationsClientProps) {
   const [notifications, setNotifications] = useState<UserNotification[]>(initialNotifications);
-  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  // 배지 카운트는 헤더와 공유하는 store 에서 읽고/갱신한다.
+  const { notif } = useUnreadCounts();
+  const unreadCount = notif.count;
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialNotifications.length >= pageSize);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -118,8 +114,8 @@ export function ParentNotificationsClient({
         excludeTypes: ['chat'],
       });
       setNotifications(data as UserNotification[]);
-      setUnreadCount(countUnreadForBadge(data as UserNotification[]));
       setHasMore(data.length >= pageSize);
+      notif.refetch();
     } catch (error) {
       console.error('Failed to refresh:', error);
     } finally {
@@ -132,7 +128,8 @@ export function ParentNotificationsClient({
     if (result.success) {
       const next = notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n));
       setNotifications(next);
-      setUnreadCount(countUnreadForBadge(next));
+      notif.setCount((c) => Math.max(0, c - 1));
+      notif.refetch();
     }
   };
 
@@ -141,7 +138,8 @@ export function ParentNotificationsClient({
     if (result.success) {
       const next = notifications.map((n) => ({ ...n, is_read: true }));
       setNotifications(next);
-      setUnreadCount(countUnreadForBadge(next));
+      notif.setCount(0);
+      notif.refetch();
     }
   };
 
@@ -186,7 +184,6 @@ export function ParentNotificationsClient({
                 const old = payload.old as { id?: string };
                 if (old?.id) next = prev.filter((n) => n.id !== old.id);
               }
-              setUnreadCount(countUnreadForBadge(next));
               return next;
             });
           },
