@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { cancelPendingMealOrder } from '@/lib/actions/meal';
+import {
+  cancelPendingMealOrder,
+  startMealPayment,
+  type MockExamOptionSelectionInput,
+  type OrderConflictItem,
+} from '@/lib/actions/meal';
+import { ConflictDialog } from '@/components/shared/payment/conflict-dialog';
 import { NICEPAY_PGWEB_SCRIPT_SRC } from '@/lib/nicepay';
 import { isNativeApp } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
@@ -50,29 +56,52 @@ export type PaymentInit = {
 /**
  * NICEPay PG Web v3 결제창 클라이언트 (meal/exam 공용).
  * 학생·학부모, 급식·모의고사 모든 결제 페이지에서 재사용된다.
+ *
+ * 주문(meal_orders pending 행)은 결제 페이지 진입 시점이 아니라 "카드 결제하기" 클릭 시점에
+ * `startMealPayment` 로 생성된다. 결제하지 않고 이탈하면 주문이 애초에 만들어지지 않아
+ * 유령 결제대기/신청대기가 남지 않는다.
  */
 export function PayClient({
-  paymentInit,
   mallReserved,
   backHref,
-  orderRowId,
+  category,
+  variantId,
+  studentId,
+  optionSelectionsInput,
   displayAmount,
   displayGoodsName,
   optionSelections,
 }: {
-  paymentInit: PaymentInit | null;
   mallReserved: 's' | 'p';
   backHref: string;
-  orderRowId: string;
+  /** conflict 다이얼로그 문구 분기용. */
+  category: 'meal' | 'exam';
+  /** 결제 대상 variant. "카드 결제하기" 시 이 variant 로 주문을 생성한다. */
+  variantId: string;
+  /** 결제 대상 학생(본인 또는 자녀). */
+  studentId: string;
+  /** 모의고사 선택 옵션(서버 검증/저장용). 급식은 undefined. */
+  optionSelectionsInput?: MockExamOptionSelectionInput[];
   displayAmount: number;
   displayGoodsName: string;
-  /** 모의고사 옵션 스냅샷. 비어있거나 undefined면 옵션 영역 미표시. */
+  /** 모의고사 옵션 표시(스냅샷). 비어있거나 undefined면 옵션 영역 미표시. */
   optionSelections?: { group_name: string; option_name: string }[];
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [scriptReady, setScriptReady] = useState(false);
+  /** startMealPayment 서버액션 진행 중(주문 생성/검증). */
+  const [submitting, setSubmitting] = useState(false);
+  /** goPay 로 결제창이 열린 상태. */
   const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<OrderConflictItem[] | null>(null);
+  const [paymentInit, setPaymentInit] = useState<PaymentInit | null>(null);
+  /** paymentInit 가 DOM 에 commit 된 뒤 goPay 를 호출하기 위한 트리거. */
+  const [pendingGoPay, setPendingGoPay] = useState(false);
+  /** 생성된 주문 row id. 콜백(nicepayClose/돌아가기)에서 최신 값을 읽으려고 ref 로 둔다. */
+  const orderRowIdRef = useRef<string | null>(null);
+
   const appScheme = useSyncExternalStore(
     subscribeNoop,
     getClientSchemeSnapshot,
@@ -83,6 +112,10 @@ export function PayClient({
     getClientReturnUrlSnapshot,
     getServerReturnUrlSnapshot,
   );
+
+  const setOrder = useCallback((id: string | null) => {
+    orderRowIdRef.current = id;
+  }, []);
 
   useEffect(() => {
     // 이전 마운트에서 이미 로드 완료된 경우 — window.goPay 존재로 판단.
@@ -114,43 +147,80 @@ export function PayClient({
     };
     window.nicepayClose = () => {
       setPaying(false);
+      // 사용자가 결제창을 닫음 → 방금 만든 미완료 주문을 정리해 유령 주문이 남지 않게 한다.
+      const id = orderRowIdRef.current;
+      if (id) void cancelPendingMealOrder(id);
+      setOrder(null);
+      setPaymentInit(null);
       alert('결제가 취소되었습니다.');
     };
     return () => {
       delete window.nicepaySubmit;
       delete window.nicepayClose;
     };
-  }, [scriptReady]);
+  }, [scriptReady, setOrder]);
 
-  const startPay = useCallback(() => {
-    if (!paymentInit) {
-      alert('결제 설정(NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY)을 확인해 주세요.');
-      return;
-    }
-    if (!returnUrl.startsWith('http')) {
-      alert('결제 준비가 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    if (!window.goPay) {
-      alert('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    const form = formRef.current;
-    if (!form) return;
-
+  // paymentInit 가 form 에 반영(commit)된 뒤에만 goPay 호출. onClick 직후 호출하면
+  // controlled input 의 DOM value 가 아직 갱신 전이라 결제 파라미터가 비어 전송된다.
+  useEffect(() => {
+    if (!pendingGoPay) return;
+    if (!paymentInit || !formRef.current || typeof window.goPay !== 'function') return;
+    setPendingGoPay(false);
     setPaying(true);
     try {
-      window.goPay(form);
+      window.goPay(formRef.current);
     } catch (e) {
       console.error(e);
       setPaying(false);
+      setError('결제창을 여는 중 오류가 발생했습니다.');
     }
-  }, [paymentInit, returnUrl]);
+  }, [pendingGoPay, paymentInit]);
 
-  const handleCancel = async () => {
-    await cancelPendingMealOrder(orderRowId);
+  const runPay = useCallback(
+    async (force: boolean) => {
+      if (!returnUrl.startsWith('http')) {
+        setError('결제 준비가 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.');
+        return;
+      }
+      setError(null);
+      setSubmitting(true);
+      try {
+        const res = await startMealPayment(variantId, studentId, {
+          force: force || undefined,
+          optionSelections:
+            optionSelectionsInput && optionSelectionsInput.length > 0
+              ? optionSelectionsInput
+              : undefined,
+        });
+        if (res.conflict && res.conflict.length > 0 && !force) {
+          setConflict(res.conflict);
+          return;
+        }
+        if (res.error || !res.paymentInit || !res.orderRowId) {
+          setError(res.error || '결제 준비에 실패했습니다.');
+          return;
+        }
+        setConflict(null);
+        setOrder(res.orderRowId);
+        setPaymentInit(res.paymentInit);
+        setPendingGoPay(true);
+      } catch (e) {
+        console.error(e);
+        setError('오류가 발생했습니다.');
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [returnUrl, variantId, studentId, optionSelectionsInput, setOrder],
+  );
+
+  const handleCancel = useCallback(async () => {
+    const id = orderRowIdRef.current;
+    if (id) await cancelPendingMealOrder(id);
     router.push(backHref);
-  };
+  }, [router, backHref]);
+
+  const busy = submitting || paying;
 
   return (
     <div className='space-y-4'>
@@ -213,19 +283,25 @@ export function PayClient({
         </dl>
       </Card>
 
-      {!paymentInit ? (
-        <p className='text-destructive text-sm'>
-          결제 연동 정보가 없습니다. 서버 환경변수 NEXT_PUBLIC_NICEPAY_MID, NICEPAY_MERCHANT_KEY를
-          확인해 주세요.
-        </p>
-      ) : !scriptReady || !returnUrl ? (
+      {error ? <p className='text-destructive text-sm'>{error}</p> : null}
+
+      {!scriptReady || !returnUrl ? (
         <div className='text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm'>
           <Loader2 className='h-4 w-4 animate-spin' />
           결제 준비 중…
         </div>
       ) : (
-        <Button className='w-full' size='lg' disabled={paying} onClick={startPay}>
-          {paying ? '결제창 열림…' : '카드 결제하기'}
+        <Button className='w-full' size='lg' disabled={busy} onClick={() => void runPay(false)}>
+          {submitting ? (
+            <>
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              결제 준비 중…
+            </>
+          ) : paying ? (
+            '결제창 열림…'
+          ) : (
+            '카드 결제하기'
+          )}
         </Button>
       )}
 
@@ -233,10 +309,21 @@ export function PayClient({
         variant='outline'
         className='w-full'
         type='button'
+        disabled={busy}
         onClick={() => void handleCancel()}
       >
-        돌아가기 (주문 취소)
+        돌아가기
       </Button>
+
+      {conflict && conflict.length > 0 ? (
+        <ConflictDialog
+          conflicts={conflict}
+          category={category}
+          loading={submitting}
+          onCancel={() => setConflict(null)}
+          onConfirm={() => void runPay(true)}
+        />
+      ) : null}
     </div>
   );
 }
