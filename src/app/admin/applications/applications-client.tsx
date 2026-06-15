@@ -66,6 +66,7 @@ const MEAL_SUBCATEGORY_LABEL: Record<string, string> = {
 interface InitialFilters {
   domain?: UnifiedAppDomain;
   status?: UnifiedAppStatus;
+  mealType?: 'lunch' | 'dinner';
   branchId?: string;
   fromDate: string;
   toDate: string;
@@ -77,8 +78,15 @@ interface BranchOption {
   name: string;
 }
 
-type SortField = 'applied_at' | 'amount' | 'service_start_date';
+type SortField =
+  | 'applied_at'
+  | 'amount'
+  | 'service_start_date'
+  | 'seat_number_snapshot'
+  | 'item_name'
+  | 'student_name';
 type SortDir = 'asc' | 'desc';
+type MealTypeFilter = 'lunch' | 'dinner' | 'all';
 
 interface Props {
   initialResult: UnifiedAppPage;
@@ -104,6 +112,12 @@ const STATUS_TABS: { key: UnifiedAppStatus | 'all'; label: string }[] = [
   { key: 'rejected', label: '거절' },
   { key: 'refunded', label: '환불' },
   { key: 'failed', label: '실패' },
+];
+
+const MEAL_TYPE_TABS: { key: MealTypeFilter; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'lunch', label: MEAL_SUBCATEGORY_LABEL.lunch },
+  { key: 'dinner', label: MEAL_SUBCATEGORY_LABEL.dinner },
 ];
 
 function formatDateTime(value: string | null | undefined): string {
@@ -177,6 +191,7 @@ export function ApplicationsClient({
   const [local, setLocal] = useState<{
     domain: UnifiedAppDomain | 'all';
     status: UnifiedAppStatus | 'all';
+    mealType: MealTypeFilter;
     branchId: string;
     fromDate: string;
     toDate: string;
@@ -184,6 +199,7 @@ export function ApplicationsClient({
   }>({
     domain: initialFilters.domain ?? 'all',
     status: initialFilters.status ?? 'all',
+    mealType: initialFilters.mealType ?? 'all',
     branchId: initialFilters.branchId ?? '',
     fromDate: initialFilters.fromDate,
     toDate: initialFilters.toDate,
@@ -195,12 +211,16 @@ export function ApplicationsClient({
 
   function pushFilters(next: Partial<typeof local>): void {
     const merged = { ...local, ...next };
+    // 급식 식수 필터는 급식 도메인에서만 유효. 다른 도메인으로 바뀌면 자동 해제.
+    // (머지 후 실효 도메인 merged.domain 기준으로 판정해야 식수 pill 클릭이 안 지워진다.)
+    if (merged.domain !== 'meal') merged.mealType = 'all';
     setLocal(merged);
     const trimmedQ = merged.q.trim();
     // 현재 URL 기준 patch — sort/dir/size 는 자연 보존. page 는 필터 변경 시 1로 리셋.
     const href = buildListHref(pathname, new URLSearchParams(searchParams.toString()), {
       domain: merged.domain === 'all' ? null : merged.domain,
       status: merged.status === 'all' ? null : merged.status,
+      mealType: merged.mealType === 'all' ? null : merged.mealType,
       branchId: merged.branchId || null,
       from: merged.fromDate || null,
       to: merged.toDate || null,
@@ -218,6 +238,7 @@ export function ApplicationsClient({
     setLocal({
       domain: 'all',
       status: 'all',
+      mealType: 'all',
       branchId: '',
       fromDate: '',
       toDate: '',
@@ -251,6 +272,7 @@ export function ApplicationsClient({
       const { rows, truncated } = await exportUnifiedApplicationsForAdmin({
         domain: local.domain === 'all' ? undefined : local.domain,
         status: local.status === 'all' ? undefined : local.status,
+        mealType: local.mealType === 'all' ? undefined : local.mealType,
         branchId: isSuperAdmin && local.branchId ? local.branchId : undefined,
         fromDate: local.fromDate || undefined,
         toDate: local.toDate || undefined,
@@ -312,6 +334,24 @@ export function ApplicationsClient({
             </button>
           ))}
         </div>
+        {local.domain === 'meal' && (
+          <div className='flex flex-wrap gap-2'>
+            <span className='text-muted-foreground self-center text-xs'>식사:</span>
+            {MEAL_TYPE_TABS.map((t) => (
+              <button
+                key={t.key}
+                type='button'
+                onClick={() => pushFilters({ mealType: t.key })}
+                className={cn(
+                  'rounded-full px-3 py-1 text-sm',
+                  local.mealType === t.key ? 'bg-primary text-primary-foreground' : 'bg-muted',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
           <label className='space-y-1 text-sm'>
             <span className='text-muted-foreground'>이용일 From</span>
@@ -407,9 +447,33 @@ export function ApplicationsClient({
                 </th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>도메인</th>
                 <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>상태</th>
-                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>좌석</th>
-                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>학생</th>
-                <th className='px-3 py-2 text-left font-medium whitespace-nowrap'>내역</th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('seat_number_snapshot')}
+                >
+                  <div className='flex items-center gap-0.5'>
+                    좌석
+                    {renderSortIcon('seat_number_snapshot')}
+                  </div>
+                </th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('student_name')}
+                >
+                  <div className='flex items-center gap-0.5'>
+                    학생
+                    {renderSortIcon('student_name')}
+                  </div>
+                </th>
+                <th
+                  className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
+                  onClick={() => handleSort('item_name')}
+                >
+                  <div className='flex items-center gap-0.5'>
+                    내역
+                    {renderSortIcon('item_name')}
+                  </div>
+                </th>
                 <th
                   className='hover:bg-muted cursor-pointer px-3 py-2 text-left font-medium whitespace-nowrap transition-colors select-none'
                   onClick={() => handleSort('service_start_date')}
