@@ -2367,6 +2367,7 @@ export async function getStudentDetail(studentId: string) {
     name: string | null;
     email: string | null;
     phone: string | null;
+    withdrawn_at: string | null;
   };
   type ParentObjectRow = {
     id: string;
@@ -2384,7 +2385,8 @@ export async function getStudentDetail(studentId: string) {
           ? parentObj.profiles[0]
           : parentObj.profiles
         : null;
-      if (!parentProfile) return null;
+      // 탈퇴(withdrawn) 학부모는 연결 목록에서 제외 (getMembersList 와 일관)
+      if (!parentProfile || parentProfile.withdrawn_at) return null;
       return {
         id: parentObj?.id || '',
         name: parentProfile.name ?? '',
