@@ -295,8 +295,9 @@ export default function ParentSignupPage() {
                   <Input
                     type='tel'
                     name='phone'
-                    placeholder='전화번호 (선택)'
+                    placeholder='전화번호'
                     className='pl-12'
+                    required
                     disabled={isLoading || !hasVerifiedStudents}
                   />
                 </div>

@@ -125,6 +125,22 @@ export function generateParentCode(): string {
 }
 
 /**
+ * 전화번호를 비교용으로 정규화 — 숫자만 남깁니다.
+ * 예) '010-1234-5678' → '01012345678'. 동일인(전화번호) 중복 계정 감지에 사용.
+ */
+export function normalizePhone(phone: string | null | undefined): string {
+  return (phone ?? '').replace(/\D/g, '');
+}
+
+/**
+ * 이름을 비교용으로 정규화 — 앞뒤 공백 제거 + 내부 연속 공백을 하나로.
+ * 예) ' 안  준태 ' → '안 준태'. 재가입 동일인 감지에서 띄어쓰기 오탐 방지.
+ */
+export function normalizeName(name: string | null | undefined): string {
+  return (name ?? '').trim().replace(/\s+/g, ' ');
+}
+
+/**
  * 실제 날짜/시간을 학습일로 변환 (한국 시간 기준)
  *
  * 서버 타임존에 관계없이 한국 시간(KST, UTC+9) 기준으로 계산합니다.

@@ -33,9 +33,14 @@ export default async function ParentChatPage({ searchParams }: PageProps) {
     );
   }
 
-  // 선택된 자녀 ID 결정 (URL 파라미터 또는 첫 번째 자녀)
+  // 선택된 자녀 ID 결정.
+  // URL 파라미터가 있으면 그 자녀(퇴원 자녀의 과거 대화 열람도 허용),
+  // 없으면 재원 중인 자녀를 우선 기본 선택(퇴원 자녀로 자동 진입 방지).
+  const firstActive = linkedStudents.find((s) => !s.withdrawnAt);
   const selectedChildId =
-    childId && linkedStudents.some((s) => s.id === childId) ? childId : linkedStudents[0].id;
+    childId && linkedStudents.some((s) => s.id === childId)
+      ? childId
+      : (firstActive ?? linkedStudents[0]).id;
 
   const selectedStudent = linkedStudents.find((s) => s.id === selectedChildId);
   const studentName = selectedStudent?.name || '알 수 없음';

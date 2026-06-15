@@ -3,7 +3,7 @@
 import { createClient, createAdminClient, createIsolatedAuthClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { generateParentCode } from '@/lib/utils';
+import { generateParentCode, normalizePhone } from '@/lib/utils';
 
 export type AuthResult = {
   success: boolean;
@@ -32,14 +32,39 @@ export async function signUpStudent(formData: FormData): Promise<AuthResult> {
   const branchId = formData.get('branchId') as string;
   const studentTypeId = formData.get('studentTypeId') as string;
 
-  if (!email || !password || !name || !school || !branchId || !studentTypeId) {
+  if (!email || !password || !name || !phone || !school || !branchId || !studentTypeId) {
     return {
       success: false,
-      error: '필수 항목을 모두 입력해주세요. (이메일, 비밀번호, 이름, 학교, 지점, 학년)',
+      error: '필수 항목을 모두 입력해주세요. (이메일, 비밀번호, 이름, 전화번호, 학교, 지점, 학년)',
     };
   }
 
   const supabaseAdmin = createAdminClient();
+
+  // 0. 재가입 중복 차단 — 동일 이름+전화번호의 학생이 이미 있으면 새 프로필을 만들지 않는다.
+  //    퇴원 학생이면 새 계정 대신 관리자 복구를, 활성 학생이면 로그인을 안내.
+  //    auth user 생성 전에 검사(고아 계정 방지). 이름이 같은 학생만 조회 후 전화번호 정규화 비교.
+  //    한계: 전화번호까지 바꿔 재가입하면 일반 신규와 구분 불가(수용).
+  const normalizedPhone = normalizePhone(phone);
+  if (normalizedPhone) {
+    const { data: sameNameStudents } = await supabaseAdmin
+      .from('profiles')
+      .select('phone, withdrawn_at')
+      .eq('user_type', 'student')
+      .eq('name', name);
+    const match = (sameNameStudents ?? []).find(
+      (p) => normalizePhone((p as { phone: string | null }).phone) === normalizedPhone,
+    );
+    if (match) {
+      const withdrawn = (match as { withdrawn_at: string | null }).withdrawn_at != null;
+      return {
+        success: false,
+        error: withdrawn
+          ? '이전에 가입한 이력이 있습니다. 재가입 대신 관리자에게 계정 복구를 요청해 주세요.'
+          : '이미 가입된 계정이 있습니다. 로그인해 주세요.',
+      };
+    }
+  }
 
   // 1. Supabase Auth로 사용자 생성 (Admin 클라이언트 사용)
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -118,8 +143,8 @@ export async function signUpParent(formData: FormData): Promise<AuthResult> {
   const phone = formData.get('phone') as string;
   const parentCodesJson = formData.get('parentCodes') as string;
 
-  if (!email || !password || !name || !parentCodesJson) {
-    return { success: false, error: '필수 항목을 모두 입력해주세요.' };
+  if (!email || !password || !name || !phone || !parentCodesJson) {
+    return { success: false, error: '필수 항목을 모두 입력해주세요. (전화번호 포함)' };
   }
 
   let parentCodes: string[];
@@ -133,6 +158,26 @@ export async function signUpParent(formData: FormData): Promise<AuthResult> {
   }
 
   const supabaseAdmin = createAdminClient();
+
+  // 0. 동일인(전화번호) 중복 학부모 계정 차단 — auth user 생성 전에 검사(고아 계정 방지).
+  //    부/모가 서로 다른 번호로 각각 가입하는 것은 허용(번호가 다르면 통과).
+  const normalizedPhone = normalizePhone(phone);
+  if (normalizedPhone) {
+    const { data: existingParents } = await supabaseAdmin
+      .from('profiles')
+      .select('phone')
+      .eq('user_type', 'parent')
+      .is('withdrawn_at', null);
+    const dup = (existingParents ?? []).some(
+      (p) => normalizePhone((p as { phone: string | null }).phone) === normalizedPhone,
+    );
+    if (dup) {
+      return {
+        success: false,
+        error: '이미 가입된 학부모 계정이 있습니다. 로그인 후 자녀를 추가해 주세요.',
+      };
+    }
+  }
 
   // 1. 모든 학생 연결 코드 검증 (Admin 클라이언트로 RLS 우회) — 퇴원 학생은 매칭 거부
   const studentIds: string[] = [];
