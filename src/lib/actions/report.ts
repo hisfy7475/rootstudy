@@ -1,7 +1,6 @@
 'use server';
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { fetchAllPaged } from '@/lib/supabase/paginate';
+import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import {
   formatDateKST,
@@ -16,7 +15,6 @@ import {
   getSubjectCategory,
   COUNSELING_TEMPLATES,
   FOCUS_SCORE_TEMPLATES,
-  PEER_BENCHMARK,
 } from '@/lib/constants';
 import type { CounselingTemplate } from '@/types/database';
 import type { SubjectCategory } from '@/lib/constants';
@@ -143,48 +141,6 @@ export interface WeeklyTrendPoint {
   gradePeerAvgSeconds: number;
 }
 
-const _peerAttendanceCache = new Map<
-  string,
-  { data: Array<{ student_id: string; type: string; timestamp: string }>; ts: number }
->();
-const PEER_CACHE_TTL = 60_000;
-
-function getPeerCacheKey(typeId: string | null, rangeStart: string, rangeEnd: string) {
-  return `${typeId ?? 'none'}:${rangeStart}:${rangeEnd}`;
-}
-
-/**
- * 또래 집계용 attendance fetch. RLS상 학생은 본인 attendance만 읽을 수 있으므로
- * 또래 비교 통계 산정에는 service-role(admin)로 우회한다. 반환값은 호출부에서
- * 집계(평균/최고)로 가공되어 노출되므로 개별 또래 raw 데이터는 클라이언트로 흘러가지 않는다.
- * 호출 전에 반드시 assertReportViewer로 인가가 확인되어야 한다.
- */
-async function fetchPaginatedAttendance(
-  studentIds: string[],
-  startIso: string,
-  endIso: string,
-  endExclusive = false,
-): Promise<Array<{ student_id: string; type: string; timestamp: string }>> {
-  const admin = createAdminClient();
-  return fetchAllPaged<{
-    student_id: string;
-    type: string;
-    timestamp: string;
-    source: string | null;
-    gate_name: string | null;
-  }>((from, to) => {
-    const query = admin
-      .from('attendance')
-      .select('student_id, type, timestamp, source, gate_name')
-      .in('student_id', studentIds)
-      .gte('timestamp', startIso);
-
-    return (endExclusive ? query.lt('timestamp', endIso) : query.lte('timestamp', endIso))
-      .order('timestamp', { ascending: true })
-      .range(from, to);
-  });
-}
-
 function calculateStudySeconds(
   attendanceRecords: AttendanceRecord[],
   dayStart: Date,
@@ -290,23 +246,6 @@ function weeklyStudySecondsFromAttendance(
 
   const sessions = extractStudySessions(filtered, sessionCap);
   return sessions.reduce((sum, s) => sum + s.durationSeconds, 0);
-}
-
-/**
- * 또래 주간 순공초 배열에서 상위 ratio(예: 0.3) 평균을 계산.
- * - 본인은 호출부에서 미리 제외해 넘긴다.
- * - 모집단 N=0이면 0.
- * - 표본 수 k = max(1, ceil(N*ratio)) — 작은 집단에서도 최소 1명은 보장.
- */
-function computePeerTopAverageSeconds(
-  peerSecondsExcludingSelf: number[],
-  topRatio: number,
-): number {
-  if (peerSecondsExcludingSelf.length === 0) return 0;
-  const sorted = [...peerSecondsExcludingSelf].sort((a, b) => b - a);
-  const k = Math.max(1, Math.ceil(sorted.length * topRatio));
-  const slice = sorted.slice(0, k);
-  return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length);
 }
 
 async function assertReportViewer(
@@ -459,10 +398,9 @@ export async function getImmersionReportData(
   const { start: periodStart } = getStudyDayBounds(weekDates[0]!);
   const { end: periodEnd } = getStudyDayBounds(weekDates[6]!);
 
-  // 또래 ID 조회는 admin으로 — student RLS는 본인만 보이므로 동일학년 통계용
-  const peerAdmin = createAdminClient();
+  // 또래 상위 30% 학습시간 평균은 DB 집계 RPC 로 산출한다(또래 전원 출결을 앱으로 가져오지 않음).
   const [
-    { data: peerRows },
+    { data: peerAvgRaw },
     { data: attendanceRows },
     { data: focusScores },
     { data: subjectRows },
@@ -472,12 +410,13 @@ export async function getImmersionReportData(
     { data: mentoringResultRows },
   ] = await Promise.all([
     studentTypeId
-      ? peerAdmin
-          .from('student_profiles')
-          .select('id, profiles!inner(withdrawn_at)')
-          .eq('student_type_id', studentTypeId)
-          .is('profiles.withdrawn_at', null)
-      : Promise.resolve({ data: [] as { id: string }[] }),
+      ? supabase.rpc('peer_top_avg_seconds', {
+          p_student_type_id: studentTypeId,
+          p_period_start: periodStart.toISOString(),
+          p_period_end: periodEnd.toISOString(),
+          p_exclude_student: studentId,
+        })
+      : Promise.resolve({ data: 0 }),
     supabase
       .from('attendance')
       .select('type, timestamp, source, gate_name')
@@ -522,7 +461,7 @@ export async function getImmersionReportData(
   ]);
 
   const attendance = (attendanceRows ?? []) as AttendanceRecord[];
-  const peerIds = (peerRows ?? []).map((p) => p.id);
+  const gradeStudyPeerAvgSeconds = (peerAvgRaw as number | null) ?? 0;
   const subjectsForWeek = (subjectRows ?? []).filter((sub) => {
     const subjectStart = new Date(sub.started_at);
     const subjectEnd = sub.ended_at
@@ -532,33 +471,6 @@ export async function getImmersionReportData(
         : subjectStart;
     return subjectEnd > periodStart && subjectStart < periodEnd;
   });
-
-  // 또래 상위 30% 평균 (본인 제외)
-  const peerIdsExSelf = peerIds.filter((id) => id !== studentId);
-  let gradeStudyPeerAvgSeconds = 0;
-  if (peerIdsExSelf.length > 0) {
-    const gradeAttendance = await fetchPaginatedAttendance(
-      peerIdsExSelf,
-      periodStart.toISOString(),
-      periodEnd.toISOString(),
-    );
-
-    const byStudent = new Map<string, AttendanceRecord[]>();
-    for (const row of gradeAttendance) {
-      const sid = row.student_id;
-      const list = byStudent.get(sid) ?? [];
-      list.push({ type: row.type, timestamp: row.timestamp });
-      byStudent.set(sid, list);
-    }
-
-    const peerSeconds = peerIdsExSelf.map((sid) =>
-      extractStudySessions(byStudent.get(sid) ?? [], periodEnd).reduce(
-        (acc, s) => acc + s.durationSeconds,
-        0,
-      ),
-    );
-    gradeStudyPeerAvgSeconds = computePeerTopAverageSeconds(peerSeconds, PEER_BENCHMARK.topRatio);
-  }
 
   const dayLabels = ['월', '화', '수', '목', '금', '토', '일'] as const;
 
@@ -831,17 +743,6 @@ export async function getWeeklyStudyTrend(
     .single();
   const studentTypeId = sp?.student_type_id ?? null;
 
-  // 또래 ID 조회는 admin으로 (RLS 우회) — 동일학년 통계 집계 목적
-  const { data: peerRows } = studentTypeId
-    ? await createAdminClient()
-        .from('student_profiles')
-        .select('id, profiles!inner(withdrawn_at)')
-        .eq('student_type_id', studentTypeId)
-        .is('profiles.withdrawn_at', null)
-    : { data: [] as { id: string }[] };
-
-  const peerIds = (peerRows ?? []).map((p) => p.id);
-
   const currentMondayStr = formatDateKST(getWeekStart());
   const mondays: string[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
@@ -853,94 +754,56 @@ export async function getWeeklyStudyTrend(
 
   if (mondays.length === 0) return [];
 
-  const rangeStart = getCalendarWeekBoundsKST(mondays[0]!).start;
-  const rangeEnd = getCalendarWeekBoundsKST(mondays[mondays.length - 1]!).endExclusive;
+  const weekBounds = mondays.map((m) => getCalendarWeekBoundsKST(m));
+  const rangeStart = weekBounds[0]!.start;
+  const rangeEnd = weekBounds[weekBounds.length - 1]!.endExclusive;
 
-  const allStudentIds = peerIds.length > 0 ? [...new Set([...peerIds, studentId])] : [studentId];
+  // 본인 주차별 순공(my)은 본인 데이터라 RLS 클라이언트로 직접 조회해 계산한다.
+  // 또래 최고치/상위30% 평균은 개인 식별이 불가한 집계라 DB 집계 RPC(peer_bench_trend)로 산출한다
+  // (또래 전원 출결을 앱으로 가져오지 않는다).
+  const [{ data: myAttendance }, { data: benchRows }] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('type, timestamp')
+      .eq('student_id', studentId)
+      .gte('timestamp', rangeStart.toISOString())
+      .lt('timestamp', rangeEnd.toISOString())
+      .order('timestamp', { ascending: true }),
+    supabase.rpc('peer_bench_trend', {
+      p_student_type_id: studentTypeId,
+      p_self_student: studentId,
+      p_week_starts: weekBounds.map((b) => b.start.toISOString()),
+      p_week_ends: weekBounds.map((b) => b.endExclusive.toISOString()),
+    }),
+  ]);
 
-  const cacheKey = getPeerCacheKey(studentTypeId, rangeStart.toISOString(), rangeEnd.toISOString());
-  const cached = _peerAttendanceCache.get(cacheKey);
-  let trendAttendance: Array<{ student_id: string; type: string; timestamp: string }>;
-
-  if (cached && Date.now() - cached.ts < PEER_CACHE_TTL) {
-    const cachedIds = new Set(cached.data.map((r) => r.student_id));
-    if (allStudentIds.every((id) => cachedIds.has(id) || id === studentId)) {
-      const missing = allStudentIds.filter((id) => !cachedIds.has(id));
-      if (missing.length > 0) {
-        const extra = await fetchPaginatedAttendance(
-          missing,
-          rangeStart.toISOString(),
-          rangeEnd.toISOString(),
-          true,
-        );
-        trendAttendance = [...cached.data, ...extra];
-      } else {
-        trendAttendance = cached.data;
-      }
-    } else {
-      trendAttendance = await fetchPaginatedAttendance(
-        allStudentIds,
-        rangeStart.toISOString(),
-        rangeEnd.toISOString(),
-        true,
-      );
-      _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
-    }
-  } else {
-    trendAttendance = await fetchPaginatedAttendance(
-      allStudentIds,
-      rangeStart.toISOString(),
-      rangeEnd.toISOString(),
-      true,
-    );
-    _peerAttendanceCache.set(cacheKey, { data: trendAttendance, ts: Date.now() });
-  }
-
-  const byStudent = new Map<string, AttendanceRecord[]>();
-  for (const row of trendAttendance) {
-    const sid = row.student_id;
-    const list = byStudent.get(sid) ?? [];
-    list.push({ type: row.type, timestamp: row.timestamp });
-    byStudent.set(sid, list);
+  const myRecs = (myAttendance ?? []) as AttendanceRecord[];
+  const benchByIdx = new Map<number, { grade_max_seconds: number; peer_avg_seconds: number }>();
+  for (const r of (benchRows ?? []) as Array<{
+    week_idx: number;
+    grade_max_seconds: number;
+    peer_avg_seconds: number;
+  }>) {
+    benchByIdx.set(Number(r.week_idx), r);
   }
 
   const result: WeeklyTrendPoint[] = [];
   const n = mondays.length;
-  const peerIdsExSelf = peerIds.filter((id) => id !== studentId);
 
   for (let i = 0; i < n; i++) {
-    const mondayStr = mondays[i]!;
-    const { start, endExclusive } = getCalendarWeekBoundsKST(mondayStr);
+    const { start, endExclusive } = weekBounds[i]!;
     const weeksAgo = n - 1 - i;
     const weekLabel = weeksAgo === 0 ? '이번 주' : `${weeksAgo}주 전`;
 
-    const myRecs = byStudent.get(studentId) ?? [];
     const mySeconds = weeklyStudySecondsFromAttendance(myRecs, start, endExclusive);
-
-    // 최고치는 본인 포함 (현행 동작 유지)
-    let gradeMaxSeconds = 0;
-    if (peerIds.length > 0) {
-      const allTotals = peerIds.map((sid) =>
-        weeklyStudySecondsFromAttendance(byStudent.get(sid) ?? [], start, endExclusive),
-      );
-      gradeMaxSeconds = allTotals.length > 0 ? Math.max(...allTotals) : 0;
-    }
-
-    // 평균은 본인 제외 + 상위 30% 평균
-    let gradePeerAvgSeconds = 0;
-    if (peerIdsExSelf.length > 0) {
-      const peerSeconds = peerIdsExSelf.map((sid) =>
-        weeklyStudySecondsFromAttendance(byStudent.get(sid) ?? [], start, endExclusive),
-      );
-      gradePeerAvgSeconds = computePeerTopAverageSeconds(peerSeconds, PEER_BENCHMARK.topRatio);
-    }
+    const bench = benchByIdx.get(i + 1);
 
     result.push({
       weekLabel,
-      weekStart: mondayStr,
+      weekStart: mondays[i]!,
       mySeconds,
-      gradeMaxSeconds,
-      gradePeerAvgSeconds,
+      gradeMaxSeconds: Number(bench?.grade_max_seconds ?? 0),
+      gradePeerAvgSeconds: Number(bench?.peer_avg_seconds ?? 0),
     });
   }
 
