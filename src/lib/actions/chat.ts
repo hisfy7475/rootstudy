@@ -389,6 +389,45 @@ export async function getOlderMessages(roomId: string, before: string, limit = 5
   return { data: formatMessages(reversed), hasMore: (messages || []).length >= limit };
 }
 
+// 이후 메시지 조회 (재연결/포그라운드 복귀 backfill 용). getOlderMessages 의 거울상:
+// .lt→.gt, ascending false→true, 이미 오름차순이라 reverse() 불필요.
+// limit 는 끊긴 구간 전체를 한 번에 메우는 용도라 크게 잡고, 호출측에서 hasMore 면 루프한다.
+export async function getNewerMessages(roomId: string, after: string, limit = 200) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: '로그인이 필요합니다.' };
+  }
+
+  // adminClient로 조회: parent 프로필 등 RLS로 막히는 sender profiles도 정상 조인
+  const adminSupabase = createAdminClient();
+  const { data: messages, error } = await adminSupabase
+    .from('chat_messages')
+    .select(
+      `
+      *,
+      profiles:sender_id (
+        name,
+        user_type
+      )
+    `,
+    )
+    .eq('room_id', roomId)
+    .gt('created_at', after)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error('Error fetching newer messages:', error);
+    return { error: '메시지를 가져오는데 실패했습니다.' };
+  }
+
+  return { data: formatMessages(messages || []), hasMore: (messages || []).length >= limit };
+}
+
 // 첨부 업로드는 브라우저에서 Supabase Storage로 직접 수행한다.
 // (uploadChatImage/uploadChatFile 서버 액션은 제거됨 — `src/lib/uploads/client.ts`의
 //  uploadToBucketAsUser 사용. Vercel 서버 액션 본문 한계(~4.5MB) 우회 목적.)
@@ -643,8 +682,15 @@ async function sendChatNotifications(params: {
     }
   }
 
-  // 모든 알림 발송
-  await Promise.allSettled(notificationPromises);
+  // 모든 알림 발송. 전송 자체는 이미 성공했으므로 실패는 로깅만 한다(사용자 흐름 비차단).
+  const results = await Promise.allSettled(notificationPromises);
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (failed.length > 0) {
+    console.error(
+      `채팅 알림 ${failed.length}/${results.length}건 발송 실패:`,
+      failed.map((r) => (r as PromiseRejectedResult).reason),
+    );
+  }
 }
 
 // 읽음 표시 업데이트

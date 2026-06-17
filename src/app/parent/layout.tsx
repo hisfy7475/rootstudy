@@ -2,6 +2,7 @@ import { PushTokenListener } from '@/components/PushTokenListener';
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { ParentHeader } from '@/components/parent/header';
 import { ParentCountsProvider } from '@/components/shared/unread-counts-provider';
+import { ChatProvider } from '@/lib/chat/provider';
 import { createClient } from '@/lib/supabase/server';
 import { getLinkedStudents } from '@/lib/actions/parent';
 import { getParentUnreadChatCount } from '@/lib/actions/chat';
@@ -57,13 +58,16 @@ export default async function ParentLayout({ children }: LayoutProps) {
         userId={userId}
         initialNotif={initialUnreadNotificationCount}
       >
-        <ParentHeader userName={userName} linkedChildren={linkedChildren} userId={userId} />
-        <main className='mx-auto max-w-lg pb-24'>{children}</main>
-        <BottomNav
-          userType='parent'
-          basePath='/parent'
-          initialUnreadChatCount={initialUnreadChatCount}
-        />
+        <ChatProvider
+          currentUserId={userId ?? ''}
+          scope='parent'
+          currentUserName={userName}
+          initialBadge={initialUnreadChatCount}
+        >
+          <ParentHeader userName={userName} linkedChildren={linkedChildren} userId={userId} />
+          <main className='mx-auto max-w-lg pb-24'>{children}</main>
+          <BottomNav userType='parent' basePath='/parent' />
+        </ChatProvider>
       </ParentCountsProvider>
     </div>
   );

@@ -24,6 +24,8 @@ export type NativeToWebMessage =
         filename: string;
         mime_type: string;
         context: NativeUploadContext;
+        // chat 컨텍스트에서 어느 방으로 picked 됐는지 echo. 멀티룸(관리자) 오라우팅 방지용.
+        roomId?: string;
       };
     }
   | {

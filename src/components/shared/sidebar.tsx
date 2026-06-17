@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
 import { useSidebar } from './sidebar-context';
 import { createClient } from '@/lib/supabase/client';
-import { getAdminUnreadChatCount } from '@/lib/actions/chat';
+import { useChatBadge } from '@/lib/chat/hooks';
 import { getUnreadBranchNotificationCount } from '@/lib/actions/admin';
 import {
   LayoutDashboard,
@@ -77,7 +77,6 @@ interface SidebarProps {
   userId?: string;
   /** 일반 관리자 본인 지점. 지점 공용 알림 realtime 구독 필터(슈퍼는 null=전체). */
   branchId?: string | null;
-  initialUnreadChatCount?: number;
   initialUnreadNotificationCount?: number;
 }
 
@@ -87,13 +86,13 @@ export function Sidebar({
   isSuperAdmin = false,
   userId,
   branchId,
-  initialUnreadChatCount = 0,
   initialUnreadNotificationCount = 0,
 }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
-  const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+  // 채팅 미읽음 배지는 ChatProvider(단일 채널)가 채우는 SSOT store 에서 구독한다.
+  const unreadChatCount = useChatBadge();
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(
     initialUnreadNotificationCount,
   );
@@ -103,61 +102,8 @@ export function Sidebar({
   const visibleNavItems = adminNavItems.filter((item) => !item.requireSuperAdmin || isSuperAdmin);
 
   useEffect(() => {
-    setUnreadChatCount(initialUnreadChatCount);
-  }, [initialUnreadChatCount]);
-
-  useEffect(() => {
     setUnreadNotificationCount(initialUnreadNotificationCount);
   }, [initialUnreadNotificationCount]);
-
-  useEffect(() => {
-    if (!userId) return;
-    const supabase = createClient();
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    const fetchUnreadCount = async () => {
-      const { count } = await getAdminUnreadChatCount();
-      console.info('[Sidebar] unread refetched:', count);
-      setUnreadChatCount(count);
-    };
-
-    // Realtime postgres_changes 는 listener 별 RLS 평가에 access_token 이 필요하다.
-    // session 을 먼저 await + setAuth 한 뒤에 subscribe 해야 realtime.subscription 의
-    // claims_role 이 'authenticated' 로 등록되고, RLS `TO authenticated` 정책이 통과한다.
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        await supabase.realtime.setAuth(session.access_token);
-      }
-      if (cancelled) return;
-
-      channel = supabase
-        .channel(`admin-sidebar-chat-${userId}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'chat_messages' },
-          (payload) => {
-            console.info('[Sidebar] postgres_changes event:', payload.eventType);
-            fetchUnreadCount();
-          },
-        )
-        .subscribe((status, err) => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('[Sidebar] Realtime channel error:', status, err);
-          } else if (status === 'SUBSCRIBED') {
-            console.info('[Sidebar] Realtime subscribed');
-          }
-        });
-    })();
-
-    return () => {
-      cancelled = true;
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [userId]);
 
   // 지점 공용 알림(branch_notifications) 미읽음 realtime.
   // 일반 관리자는 본인 지점 필터, 슈퍼는 무필터(RLS 가 전 지점 허용). setAuth 후 subscribe.
