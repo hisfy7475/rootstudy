@@ -23,13 +23,15 @@ function mealTypeRank(t: MealProduct['meal_type']): number {
 function compareItems(a: OrderVariantCardItem, b: OrderVariantCardItem): number {
   const dateDiff = a.variant.product_start_date.localeCompare(b.variant.product_start_date);
   if (dateDiff !== 0) return dateDiff;
-  // 같은 이용일자 그룹 내: 도시락 메뉴(is_bento) 먼저(왼쪽). undefined→NaN 방어로 ?? false.
-  const bentoDiff = Number(b.product.is_bento ?? false) - Number(a.product.is_bento ?? false);
-  if (bentoDiff !== 0) return bentoDiff;
-  // 도시락 우선순위가 같으면: 식사 유형 순(중식 → 석식 → 기타)
+  // 같은 이용일자 그룹 내 1순위: 식사 유형 순(중식 → 석식 → 기타).
+  // 도시락 여부와 무관하게 중식이 항상 석식보다 먼저 노출돼야 한다는 요구사항.
   const mealTypeDiff = mealTypeRank(a.product.meal_type) - mealTypeRank(b.product.meal_type);
   if (mealTypeDiff !== 0) return mealTypeDiff;
-  // 식사 유형도 같으면: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
+  // 식사 유형이 같으면 2순위: 도시락 메뉴(is_bento) 먼저(왼쪽).
+  // → 석식 그룹 안에서 "석식(도시락)"이 "기타메뉴"보다 앞. undefined→NaN 방어로 ?? false.
+  const bentoDiff = Number(b.product.is_bento ?? false) - Number(a.product.is_bento ?? false);
+  if (bentoDiff !== 0) return bentoDiff;
+  // 도시락 여부도 같으면: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
   const productDiff = a.product.created_at.localeCompare(b.product.created_at);
   if (productDiff !== 0) return productDiff;
   // 동일 상품의 여러 variant: variant 생성 순서
