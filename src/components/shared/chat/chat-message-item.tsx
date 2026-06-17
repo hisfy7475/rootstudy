@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { copyText } from '@/lib/clipboard';
 import Image from 'next/image';
@@ -95,6 +96,21 @@ export function ChatMessageItem({
       document.removeEventListener('keydown', handleKey);
     };
   }, [menuOpen]);
+
+  // 이미지 전체보기 모달: ESC 닫기 + 배경 스크롤 잠금
+  useEffect(() => {
+    if (!showFullImage) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowFullImage(false);
+    };
+    document.addEventListener('keydown', handleKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [showFullImage]);
 
   const handleCopy = useCallback(async () => {
     const text = content.trim();
@@ -297,29 +313,35 @@ export function ChatMessageItem({
         </div>
       </div>
 
-      {/* 이미지 전체보기 모달 */}
-      {showFullImage && imageUrl && (
-        <div
-          className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4'
-          onClick={() => setShowFullImage(false)}
-        >
-          <button
+      {/* 이미지 전체보기 모달 — 상위 stacking context(헤더/네비바 transform·backdrop)를
+          탈출하도록 document.body 로 portal 한다. */}
+      {showFullImage &&
+        imageUrl &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className='pt-safe pb-safe fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4'
             onClick={() => setShowFullImage(false)}
-            className='absolute top-12 right-4 z-[10000] rounded-full bg-white/20 p-2 transition-colors hover:bg-white/30'
           >
-            <X className='h-6 w-6 text-white' />
-          </button>
-          <Image
-            src={imageUrl}
-            alt='채팅 이미지 전체보기'
-            width={800}
-            height={800}
-            unoptimized
-            className='max-h-full max-w-full rounded-lg object-contain'
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+            <button
+              onClick={() => setShowFullImage(false)}
+              aria-label='닫기'
+              className='absolute top-[max(1rem,var(--app-safe-top))] right-4 z-[10000] rounded-full bg-white/20 p-2 transition-colors hover:bg-white/30'
+            >
+              <X className='h-6 w-6 text-white' />
+            </button>
+            <Image
+              src={imageUrl}
+              alt='채팅 이미지 전체보기'
+              width={800}
+              height={800}
+              unoptimized
+              className='max-h-full max-w-full rounded-lg object-contain'
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
