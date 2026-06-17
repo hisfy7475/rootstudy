@@ -538,7 +538,12 @@ export function ChatRoom({
       />
 
       {/* 입력창 */}
-      <ChatInput roomId={roomId} onSend={handleSend} disabled={isSending} />
+      <ChatInput
+        roomId={roomId}
+        onSend={handleSend}
+        disabled={isSending}
+        currentUserType={currentUserType}
+      />
     </div>
   );
 }
