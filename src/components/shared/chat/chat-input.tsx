@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, KeyboardEvent, ClipboardEvent, ChangeEvent } from 'react';
-import { Send, ImagePlus, Paperclip, X } from 'lucide-react';
+import { Send, Paperclip, X } from 'lucide-react';
 import { cn, isNativeApp, randomUUID } from '@/lib/utils';
 import { postToNative } from '@/lib/native-bridge';
 import {
@@ -11,7 +11,7 @@ import {
   resolveAttachmentFileMime,
 } from '@shared/uploads/attachments';
 import Image from 'next/image';
-import { ChatTemplatePopover } from './chat-template-popover';
+import { ChatAttachMenu } from './chat-attach-menu';
 
 interface ChatInputProps {
   roomId: string;
@@ -23,6 +23,8 @@ interface ChatInputProps {
   ) => Promise<void>;
   disabled?: boolean;
   placeholder?: string;
+  /** 멘트 노출 등 타입별 분기용. 기본값은 비-관리자(student). */
+  currentUserType?: 'student' | 'parent' | 'admin';
 }
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -32,6 +34,7 @@ export function ChatInput({
   onSend,
   disabled = false,
   placeholder = '메시지를 입력하세요...',
+  currentUserType = 'student',
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -253,39 +256,15 @@ export function ChatInput({
           onChange={handleDataFileChange}
           className='hidden'
         />
-        <button
-          type='button'
-          onClick={openImagePicker}
-          disabled={disabled || !!selectedDataFile}
-          className={cn(
-            'h-11 w-11 flex-shrink-0 rounded-full',
-            'flex items-center justify-center',
-            'transition-all duration-200',
-            'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-          )}
-          title='이미지 첨부'
-        >
-          <ImagePlus className='h-5 w-5' />
-        </button>
-
-        <button
-          type='button'
-          onClick={openDataFilePicker}
-          disabled={disabled || !!selectedImage}
-          className={cn(
-            'h-11 w-11 flex-shrink-0 rounded-full',
-            'flex items-center justify-center',
-            'transition-all duration-200',
-            'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-          )}
-          title='파일 첨부 (PDF·문서 등)'
-        >
-          <Paperclip className='h-5 w-5' />
-        </button>
-
-        <ChatTemplatePopover onSelect={insertTemplate} />
+        <ChatAttachMenu
+          isAdmin={currentUserType === 'admin'}
+          disabled={disabled}
+          imageDisabled={!!selectedDataFile}
+          fileDisabled={!!selectedImage}
+          onPickImage={openImagePicker}
+          onPickFile={openDataFilePicker}
+          onSelectTemplate={insertTemplate}
+        />
 
         <textarea
           ref={textareaRef}

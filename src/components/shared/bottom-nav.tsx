@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/supabase/client';
-import { getStudentUnreadChatCount, getParentUnreadChatCount } from '@/lib/actions/chat';
+import { useChatBadge } from '@/lib/chat/hooks';
 import {
   Home,
   MessageCircle,
@@ -68,13 +67,13 @@ const parentMorePathPrefixes = [
 interface BottomNavProps {
   userType: 'student' | 'parent';
   basePath?: string;
-  initialUnreadChatCount?: number;
 }
 
-export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 }: BottomNavProps) {
+export function BottomNav({ userType, basePath = '' }: BottomNavProps) {
   const pathname = usePathname();
   const navItems = userType === 'student' ? studentNavItems : parentNavItems;
-  const [unreadChatCount, setUnreadChatCount] = useState(initialUnreadChatCount);
+  // 미읽음 배지는 ChatProvider(단일 채널)가 채우는 SSOT store 에서 구독한다.
+  const unreadChatCount = useChatBadge();
   const navRef = useRef<HTMLElement>(null);
 
   // 하단 탭 실제 높이를 --app-bottom-nav-height 로 publish.
@@ -93,44 +92,6 @@ export function BottomNav({ userType, basePath = '', initialUnreadChatCount = 0 
       document.documentElement.style.removeProperty('--app-bottom-nav-height');
     };
   }, []);
-
-  useEffect(() => {
-    setUnreadChatCount(initialUnreadChatCount);
-  }, [initialUnreadChatCount]);
-
-  useEffect(() => {
-    const supabase = createClient();
-    let cancelled = false;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-
-    const fetchUnreadCount = async () => {
-      const { count } =
-        userType === 'student'
-          ? await getStudentUnreadChatCount()
-          : await getParentUnreadChatCount();
-      if (!cancelled) setUnreadChatCount(count);
-    };
-
-    // 채널명에 userId 를 포함해 단말 내 계정 전환/멀티 컴포넌트 cleanup 충돌을 방지.
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (cancelled) return;
-      const channelName = `bottom-nav-chat-unread-${user?.id ?? 'anon'}-${userType}`;
-      channel = supabase
-        .channel(channelName)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
-          fetchUnreadCount();
-        })
-        .subscribe();
-    })();
-
-    return () => {
-      cancelled = true;
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [userType]);
 
   return (
     <nav

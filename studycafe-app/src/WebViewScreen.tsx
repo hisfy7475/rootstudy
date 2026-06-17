@@ -200,6 +200,7 @@ export default function WebViewScreen() {
     (
       payload: { url: string; filename: string; mime_type: string },
       context: "chat" | "mentoring",
+      roomId?: string,
     ) => {
       const script = buildInjectNativeMessageScript({
         type: "FILE_UPLOADED",
@@ -208,6 +209,8 @@ export default function WebViewScreen() {
           filename: payload.filename,
           mime_type: payload.mime_type,
           context,
+          // chat 은 picked 시점의 roomId 를 echo 해 웹이 현재 방과 일치 검사하도록 한다.
+          ...(roomId ? { roomId } : {}),
         },
       });
       webViewRef.current?.injectJavaScript(script);
@@ -309,7 +312,7 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.fileSize ?? undefined,
               );
-        postFileUploadedToWeb(result, payload.context);
+        postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
         postFileUploadErrorToWeb(
@@ -357,7 +360,7 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.size ?? null,
               );
-        postFileUploadedToWeb(result, payload.context);
+        postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
         postFileUploadErrorToWeb(

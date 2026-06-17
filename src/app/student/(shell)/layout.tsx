@@ -1,6 +1,7 @@
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { StudentHeader } from '@/components/student/header';
 import { StudentCountsProvider } from '@/components/shared/unread-counts-provider';
+import { ChatProvider } from '@/lib/chat/provider';
 import { createClient } from '@/lib/supabase/server';
 import { getStudentUnreadChatCount } from '@/lib/actions/chat';
 
@@ -40,13 +41,16 @@ export default async function StudentShellLayout({ children }: { children: React
 
   return (
     <StudentCountsProvider key={userId} userId={userId} initialNotif={unreadNotificationCount}>
-      <StudentHeader userName={userName} seatNumber={seatNumber} userId={userId} />
-      <main className='mx-auto max-w-lg pb-24'>{children}</main>
-      <BottomNav
-        userType='student'
-        basePath='/student'
-        initialUnreadChatCount={initialUnreadChatCount}
-      />
+      <ChatProvider
+        currentUserId={userId ?? ''}
+        scope='student'
+        currentUserName={userName}
+        initialBadge={initialUnreadChatCount}
+      >
+        <StudentHeader userName={userName} seatNumber={seatNumber} userId={userId} />
+        <main className='mx-auto max-w-lg pb-24'>{children}</main>
+        <BottomNav userType='student' basePath='/student' />
+      </ChatProvider>
     </StudentCountsProvider>
   );
 }

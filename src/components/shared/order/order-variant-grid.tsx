@@ -1,6 +1,7 @@
 'use client';
 
 import { Card } from '@/components/ui/card';
+import type { MealProduct } from '@/types/database';
 import { OrderVariantCard, type OrderVariantCardItem } from './order-variant-card';
 
 const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const;
@@ -12,13 +13,23 @@ function formatHeader(dateStr: string): string {
   return `${y}.${m}.${d} (${dow})`;
 }
 
+// 식사 유형 노출 우선순위: 중식(lunch) → 석식(dinner) → 그 외(null 등)
+function mealTypeRank(t: MealProduct['meal_type']): number {
+  if (t === 'lunch') return 0;
+  if (t === 'dinner') return 1;
+  return 2;
+}
+
 function compareItems(a: OrderVariantCardItem, b: OrderVariantCardItem): number {
   const dateDiff = a.variant.product_start_date.localeCompare(b.variant.product_start_date);
   if (dateDiff !== 0) return dateDiff;
   // 같은 이용일자 그룹 내: 도시락 메뉴(is_bento) 먼저(왼쪽). undefined→NaN 방어로 ?? false.
   const bentoDiff = Number(b.product.is_bento ?? false) - Number(a.product.is_bento ?? false);
   if (bentoDiff !== 0) return bentoDiff;
-  // 도시락 우선순위가 같으면: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
+  // 도시락 우선순위가 같으면: 식사 유형 순(중식 → 석식 → 기타)
+  const mealTypeDiff = mealTypeRank(a.product.meal_type) - mealTypeRank(b.product.meal_type);
+  if (mealTypeDiff !== 0) return mealTypeDiff;
+  // 식사 유형도 같으면: 상품 업로드 순서(created_at ASC) — 먼저 등록한 게 왼쪽
   const productDiff = a.product.created_at.localeCompare(b.product.created_at);
   if (productDiff !== 0) return productDiff;
   // 동일 상품의 여러 variant: variant 생성 순서

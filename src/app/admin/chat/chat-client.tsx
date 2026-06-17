@@ -496,8 +496,15 @@ export function AdminChatClient({
             !selectedRoom && 'hidden lg:flex',
           )}
         >
-          {selectedRoom ? (
+          {selectedRoom && isLoadingMessages ? (
+            // 메시지 로드 완료 후에 mount 한다. useChatRoom 은 roomId 기준 1회 시드라,
+            // 로딩 중(이전 방 메시지 상태)에 mount 하면 잘못된 초기 메시지로 시드된다.
+            <div className='text-text-muted flex h-full w-full items-center justify-center'>
+              <Loader2 className='h-8 w-8 animate-spin opacity-50' />
+            </div>
+          ) : selectedRoom ? (
             <ChatRoom
+              key={selectedRoom.id}
               roomId={selectedRoom.id}
               initialMessages={messages}
               initialHasMore={messagesHasMore}
