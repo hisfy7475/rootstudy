@@ -25,6 +25,7 @@ import { DeleteAdminModal } from './_components/delete-admin-modal';
 import { AddAdminModal } from './_components/add-admin-modal';
 import { ApprovalModal } from './_components/approval-modal';
 import { ResetAdminPasswordModal } from './_components/reset-admin-password-modal';
+import { ParentAccountModal } from './_components/parent-account-modal';
 import { setAdminSuperFlag } from '@/lib/actions/admin';
 import {
   User,
@@ -280,6 +281,7 @@ export function MembersClient({
   const [addAdminOpen, setAddAdminOpen] = useState(false);
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<Admin | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<Admin | null>(null);
+  const [parentAccountTarget, setParentAccountTarget] = useState<ParentMember | null>(null);
 
   // 카운트는 서버 aggregates 기반 (검색·필터와 무관한 branch 전체 기준)
   const pendingCount = aggregates.approval.pending;
@@ -1363,15 +1365,27 @@ export function MembersClient({
                               {formatDate(parent.created_at)}
                             </td>
                             <td className='px-2 py-1.5 text-center'>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                onClick={() => handleOpenDeleteModal(parent, 'parent')}
-                                disabled={loading}
-                                className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                              >
-                                <UserMinus className='h-3 w-3' />
-                              </Button>
+                              <div className='flex items-center justify-center gap-1'>
+                                <Button
+                                  size='sm'
+                                  variant='outline'
+                                  onClick={() => setParentAccountTarget(parent)}
+                                  disabled={loading}
+                                  className='h-6 px-1.5 text-amber-600 hover:bg-amber-50 hover:text-amber-700'
+                                  title='계정 관리(이메일·비밀번호·중복정리)'
+                                >
+                                  <Key className='h-3 w-3' />
+                                </Button>
+                                <Button
+                                  size='sm'
+                                  variant='outline'
+                                  onClick={() => handleOpenDeleteModal(parent, 'parent')}
+                                  disabled={loading}
+                                  className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+                                >
+                                  <UserMinus className='h-3 w-3' />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1766,6 +1780,21 @@ export function MembersClient({
           onSuccess={() => {
             setResetPasswordTarget(null);
             alert('비밀번호가 재설정되었습니다. 해당 어드민에게 안전하게 전달해 주세요.');
+          }}
+        />
+      )}
+
+      {parentAccountTarget && (
+        <ParentAccountModal
+          parent={{
+            id: parentAccountTarget.id,
+            name: parentAccountTarget.name,
+            email: parentAccountTarget.email,
+            phone: parentAccountTarget.phone,
+          }}
+          onClose={() => setParentAccountTarget(null)}
+          onSuccess={() => {
+            router.refresh();
           }}
         />
       )}

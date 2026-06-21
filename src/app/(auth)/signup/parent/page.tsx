@@ -25,6 +25,7 @@ interface VerifiedStudent {
 
 export default function ParentSignupPage() {
   const [error, setError] = useState<string | null>(null);
+  const [errorReason, setErrorReason] = useState<'phone_exists' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
 
@@ -91,6 +92,7 @@ export default function ParentSignupPage() {
 
     setIsLoading(true);
     setError(null);
+    setErrorReason(null);
 
     // 연결 코드 배열을 FormData에 추가
     formData.append('parentCodes', JSON.stringify(verifiedStudents.map((s) => s.code)));
@@ -101,6 +103,7 @@ export default function ParentSignupPage() {
       setIsComplete(true);
     } else {
       setError(result.error || '회원가입에 실패했습니다.');
+      setErrorReason(result.data?.reason ?? null);
     }
     setIsLoading(false);
   }
@@ -306,10 +309,36 @@ export default function ParentSignupPage() {
                 </p>
               </div>
 
-              {error && (
-                <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
-                  {error}
+              {error && errorReason === 'phone_exists' ? (
+                <div className='bg-error/10 space-y-3 rounded-xl p-4 text-sm'>
+                  <p className='text-error text-center font-medium'>{error}</p>
+                  <p className='text-text-muted text-center text-xs'>
+                    이미 가입된 계정으로 로그인하시거나, 비밀번호를 잊으셨다면 재설정해 주세요.
+                  </p>
+                  <div className='flex gap-2'>
+                    <Link href='/login' className='flex-1'>
+                      <Button type='button' variant='outline' className='w-full' size='sm'>
+                        로그인
+                      </Button>
+                    </Link>
+                    <Link href='/forgot-password' className='flex-1'>
+                      <Button type='button' variant='outline' className='w-full' size='sm'>
+                        비밀번호 찾기
+                      </Button>
+                    </Link>
+                  </div>
+                  <p className='text-text-muted text-center text-xs'>
+                    가입에 사용한 메일을 더 이상 쓰지 못해 비밀번호 찾기가 어렵다면,
+                    <br />
+                    센터에 계정 복구를 문의해 주세요.
+                  </p>
                 </div>
+              ) : (
+                error && (
+                  <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>
+                    {error}
+                  </div>
+                )
               )}
 
               <Button

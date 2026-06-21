@@ -397,6 +397,32 @@ export interface Database {
           archived_at?: string | null;
         };
       };
+      admin_action_log: {
+        Row: {
+          id: string;
+          actor_id: string;
+          target_id: string | null;
+          action: string;
+          detail: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_id: string;
+          target_id?: string | null;
+          action: string;
+          detail?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          actor_id?: string;
+          target_id?: string | null;
+          action?: string;
+          detail?: Json | null;
+          created_at?: string;
+        };
+      };
       parent_profiles: {
         Row: {
           id: string;

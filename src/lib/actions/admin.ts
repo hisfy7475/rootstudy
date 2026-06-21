@@ -15,6 +15,7 @@ import {
   getWeekDateStringsFromMondayKST,
   getTodayKST,
   formatDateKST,
+  normalizePhone,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
 import { extractStudySessions, isStudyExcluded } from '@/lib/study-time';
@@ -4445,6 +4446,296 @@ export async function resetAdminPassword(adminId: string, newPassword: string) {
   }
 
   return { success: true };
+}
+
+// ============================================
+// 학부모 계정 복구/관리 (지점 스코프)
+// ============================================
+
+/**
+ * 현재 관리자가 대상 학부모를 관리할 수 있는지 판정.
+ * - super_admin: 모두 허용
+ * - 지점 관리자: 그 학부모가 본인 지점에 자녀가 연결돼 있을 때만 허용
+ *   (학부모 profiles.branch_id 는 NULL 이라 "자녀의 지점"으로 스코프를 판정. getParentsList 와 동일 원리.)
+ */
+async function assertCanManageParent(
+  parentId: string,
+): Promise<
+  | { ok: true; ctx: NonNullable<Awaited<ReturnType<typeof requireAdminBranch>>> }
+  | { ok: false; error: string }
+> {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { ok: false, error: '관리자 권한이 필요합니다.' };
+
+  const adminClient = createAdminClient();
+  const { data: target } = await adminClient
+    .from('profiles')
+    .select('user_type')
+    .eq('id', parentId)
+    .maybeSingle();
+  if (!target || (target as { user_type: string }).user_type !== 'parent') {
+    return { ok: false, error: '대상이 학부모 계정이 아닙니다.' };
+  }
+
+  if (ctx.isSuperAdmin) return { ok: true, ctx };
+
+  const { data: links } = await adminClient
+    .from('parent_student_links')
+    .select('student_id')
+    .eq('parent_id', parentId);
+  const studentIds = (links ?? []).map((l) => l.student_id as string);
+  if (studentIds.length === 0) {
+    return { ok: false, error: '이 학부모를 관리할 권한이 없습니다.' };
+  }
+  const { data: inBranch } = await adminClient
+    .from('profiles')
+    .select('id')
+    .in('id', studentIds)
+    .eq('branch_id', ctx.branchId)
+    .limit(1);
+  if (!inBranch || inBranch.length === 0) {
+    return { ok: false, error: '다른 지점 학부모는 관리할 수 없습니다.' };
+  }
+  return { ok: true, ctx };
+}
+
+/**
+ * 학부모 로그인 이메일 변경.
+ * auth.users.email(전역 유니크)이 권위. 성공 후 profiles.email 을 수동 동기화(동기화 트리거 없음).
+ * profiles 동기화 실패 시 auth 이메일을 원복해 두 값 불일치를 방지.
+ */
+export async function updateParentEmail(parentId: string, newEmail: string) {
+  const gate = await assertCanManageParent(parentId);
+  if (!gate.ok) return { error: gate.error };
+
+  const email = newEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: '올바른 이메일 형식이 아닙니다.' };
+  }
+
+  const adminClient = createAdminClient();
+  const { data: before } = await adminClient
+    .from('profiles')
+    .select('email')
+    .eq('id', parentId)
+    .maybeSingle();
+  const oldEmail = (before as { email: string | null } | null)?.email ?? null;
+  if (oldEmail && oldEmail.toLowerCase() === email) {
+    return { error: '기존 이메일과 동일합니다.' };
+  }
+
+  // 사전 중복검사: 다른 사용자(학생/학부모/관리자 무관)가 이미 그 이메일을 쓰고 있으면 거부.
+  // auth.users.email 이 전역 유니크라 GoTrue 가 중복 시 깔끔한 email_exists 가 아니라
+  // unexpected_failure(500)를 던지는 quirk 가 있어, profiles 기준으로 먼저 막는다.
+  const { data: clash } = await adminClient
+    .from('profiles')
+    .select('id')
+    .ilike('email', email)
+    .neq('id', parentId)
+    .limit(1);
+  if (clash && clash.length > 0) {
+    return { error: '이미 다른 계정에서 사용 중인 이메일입니다.' };
+  }
+
+  // 1) Auth 이메일 변경 (확인메일 없이 즉시 확정)
+  const { error: authError } = await adminClient.auth.admin.updateUserById(parentId, {
+    email,
+    email_confirm: true,
+  });
+  if (authError) {
+    if (authError.status === 404 || authError.code === 'user_not_found') {
+      return { error: '인증 시스템에 등록되지 않은 계정이라 이메일을 변경할 수 없습니다.' };
+    }
+    if (
+      authError.code === 'email_exists' ||
+      /already|registered|exist|in use/i.test(authError.message)
+    ) {
+      return { error: '이미 다른 계정에서 사용 중인 이메일입니다.' };
+    }
+    console.error('Error updating parent email (auth):', authError);
+    return {
+      error: '이메일 변경에 실패했습니다. 이미 사용 중인 이메일이거나 일시적 오류일 수 있습니다.',
+    };
+  }
+
+  // 2) profiles.email 동기화. 실패 시 auth 이메일 원복(롤백).
+  const { error: profileError } = await adminClient
+    .from('profiles')
+    .update({ email })
+    .eq('id', parentId);
+  if (profileError) {
+    if (oldEmail) {
+      await adminClient.auth.admin.updateUserById(parentId, {
+        email: oldEmail,
+        email_confirm: true,
+      });
+    }
+    console.error('Error updating parent email (profiles):', profileError);
+    return { error: '이메일 변경에 실패했습니다(프로필 동기화 오류). 변경이 취소되었습니다.' };
+  }
+
+  // 3) 감사 로그
+  await adminClient.from('admin_action_log').insert({
+    actor_id: gate.ctx.userId,
+    target_id: parentId,
+    action: 'parent_email_change',
+    detail: { old_email: oldEmail, new_email: email },
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+/**
+ * 학부모 비밀번호 강제 재설정. (감사 로그에는 비밀번호 값 미기록, 발생 사실만)
+ */
+export async function resetParentPassword(parentId: string, newPassword: string) {
+  const gate = await assertCanManageParent(parentId);
+  if (!gate.ok) return { error: gate.error };
+  if (newPassword.length < 6) return { error: '비밀번호는 6자 이상이어야 합니다.' };
+
+  const adminClient = createAdminClient();
+  const { error } = await adminClient.auth.admin.updateUserById(parentId, {
+    password: newPassword,
+  });
+  if (error) {
+    if (error.status === 404 || error.code === 'user_not_found') {
+      return { error: '인증 시스템에 등록되지 않은 계정이라 비밀번호를 재설정할 수 없습니다.' };
+    }
+    console.error('Error resetting parent password:', error);
+    return { error: '비밀번호 재설정에 실패했습니다.' };
+  }
+
+  await adminClient.from('admin_action_log').insert({
+    actor_id: gate.ctx.userId,
+    target_id: parentId,
+    action: 'parent_password_reset',
+    detail: null,
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
+export type DuplicateParentAccount = {
+  id: string;
+  email: string | null;
+  name: string;
+  createdAt: string;
+  childCount: number;
+};
+
+/**
+ * 앵커 학부모와 같은 전화번호(정규화 동일)를 가진 다른 활성 학부모 계정 목록.
+ * 자녀 0명 중복계정은 getParentsList(지점 스코프)에 안 떠서 이 phone 기준 독립 조회가
+ * 중복계정 도달의 유일한 경로다.
+ */
+export async function findDuplicateParentAccounts(
+  parentId: string,
+): Promise<{ rows: DuplicateParentAccount[] } | { error: string }> {
+  const gate = await assertCanManageParent(parentId);
+  if (!gate.ok) return { error: gate.error };
+
+  const adminClient = createAdminClient();
+  const { data: anchor } = await adminClient
+    .from('profiles')
+    .select('phone')
+    .eq('id', parentId)
+    .maybeSingle();
+  const anchorPhone = normalizePhone((anchor as { phone: string | null } | null)?.phone);
+  if (!anchorPhone) return { rows: [] };
+
+  const { data: parents } = await adminClient
+    .from('profiles')
+    .select('id, email, name, phone, created_at')
+    .eq('user_type', 'parent')
+    .is('withdrawn_at', null);
+  const same = (parents ?? []).filter(
+    (p) =>
+      p.id !== parentId && normalizePhone((p as { phone: string | null }).phone) === anchorPhone,
+  );
+  if (same.length === 0) return { rows: [] };
+
+  const ids = same.map((p) => p.id as string);
+  const { data: links } = await adminClient
+    .from('parent_student_links')
+    .select('parent_id')
+    .in('parent_id', ids);
+  const countMap: Record<string, number> = {};
+  for (const l of links ?? []) {
+    const pid = l.parent_id as string;
+    countMap[pid] = (countMap[pid] ?? 0) + 1;
+  }
+
+  const rows: DuplicateParentAccount[] = same.map((p) => ({
+    id: p.id as string,
+    email: (p as { email: string | null }).email,
+    name: p.name as string,
+    createdAt: p.created_at as string,
+    childCount: countMap[p.id as string] ?? 0,
+  }));
+  return { rows };
+}
+
+/**
+ * 중복 학부모 계정 탈퇴 정리(스코프드). 앵커 기준으로 권한을 좁힌다.
+ * 대상은 (a) 앵커와 전화번호 동일, (b) 링크 0개, (c) parent 인 계정만.
+ * 완전 병합(자녀 보유 계정 합치기)은 범위 외 — 자녀가 있으면 거부.
+ */
+export async function withdrawDuplicateParentAccount(
+  anchorParentId: string,
+  duplicateParentId: string,
+  reason?: string,
+) {
+  const gate = await assertCanManageParent(anchorParentId);
+  if (!gate.ok) return { error: gate.error };
+  if (anchorParentId === duplicateParentId) {
+    return { error: '앵커 계정 자신은 정리 대상이 될 수 없습니다.' };
+  }
+
+  const adminClient = createAdminClient();
+  const { data: pair } = await adminClient
+    .from('profiles')
+    .select('id, phone, user_type')
+    .in('id', [anchorParentId, duplicateParentId]);
+  const anchor = (pair ?? []).find((p) => p.id === anchorParentId);
+  const dup = (pair ?? []).find((p) => p.id === duplicateParentId);
+  if (!dup || (dup as { user_type: string }).user_type !== 'parent') {
+    return { error: '정리 대상이 학부모 계정이 아닙니다.' };
+  }
+  if (
+    normalizePhone((anchor as { phone: string | null } | undefined)?.phone) !==
+    normalizePhone((dup as { phone: string | null }).phone)
+  ) {
+    return { error: '전화번호가 일치하지 않는 계정은 정리할 수 없습니다.' };
+  }
+  const { data: dupLinks } = await adminClient
+    .from('parent_student_links')
+    .select('id')
+    .eq('parent_id', duplicateParentId);
+  if ((dupLinks ?? []).length > 0) {
+    return { error: '자녀가 연결된 계정은 정리할 수 없습니다(완전 병합 범위 외).' };
+  }
+
+  const result = await softDeleteUser({
+    userId: duplicateParentId,
+    withdrawnBy: gate.ctx.userId,
+    reason: reason ?? '중복 계정 정리',
+  });
+  if ('error' in result) return { error: result.error };
+
+  await adminClient.from('admin_action_log').insert({
+    actor_id: gate.ctx.userId,
+    target_id: duplicateParentId,
+    action: 'parent_duplicate_withdraw',
+    detail: { anchor_parent_id: anchorParentId },
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return result.warning ? { success: true, warning: result.warning } : { success: true };
 }
 
 // ============================================
