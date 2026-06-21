@@ -17,6 +17,8 @@ export type AuthResult = {
     /** 비밀번호 찾기: OTP 검증으로 발급된 recovery 세션 토큰. 마지막 단계에서 setSession에 사용. */
     recoveryAccessToken?: string;
     recoveryRefreshToken?: string;
+    /** 가입 실패 사유 코드. 클라이언트에서 행동 안내(로그인/비번찾기/센터문의) 분기에 사용. */
+    reason?: 'phone_exists';
   };
 };
 
@@ -174,7 +176,8 @@ export async function signUpParent(formData: FormData): Promise<AuthResult> {
     if (dup) {
       return {
         success: false,
-        error: '이미 가입된 학부모 계정이 있습니다. 로그인 후 자녀를 추가해 주세요.',
+        error: '이미 이 전화번호로 가입된 학부모 계정이 있습니다.',
+        data: { reason: 'phone_exists' },
       };
     }
   }
