@@ -6,6 +6,7 @@ import {
   formatDateKST,
   getCalendarWeekBoundsKST,
   getStudyDayBounds,
+  getStudyWeekBoundsFromMonday,
   getWeekDateStringsFromMondayKST,
   getWeekStart,
   getTodayKST,
@@ -754,7 +755,9 @@ export async function getWeeklyStudyTrend(
 
   if (mondays.length === 0) return [];
 
-  const weekBounds = mondays.map((m) => getCalendarWeekBoundsKST(m));
+  // 학습주 경계(월 06:00~다음 월 06:00). 이 bounds가 본인 순공 합산과 peer_bench_trend RPC에
+  // 그대로 주입되므로, 캘린더주를 쓰면 일요일밤 세션이 잘려 추이가 과소집계된다.
+  const weekBounds = mondays.map((m) => getStudyWeekBoundsFromMonday(m));
   const rangeStart = weekBounds[0]!.start;
   const rangeEnd = weekBounds[weekBounds.length - 1]!.endExclusive;
 

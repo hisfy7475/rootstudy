@@ -314,6 +314,32 @@ export function getWeekStart(date: Date = new Date()): Date {
 }
 
 /**
+ * 학습주 경계: [월 06:00 KST, 다음 월 06:00 KST).
+ *
+ * 도메인 규칙(학습일 06:00~다음날 03:00, 03:00~06:00 리셋 데드존)상 살아있는 세션이
+ * 이 경계를 넘지 않으므로, 주간 순공 집계는 반드시 이 경계를 써야 한다.
+ * (캘린더주 00:00 경계는 일요일밤~월요일새벽 세션을 잘라먹는다 — getCalendarWeekBoundsKST 사용 금지.)
+ */
+export function getStudyWeekBounds(date: Date = new Date()): { start: Date; endExclusive: Date } {
+  const start = getWeekStart(date);
+  const endExclusive = new Date(start);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 7);
+  return { start, endExclusive };
+}
+
+/**
+ * 월요일 날짜(YYYY-MM-DD)로부터 학습주 경계를 구한다. (크론/관리자/리포트 공용)
+ * 월요일 정오(KST)를 기준점으로 삼아 그 주(월~일) 학습주 경계를 반환한다.
+ */
+export function getStudyWeekBoundsFromMonday(mondayDateStr: string): {
+  start: Date;
+  endExclusive: Date;
+} {
+  const monday = mondayDateStr.split('T')[0];
+  return getStudyWeekBounds(new Date(`${monday}T12:00:00+09:00`));
+}
+
+/**
  * 날짜를 한국어 형식으로 포맷 (M월 D일)
  */
 export function formatDateKorean(date: Date): string {

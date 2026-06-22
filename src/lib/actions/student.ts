@@ -11,7 +11,7 @@ import {
 } from '@/lib/utils';
 import { REWARD_RULES } from '@/lib/constants';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
-import { isStudyExcluded } from '@/lib/study-time';
+import { extractStudySessions, isStudyExcluded, sumStudySeconds } from '@/lib/study-time';
 import { evaluateAttendancePenalty } from '@/lib/attendance/penalty';
 import {
   getRewardPresets,
@@ -1002,42 +1002,9 @@ export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
     return 0;
   }
 
-  let totalMinutes = 0;
-  let checkInTime: Date | null = null;
-
-  // 직원/경비 게이트(소프트 제외) 기록은 순공 계산에서 배제
-  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
-    const timestamp = new Date(record.timestamp);
-
-    switch (record.type) {
-      case 'check_in':
-        checkInTime = timestamp;
-        break;
-      case 'check_out':
-        if (checkInTime) {
-          totalMinutes += (timestamp.getTime() - checkInTime.getTime()) / (1000 * 60);
-          checkInTime = null;
-        }
-        break;
-      case 'break_start':
-        if (checkInTime) {
-          totalMinutes += (timestamp.getTime() - checkInTime.getTime()) / (1000 * 60);
-          checkInTime = null;
-        }
-        break;
-      case 'break_end':
-        checkInTime = timestamp;
-        break;
-    }
-  }
-
-  // 현재 입실 중이면 현재까지 시간 추가
-  if (checkInTime) {
-    const now = new Date();
-    totalMinutes += (now.getTime() - checkInTime.getTime()) / (1000 * 60);
-  }
-
-  return Math.floor(totalMinutes);
+  // 정본 세션 합산 사용 (크론 정산·관리자 주간현황과 동일한 계산). 미닫힘 세션은
+  // weekEnd(다음 월 06:00, 미래)로 cap → 사실상 현재 시각까지 집계된다.
+  return Math.floor(sumStudySeconds(attendance, weekEnd) / 60);
 }
 
 // 주간 목표 달성도 조회 (날짜 타입별 가중 평균 적용)
@@ -1239,67 +1206,6 @@ function getPeriodBounds(
       };
     }
   }
-}
-
-// 출석 기록에서 학습 세션 추출
-function extractStudySessions(
-  attendance: Array<{
-    type: string;
-    timestamp: string;
-    source?: string | null;
-    gate_name?: string | null;
-  }>,
-  periodEnd: Date,
-): StudySession[] {
-  const sessions: StudySession[] = [];
-  let checkInTime: Date | null = null;
-
-  // 직원/경비 게이트(소프트 제외) 기록은 세션 계산에서 배제
-  for (const record of attendance.filter((r) => !isStudyExcluded(r))) {
-    const timestamp = new Date(record.timestamp);
-
-    switch (record.type) {
-      case 'check_in':
-        checkInTime = timestamp;
-        break;
-      case 'check_out':
-        if (checkInTime) {
-          sessions.push({
-            startTime: checkInTime,
-            endTime: timestamp,
-            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
-          });
-          checkInTime = null;
-        }
-        break;
-      case 'break_start':
-        if (checkInTime) {
-          sessions.push({
-            startTime: checkInTime,
-            endTime: timestamp,
-            durationSeconds: Math.floor((timestamp.getTime() - checkInTime.getTime()) / 1000),
-          });
-          checkInTime = null;
-        }
-        break;
-      case 'break_end':
-        checkInTime = timestamp;
-        break;
-    }
-  }
-
-  // 현재 입실 중이면 현재까지 세션 추가
-  if (checkInTime) {
-    const now = new Date();
-    const endTime = now < periodEnd ? now : periodEnd;
-    sessions.push({
-      startTime: checkInTime,
-      endTime,
-      durationSeconds: Math.floor((endTime.getTime() - checkInTime.getTime()) / 1000),
-    });
-  }
-
-  return sessions;
 }
 
 // 기간별 학습 통계 조회
@@ -1532,7 +1438,10 @@ export async function getDailyStudyTrend(
 
   // 월간은 일별 데이터를 주(週) 단위로 묶어 반환 (각 주의 월요일 학습일을 키로 사용)
   if (period === 'monthly') {
-    const weekMap = new Map<string, { totalSeconds: number; subjectTimes: Record<string, number> }>();
+    const weekMap = new Map<
+      string,
+      { totalSeconds: number; subjectTimes: Record<string, number> }
+    >();
     for (const day of sorted) {
       // getWeekStart는 월요일 06:00 KST(=일요일 21:00 UTC)를 반환하므로, getStudyDate로 다시 월요일 학습일로 변환
       const mondayKey = getStudyDate(getWeekStart(new Date(`${day.date}T00:00:00.000Z`)))
