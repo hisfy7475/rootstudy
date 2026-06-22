@@ -11,14 +11,14 @@ import {
   getStudyDate,
   getStudyDayBounds,
   getWeekStart,
-  getCalendarWeekBoundsKST,
+  getStudyWeekBoundsFromMonday,
   getWeekDateStringsFromMondayKST,
   getTodayKST,
   formatDateKST,
   normalizePhone,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
-import { extractStudySessions, isStudyExcluded } from '@/lib/study-time';
+import { extractStudySessions, isStudyExcluded, sumStudySeconds } from '@/lib/study-time';
 
 function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
   return items.reduce(
@@ -5400,10 +5400,11 @@ export async function getWeeklyAttendance(
 ) {
   const supabase = await createClient();
 
-  // KST 달력 주: 월 00:00 ~ 다음 주 월 00:00 (주간 상점 크론과 동일)
+  // 학습주: 월 06:00 ~ 다음 주 월 06:00 KST (주간 상점 크론과 동일).
+  // (캘린더주 00:00 경계는 일요일밤 세션을 잘라먹어 주간 순공이 과소집계됐던 버그)
   const dates = getWeekDateStringsFromMondayKST(weekStartDate);
   const { start: weekStart, endExclusive: weekEndExclusive } =
-    getCalendarWeekBoundsKST(weekStartDate);
+    getStudyWeekBoundsFromMonday(weekStartDate);
 
   // 학생 프로필 전체 조회 (Supabase 행 제한 대비 배치)
   const STUDENT_BATCH = 1000;
@@ -5512,40 +5513,16 @@ export async function getWeeklyAttendance(
       }
     > = {};
 
-    // 해당 주 학습시간 계산 (attendance 기록에서 직접 계산)
-    let weeklyStudyMinutes = 0;
-    let tempCheckIn: Date | null = null;
-
-    // 직원/경비 게이트(소프트 제외) 기록은 순공/출석 판정에서 배제
+    // 직원/경비 게이트(소프트 제외) 기록은 순공/출석 판정에서 배제.
+    // (studentWeekAttendance는 아래 일별 dailyStatus 판정에도 그대로 쓰인다.)
     const studentWeekAttendance = (allAttendance || []).filter(
       (a) => a.student_id === student.id && !isStudyExcluded(a),
     );
 
-    for (const record of studentWeekAttendance) {
-      const ts = new Date(record.timestamp);
-      switch (record.type) {
-        case 'check_in':
-        case 'break_end':
-          tempCheckIn = ts;
-          break;
-        case 'check_out':
-        case 'break_start':
-          if (tempCheckIn) {
-            weeklyStudyMinutes += Math.floor((ts.getTime() - tempCheckIn.getTime()) / 60000);
-            tempCheckIn = null;
-          }
-          break;
-      }
-    }
-    // 아직 퇴실 안 한 경우: 현재 시각까지(단, 해당 주가 끝났으면 주간 종료 시각까지)
-    if (tempCheckIn) {
-      const nowMs = Date.now();
-      const capMs = weekEndExclusive.getTime();
-      const endMs = Math.min(nowMs, capMs);
-      if (endMs > tempCheckIn.getTime()) {
-        weeklyStudyMinutes += Math.floor((endMs - tempCheckIn.getTime()) / 60000);
-      }
-    }
+    // 해당 주 학습시간(분): 정본 세션 합산 사용. 미닫힘 세션은 학습주 종료(또는 현재 시각)로 cap.
+    const weeklyStudyMinutes = Math.floor(
+      sumStudySeconds(studentWeekAttendance, weekEndExclusive) / 60,
+    );
 
     const todayStr = getTodayKST();
 

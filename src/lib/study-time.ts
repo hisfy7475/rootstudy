@@ -103,3 +103,14 @@ export function extractStudySessions(
 
   return sessions;
 }
+
+/**
+ * 출석 이벤트 배열의 순공 합계(초)를 반환한다. extractStudySessions의 얇은 래퍼.
+ *
+ * periodEnd 는 반드시 집계 구간의 종료 시각(학습주 endExclusive / 학습일 end)을 넘긴다.
+ * 미닫힘 세션은 `now < periodEnd ? now : periodEnd` 로 마감되므로,
+ * 지난 구간은 periodEnd 로, 현재 구간은 now 로 cap 된다.
+ */
+export function sumStudySeconds(attendance: AttendanceRecord[], periodEnd: Date): number {
+  return extractStudySessions(attendance, periodEnd).reduce((sum, c) => sum + c.durationSeconds, 0);
+}

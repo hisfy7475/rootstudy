@@ -3,11 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 import { DAY_CONFIG } from '@/lib/constants';
 import {
   formatDateKST,
-  getCalendarWeekBoundsKST,
+  getStudyWeekBoundsFromMonday,
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
 import { notifyPointsGranted } from '@/lib/actions/notification';
-import { isStudyExcluded } from '@/lib/study-time';
+import { sumStudySeconds } from '@/lib/study-time';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -59,7 +59,11 @@ function getTargetWeekStartKST(weekParam?: string): Date {
   }
 }
 
-// 출석 기록에서 학습 시간(분) 계산
+// 출석 기록에서 학습 시간(분) 계산.
+// 정본 세션 합산(extractStudySessions/sumStudySeconds)을 그대로 사용한다.
+// weekEnd(학습주 endExclusive)로 미닫힘 세션을 cap하며, 입력 attendance는
+// 학습주 창으로 이미 fetch된 것이라 별도 레코드 필터가 필요 없다.
+// (과거의 "캘린더주 경계 + 레코드 필터" 방식은 일요일밤 세션을 잘라먹는 버그였다.)
 function calculateStudyMinutes(
   attendance: Array<{
     type: string;
@@ -67,52 +71,9 @@ function calculateStudyMinutes(
     source?: string | null;
     gate_name?: string | null;
   }>,
-  weekStart: Date,
   weekEnd: Date,
 ): number {
-  let totalMinutes = 0;
-  let checkInTime: Date | null = null;
-
-  // 타임스탬프 순으로 정렬 (직원/경비 게이트 소프트 제외 기록은 배제)
-  const sorted = [...attendance]
-    .filter((r) => !isStudyExcluded(r))
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-  for (const record of sorted) {
-    const timestamp = new Date(record.timestamp);
-
-    // 해당 주 범위 내의 기록만 처리
-    if (timestamp < weekStart || timestamp >= weekEnd) continue;
-
-    switch (record.type) {
-      case 'check_in':
-        checkInTime = timestamp;
-        break;
-      case 'check_out':
-        if (checkInTime) {
-          totalMinutes += (timestamp.getTime() - checkInTime.getTime()) / (1000 * 60);
-          checkInTime = null;
-        }
-        break;
-      case 'break_start':
-        if (checkInTime) {
-          totalMinutes += (timestamp.getTime() - checkInTime.getTime()) / (1000 * 60);
-          checkInTime = null;
-        }
-        break;
-      case 'break_end':
-        checkInTime = timestamp;
-        break;
-    }
-  }
-
-  // 미퇴실 세션: check_in/break_end 후 check_out 없이 주가 끝난 경우
-  // 관리자 UI(getWeeklyAttendance)와 동일하게 주간 종료 시점까지 cap
-  if (checkInTime) {
-    totalMinutes += (weekEnd.getTime() - checkInTime.getTime()) / (1000 * 60);
-  }
-
-  return Math.floor(totalMinutes);
+  return Math.floor(sumStudySeconds(attendance, weekEnd) / 60);
 }
 
 // 투트랙 주간 목표 설정 반환 타입
@@ -260,10 +221,14 @@ export async function GET(request: Request) {
   };
 
   try {
-    // 2. 처리할 주 시작일/종료일 계산 (KST 달력 주 = 관리자 주간 순공과 동일)
-    const lastWeekStart = getTargetWeekStartKST(weekParam);
-    const weekStartStr = formatDateKST(lastWeekStart);
-    const { endExclusive: lastWeekEnd } = getCalendarWeekBoundsKST(weekStartStr);
+    // 2. 처리할 주 시작일/종료일 계산.
+    //    월요일 라벨(weekStartStr)은 종전과 동일하게 도출하고, 집계 경계는 학습주
+    //    [월 06:00 KST, 다음 월 06:00 KST)를 사용한다. (캘린더주 00:00 경계는 일요일밤
+    //    세션을 잘라먹어 순공이 과소집계되는 버그였다.)
+    const targetMonday = getTargetWeekStartKST(weekParam);
+    const weekStartStr = formatDateKST(targetMonday);
+    const { start: lastWeekStart, endExclusive: lastWeekEnd } =
+      getStudyWeekBoundsFromMonday(weekStartStr);
     const weekDates = getWeekDateStringsFromMondayKST(weekStartStr);
 
     // 3. 모든 학생 조회 (타입/지점/가입일/첫등원일 포함, 퇴원생 제외)
@@ -417,7 +382,7 @@ export async function GET(request: Request) {
 
         // 실제 학습시간 계산
         const attendance = attendanceByStudent.get(student.id) || [];
-        const totalStudyMinutes = calculateStudyMinutes(attendance, lastWeekStart, lastWeekEnd);
+        const totalStudyMinutes = calculateStudyMinutes(attendance, lastWeekEnd);
 
         // 투트랙 판단
         const goalHours = Math.floor(goalMinutes / 60);
