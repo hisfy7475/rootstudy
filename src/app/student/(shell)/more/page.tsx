@@ -9,10 +9,12 @@ import {
   Settings,
   Target,
   BookOpen,
+  Languages,
   ChevronRight,
 } from 'lucide-react';
 
 const links = [
+  { href: '/student/vocab', label: '영단어 시험', icon: Languages },
   { href: '/student/mentoring', label: '멘토링/클리닉/상담', icon: GraduationCap },
   { href: '/student/order', label: '급식 · 모의고사', icon: UtensilsCrossed },
   { href: '/student/report', label: '리포트', icon: FileBarChart2 },

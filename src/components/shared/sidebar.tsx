@@ -28,6 +28,7 @@ import {
   Megaphone,
   UtensilsCrossed,
   BookOpen,
+  Languages,
   FileText,
   FileBarChart2,
   Inbox,
@@ -67,6 +68,7 @@ const adminNavItems: NavItem[] = [
   { href: '/meals', label: '급식 관리', icon: UtensilsCrossed },
   { href: '/mock-exams', label: '모의고사 관리', icon: FileText },
   { href: '/mentoring', label: '멘토링/클리닉/상담 관리', icon: BookOpen },
+  { href: '/vocab/exams', label: '영단어 시험 관리', icon: Languages },
   { href: '/download', label: '데이터 다운로드', icon: Download },
 ];
 

@@ -31,6 +31,7 @@ const studentNavItems: NavItem[] = [
 
 const studentMorePathPrefixes = [
   '/more',
+  '/vocab',
   '/mentoring',
   '/order',
   '/meals',
