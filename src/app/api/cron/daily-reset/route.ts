@@ -208,6 +208,39 @@ async function evaluateDailyFocus(
   return { evaluated, granted, alreadyGranted, errors };
 }
 
+/**
+ * 영단어 시험: 제한시간(10분) 경과 + 미제출(in_progress) 레코드를 auto 로 확정 채점.
+ * is_correct 는 답안 저장 시점에 이미 기록되므로 score = is_correct=true 개수.
+ * 멱등: `.is('submitted_at', null)` 조건으로 이미 마감된 건 갱신하지 않는다.
+ */
+async function finalizeIncompleteVocabExams(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: open, error } = await supabase
+    .from('vocab_exams')
+    .select('id')
+    .is('submitted_at', null)
+    .lt('started_at', cutoff);
+  if (error || !open || open.length === 0) return 0;
+
+  let finalized = 0;
+  for (const e of open) {
+    const { count } = await supabase
+      .from('vocab_exam_questions')
+      .select('id', { count: 'exact', head: true })
+      .eq('exam_id', e.id)
+      .eq('is_correct', true);
+    const { error: uErr } = await supabase
+      .from('vocab_exams')
+      .update({ score: count ?? 0, submit_type: 'auto', submitted_at: new Date().toISOString() })
+      .eq('id', e.id)
+      .is('submitted_at', null);
+    if (!uErr) finalized++;
+  }
+  return finalized;
+}
+
 export async function GET(request: Request) {
   // Cron secret 검증
   const authHeader = request.headers.get('authorization');
@@ -392,14 +425,22 @@ export async function GET(request: Request) {
       skipNotify: true,
     });
 
+    // -------------------------------------------------------
+    // 5. 영단어 시험: 만료된 미완료(in_progress) 일괄 자동마감
+    //    - lazy 마감(조회 시점)이 기본이나, 아무도 안 열면 영구 in_progress 로 남음.
+    //    - started_at + 10분 경과 & 미제출 레코드를 auto 로 확정 채점.
+    // -------------------------------------------------------
+    const vocabFinalized = await finalizeIncompleteVocabExams(supabase);
+
     return NextResponse.json({
       success: true,
-      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s), cleared ${phoneSubmissionResetCount} phone submission row(s) for ${phoneSubmissionStudyDate}. Daily focus: ${focusResult.granted} granted, ${focusResult.evaluated} evaluated.`,
+      message: `Auto checkout ${checkOutCount} student(s), reset ${count} active subject(s), cleared ${phoneSubmissionResetCount} phone submission row(s) for ${phoneSubmissionStudyDate}. Daily focus: ${focusResult.granted} granted, ${focusResult.evaluated} evaluated. Vocab exams finalized: ${vocabFinalized}.`,
       checkOutCount,
       resetCount: count,
       phoneSubmissionResetCount,
       phoneSubmissionStudyDate,
       dailyFocus: focusResult,
+      vocabFinalized,
       resetAt,
       resetUTC,
     });

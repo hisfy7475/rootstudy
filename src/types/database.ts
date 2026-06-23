@@ -1398,6 +1398,172 @@ export interface Database {
           updated_at?: string;
         };
       };
+      vocab_packs: {
+        Row: {
+          id: string;
+          name: string;
+          code: string;
+          description: string | null;
+          status: 'preparing' | 'public' | 'hidden' | 'disabled';
+          display_order: number;
+          publish_start_at: string | null;
+          publish_end_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          code: string;
+          description?: string | null;
+          status?: 'preparing' | 'public' | 'hidden' | 'disabled';
+          display_order?: number;
+          publish_start_at?: string | null;
+          publish_end_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          code?: string;
+          description?: string | null;
+          status?: 'preparing' | 'public' | 'hidden' | 'disabled';
+          display_order?: number;
+          publish_start_at?: string | null;
+          publish_end_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      vocab_words: {
+        Row: {
+          id: string;
+          english: string;
+          korean_primary: string;
+          korean_extra: string | null;
+          problem_group: string | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          english: string;
+          korean_primary: string;
+          korean_extra?: string | null;
+          problem_group?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          english?: string;
+          korean_primary?: string;
+          korean_extra?: string | null;
+          problem_group?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      vocab_pack_words: {
+        Row: {
+          pack_id: string;
+          word_id: string;
+          created_at: string;
+        };
+        Insert: {
+          pack_id: string;
+          word_id: string;
+          created_at?: string;
+        };
+        Update: {
+          pack_id?: string;
+          word_id?: string;
+          created_at?: string;
+        };
+      };
+      vocab_exams: {
+        Row: {
+          id: string;
+          student_id: string;
+          pack_id: string;
+          exam_type: 'normal' | 'friday_review';
+          exam_date: string;
+          started_at: string;
+          submitted_at: string | null;
+          submit_type: 'in_progress' | 'normal' | 'auto';
+          score: number | null;
+          total: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          student_id: string;
+          pack_id: string;
+          exam_type?: 'normal' | 'friday_review';
+          exam_date: string;
+          started_at?: string;
+          submitted_at?: string | null;
+          submit_type?: 'in_progress' | 'normal' | 'auto';
+          score?: number | null;
+          total?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          student_id?: string;
+          pack_id?: string;
+          exam_type?: 'normal' | 'friday_review';
+          exam_date?: string;
+          started_at?: string;
+          submitted_at?: string | null;
+          submit_type?: 'in_progress' | 'normal' | 'auto';
+          score?: number | null;
+          total?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      vocab_exam_questions: {
+        Row: {
+          id: string;
+          exam_id: string;
+          question_no: number;
+          word_id: string | null;
+          english_snapshot: string;
+          answer_snapshot: string;
+          options: Json;
+          selected: string | null;
+          is_correct: boolean | null;
+        };
+        Insert: {
+          id?: string;
+          exam_id: string;
+          question_no: number;
+          word_id?: string | null;
+          english_snapshot: string;
+          answer_snapshot: string;
+          options: Json;
+          selected?: string | null;
+          is_correct?: boolean | null;
+        };
+        Update: {
+          id?: string;
+          exam_id?: string;
+          question_no?: number;
+          word_id?: string | null;
+          english_snapshot?: string;
+          answer_snapshot?: string;
+          options?: Json;
+          selected?: string | null;
+          is_correct?: boolean | null;
+        };
+      };
       mentoring_results: {
         Row: {
           id: string;
@@ -2046,3 +2212,8 @@ export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];
 export type Mentor = Database['public']['Tables']['mentors']['Row'];
 export type MentoringSlot = Database['public']['Tables']['mentoring_slots']['Row'];
 export type MentoringApplication = Database['public']['Tables']['mentoring_applications']['Row'];
+export type VocabPack = Database['public']['Tables']['vocab_packs']['Row'];
+export type VocabWord = Database['public']['Tables']['vocab_words']['Row'];
+export type VocabPackWord = Database['public']['Tables']['vocab_pack_words']['Row'];
+export type VocabExam = Database['public']['Tables']['vocab_exams']['Row'];
+export type VocabExamQuestion = Database['public']['Tables']['vocab_exam_questions']['Row'];
