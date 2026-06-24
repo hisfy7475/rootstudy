@@ -48,11 +48,6 @@ export default function RunnerClient({
     return base;
   });
 
-  // 재접속 복원: 아직 답하지 않은 첫 문제로 이동(모두 풀었으면 마지막 문제).
-  const [idx, setIdx] = useState(() => {
-    const firstUnanswered = questions.findIndex((q) => !answers[q.questionNo]);
-    return firstUnanswered === -1 ? Math.max(0, questions.length - 1) : firstUnanswered;
-  });
   const [remaining, setRemaining] = useState(remainingSec);
   const [submitting, setSubmitting] = useState(false);
   const submittedRef = useRef(false);
@@ -62,7 +57,6 @@ export default function RunnerClient({
   answersRef.current = answers;
 
   const total = questions.length;
-  const current = questions[idx];
 
   // 복원 직후: localStorage 에만 있고 서버에 미반영인 답안을 best-effort 재동기화.
   // (시험 중 네트워크 끊김 동안 저장 실패한 답이 점수에 누락되지 않도록)
@@ -154,9 +148,7 @@ export default function RunnerClient({
     };
   }, [router]);
 
-  function pick(selected: string) {
-    if (!current) return;
-    const qno = current.questionNo;
+  function pick(qno: number, selected: string) {
     setAnswers((prev) => {
       const next = { ...prev, [qno]: selected };
       try {
@@ -171,7 +163,7 @@ export default function RunnerClient({
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
   const lowTime = remaining <= 60;
 
-  if (!current) return null;
+  if (questions.length === 0) return null;
 
   // 헤더/하단탭이 있는 (shell) 안에서도 시험은 풀스크린이어야 하므로 fixed 오버레이로
   // 전체 뷰포트를 덮는다(z-[60] > BottomNav z-50). 상단/하단은 고정, 문제 영역만 스크롤.
@@ -206,68 +198,61 @@ export default function RunnerClient({
             </span>
           </div>
 
-          {/* 진행 */}
-          <div className='mt-3'>
+          {/* 진행(응답 개수 기준) */}
+          <div className='mt-3 pb-3'>
             <div className='text-muted-foreground flex justify-between text-xs'>
+              <span>전체 {total}문제</span>
               <span>
-                {idx + 1} / {total}
+                응답 {answeredCount} / {total}
               </span>
-              <span>응답 {answeredCount}</span>
             </div>
             <div className='bg-muted mt-1 h-1.5 overflow-hidden rounded-full'>
               <div
                 className='bg-primary h-full transition-all'
-                style={{ width: `${((idx + 1) / total) * 100}%` }}
+                style={{ width: `${total > 0 ? (answeredCount / total) * 100 : 0}%` }}
               />
             </div>
           </div>
         </div>
 
-        {/* 문제 (가운데, 보기가 많으면 이 영역만 스크롤) */}
-        <div className='flex-1 overflow-y-auto px-4 py-6'>
-          <p className='text-foreground text-center text-3xl font-bold'>{current.english}</p>
-          <div className='mt-8 space-y-3'>
-            {current.options.map((opt) => {
-              const selected = answers[current.questionNo] === opt;
-              return (
-                <button
-                  key={opt}
-                  onClick={() => pick(opt)}
-                  aria-pressed={selected}
-                  className={cn(
-                    'w-full rounded-2xl border px-4 py-4 text-left text-base transition-all',
-                    selected
-                      ? 'border-primary bg-primary/10 ring-primary ring-2'
-                      : 'border-border bg-card active:scale-[0.99]',
-                  )}
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
+        {/* 문제 — 전 문항을 한 화면에 세로로 나열, 이 영역만 스크롤(롤다운) */}
+        <div className='flex-1 space-y-8 overflow-y-auto px-4 py-6'>
+          {questions.map((q) => (
+            <div key={q.questionNo}>
+              <div className='flex items-baseline gap-2'>
+                <span className='text-muted-foreground text-sm font-medium'>{q.questionNo}.</span>
+                <p className='text-foreground text-2xl font-bold'>{q.english}</p>
+              </div>
+              <div className='mt-4 space-y-3'>
+                {q.options.map((opt) => {
+                  const selected = answers[q.questionNo] === opt;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => pick(q.questionNo, opt)}
+                      aria-pressed={selected}
+                      className={cn(
+                        'w-full rounded-2xl border px-4 py-4 text-left text-base transition-all',
+                        selected
+                          ? 'border-primary bg-primary/10 ring-primary ring-2'
+                          : 'border-border bg-card active:scale-[0.99]',
+                      )}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* 하단 (safe-bottom, 항상 고정 노출) */}
+        {/* 하단 (safe-bottom, 제출 버튼 항상 고정 노출) */}
         <div className='border-border bg-background pb-safe shrink-0 border-t px-4'>
-          <div className='flex gap-2 pt-3 pb-3'>
-            <Button
-              variant='outline'
-              className='flex-1'
-              disabled={idx === 0}
-              onClick={() => setIdx((i) => Math.max(0, i - 1))}
-            >
-              이전
+          <div className='pt-3 pb-3'>
+            <Button className='w-full' disabled={submitting} onClick={submit}>
+              {submitting ? '제출 중…' : `제출 (${answeredCount}/${total})`}
             </Button>
-            {idx < total - 1 ? (
-              <Button className='flex-1' onClick={() => setIdx((i) => Math.min(total - 1, i + 1))}>
-                다음
-              </Button>
-            ) : (
-              <Button className='flex-1' disabled={submitting} onClick={submit}>
-                {submitting ? '제출 중…' : '제출'}
-              </Button>
-            )}
           </div>
         </div>
       </div>

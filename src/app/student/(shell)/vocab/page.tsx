@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BookOpen, PencilLine, History, ChevronRight } from 'lucide-react';
+import { BookOpen, PencilLine, RotateCcw, History, ChevronRight } from 'lucide-react';
 
 const items = [
   {
@@ -9,9 +9,15 @@ const items = [
     icon: BookOpen,
   },
   {
+    href: '/student/vocab/review',
+    label: '복습하기',
+    desc: '이번 주 틀린 단어만 모아 복습해요',
+    icon: RotateCcw,
+  },
+  {
     href: '/student/vocab/exam',
     label: '시험보기',
-    desc: '40문제 · 10분 · 하루 1회',
+    desc: '최대 40문제 · 10분 · 하루 1회',
     icon: PencilLine,
   },
   {
