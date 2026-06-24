@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getStudyDate } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
 import type { VocabPack } from '@/types/database';
@@ -18,6 +18,7 @@ const TIME_LIMIT_SEC = 10 * 60;
 const OPTIONS_COUNT = 4;
 const MIN_ACTIVE_WORDS = 40;
 const MIN_UNIQUE_MEANINGS = OPTIONS_COUNT; // 정답 1 + 오답 3
+const VOCAB_REWARD_AMOUNT = 2; // 시험 정상 완료 시 자동 부여 상점
 
 function logError(scope: string, error: unknown): void {
   try {
@@ -187,6 +188,18 @@ export type PreviewWord = {
 
 export async function getPreviewWords(packId: string): Promise<PreviewWord[]> {
   const supabase = await createClient();
+
+  // 노출 게이트: 미공개(공개 예정/기간 외) 꾸러미 단어가 직접 호출로 새지 않도록 서버에서 차단.
+  // (RLS 는 preparing 까지 읽기 허용하므로 여기서 공개 상태/기간을 추가 검증한다.)
+  const { data: pack } = await supabase
+    .from('vocab_packs')
+    .select('status, publish_start_at, publish_end_at')
+    .eq('id', packId)
+    .maybeSingle();
+  if (!pack || pack.status !== 'public' || !isWithinPublishWindow(pack, new Date())) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('vocab_pack_words')
     .select('vocab_words!inner(english, korean_primary, korean_extra, problem_group, is_active)')
@@ -248,10 +261,17 @@ async function loadActiveWords(
     .map((w) => ({ id: w.id, english: w.english, korean_primary: w.korean_primary }));
 }
 
-/** 40문항 + 4지선다 보기 생성. 단어/뜻 부족 시 { ok:false }. */
+/**
+ * 문항 + 4지선다 보기 생성. 단어/뜻 부족 시 { ok:false }.
+ * - 평일: 활성 단어에서 랜덤 40개.
+ * - 금요일 + 그 주 오답 있음: 오답 단어 **전체** 출제(40 상한·랜덤 보충 없음, 문항 수=오답 수).
+ * - 금요일 + 오답 0: 평일과 동일하게 랜덤 40 fallback.
+ * 보기(distractor) 풀은 출제 문항 수와 무관하게 활성 단어 전체에서 뽑으므로 가변 길이에 안전.
+ */
 function buildQuestionSet(
   activeWords: ActiveWord[],
   fridayWrongWordIds: string[],
+  opts: { friday: boolean },
 ): { ok: true; questions: BuiltQuestion[] } | { ok: false; error: string } {
   if (activeWords.length < MIN_ACTIVE_WORDS) {
     return { ok: false, error: '이 꾸러미는 현재 응시할 수 없습니다. (단어 수 부족)' };
@@ -261,16 +281,15 @@ function buildQuestionSet(
     return { ok: false, error: '이 꾸러미는 현재 응시할 수 없습니다. (뜻 종류 부족)' };
   }
 
-  // 출제 단어 선정: 금요일 오답 우선 → 나머지 랜덤 보충 → 40개.
   const byId = new Map(activeWords.map((w) => [w.id, w]));
   const wrong = shuffle(fridayWrongWordIds.filter((id) => byId.has(id)));
   let chosen: ActiveWord[];
-  if (wrong.length >= EXAM_TOTAL) {
-    chosen = wrong.slice(0, EXAM_TOTAL).map((id) => byId.get(id)!);
+  if (opts.friday && wrong.length > 0) {
+    // 금요일 누적 오답: 그 주 오답 전체를 출제(상한·보충 없음).
+    chosen = wrong.map((id) => byId.get(id)!);
   } else {
-    const wrongSet = new Set(wrong);
-    const rest = shuffle(activeWords.filter((w) => !wrongSet.has(w.id)));
-    chosen = [...wrong.map((id) => byId.get(id)!), ...rest].slice(0, EXAM_TOTAL);
+    // 평일, 또는 금요일이지만 오답 0개 → 랜덤 40개.
+    chosen = shuffle(activeWords).slice(0, EXAM_TOTAL);
   }
 
   const questions: BuiltQuestion[] = chosen.map((word, idx) => {
@@ -292,7 +311,53 @@ function buildQuestionSet(
   return { ok: true, questions };
 }
 
-/** 이번 학습주 월~목, 해당 꾸러미 오답/미선택 word_id (현재 활성·연결 단어로 한정). */
+type WeeklyWrongRow = { word_id: string | null; english: string; answer: string };
+
+/**
+ * 이번 학습주 월~목, 제출 완료된 시험의 오답/미선택 문항(스냅샷).
+ * 마감 필터(`submitted_at is not null`)로 미제출 in_progress 시험(전 문항 selected=null)이
+ * 통째로 "오답"으로 오염되는 것을 차단한다. packId 지정 시 해당 꾸러미로 한정(시험용),
+ * 미지정 시 전 꾸러미(복습용).
+ */
+async function getWeeklyWrongQuestions(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studentId: string,
+  now: Date,
+  opts: { packId?: string } = {},
+): Promise<WeeklyWrongRow[]> {
+  const days = mondayToThursdayStrs(now);
+  let exq = supabase
+    .from('vocab_exams')
+    .select('id')
+    .eq('student_id', studentId)
+    .in('exam_date', days)
+    .not('submitted_at', 'is', null); // 제출 완료분만(미제출 in_progress 오염 차단)
+  if (opts.packId) exq = exq.eq('pack_id', opts.packId);
+  const { data: exams, error: exErr } = await exq;
+  if (exErr || !exams || exams.length === 0) {
+    if (exErr) logError('[getWeeklyWrongQuestions] exams', exErr);
+    return [];
+  }
+  const examIds = exams.map((e) => e.id);
+  const { data: qs, error: qErr } = await supabase
+    .from('vocab_exam_questions')
+    .select('word_id, is_correct, selected, english_snapshot, answer_snapshot')
+    .in('exam_id', examIds);
+  if (qErr || !qs) {
+    if (qErr) logError('[getWeeklyWrongQuestions] questions', qErr);
+    return [];
+  }
+  const rows: WeeklyWrongRow[] = [];
+  for (const q of qs) {
+    const isWrong = q.is_correct === false || q.selected === null;
+    if (isWrong) {
+      rows.push({ word_id: q.word_id, english: q.english_snapshot, answer: q.answer_snapshot });
+    }
+  }
+  return rows;
+}
+
+/** 이번 학습주 월~목, 해당 꾸러미 오답/미선택 word_id (현재 활성·연결 단어로 한정 — 금요일 시험 출제용). */
 async function getFridayWrongWordIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studentId: string,
@@ -300,30 +365,10 @@ async function getFridayWrongWordIds(
   activeWordIds: Set<string>,
   now: Date,
 ): Promise<string[]> {
-  const days = mondayToThursdayStrs(now);
-  const { data: exams, error: exErr } = await supabase
-    .from('vocab_exams')
-    .select('id')
-    .eq('student_id', studentId)
-    .eq('pack_id', packId)
-    .in('exam_date', days);
-  if (exErr || !exams || exams.length === 0) {
-    if (exErr) logError('[getFridayWrongWordIds] exams', exErr);
-    return [];
-  }
-  const examIds = exams.map((e) => e.id);
-  const { data: qs, error: qErr } = await supabase
-    .from('vocab_exam_questions')
-    .select('word_id, is_correct, selected')
-    .in('exam_id', examIds);
-  if (qErr || !qs) {
-    if (qErr) logError('[getFridayWrongWordIds] questions', qErr);
-    return [];
-  }
+  const rows = await getWeeklyWrongQuestions(supabase, studentId, now, { packId });
   const wrong = new Set<string>();
-  for (const q of qs) {
-    const isWrong = q.is_correct === false || q.selected === null;
-    if (isWrong && q.word_id && activeWordIds.has(q.word_id)) wrong.add(q.word_id);
+  for (const r of rows) {
+    if (r.word_id && activeWordIds.has(r.word_id)) wrong.add(r.word_id);
   }
   return [...wrong];
 }
@@ -372,7 +417,7 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
   const wrongIds = friday
     ? await getFridayWrongWordIds(supabase, studentId, packId, activeIds, now)
     : [];
-  const built = buildQuestionSet(activeWords, wrongIds);
+  const built = buildQuestionSet(activeWords, wrongIds, { friday });
   if (!built.ok) return { ok: false, error: built.error };
 
   // 시험 헤더 insert (UNIQUE(student_id, exam_date) 가 race 흡수).
@@ -385,7 +430,7 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
       exam_date: examDate,
       started_at: now.toISOString(),
       submit_type: 'in_progress',
-      total: EXAM_TOTAL,
+      total: built.questions.length, // 금요일 누적 오답은 가변 문항 수
     })
     .select('id')
     .single();
@@ -540,7 +585,37 @@ export async function syncVocabAnswers(
   return { success: true };
 }
 
-/** 채점 확정(제출/자동마감 공통). */
+/**
+ * 시험 정상 완료(normal) 시 상점 2점 자동 부여.
+ * - points 쓰기 RLS 는 admin 전용이라 service-role(createAdminClient)로 INSERT.
+ * - 멱등: uq_points_vocab_daily(student_id, study_date) WHERE event_kind='auto_vocab' 가
+ *   재시도/동시 마감 중복을 23505 로 차단 → 무음 흡수. study_date 는 시험의 exam_date.
+ * - 부여 실패가 채점 확정을 막지 않도록 예외는 로깅만 한다.
+ */
+async function awardVocabReward(studentId: string, examDate: string): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.from('points').insert({
+      student_id: studentId,
+      admin_id: null,
+      type: 'reward',
+      amount: VOCAB_REWARD_AMOUNT,
+      reason: '영단어 시험 완료',
+      is_auto: true,
+      event_kind: 'auto_vocab',
+      study_date: examDate,
+      preset_id: null,
+      preset_type: null,
+    });
+    if (error && (error as { code?: string }).code !== '23505') {
+      logError('[awardVocabReward]', error);
+    }
+  } catch (e) {
+    logError('[awardVocabReward] exception', e);
+  }
+}
+
+/** 채점 확정(제출/자동마감 공통). normal 제출이면서 이 호출이 실제 마감자일 때만 상점 부여. */
 async function finalizeExam(
   supabase: Awaited<ReturnType<typeof createClient>>,
   examId: string,
@@ -556,14 +631,21 @@ async function finalizeExam(
     return null;
   }
   const score = count ?? 0;
-  const { error: uErr } = await supabase
+  // .select 로 실제 마감자(race 승자) 식별 — 이미 제출됐으면 0행(null) 반환.
+  const { data: updated, error: uErr } = await supabase
     .from('vocab_exams')
     .update({ score, submit_type: submitType, submitted_at: new Date().toISOString() })
     .eq('id', examId)
-    .is('submitted_at', null); // 멱등: 이미 제출됐으면 무시
+    .is('submitted_at', null) // 멱등: 이미 제출됐으면 무시
+    .select('student_id, exam_date')
+    .maybeSingle();
   if (uErr) {
     logError('[finalizeExam] update', uErr);
     return null;
+  }
+  // 정상 제출이고 이 호출이 마감을 수행했을 때만 1회 부여(auto/lazy/cron 마감은 제외).
+  if (updated && submitType === 'normal') {
+    await awardVocabReward(updated.student_id, updated.exam_date);
   }
   return score;
 }
@@ -757,6 +839,35 @@ export async function getMyVocabHistory(): Promise<HistoryItem[]> {
     });
   }
   return items;
+}
+
+// ============================================================
+// 학생 — 복습하기 (이번 주 누적 오답 학습 목록)
+// ============================================================
+
+export type ReviewWord = { english: string; answer: string };
+
+/**
+ * 이번 학습주(월~목) 제출 완료 시험의 오답/미선택 단어를 전 꾸러미 통합으로 모아
+ * lower(english) 기준 dedup 해 영어/뜻 목록으로 반환(금요일 누적 오답 시험 전 복습용).
+ * 시험이 아니라 학습 목록이므로 활성 여부와 무관하게 스냅샷 기준으로 보여준다.
+ */
+export async function getWeeklyWrongWords(): Promise<ReviewWord[]> {
+  const supabase = await createClient();
+  const scope = await getUserScope();
+  if (!scope || scope.userType !== 'student') return [];
+
+  const rows = await getWeeklyWrongQuestions(supabase, scope.userId, new Date());
+  const seen = new Set<string>();
+  const out: ReviewWord[] = [];
+  for (const r of rows) {
+    const key = r.english.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ english: r.english, answer: r.answer });
+  }
+  out.sort((a, b) => a.english.toLowerCase().localeCompare(b.english.toLowerCase()));
+  return out;
 }
 
 // ============================================================
