@@ -263,15 +263,16 @@ async function loadActiveWords(
 
 /**
  * 문항 + 4지선다 보기 생성. 단어/뜻 부족 시 { ok:false }.
- * - 평일: 활성 단어에서 랜덤 40개.
+ * - 평일: 그 주(월~목) 아직 출제되지 않은 단어 우선 40개 → 4일에 걸쳐 160개 중복 없이 커버.
+ *   미출제분이 40개 미만이면(꾸러미 활성 단어 < 160 또는 주 후반) 이미 출제분으로 40개를 채운다.
  * - 금요일 + 그 주 오답 있음: 오답 단어 **전체** 출제(40 상한·랜덤 보충 없음, 문항 수=오답 수).
- * - 금요일 + 오답 0: 평일과 동일하게 랜덤 40 fallback.
+ * - 금요일 + 오답 0: 평일과 동일 분기(servedWordIds 가 비어 사실상 랜덤 40 fallback).
  * 보기(distractor) 풀은 출제 문항 수와 무관하게 활성 단어 전체에서 뽑으므로 가변 길이에 안전.
  */
 function buildQuestionSet(
   activeWords: ActiveWord[],
   fridayWrongWordIds: string[],
-  opts: { friday: boolean },
+  opts: { friday: boolean; servedWordIds?: Set<string> },
 ): { ok: true; questions: BuiltQuestion[] } | { ok: false; error: string } {
   if (activeWords.length < MIN_ACTIVE_WORDS) {
     return { ok: false, error: '이 꾸러미는 현재 응시할 수 없습니다. (단어 수 부족)' };
@@ -288,8 +289,12 @@ function buildQuestionSet(
     // 금요일 누적 오답: 그 주 오답 전체를 출제(상한·보충 없음).
     chosen = wrong.map((id) => byId.get(id)!);
   } else {
-    // 평일, 또는 금요일이지만 오답 0개 → 랜덤 40개.
-    chosen = shuffle(activeWords).slice(0, EXAM_TOTAL);
+    // 평일(또는 금요일 오답 0개): 그 주 미출제 단어를 우선 채우고, 부족분은 이미 출제분으로 보충.
+    // unseen ∪ servedWords = activeWords(≥40)이므로 항상 정확히 EXAM_TOTAL개 확보.
+    const served = opts.servedWordIds ?? new Set<string>();
+    const unseen = activeWords.filter((w) => !served.has(w.id));
+    const servedWords = activeWords.filter((w) => served.has(w.id));
+    chosen = [...shuffle(unseen), ...shuffle(servedWords)].slice(0, EXAM_TOTAL);
   }
 
   const questions: BuiltQuestion[] = chosen.map((word, idx) => {
@@ -357,6 +362,47 @@ async function getWeeklyWrongQuestions(
   return rows;
 }
 
+/**
+ * 이번 학습주 월~목, 해당 꾸러미에서 이미 "출제된" word_id 집합(평일 중복 출제 방지용).
+ * - getWeeklyWrongQuestions 와 달리 `.not('submitted_at','is',null)` 마감 필터를 **적용하지 않는다**(의도적).
+ *   문항은 시험 시작 시 즉시 insert 되므로, 제출하지 않고 중단한 이전 요일 시험의 단어도 "출제됨"으로 간주해야
+ *   다음날 재출제되지 않는다. 마감 필터를 걸면 중단분이 미출제로 되살아나 중복 금지가 깨진다.
+ * - startVocabExam 의 멱등 가드가 오늘 레코드를 먼저 차단하므로, 이 쿼리는 항상 "이전 요일"만 매칭한다.
+ * - JS Set 이 자동 dedup 하므로 DB DISTINCT 불필요.
+ */
+async function getWeeklyServedWordIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studentId: string,
+  packId: string,
+  now: Date,
+): Promise<Set<string>> {
+  const days = mondayToThursdayStrs(now);
+  const { data: exams, error: exErr } = await supabase
+    .from('vocab_exams')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('pack_id', packId)
+    .in('exam_date', days);
+  if (exErr || !exams || exams.length === 0) {
+    if (exErr) logError('[getWeeklyServedWordIds] exams', exErr);
+    return new Set();
+  }
+  const { data: qs, error: qErr } = await supabase
+    .from('vocab_exam_questions')
+    .select('word_id')
+    .in(
+      'exam_id',
+      exams.map((e) => e.id),
+    );
+  if (qErr || !qs) {
+    if (qErr) logError('[getWeeklyServedWordIds] questions', qErr);
+    return new Set();
+  }
+  const served = new Set<string>();
+  for (const q of qs) if (q.word_id) served.add(q.word_id);
+  return served;
+}
+
 /** 이번 학습주 월~목, 해당 꾸러미 오답/미선택 word_id (현재 활성·연결 단어로 한정 — 금요일 시험 출제용). */
 async function getFridayWrongWordIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -417,7 +463,11 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
   const wrongIds = friday
     ? await getFridayWrongWordIds(supabase, studentId, packId, activeIds, now)
     : [];
-  const built = buildQuestionSet(activeWords, wrongIds, { friday });
+  // 평일: 그 주 이미 출제된 단어를 제외해 월~목 160개를 중복 없이 출제. 금요일은 미사용(빈 Set).
+  const servedIds = friday
+    ? new Set<string>()
+    : await getWeeklyServedWordIds(supabase, studentId, packId, now);
+  const built = buildQuestionSet(activeWords, wrongIds, { friday, servedWordIds: servedIds });
   if (!built.ok) return { ok: false, error: built.error };
 
   // 시험 헤더 insert (UNIQUE(student_id, exam_date) 가 race 흡수).
