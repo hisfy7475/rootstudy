@@ -43,6 +43,9 @@ export default function Home() {
               </Button>
             </Link>
           </div>
+          <p className="text-text-muted w-full pt-2 text-center text-xs">
+            Copyright © SM Education. All rights reserved.
+          </p>
         </CardContent>
       </Card>
     </div>
