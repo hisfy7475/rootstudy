@@ -71,7 +71,7 @@ export function ExamResultView({ result }: { result: ExamResult }) {
               </Badge>
             </div>
             <p className='text-text mt-1 text-lg font-semibold'>{q.english}</p>
-            <div className='mt-2 space-y-1 text-sm'>
+            <div className='mt-2 space-y-1 text-sm break-keep'>
               <p>
                 <span className='text-text-muted'>정답: </span>
                 <span className='text-text font-medium'>{q.answer}</span>

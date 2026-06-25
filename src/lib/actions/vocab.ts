@@ -164,17 +164,19 @@ async function getActiveWordCounts(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (packIds.length === 0) return map;
-  const { data, error } = await supabase
-    .from('vocab_pack_words')
-    .select('pack_id, vocab_words!inner(is_active)')
-    .in('pack_id', packIds)
-    .eq('vocab_words.is_active', true);
-  if (error) {
-    logError('[getActiveWordCounts]', error);
-    return map;
-  }
-  for (const row of data ?? []) {
-    map.set(row.pack_id, (map.get(row.pack_id) ?? 0) + 1);
+  // 꾸러미별 head count. 단일 select 집계는 PostgREST 기본 1000행 상한에 걸려
+  // 2000+ 단어 꾸러미의 개수가 잘리므로(→ 부당 '준비중'), count: 'exact' 로 정확 집계한다.
+  for (const packId of packIds) {
+    const { count, error } = await supabase
+      .from('vocab_pack_words')
+      .select('word_id, vocab_words!inner(is_active)', { count: 'exact', head: true })
+      .eq('pack_id', packId)
+      .eq('vocab_words.is_active', true);
+    if (error) {
+      logError('[getActiveWordCounts]', error);
+      continue;
+    }
+    map.set(packId, count ?? 0);
   }
   return map;
 }
@@ -200,26 +202,30 @@ export async function getPreviewWords(packId: string): Promise<PreviewWord[]> {
     return [];
   }
 
-  const { data, error } = await supabase
-    .from('vocab_pack_words')
-    .select('vocab_words!inner(english, korean_primary, korean_extra, problem_group, is_active)')
-    .eq('pack_id', packId)
-    .eq('vocab_words.is_active', true);
-  if (error) {
-    logError('[getPreviewWords]', error);
-    return [];
+  // PostgREST 기본 1000행 상한 → range 페이지네이션으로 전량 조회(2000+ 꾸러미 예습 전체 노출).
+  type PreviewRow = {
+    english: string;
+    korean_primary: string;
+    korean_extra: string | null;
+    problem_group: string | null;
+  };
+  const words: PreviewRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('vocab_pack_words')
+      .select('vocab_words!inner(english, korean_primary, korean_extra, problem_group, is_active)')
+      .eq('pack_id', packId)
+      .eq('vocab_words.is_active', true)
+      .order('word_id', { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      logError('[getPreviewWords]', error);
+      break;
+    }
+    const rows = (data ?? []).map((r) => r.vocab_words as unknown as PreviewRow).filter(Boolean);
+    for (const w of rows) words.push(w);
+    if ((data?.length ?? 0) < 1000) break;
   }
-  const words = (data ?? [])
-    .map(
-      (r) =>
-        r.vocab_words as unknown as {
-          english: string;
-          korean_primary: string;
-          korean_extra: string | null;
-          problem_group: string | null;
-        },
-    )
-    .filter(Boolean);
   words.sort((a, b) => a.english.toLowerCase().localeCompare(b.english.toLowerCase()));
   return words.map((w) => ({
     english: w.english,
@@ -247,18 +253,29 @@ async function loadActiveWords(
   supabase: Awaited<ReturnType<typeof createClient>>,
   packId: string,
 ): Promise<ActiveWord[]> {
-  const { data, error } = await supabase
-    .from('vocab_pack_words')
-    .select('vocab_words!inner(id, english, korean_primary, is_active)')
-    .eq('pack_id', packId)
-    .eq('vocab_words.is_active', true);
-  if (error) {
-    logError('[loadActiveWords]', error);
-    return [];
+  // PostgREST 기본 1000행 상한 → range 페이지네이션으로 전량 조회(2000+ 풀에서 랜덤 출제 보장).
+  // order 고정으로 페이지 간 누락/중복 방지.
+  const out: ActiveWord[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('vocab_pack_words')
+      .select('vocab_words!inner(id, english, korean_primary, is_active)')
+      .eq('pack_id', packId)
+      .eq('vocab_words.is_active', true)
+      .order('word_id', { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      logError('[loadActiveWords]', error);
+      break;
+    }
+    const rows = (data ?? []).map(
+      (r) => r.vocab_words as unknown as ActiveWord & { is_active: boolean },
+    );
+    for (const w of rows)
+      out.push({ id: w.id, english: w.english, korean_primary: w.korean_primary });
+    if ((data?.length ?? 0) < 1000) break;
   }
-  return (data ?? [])
-    .map((r) => r.vocab_words as unknown as ActiveWord & { is_active: boolean })
-    .map((w) => ({ id: w.id, english: w.english, korean_primary: w.korean_primary }));
+  return out;
 }
 
 /**
@@ -971,13 +988,19 @@ export async function getAdminVocabPacks(): Promise<AdminPackRow[]> {
 
   // 단어 수(전체/활성) + 시험기록 존재 여부 집계.
   const activeCounts = await getActiveWordCounts(supabase, packIds);
+  // 등록단어 수(활성+비활성). 단일 select 집계는 PostgREST 기본 1000행 상한에 걸려
+  // 2000+ 꾸러미 수가 잘리므로(→ 935/0 등 오표기), 꾸러미별 count: 'exact' 로 정확 집계한다.
   const totalCounts = new Map<string, number>();
-  if (packIds.length > 0) {
-    const { data: links } = await supabase
+  for (const packId of packIds) {
+    const { count, error: cErr } = await supabase
       .from('vocab_pack_words')
-      .select('pack_id')
-      .in('pack_id', packIds);
-    for (const l of links ?? []) totalCounts.set(l.pack_id, (totalCounts.get(l.pack_id) ?? 0) + 1);
+      .select('word_id', { count: 'exact', head: true })
+      .eq('pack_id', packId);
+    if (cErr) {
+      logError('[getAdminVocabPacks] totalCounts', cErr);
+      continue;
+    }
+    totalCounts.set(packId, count ?? 0);
   }
   const examPacks = new Set<string>();
   if (packIds.length > 0) {
@@ -1488,21 +1511,41 @@ export async function importVocabWords(
   const supabase = await createClient();
 
   const result: ImportResult = { inserted: 0, linked: 0, updated: 0, skipped: 0, errors: [] };
+  const CHUNK = 500;
 
   // 꾸러미 코드 → id
   const codes = [...new Set(rows.map((r) => (r.packCode ?? '').trim()).filter(Boolean))];
   const { data: packs } = await supabase.from('vocab_packs').select('id, code').in('code', codes);
   const codeToId = new Map((packs ?? []).map((p) => [p.code, p.id]));
 
-  // 기존 단어 lower(english) → id (대량 사전조회)
-  const englishes = [
-    ...new Set(rows.map((r) => (r.english ?? '').trim().toLowerCase()).filter(Boolean)),
-  ];
+  // 기존 단어 lower(english) → id 전량 사전조회.
+  // ⚠️ Supabase select 기본 상한 1000행 → 페이지네이션 필수. 미적용 시 1000행 초과 단어가
+  //   "신규"로 오인되어 재업로드 때 unique(lower(english)) 위반으로 배치가 실패함.
   const existing = new Map<string, string>();
-  if (englishes.length > 0) {
-    const { data: ws } = await supabase.from('vocab_words').select('id, english');
+  for (let from = 0; ; from += 1000) {
+    const { data: ws, error: wErr } = await supabase
+      .from('vocab_words')
+      .select('id, english')
+      .order('id', { ascending: true })
+      .range(from, from + 999);
+    if (wErr) {
+      logError('[importVocabWords] preload', wErr);
+      return { error: '기존 단어 조회에 실패했습니다.' };
+    }
     for (const w of ws ?? []) existing.set(w.english.toLowerCase(), w.id);
+    if (!ws || ws.length < 1000) break;
   }
+
+  // 행 분류: 신규 insert / 기존 update / 꾸러미 연결.
+  type WordFields = {
+    korean_primary: string;
+    korean_extra: string | null;
+    problem_group: string | null;
+    is_active: boolean;
+  };
+  const newByKey = new Map<string, WordFields & { english: string }>();
+  const updateByKey = new Map<string, WordFields>();
+  const links: { packId: string; key: string }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -1521,57 +1564,70 @@ export async function importVocabWords(
     }
 
     const key = english.toLowerCase();
-    let wordId = existing.get(key);
+    const fields: WordFields = {
+      korean_primary: korean,
+      korean_extra: r.koreanExtra ?? null,
+      problem_group: r.problemGroup ?? null,
+      is_active: r.isActive ?? true,
+    };
 
-    if (!wordId) {
-      const { data: ins, error: insErr } = await supabase
-        .from('vocab_words')
-        .insert({
-          english,
-          korean_primary: korean,
-          korean_extra: r.koreanExtra ?? null,
-          problem_group: r.problemGroup ?? null,
-          is_active: r.isActive ?? true,
-        })
-        .select('id')
-        .single();
-      if (insErr || !ins) {
-        result.errors.push({ rowIndex: i, reason: '단어 등록 실패' });
-        continue;
-      }
-      const createdId: string = ins.id;
-      wordId = createdId;
-      existing.set(key, createdId);
-      result.inserted++;
-    } else {
+    if (existing.has(key)) {
       if (dupPolicy === 'skip') {
         result.skipped++;
-        continue;
+        continue; // 기존 동작 보존: skip은 연결도 하지 않음.
       }
-      if (dupPolicy === 'update') {
-        await supabase
-          .from('vocab_words')
-          .update({
-            korean_primary: korean,
-            korean_extra: r.koreanExtra ?? null,
-            problem_group: r.problemGroup ?? null,
-            is_active: r.isActive ?? true,
-          })
-          .eq('id', wordId);
-        result.updated++;
-      }
-      // 'keep' 은 단어 필드 불변, 연결만 추가(아래).
+      if (dupPolicy === 'update') updateByKey.set(key, fields); // 같은 단어 여러 행이면 마지막 우선.
+      links.push({ packId, key }); // keep/update 모두 연결은 추가.
+    } else {
+      if (!newByKey.has(key)) newByKey.set(key, { english, ...fields }); // 파일 내 중복은 첫 행만 insert.
+      links.push({ packId, key });
     }
+  }
 
-    // 꾸러미 연결(중복은 무시).
+  // 신규 단어 일괄 insert(청크) → id 매핑(반환 순서 비보장이라 english 키로 매핑).
+  const newRows = [...newByKey.values()];
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const { data: ins, error: insErr } = await supabase
+      .from('vocab_words')
+      .insert(newRows.slice(i, i + CHUNK))
+      .select('id, english');
+    if (insErr || !ins) {
+      logError('[importVocabWords] insert', insErr);
+      return { error: '단어 일괄 등록에 실패했습니다.' };
+    }
+    for (const w of ins) existing.set(w.english.toLowerCase(), w.id);
+    result.inserted += ins.length;
+  }
+
+  // 기존 단어 수정(update 정책) — 행마다 값이 달라 개별 처리(재업로드에서만 타는 경로).
+  for (const [key, fields] of updateByKey) {
+    const id = existing.get(key);
+    if (!id) continue;
+    const { error: upErr } = await supabase.from('vocab_words').update(fields).eq('id', id);
+    if (!upErr) result.updated++;
+  }
+
+  // 꾸러미 연결 일괄 upsert(청크, (pack,word) 중복 제거).
+  const seen = new Set<string>();
+  const linkRows: { pack_id: string; word_id: string }[] = [];
+  for (const l of links) {
+    const wordId = existing.get(l.key);
     if (!wordId) continue;
+    const dedup = `${l.packId}:${wordId}`;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    linkRows.push({ pack_id: l.packId, word_id: wordId });
+  }
+  for (let i = 0; i < linkRows.length; i += CHUNK) {
+    const batch = linkRows.slice(i, i + CHUNK);
     const { error: linkErr } = await supabase
       .from('vocab_pack_words')
-      .upsert(
-        { pack_id: packId, word_id: wordId },
-        { onConflict: 'pack_id,word_id', ignoreDuplicates: true },
-      );
-    if (!linkErr) result.linked++;
+      .upsert(batch, { onConflict: 'pack_id,word_id', ignoreDuplicates: true });
+    if (linkErr) {
+      logError('[importVocabWords] link', linkErr);
+      return { error: '꾸러미 연결에 실패했습니다.' };
+    }
+    result.linked += batch.length;
   }
 
   revalidatePath('/admin/vocab/words');
