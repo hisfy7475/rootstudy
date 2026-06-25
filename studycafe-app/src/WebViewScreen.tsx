@@ -20,8 +20,12 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 import { WEB_BASE_URL, APP_USER_AGENT_SUFFIX } from "./constants";
 import { usePushNotifications } from "./hooks/usePushNotifications";
-import { useSecureTokenStore } from "./hooks/useSecureTokenStore";
 import {
+  useSecureTokenStore,
+  type StoredSession,
+} from "./hooks/useSecureTokenStore";
+import {
+  SessionExpiredError,
   uploadChatFileFromNative,
   uploadChatImageFromNative,
   uploadMentoringFileFromNative,
@@ -109,7 +113,7 @@ export default function WebViewScreen() {
     };
   }, []);
 
-  const { ready: secureReady, sessionRef, saveSession, saveEphemeral, clearSession } =
+  const { ready: secureReady, sessionRef, saveSession, saveEphemeral, clearSession, getSession } =
     useSecureTokenStore();
 
   const setWebUriStable = useCallback((uri: string) => {
@@ -236,6 +240,28 @@ export default function WebViewScreen() {
     [],
   );
 
+  // 세션 만료로 업로드가 막혔을 때, 웹의 전역 SessionExpiredDialog(다시 로그인 모달)를
+  // 띄우도록 커스텀 이벤트를 주입한다. 웹 브라우저 경로와 동일한 재로그인 UX를 공유한다.
+  const postSessionExpiredToWeb = useCallback(() => {
+    webViewRef.current?.injectJavaScript(
+      "window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));true;",
+    );
+  }, []);
+
+  // 업로드 직전 자동 갱신으로 회전된 새 토큰을 저장한다. 원래 영속성(자동로그인) 선택을
+  // 유지하기 위해, SecureStore에 기존 세션이 있으면 영구 저장, 없으면 메모리만 갱신한다.
+  const persistRefreshedSession = useCallback(
+    async (next: StoredSession) => {
+      const stored = await getSession();
+      if (stored) {
+        await saveSession(next.access_token, next.refresh_token);
+      } else {
+        saveEphemeral(next.access_token, next.refresh_token);
+      }
+    },
+    [getSession, saveSession, saveEphemeral],
+  );
+
   const handlePickImage = useCallback(
     async (payload: {
       source: "camera" | "gallery";
@@ -312,16 +338,27 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.fileSize ?? undefined,
               );
+        if (result.refreshedSession) await persistRefreshedSession(result.refreshedSession);
         postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
+        if (e instanceof SessionExpiredError) {
+          postSessionExpiredToWeb();
+          return;
+        }
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
           payload.context,
         );
       }
     },
-    [sessionRef, postFileUploadedToWeb, postFileUploadErrorToWeb],
+    [
+      sessionRef,
+      postFileUploadedToWeb,
+      postFileUploadErrorToWeb,
+      postSessionExpiredToWeb,
+      persistRefreshedSession,
+    ],
   );
 
   const handlePickFile = useCallback(
@@ -360,16 +397,27 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.size ?? null,
               );
+        if (result.refreshedSession) await persistRefreshedSession(result.refreshedSession);
         postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
+        if (e instanceof SessionExpiredError) {
+          postSessionExpiredToWeb();
+          return;
+        }
         postFileUploadErrorToWeb(
           e instanceof Error ? e.message : "파일 업로드에 실패했습니다.",
           payload.context,
         );
       }
     },
-    [sessionRef, postFileUploadedToWeb, postFileUploadErrorToWeb],
+    [
+      sessionRef,
+      postFileUploadedToWeb,
+      postFileUploadErrorToWeb,
+      postSessionExpiredToWeb,
+      persistRefreshedSession,
+    ],
   );
 
   const handleMessage = useCallback(

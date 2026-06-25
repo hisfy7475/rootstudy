@@ -39,7 +39,12 @@ export type DirectUploadParams = {
 
 export type DirectUploadResult =
   | { ok: true; url: string; path: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: 'auth' };
+
+// 세션 만료로 업로드가 막혔을 때 사용자에게 보여줄 문구. "로그인이 필요합니다" 보다
+// 원인(세션 만료)과 해결책(재로그인)을 분명히 전달한다.
+const SESSION_EXPIRED_MESSAGE =
+  '로그인 세션이 만료되어 전송하지 못했어요. 다시 로그인하면 이어서 이용할 수 있습니다.';
 
 function toKoreanUploadError(message: string | undefined): string {
   const m = (message ?? '').toLowerCase();
@@ -66,12 +71,26 @@ function toKoreanUploadError(message: string | undefined): string {
 export async function uploadToBucketAsUser(p: DirectUploadParams): Promise<DirectUploadResult> {
   const supabase = createClient();
 
-  const {
+  // 세션 access token이 만료 임박/만료면 getUser()가 빈 결과를 줄 수 있다.
+  // getSession()은 supabase-js 내부 락으로 (토큰 회전 충돌 없이) 갱신을 시도하므로,
+  // 1회 자가복구한 뒤 재확인한다. 태블릿이 백그라운드로 오래 있다 복귀해 토큰이
+  // 만료된 채 요청이 몰리는 경우의 일시적 실패를 사용자 모르게 흡수한다.
+  let {
     data: { user },
-    error: userErr,
   } = await supabase.auth.getUser();
-  if (userErr || !user) {
-    return { ok: false, error: '로그인이 필요합니다. 다시 로그인해 주세요.' };
+  if (!user) {
+    await supabase.auth.getSession();
+    ({
+      data: { user },
+    } = await supabase.auth.getUser());
+  }
+  if (!user) {
+    // 자가복구 실패 = 재로그인 필요. 전역 세션 만료 모달을 띄워 재로그인을 유도한다.
+    // (SessionExpiredDialog가 이 이벤트를 수신한다.)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+    }
+    return { ok: false, error: SESSION_EXPIRED_MESSAGE, code: 'auth' };
   }
 
   const fullPath = `${user.id}/${p.pathWithinUser}`;
