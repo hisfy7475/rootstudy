@@ -164,6 +164,9 @@ export default function LoginPage() {
           <p className='text-muted-foreground pt-2 text-center text-sm font-bold'>
             해당 사이트는 회원 전용으로, 재원생에 한해 회원가입이 가능합니다.
           </p>
+          <p className='text-text-muted w-full pt-1 text-center text-xs'>
+            Copyright © SM Education. All rights reserved.
+          </p>
         </CardFooter>
       </Card>
     </div>
