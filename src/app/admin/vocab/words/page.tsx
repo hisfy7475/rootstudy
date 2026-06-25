@@ -3,6 +3,9 @@ import { getAdminVocabWords, getVocabPackOptions } from '@/lib/actions/vocab';
 import { VocabAdminTabs } from '../vocab-admin-tabs';
 import WordsClient from './words-client';
 
+// 대량 단어 일괄 업로드(수천~만 행) 서버액션이 기본 타임아웃을 넘지 않도록 보강.
+export const maxDuration = 60;
+
 export default async function AdminVocabWordsPage() {
   const ctx = await requireAdminBranch();
   if (!ctx || !ctx.isSuperAdmin) {

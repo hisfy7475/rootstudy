@@ -232,7 +232,8 @@ export default function RunnerClient({
                       onClick={() => pick(q.questionNo, opt)}
                       aria-pressed={selected}
                       className={cn(
-                        'w-full rounded-2xl border px-4 py-4 text-left text-base transition-all',
+                        // 긴 뜻 대응: 글씨 축소 + 한글 단어 단위 줄바꿈(자르지 않음 — 정답 식별 보존).
+                        'w-full rounded-2xl border px-4 py-3.5 text-left text-sm leading-snug break-keep transition-all',
                         selected
                           ? 'border-primary bg-primary/10 ring-primary ring-2'
                           : 'border-border bg-card active:scale-[0.99]',

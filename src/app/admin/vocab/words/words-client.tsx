@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { Upload, FileSpreadsheet, Download, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import {
   getAdminVocabWords,
   createVocabWord,
@@ -38,6 +40,26 @@ function parseActive(v: unknown): boolean {
   return true;
 }
 
+const POLICY_OPTS: { value: DupPolicy; title: string; desc: string }[] = [
+  { value: 'keep', title: '기존 유지', desc: '이미 있는 단어는 그대로 두고 꾸러미 연결만 추가' },
+  { value: 'update', title: '기존 수정', desc: '⚠️ 뜻·사용여부를 덮어씀(연결된 모든 꾸러미에 영향)' },
+  { value: 'skip', title: '중복행 제외', desc: '이미 있는 단어는 건너뜀(연결도 추가 안 함)' },
+];
+
+/** 업로드 결과 통계 칩. */
+function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-medium',
+        warn ? 'bg-error/20 text-text' : 'bg-white text-text-muted',
+      )}
+    >
+      {label} <span className='text-text font-semibold'>{value.toLocaleString()}</span>
+    </span>
+  );
+}
+
 export default function WordsClient({
   initialWords,
   packs,
@@ -57,6 +79,9 @@ export default function WordsClient({
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
   const [dupPolicy, setDupPolicy] = useState<DupPolicy>('keep');
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function set<K extends keyof WordFilters>(key: K, value: WordFilters[K]) {
     setFilters((f) => ({ ...f, [key]: value === '' || value === undefined ? undefined : value }));
@@ -85,24 +110,53 @@ export default function WordsClient({
   }
 
   // ----- 엑셀 -----
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function parseFile(file: File) {
+    if (!/\.xlsx?$/i.test(file.name)) {
+      setError('엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다.');
+      return;
+    }
+    setError(null);
     setImportResult(null);
+    setFileName(file.name);
     const XLSX = await import('xlsx');
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    // 헤더 별칭: 기존 템플릿(꾸러미코드/영어단어/대표뜻) + 클라이언트 원본(LEVEL/문제/정답).
+    // 첫 번째 "비어있지 않은" 값을 고른다(빈 셀 '' 가 별칭을 가리지 않도록).
+    const pick = (r: Record<string, unknown>, keys: string[]): string => {
+      for (const k of keys) {
+        const v = String(r[k] ?? '').trim();
+        if (v) return v;
+      }
+      return '';
+    };
     const rows: ImportRow[] = raw.map((r) => ({
-      packCode: String(r['꾸러미코드'] ?? '').trim(),
-      english: String(r['영어단어'] ?? '').trim(),
-      koreanPrimary: String(r['한국어 대표뜻'] ?? r['대표뜻'] ?? '').trim(),
-      koreanExtra: String(r['추가뜻'] ?? '').trim() || null,
-      problemGroup: String(r['문제그룹'] ?? '').trim() || null,
-      isActive: parseActive(r['사용여부']),
+      packCode: pick(r, ['꾸러미코드', 'LEVEL']),
+      english: pick(r, ['영어단어', '문제']),
+      koreanPrimary: pick(r, ['한국어 대표뜻', '대표뜻', '정답']),
+      koreanExtra: pick(r, ['추가뜻']) || null,
+      problemGroup: pick(r, ['문제그룹']) || null,
+      isActive: parseActive(r['사용여부']), // 컬럼 없으면 기본 '사용'(true).
     }));
     setImportRows(rows);
+  }
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void parseFile(file);
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void parseFile(file);
+  }
+  function resetUpload() {
+    setImportRows(null);
+    setImportResult(null);
+    setFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
   function runImport() {
     if (!importRows) return;
@@ -153,51 +207,147 @@ export default function WordsClient({
       {error && <p className='bg-error/10 text-error rounded-xl px-3 py-2 text-sm'>{error}</p>}
 
       {/* 엑셀 업로드 */}
-      <details className='rounded-2xl border border-gray-200 bg-white p-4'>
-        <summary className='text-text cursor-pointer font-semibold'>엑셀 업로드</summary>
-        <div className='mt-3 space-y-3'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <input type='file' accept='.xlsx,.xls' onChange={onFile} className='text-sm' />
-            <Button size='sm' variant='ghost' onClick={downloadTemplate}>
+      <details open className='rounded-2xl border border-gray-200 bg-white p-4 sm:p-5'>
+        <summary className='text-text flex cursor-pointer items-center gap-2 font-semibold select-none'>
+          <FileSpreadsheet className='text-primary h-4 w-4' />
+          엑셀 업로드
+        </summary>
+
+        <div className='mt-4 space-y-4'>
+          {/* 안내 + 템플릿 */}
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <p className='text-text-muted text-xs leading-relaxed'>
+              <span className='text-text font-medium'>꾸러미코드(LEVEL)</span> ·{' '}
+              <span className='text-text font-medium'>영어단어(문제)</span> ·{' '}
+              <span className='text-text font-medium'>대표뜻(정답)</span> 컬럼이 필요합니다.
+            </p>
+            <Button size='sm' variant='ghost' onClick={downloadTemplate} className='shrink-0 gap-1.5'>
+              <Download className='h-4 w-4' />
               템플릿 다운로드
             </Button>
           </div>
+
+          {/* 드롭존 */}
+          <input
+            ref={fileInputRef}
+            type='file'
+            accept='.xlsx,.xls'
+            onChange={onFile}
+            className='hidden'
+          />
+          <div
+            role='button'
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            className={cn(
+              'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-8 text-center transition-colors',
+              dragOver
+                ? 'border-primary bg-primary/5'
+                : 'hover:border-primary/50 border-gray-300 bg-gray-50 hover:bg-gray-100',
+            )}
+          >
+            {fileName ? (
+              <>
+                <div className='bg-primary/10 text-primary flex h-11 w-11 items-center justify-center rounded-full'>
+                  <FileSpreadsheet className='h-5 w-5' />
+                </div>
+                <p className='text-text text-sm font-medium break-all'>{fileName}</p>
+                <p className='text-text-muted text-xs'>
+                  {importRows ? `${importRows.length.toLocaleString()}행 읽음 · ` : ''}다른 파일을
+                  선택하려면 클릭
+                </p>
+              </>
+            ) : (
+              <>
+                <div className='text-text-muted flex h-11 w-11 items-center justify-center rounded-full bg-gray-200/70'>
+                  <Upload className='h-5 w-5' />
+                </div>
+                <p className='text-text text-sm font-medium'>
+                  엑셀 파일을 끌어다 놓거나 클릭해서 선택하세요
+                </p>
+                <p className='text-text-muted text-xs'>.xlsx, .xls 형식 지원</p>
+              </>
+            )}
+          </div>
+
+          {/* 파싱 후: 중복 정책 + 실행 */}
           {importRows && (
-            <div className='space-y-2'>
-              <p className='text-text-muted text-sm'>{importRows.length}행 읽음. 중복 단어 처리:</p>
-              <div className='flex flex-wrap items-center gap-3 text-sm'>
-                {(['keep', 'update', 'skip'] as DupPolicy[]).map((p) => (
-                  <label key={p} className='flex items-center gap-1'>
-                    <input
-                      type='radio'
-                      name='dup'
-                      checked={dupPolicy === p}
-                      onChange={() => setDupPolicy(p)}
-                    />
-                    {p === 'keep'
-                      ? '기존 유지(연결만)'
-                      : p === 'update'
-                        ? '기존 수정(⚠️연결된 모든 꾸러미 영향)'
-                        : '중복행 제외'}
-                  </label>
+            <div className='space-y-3 rounded-2xl border border-gray-200 p-3'>
+              <p className='text-text text-sm font-medium'>중복 단어 처리 방식</p>
+              <div className='grid gap-2 sm:grid-cols-3'>
+                {POLICY_OPTS.map((o) => (
+                  <button
+                    key={o.value}
+                    type='button'
+                    onClick={() => setDupPolicy(o.value)}
+                    className={cn(
+                      'rounded-xl border p-3 text-left transition-colors',
+                      dupPolicy === o.value
+                        ? 'border-primary bg-primary/5 ring-primary ring-1'
+                        : 'border-gray-200 hover:bg-gray-50',
+                    )}
+                  >
+                    <span className='text-text block text-sm font-medium'>{o.title}</span>
+                    <span className='text-text-muted mt-0.5 block text-xs leading-snug'>
+                      {o.desc}
+                    </span>
+                  </button>
                 ))}
               </div>
-              <Button size='sm' onClick={runImport} disabled={pending}>
-                {pending ? '등록 중…' : '업로드 실행'}
-              </Button>
+              <div className='flex items-center gap-2 pt-1'>
+                <Button size='sm' onClick={runImport} disabled={pending} className='gap-1.5'>
+                  {pending ? (
+                    '등록 중…'
+                  ) : (
+                    <>
+                      <Upload className='h-4 w-4' />
+                      업로드 실행 ({importRows.length.toLocaleString()}행)
+                    </>
+                  )}
+                </Button>
+                <Button size='sm' variant='ghost' onClick={resetUpload} disabled={pending}>
+                  취소
+                </Button>
+              </div>
             </div>
           )}
+
+          {/* 결과 */}
           {importResult && (
-            <div className='rounded-xl bg-gray-50 p-3 text-sm'>
-              <p>
-                신규 {importResult.inserted} · 연결 {importResult.linked} · 수정{' '}
-                {importResult.updated} · 제외 {importResult.skipped} · 오류{' '}
-                {importResult.errors.length}
-              </p>
+            <div className='rounded-2xl border border-gray-200 bg-gray-50 p-3'>
+              <div className='text-text mb-2 flex items-center gap-1.5 text-sm font-medium'>
+                <CheckCircle2 className='text-primary h-4 w-4' />
+                업로드 완료
+              </div>
+              <div className='flex flex-wrap gap-1.5 text-xs'>
+                <Stat label='신규' value={importResult.inserted} />
+                <Stat label='연결' value={importResult.linked} />
+                <Stat label='수정' value={importResult.updated} />
+                <Stat label='제외' value={importResult.skipped} />
+                <Stat label='오류' value={importResult.errors.length} warn={importResult.errors.length > 0} />
+              </div>
               {importResult.errors.length > 0 && (
-                <Button size='sm' variant='outline' className='mt-2' onClick={downloadErrors}>
-                  오류행 다운로드
-                </Button>
+                <div className='mt-2 flex flex-wrap items-center gap-2'>
+                  <p className='text-text-muted text-xs'>
+                    비어 있거나 꾸러미 코드가 잘못된 행은 제외됐습니다.
+                  </p>
+                  <Button size='sm' variant='outline' onClick={downloadErrors} className='gap-1.5'>
+                    <Download className='h-4 w-4' />
+                    오류행 다운로드
+                  </Button>
+                </div>
               )}
             </div>
           )}
