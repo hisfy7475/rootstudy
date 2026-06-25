@@ -85,7 +85,9 @@ export function ChatRoom({
           });
           if (!uploadResult.ok) {
             console.error('Image upload error:', uploadResult.error);
-            alert(uploadResult.error);
+            // 세션 만료(code:'auth')는 전역 SessionExpiredDialog가 재로그인을 유도하므로
+            // 중복 alert를 띄우지 않는다.
+            if (uploadResult.code !== 'auth') alert(uploadResult.error);
             return;
           }
           imageUrl = uploadResult.url;
@@ -108,7 +110,9 @@ export function ChatRoom({
           });
           if (!uploadResult.ok) {
             console.error('File upload error:', uploadResult.error);
-            alert(uploadResult.error);
+            // 세션 만료(code:'auth')는 전역 SessionExpiredDialog가 재로그인을 유도하므로
+            // 중복 alert를 띄우지 않는다.
+            if (uploadResult.code !== 'auth') alert(uploadResult.error);
             return;
           }
           fileAttachment = {

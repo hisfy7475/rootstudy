@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
 import { AuthBridge } from '@/components/AuthBridge';
+import { SessionExpiredDialog } from '@/components/SessionExpiredDialog';
 import './globals.css';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://studycafe.vercel.app';
@@ -76,6 +77,7 @@ export default function RootLayout({
       </head>
       <body className='font-pretendard antialiased'>
         <AuthBridge />
+        <SessionExpiredDialog />
         {children}
         <Toaster
           position='top-center'
