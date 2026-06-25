@@ -10,6 +10,7 @@ import {
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
 import { REWARD_RULES } from '@/lib/constants';
+import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
 import { extractStudySessions, isStudyExcluded, sumStudySeconds } from '@/lib/study-time';
 import { evaluateAttendancePenalty } from '@/lib/attendance/penalty';
@@ -1059,9 +1060,17 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
   // 학생의 지점 ID 조회
   const branchId = await getStudentBranchId(targetStudentId);
 
-  // 날짜 타입별 목표시간 계산
+  // 날짜 타입별 목표시간 계산 (SSOT: src/lib/study/weekly-goal.ts)
   if (studentTypeId && branchId) {
-    goalHours = await calculateWeeklyGoalHours(studentTypeId, branchId, defaultGoalHours);
+    const weekDates = getWeekDateStringsFromMondayKST(formatDateKST(getWeekStart(new Date())));
+    const result = await fetchWeeklyGoal(
+      supabase,
+      studentTypeId,
+      branchId,
+      weekDates,
+      defaultGoalHours,
+    );
+    goalHours = Math.round(result.goalMinutes / 60);
   } else {
     goalHours = defaultGoalHours;
   }
@@ -1080,70 +1089,6 @@ export async function getWeeklyProgress(studentId?: string): Promise<{
     progressPercent,
     studentTypeName,
   };
-}
-
-// 날짜 타입별 가중 평균 주간 목표시간 계산
-async function calculateWeeklyGoalHours(
-  studentTypeId: string,
-  branchId: string,
-  defaultGoalHours: number,
-): Promise<number> {
-  const supabase = await createClient();
-
-  // 이번 학습주(월~일)의 날짜 문자열을 KST 기준으로 생성
-  const weekStart = getWeekStart(new Date());
-  const weekDates = getWeekDateStringsFromMondayKST(formatDateKST(weekStart));
-
-  // 해당 주의 날짜별 date_type 조회
-  const { data: dateAssignments } = await supabase
-    .from('date_assignments')
-    .select('date, date_type_id')
-    .eq('branch_id', branchId)
-    .in('date', weekDates);
-
-  // 날짜별 date_type_id 맵 생성
-  const dateTypeMap = new Map<string, string>();
-  dateAssignments?.forEach((da) => {
-    dateTypeMap.set(da.date, da.date_type_id);
-  });
-
-  // 학생 타입의 날짜 타입별 목표 설정 조회
-  const { data: goalSettings } = await supabase
-    .from('weekly_goal_settings')
-    .select('date_type_id, weekly_goal_hours')
-    .eq('student_type_id', studentTypeId);
-
-  // 날짜 타입별 목표시간 맵 생성
-  const goalMap = new Map<string, number>();
-  goalSettings?.forEach((gs) => {
-    goalMap.set(gs.date_type_id, gs.weekly_goal_hours);
-  });
-
-  // 날짜 타입별 일수 카운트 및 목표시간 합산
-  let totalGoalHours = 0;
-  let assignedDays = 0;
-
-  for (const date of weekDates) {
-    const dateTypeId = dateTypeMap.get(date);
-    if (dateTypeId && goalMap.has(dateTypeId)) {
-      // 해당 날짜 타입의 목표시간을 7로 나눈 값 (일일 목표)
-      totalGoalHours += goalMap.get(dateTypeId)! / 7;
-      assignedDays++;
-    }
-  }
-
-  // 모든 날짜에 설정이 있으면 계산된 값 사용, 아니면 기본값으로 채움
-  if (assignedDays === 7) {
-    return Math.round(totalGoalHours);
-  } else if (assignedDays > 0) {
-    // 일부만 설정된 경우: 설정된 날은 설정값, 나머지는 기본값의 일일 비율로 계산
-    const unassignedDays = 7 - assignedDays;
-    const dailyDefault = defaultGoalHours / 7;
-    return Math.round(totalGoalHours + dailyDefault * unassignedDays);
-  } else {
-    // 설정이 없으면 기본값 사용
-    return defaultGoalHours;
-  }
 }
 
 // ============================================

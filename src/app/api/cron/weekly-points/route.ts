@@ -8,6 +8,7 @@ import {
 } from '@/lib/utils';
 import { notifyPointsGranted } from '@/lib/actions/notification';
 import { sumStudySeconds } from '@/lib/study-time';
+import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -74,110 +75,6 @@ function calculateStudyMinutes(
   weekEnd: Date,
 ): number {
   return Math.floor(sumStudySeconds(attendance, weekEnd) / 60);
-}
-
-// 투트랙 주간 목표 설정 반환 타입
-interface WeeklyGoalResult {
-  goalMinutes: number; // 목표 시간 (분)
-  rewardPoints: number; // 목표 달성 시 상점
-  minimumMinutes: number; // 최소 시간 (분)
-  minimumPenaltyPoints: number; // 최소 미달 시 벌점
-}
-
-// 학생의 주간 목표시간 계산 (날짜 타입별 가중 평균) - 투트랙 지원
-async function calculateWeeklyGoalMinutes(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  studentTypeId: string,
-  branchId: string,
-  weekDates: string[],
-  defaultGoalHours: number,
-): Promise<WeeklyGoalResult> {
-  // 해당 주의 날짜별 date_type 조회
-  const { data: dateAssignments } = await supabase
-    .from('date_assignments')
-    .select('date, date_type_id')
-    .eq('branch_id', branchId)
-    .in('date', weekDates);
-
-  // 날짜별 date_type_id 맵 생성
-  const dateTypeMap = new Map<string, string>();
-  dateAssignments?.forEach((da) => {
-    dateTypeMap.set(da.date, da.date_type_id);
-  });
-
-  // 학생 타입의 날짜 타입별 목표 설정 조회 (투트랙 필드 포함)
-  const { data: goalSettings } = await supabase
-    .from('weekly_goal_settings')
-    .select('date_type_id, weekly_goal_hours, reward_points, minimum_hours, minimum_penalty_points')
-    .eq('student_type_id', studentTypeId);
-
-  // 날짜 타입별 설정 맵 생성
-  const settingsMap = new Map<
-    string,
-    {
-      weekly_goal_hours: number;
-      reward_points: number;
-      minimum_hours: number;
-      minimum_penalty_points: number;
-    }
-  >();
-  goalSettings?.forEach((gs) => {
-    settingsMap.set(gs.date_type_id, {
-      weekly_goal_hours: gs.weekly_goal_hours,
-      reward_points: gs.reward_points,
-      minimum_hours: gs.minimum_hours || 0,
-      minimum_penalty_points: gs.minimum_penalty_points || 0,
-    });
-  });
-
-  // 날짜 타입별 일수 카운트 및 목표시간/상벌점 합산
-  let totalGoalHours = 0;
-  let totalRewardPoints = 0;
-  let totalMinimumHours = 0;
-  let totalMinimumPenaltyPoints = 0;
-  let assignedDays = 0;
-
-  for (const date of weekDates) {
-    const dateTypeId = dateTypeMap.get(date);
-    if (dateTypeId && settingsMap.has(dateTypeId)) {
-      const setting = settingsMap.get(dateTypeId)!;
-      // 해당 날짜 타입의 목표시간을 7로 나눈 값 (일일 목표)
-      totalGoalHours += setting.weekly_goal_hours / 7;
-      totalRewardPoints += setting.reward_points / 7;
-      totalMinimumHours += setting.minimum_hours / 7;
-      totalMinimumPenaltyPoints += setting.minimum_penalty_points / 7;
-      assignedDays++;
-    }
-  }
-
-  // 설정이 있으면 가중 평균 사용
-  if (assignedDays === 7) {
-    return {
-      goalMinutes: Math.round(totalGoalHours * 60),
-      rewardPoints: Math.round(totalRewardPoints),
-      minimumMinutes: Math.round(totalMinimumHours * 60),
-      minimumPenaltyPoints: Math.round(totalMinimumPenaltyPoints),
-    };
-  } else if (assignedDays > 0) {
-    // 일부만 설정된 경우
-    const unassignedDays = 7 - assignedDays;
-    const dailyDefault = defaultGoalHours / 7;
-    const finalGoalHours = totalGoalHours + dailyDefault * unassignedDays;
-    return {
-      goalMinutes: Math.round(finalGoalHours * 60),
-      rewardPoints: Math.round((totalRewardPoints * 7) / assignedDays),
-      minimumMinutes: Math.round((totalMinimumHours * 60 * 7) / assignedDays),
-      minimumPenaltyPoints: Math.round((totalMinimumPenaltyPoints * 7) / assignedDays),
-    };
-  } else {
-    // 설정이 없으면 기본값 사용 (투트랙 미적용)
-    return {
-      goalMinutes: defaultGoalHours * 60,
-      rewardPoints: 1,
-      minimumMinutes: 0,
-      minimumPenaltyPoints: 0,
-    };
-  }
 }
 
 export async function GET(request: Request) {
@@ -370,9 +267,9 @@ export async function GET(request: Request) {
         } | null;
         const defaultGoalHours = studentType?.weekly_goal_hours || 40;
 
-        // 목표시간 및 상벌점 계산 (투트랙 지원)
+        // 목표시간 및 상벌점 계산 (투트랙 지원, SSOT: src/lib/study/weekly-goal.ts)
         const { goalMinutes, rewardPoints, minimumMinutes, minimumPenaltyPoints } =
-          await calculateWeeklyGoalMinutes(
+          await fetchWeeklyGoal(
             supabase,
             student.student_type_id,
             branchId,
