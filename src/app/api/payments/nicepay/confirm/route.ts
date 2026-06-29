@@ -116,6 +116,38 @@ export async function POST(request: Request) {
 
   const authResultCode = pickForm(formData, 'AuthResultCode', 'authResultCode');
   if (authResultCode !== '0000') {
+    // 인증 실패/사용자 취소 — 승인(approve/capture) 이전이라 무과금이다(NICEPay 2단계 모델).
+    // 이 시점에 ReturnURL POST 가 도달하므로, 클라이언트 콜백(nicepayClose/돌아가기)에 의존하지 않고
+    // 서버가 직접 해당 pending 을 failed 로 정리해 "신청 대기" 유령 주문이 남지 않게 한다.
+    // 부가 작업이므로 실패해도 아래 실패 redirect 를 막지 않도록 try/catch 로 감싼다.
+    try {
+      const respMid = pickForm(formData, 'MID', 'mid');
+      // MID 게이트: 우리 가맹점으로 온 POST 일 때만 상태를 변경(오라우팅/노이즈 차단).
+      if (orderId && respMid && respMid === getNicepayMid()) {
+        const cleanup = createAdminClient();
+        const now = new Date().toISOString();
+        // status='pending' 가드 → 이미 paid/failed 인 주문은 건드리지 않음(늦은 콜백/경합 안전).
+        await cleanup
+          .from('meal_orders')
+          .update({ status: 'failed', cancel_reason: 'auth_failed', updated_at: now })
+          .eq('order_id', orderId)
+          .eq('status', 'pending');
+        // 정리 audit trail.
+        const failAmtRaw = pickForm(formData, 'Amt', 'amt');
+        const failAmt = parseInt(failAmtRaw, 10);
+        await cleanup.from('payment_logs').insert({
+          order_type: category,
+          order_id: orderId,
+          action: 'auth',
+          status: 'fail',
+          amount: Number.isFinite(failAmt) ? failAmt : null,
+          result_code: authResultCode || null,
+          result_msg: pickForm(formData, 'AuthResultMsg', 'authResultMsg') || null,
+        });
+      }
+    } catch (e) {
+      console.error('[nicepay/confirm] auth-fail cleanup', e);
+    }
     return redirectResult(request, role, category, {
       fail: '1',
       code: authResultCode || 'unknown',
@@ -311,10 +343,12 @@ export async function POST(request: Request) {
       }
     }
 
+    // status='pending' 가드 → 그 사이 다른 경로(sweep/늦은 콜백)가 이미 정리한 주문을 되돌리지 않음.
     await admin
       .from('meal_orders')
       .update({ status: 'failed', updated_at: paidAt })
-      .eq('id', row.id);
+      .eq('id', row.id)
+      .eq('status', 'pending');
 
     const msg =
       approveResult?.result.ResultMsg || (!approveResult?.httpOk ? '승인 통신 실패' : '승인 거절');

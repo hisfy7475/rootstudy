@@ -59,6 +59,15 @@ export const MENTORING_TYPE_LABEL = {
   consult: '상담',
 } as const;
 
+// 멘토링 신청 "활성" 상태 (정원/booked_count 차지, 슬롯 삭제 차단, 신청자 카운트 기준).
+// cancelled/rejected 는 비활성(이력) 이며 정원·삭제 차단에 포함하지 않는다.
+// DB booked_count 트리거(supabase/migrations) 와 동일한 정의를 코드 SSOT 로 둔다.
+export const MENTORING_ACTIVE_STATUSES = ['pending', 'confirmed'] as const;
+
+export function isMentoringActiveStatus(status: string): boolean {
+  return (MENTORING_ACTIVE_STATUSES as readonly string[]).includes(status);
+}
+
 // 기본 과목 목록
 export const DEFAULT_SUBJECTS = ['국어', '수학', '영어', '과학', '사회', '기타'] as const;
 

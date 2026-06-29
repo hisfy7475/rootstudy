@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { PackPicker } from '@/components/shared/vocab/pack-picker';
 import { getPreviewWords, type StudentPackView, type PreviewWord } from '@/lib/actions/vocab';
+import { formatProblemGroups } from '@/lib/vocab-problem-group';
 
 export default function PreviewClient({ packs }: { packs: StudentPackView[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -35,8 +36,10 @@ export default function PreviewClient({ packs }: { packs: StudentPackView[] }) {
                 <li key={i} className='flex items-center justify-between gap-3 px-4 py-3'>
                   <div>
                     <p className='text-foreground font-semibold'>{w.english}</p>
-                    {w.problemGroup && (
-                      <p className='text-muted-foreground text-xs'>{w.problemGroup}</p>
+                    {formatProblemGroups(w.problemGroup) && (
+                      <p className='text-muted-foreground text-xs'>
+                        {formatProblemGroups(w.problemGroup)}
+                      </p>
                     )}
                   </div>
                   <div className='text-right'>

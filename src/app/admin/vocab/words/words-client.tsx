@@ -6,6 +6,7 @@ import { Upload, FileSpreadsheet, Download, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { formatProblemGroups } from '@/lib/vocab-problem-group';
 import {
   getAdminVocabWords,
   createVocabWord,
@@ -42,7 +43,11 @@ function parseActive(v: unknown): boolean {
 
 const POLICY_OPTS: { value: DupPolicy; title: string; desc: string }[] = [
   { value: 'keep', title: '기존 유지', desc: '이미 있는 단어는 그대로 두고 꾸러미 연결만 추가' },
-  { value: 'update', title: '기존 수정', desc: '⚠️ 뜻·사용여부를 덮어씀(연결된 모든 꾸러미에 영향)' },
+  {
+    value: 'update',
+    title: '기존 수정',
+    desc: '⚠️ 뜻·사용여부를 덮어씀(연결된 모든 꾸러미에 영향)',
+  },
   { value: 'skip', title: '중복행 제외', desc: '이미 있는 단어는 건너뜀(연결도 추가 안 함)' },
 ];
 
@@ -52,7 +57,7 @@ function Stat({ label, value, warn = false }: { label: string; value: number; wa
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-medium',
-        warn ? 'bg-error/20 text-text' : 'bg-white text-text-muted',
+        warn ? 'bg-error/20 text-text' : 'text-text-muted bg-white',
       )}
     >
       {label} <span className='text-text font-semibold'>{value.toLocaleString()}</span>
@@ -221,7 +226,12 @@ export default function WordsClient({
               <span className='text-text font-medium'>영어단어(문제)</span> ·{' '}
               <span className='text-text font-medium'>대표뜻(정답)</span> 컬럼이 필요합니다.
             </p>
-            <Button size='sm' variant='ghost' onClick={downloadTemplate} className='shrink-0 gap-1.5'>
+            <Button
+              size='sm'
+              variant='ghost'
+              onClick={downloadTemplate}
+              className='shrink-0 gap-1.5'
+            >
               <Download className='h-4 w-4' />
               템플릿 다운로드
             </Button>
@@ -336,7 +346,11 @@ export default function WordsClient({
                 <Stat label='연결' value={importResult.linked} />
                 <Stat label='수정' value={importResult.updated} />
                 <Stat label='제외' value={importResult.skipped} />
-                <Stat label='오류' value={importResult.errors.length} warn={importResult.errors.length > 0} />
+                <Stat
+                  label='오류'
+                  value={importResult.errors.length}
+                  warn={importResult.errors.length > 0}
+                />
               </div>
               {importResult.errors.length > 0 && (
                 <div className='mt-2 flex flex-wrap items-center gap-2'>
@@ -522,7 +536,9 @@ export default function WordsClient({
                   <td className='px-3 py-2 font-medium whitespace-nowrap'>{w.english}</td>
                   <td className='px-3 py-2 whitespace-nowrap'>{w.koreanPrimary}</td>
                   <td className='px-3 py-2 whitespace-nowrap'>{w.koreanExtra ?? '-'}</td>
-                  <td className='px-3 py-2 whitespace-nowrap'>{w.problemGroup ?? '-'}</td>
+                  <td className='px-3 py-2 whitespace-nowrap'>
+                    {formatProblemGroups(w.problemGroup) || '-'}
+                  </td>
                   <td className='px-3 py-2'>
                     <div className='flex flex-wrap gap-1'>
                       {w.packIds.map((pid) => (

@@ -1833,6 +1833,41 @@ export type StartMealPaymentResult = {
   conflict?: OrderConflictItem[];
 };
 
+/** 유령 미결제 pending 정리 임계(분). 정상 결제는 confirm 이 approve 타임아웃 27초 내 확정하므로 충분히 보수적. */
+const STALE_PENDING_MINUTES = 30;
+
+/**
+ * 결제 진입 시점에 같은 학생의 "유령" 미결제 pending 을 정리한다.
+ *
+ * 결제창이 깨지거나(흰화면) 사용자가 인증 전 이탈해 ReturnURL POST 가 confirm 라우트에 도달하지 못하면
+ * pending(tid=null) 이 잔존한다. 이게 findOverlappingActiveOrders/중복검사에서 활성(pending|paid)으로 잡혀
+ * 같은 날짜·끼니의 재결제를 부당하게 막는다. 진입 맨 앞에서 정리해 이후 검사들이 깨끗한 상태를 보게 한다.
+ *
+ * - 대상: tid IS NULL(결제 미성립) + STALE_PENDING_MINUTES 경과 건만 → 진행 중 결제(방금 생성)는 오탐 안 됨.
+ * - exceptVariantId(지금 결제하려는 variant)는 제외 → 같은 상품의 resume(특히 옵션 보존이 필요한 모의고사)은
+ *   getExistingPendingOrder 가 그대로 이어받는다.
+ * - admin 클라이언트: 학부모가 자녀 결제 시 student_id != user_id 라 RLS 회피 필요. 스코프는 student_id 한정이라
+ *   다른 학생 주문은 건드리지 않는다(크로스 테넌트 안전).
+ */
+async function expireStaleGhostOrders(studentId: string, exceptVariantId: string): Promise<void> {
+  const admin = createAdminClient();
+  const now = Date.now();
+  const cutoff = new Date(now - STALE_PENDING_MINUTES * 60 * 1000).toISOString();
+  const { error } = await admin
+    .from('meal_orders')
+    .update({
+      status: 'failed',
+      cancel_reason: 'payment_abandoned',
+      updated_at: new Date(now).toISOString(),
+    })
+    .eq('student_id', studentId)
+    .eq('status', 'pending')
+    .is('tid', null)
+    .lt('created_at', cutoff)
+    .neq('variant_id', exceptVariantId);
+  if (error) console.error('[expireStaleGhostOrders]', error);
+}
+
 /**
  * 결제창 호출 직전("카드 결제하기" 클릭)에 주문을 생성하고 NICEPay 결제 파라미터를 만든다.
  *
@@ -1848,6 +1883,9 @@ export async function startMealPayment(
   studentId: string,
   options?: { force?: boolean; optionSelections?: MockExamOptionSelectionInput[] },
 ): Promise<StartMealPaymentResult> {
+  // 0) 같은 학생의 유령 미결제 pending 정리(현재 variant 제외) — 이후 중복/겹침 검사가 깨끗한 상태를 보게 한다.
+  await expireStaleGhostOrders(studentId, variantId);
+
   // 1) 기존 pending 재사용(이어서 결제). getMealOrderById 가 접근 권한(본인/자녀)을 함께 검증한다.
   const existing = await getExistingPendingOrder(variantId, studentId);
   if (existing) {

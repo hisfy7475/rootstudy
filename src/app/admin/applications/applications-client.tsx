@@ -104,6 +104,8 @@ const DOMAIN_TABS: { key: UnifiedAppDomain | 'all'; label: string }[] = [
   { key: 'mentoring', label: '멘토링' },
 ];
 
+// 급식·모의고사는 결제 성립 건만 노출되어 'failed' 가 view 에 없고(미결제 숨김), 멘토링은 failed 로
+// 정규화되지 않으므로 '실패' 탭은 항상 0건이라 제외한다. 'pending'(신청 대기)은 멘토링 승인 대기 조회용으로 유지.
 const STATUS_TABS: { key: UnifiedAppStatus | 'all'; label: string }[] = [
   { key: 'all', label: '전체' },
   { key: 'pending', label: '신청 대기' },
@@ -111,7 +113,6 @@ const STATUS_TABS: { key: UnifiedAppStatus | 'all'; label: string }[] = [
   { key: 'cancelled', label: '취소' },
   { key: 'rejected', label: '거절' },
   { key: 'refunded', label: '환불' },
-  { key: 'failed', label: '실패' },
 ];
 
 const MEAL_TYPE_TABS: { key: MealTypeFilter; label: string }[] = [
