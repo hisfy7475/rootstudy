@@ -37,13 +37,21 @@ function studyDateStr(d: Date = new Date()): string {
   return getStudyDate(d).toISOString().slice(0, 10);
 }
 
+/**
+ * 학습일(YYYY-MM-DD) → 그 주 월요일 학습일(YYYY-MM-DD). 주 시작=월요일(DAY_CONFIG.weekStartsOn).
+ * 입력은 이미 학습일(KST 06:00 경계) 문자열이므로 getStudyDate 재변환이 불필요하다
+ * (exam_date·studyDateStr 산출물이 이미 학습일). UTC 자정으로 파싱해 요일만 계산한다.
+ */
+function weekMondayStr(studyDateStr: string): string {
+  const d = new Date(`${studyDateStr}T00:00:00.000Z`);
+  const backToMon = (d.getUTCDay() + 6) % 7; // 월요일까지 거슬러 갈 일수 (일=6)
+  d.setUTCDate(d.getUTCDate() - backToMon);
+  return d.toISOString().slice(0, 10);
+}
+
 /** 이번 학습주 월~목 학습일 문자열 4개. */
 function mondayToThursdayStrs(now: Date = new Date()): string[] {
-  const study = getStudyDate(now); // UTC 자정
-  const dow = study.getUTCDay(); // 0=일 .. 6=토
-  const backToMon = (dow + 6) % 7;
-  const monday = new Date(study);
-  monday.setUTCDate(monday.getUTCDate() - backToMon);
+  const monday = new Date(`${weekMondayStr(studyDateStr(now))}T00:00:00.000Z`);
   return [0, 1, 2, 3].map((i) => {
     const d = new Date(monday);
     d.setUTCDate(d.getUTCDate() + i);
@@ -653,10 +661,12 @@ export async function syncVocabAnswers(
 }
 
 /**
- * 시험 정상 완료(normal) 시 상점 2점 자동 부여.
+ * 시험 정상 완료(normal) 시 상점 2점 자동 부여 — 학습주당 1회(주 1회).
  * - points 쓰기 RLS 는 admin 전용이라 service-role(createAdminClient)로 INSERT.
  * - 멱등: uq_points_vocab_daily(student_id, study_date) WHERE event_kind='auto_vocab' 가
- *   재시도/동시 마감 중복을 23505 로 차단 → 무음 흡수. study_date 는 시험의 exam_date.
+ *   재시도/동시 마감/같은 주 재응시 중복을 23505 로 차단 → 무음 흡수.
+ *   study_date 에는 응시일이 아니라 "그 주 월요일 학습일"을 박제한다 →
+ *   같은 학습주의 모든 정상 제출이 같은 키로 수렴해 학습주당 1건만 남는다.
  * - 부여 실패가 채점 확정을 막지 않도록 예외는 로깅만 한다.
  */
 async function awardVocabReward(studentId: string, examDate: string): Promise<void> {
@@ -670,7 +680,7 @@ async function awardVocabReward(studentId: string, examDate: string): Promise<vo
       reason: '영단어 시험 완료',
       is_auto: true,
       event_kind: 'auto_vocab',
-      study_date: examDate,
+      study_date: weekMondayStr(examDate), // 주 1회 멱등: 그 주 월요일 학습일로 박제
       preset_id: null,
       preset_type: null,
     });
