@@ -60,6 +60,16 @@ function mondayToThursdayStrs(now: Date = new Date()): string[] {
   });
 }
 
+/** 학습일(YYYY-MM-DD)이 속한 학습주의 월~금 학습일 문자열 5개(상점 개근 판정용). */
+function mondayToFridayStrs(studyDateStr: string): string[] {
+  const monday = new Date(`${weekMondayStr(studyDateStr)}T00:00:00.000Z`);
+  return [0, 1, 2, 3, 4].map((i) => {
+    const d = new Date(monday);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
 function isFriday(now: Date = new Date()): boolean {
   return getStudyDate(now).getUTCDay() === 5;
 }
@@ -712,23 +722,40 @@ export async function syncVocabAnswers(
 }
 
 /**
- * 시험 정상 완료(normal) 시 상점 2점 자동 부여 — 학습주당 1회(주 1회).
+ * 영단어 시험 상점 2점 자동 부여 — 그 학습주 **월~금 5일을 모두 정상 제출(개근)** 했을 때 주 1회.
+ * - 클라이언트 정책: 매일(월~금) 정상 응시해야 그 주 2점. 하루라도 빠지면(미응시·자동마감) 0점.
+ * - 호출 시점에 그 주 월~금 중 submit_type='normal' 인 서로 다른 학습일 수를 세고,
+ *   5일 미만이면 부여를 보류한다(개근 완성된 날의 제출에서만 실제 부여).
  * - points 쓰기 RLS 는 admin 전용이라 service-role(createAdminClient)로 INSERT.
  * - 멱등: uq_points_vocab_daily(student_id, study_date) WHERE event_kind='auto_vocab' 가
- *   재시도/동시 마감/같은 주 재응시 중복을 23505 로 차단 → 무음 흡수.
- *   study_date 에는 응시일이 아니라 "그 주 월요일 학습일"을 박제한다 →
- *   같은 학습주의 모든 정상 제출이 같은 키로 수렴해 학습주당 1건만 남는다.
- * - 부여 실패가 채점 확정을 막지 않도록 예외는 로깅만 한다.
+ *   재시도/동시 마감/개근 후 추가 응시(주말 등) 중복을 23505 로 차단 → 무음 흡수.
+ *   study_date 에는 "그 주 월요일 학습일"을 박제해 학습주당 1건만 남는다.
+ * - 부여(및 집계) 실패가 채점 확정을 막지 않도록 예외는 로깅만 한다.
  */
 async function awardVocabReward(studentId: string, examDate: string): Promise<void> {
   try {
     const admin = createAdminClient();
+    // 그 주 월~금 중 '정상 제출'한 서로 다른 학습일 수 집계(개근 판정). 현재 시험은 이미 normal 로 확정된 상태.
+    const weekdays = mondayToFridayStrs(examDate);
+    const { data: rows, error: cErr } = await admin
+      .from('vocab_exams')
+      .select('exam_date')
+      .eq('student_id', studentId)
+      .eq('submit_type', 'normal')
+      .in('exam_date', weekdays);
+    if (cErr) {
+      logError('[awardVocabReward] attendance', cErr);
+      return;
+    }
+    const attended = new Set((rows ?? []).map((r) => r.exam_date));
+    if (attended.size < weekdays.length) return; // 월~금 개근 미완성 → 부여 보류
+
     const { error } = await admin.from('points').insert({
       student_id: studentId,
       admin_id: null,
       type: 'reward',
       amount: VOCAB_REWARD_AMOUNT,
-      reason: '영단어 시험 완료',
+      reason: '영단어 시험 주간 개근(월~금)',
       is_auto: true,
       event_kind: 'auto_vocab',
       study_date: weekMondayStr(examDate), // 주 1회 멱등: 그 주 월요일 학습일로 박제
