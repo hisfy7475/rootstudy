@@ -7,6 +7,7 @@ import {
   getMentorsForAdmin,
 } from '@/lib/actions/mentoring';
 import { getAllBranches } from '@/lib/actions/branch';
+import { getUserScope } from '@/lib/auth/scope';
 import { monthRangeYmd, getMondayOfWeekKST } from '@/lib/mentoring-calendar';
 import { getTodayKST, getWeekDateStringsFromMondayKST, formatDateKST, cn } from '@/lib/utils';
 import { AdminMentoringWeekClient } from './mentoring-client';
@@ -64,11 +65,14 @@ export default async function AdminMentoringPage({ searchParams }: PageProps) {
   }
 
   // ----- 데이터 fetch -----
-  const [rawSlots, mentors, branches] = await Promise.all([
+  const [rawSlots, mentors, branches, scope] = await Promise.all([
     getAdminMentoringSlotsForRange(fromYmd, toYmd),
     getMentorsForAdmin(),
     getAllBranches(true),
+    getUserScope(),
   ]);
+  // 실제 슈퍼관리자 여부(프로필 is_super_admin). 학생 검색을 전 지점으로 확장할지 판단.
+  const isSuperAdmin = !!scope?.isSuperAdmin;
 
   // 멘토 필터 (클라이언트 측 필터 — slot 수가 한 달 ~ 수백 단위)
   const mentorFilter = sp.mentor && sp.mentor !== 'all' ? sp.mentor : null;
@@ -293,6 +297,7 @@ export default async function AdminMentoringPage({ searchParams }: PageProps) {
                 slot={panelSlot}
                 initialApplications={panelApplications}
                 mentors={mentors}
+                isSuperAdmin={isSuperAdmin}
               />
             ) : (
               <SlotCreateForm

@@ -5,7 +5,11 @@ import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { sendPushToUsers } from '@/lib/push';
 import { formatDateKST } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
-import { MENTORING_TYPE_LABEL } from '@/lib/constants';
+import {
+  MENTORING_TYPE_LABEL,
+  MENTORING_ACTIVE_STATUSES,
+  isMentoringActiveStatus,
+} from '@/lib/constants';
 import type {
   Mentor,
   MentoringApplication,
@@ -436,7 +440,7 @@ export async function applyMentoring(
     .eq('student_id', studentId)
     .maybeSingle();
 
-  if (existing && (existing.status === 'pending' || existing.status === 'confirmed')) {
+  if (existing && isMentoringActiveStatus(existing.status)) {
     return { error: '이미 신청한 슬롯입니다.' };
   }
 
@@ -567,7 +571,7 @@ export async function cancelMentoringApplication(
     return { error: '취소 권한이 없습니다.' };
   }
 
-  if (app.status !== 'pending' && app.status !== 'confirmed') {
+  if (!isMentoringActiveStatus(app.status)) {
     return { error: '취소할 수 없는 상태입니다.' };
   }
 
@@ -1328,9 +1332,16 @@ export async function updateMentoringSlot(
   return { data: updated as MentoringSlot };
 }
 
+/**
+ * 슬롯 삭제. mentoring_applications.slot_id FK 가 RESTRICT 라, 신청 이력이 1건이라도
+ * 있으면 하드 삭제는 DB 차원에서 불가능하다. 상태별로 3분기 처리한다.
+ * - 활성 신청(pending/confirmed) 있음 → 차단
+ * - 신청 이력 전혀 없음 → 하드 삭제
+ * - 취소·거절 이력만 있음 → 하드 삭제 대신 소프트 삭제(is_active=false, softDeleted=true 반환)
+ */
 export async function deleteMentoringSlot(
   slotId: string,
-): Promise<{ success?: true; error?: string }> {
+): Promise<{ success?: true; softDeleted?: boolean; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { error: '권한이 없습니다.' };
@@ -1338,19 +1349,46 @@ export async function deleteMentoringSlot(
   const existing = await assertSlotInBranch(supabase, slotId, ctx);
   if (!existing) return { error: '슬롯을 찾을 수 없습니다.' };
 
-  const { count, error: cErr } = await supabase
-    .from('mentoring_applications')
-    .select('id', { count: 'exact', head: true })
-    .eq('slot_id', slotId);
+  // 활성 신청(정원 차지)과 전체 이력을 각각 카운트.
+  const [{ count: activeCount, error: aErr }, { count: totalCount, error: tErr }] =
+    await Promise.all([
+      supabase
+        .from('mentoring_applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('slot_id', slotId)
+        .in('status', MENTORING_ACTIVE_STATUSES as readonly string[] as string[]),
+      supabase
+        .from('mentoring_applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('slot_id', slotId),
+    ]);
 
-  if (cErr) {
-    console.error('[deleteMentoringSlot] count', cErr);
+  if (aErr || tErr) {
+    console.error('[deleteMentoringSlot] count', aErr ?? tErr);
     return { error: '신청 내역을 확인할 수 없습니다.' };
   }
-  if ((count ?? 0) > 0) {
-    return { error: '신청 내역이 있는 슬롯은 삭제할 수 없습니다.' };
+
+  if ((activeCount ?? 0) > 0) {
+    return { error: '대기/확정 중인 신청이 있어 삭제할 수 없습니다.' };
   }
 
+  // 취소·거절 이력만 있는 경우 → 이력 보존을 위해 소프트 삭제(숨김).
+  if ((totalCount ?? 0) > 0) {
+    let updQ = supabase
+      .from('mentoring_slots')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', slotId);
+    if (!ctx.isSuperAdmin && ctx.branchId) updQ = updQ.eq('branch_id', ctx.branchId);
+    const { error } = await updQ;
+    if (error) {
+      logPostgrestQueryError('[deleteMentoringSlot:soft]', error);
+      return { error: '슬롯 숨김 처리에 실패했습니다.' };
+    }
+    revalidateMentoringAdmin();
+    return { success: true, softDeleted: true };
+  }
+
+  // 신청 이력이 전혀 없음 → 하드 삭제.
   let delQ = supabase.from('mentoring_slots').delete().eq('id', slotId);
   if (!ctx.isSuperAdmin && ctx.branchId) delQ = delQ.eq('branch_id', ctx.branchId);
   const { error } = await delQ;
@@ -1992,7 +2030,7 @@ export async function adminCancelMentoringApplication(
     return { error: '권한이 없습니다.' };
   }
 
-  if (app.status !== 'pending' && app.status !== 'confirmed') {
+  if (!isMentoringActiveStatus(app.status)) {
     return { error: '취소할 수 없는 상태입니다.' };
   }
 
@@ -2094,7 +2132,12 @@ export async function adminApplyMentoring(
   if (studentProfile.withdrawn_at != null) {
     return { error: '퇴원 처리된 학생은 신규 신청을 진행할 수 없습니다.' };
   }
-  if (!studentProfile.branch_id || studentProfile.branch_id !== slotRow.branch_id) {
+  // 최고관리자는 교차 지점 대리 등록 허용(예: 반포 멘토 슬롯에 압구정 학생). 멘토 소속은 슬롯 지점 기준 유지.
+  // 일반 지점 관리자는 자기 지점 학생만(슬롯 권한 검사 2078 과 동일 정책).
+  if (
+    !ctx.isSuperAdmin &&
+    (!studentProfile.branch_id || studentProfile.branch_id !== slotRow.branch_id)
+  ) {
     return { error: '학생과 슬롯의 지점이 일치하지 않습니다.' };
   }
 

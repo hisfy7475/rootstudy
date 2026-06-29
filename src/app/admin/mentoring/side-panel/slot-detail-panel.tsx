@@ -15,7 +15,7 @@ import {
   type AdminMentoringApplicationRow,
   type MentoringSlotAdminInput,
 } from '@/lib/actions/mentoring';
-import { MENTORING_TYPE_LABEL } from '@/lib/constants';
+import { MENTORING_TYPE_LABEL, isMentoringActiveStatus } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { StudentCombobox, type StudentOption } from './student-combobox';
 
@@ -23,6 +23,8 @@ interface Props {
   slot: MentoringSlot & { mentors: Mentor | null };
   initialApplications: AdminMentoringApplicationRow[];
   mentors: Mentor[];
+  /** 최고관리자면 신청 추가 학생 검색을 전 지점으로 확장(교차 지점 대리 등록). */
+  isSuperAdmin?: boolean;
 }
 
 const statusLabel: Record<string, string> = {
@@ -36,7 +38,12 @@ function fmtTime(t: string): string {
   return t.length >= 5 ? t.slice(0, 5) : t;
 }
 
-export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
+export function SlotDetailPanel({
+  slot,
+  initialApplications,
+  mentors,
+  isSuperAdmin = false,
+}: Props) {
   const router = useRouter();
   // server fetch(via router.refresh) 결과를 권위로 삼고, 로컬 낙관적 갱신은 그 위에 덮어쓰는 패턴.
   const [applications, setApplications] = useState(initialApplications);
@@ -73,6 +80,10 @@ export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
 
   const mentorSubjects = slot.mentors?.subjects ?? [];
 
+  // 활성(대기/확정) 신청과 취소·거절 이력을 분리. "신청자(N)"는 활성만 집계.
+  const activeApps = applications.filter((a) => isMentoringActiveStatus(a.status));
+  const inactiveApps = applications.filter((a) => !isMentoringActiveStatus(a.status));
+
   function saveSlot() {
     setError(null);
     startTransition(async () => {
@@ -98,15 +109,27 @@ export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
   }
 
   function removeSlot() {
-    if (!confirm('신청이 없을 때만 삭제됩니다. 삭제할까요?')) return;
+    if (
+      !confirm(
+        '대기/확정 중인 신청이 없으면 삭제됩니다.\n취소·거절 이력만 있는 슬롯은 이력 보존을 위해 숨김(비활성) 처리됩니다.\n진행할까요?',
+      )
+    )
+      return;
     setError(null);
+    setOkMsg(null);
     startTransition(async () => {
       const res = await deleteMentoringSlot(slot.id);
       if (res.error) {
         setError(res.error);
         return;
       }
-      // 삭제 후 사이드 패널 닫기
+      if (res.softDeleted) {
+        // 하드 삭제가 아니라 숨김 처리 — 패널을 닫지 않고 비활성 상태를 새로고침으로 반영.
+        setOkMsg('취소·거절 이력이 있어 슬롯을 숨김(비활성) 처리했습니다.');
+        router.refresh();
+        return;
+      }
+      // 하드 삭제 후 사이드 패널 닫기
       const url = new URL(window.location.href);
       url.searchParams.delete('slot');
       router.replace(`${url.pathname}?${url.searchParams.toString()}`, { scroll: false });
@@ -193,6 +216,126 @@ export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
       }
     });
   }
+
+  const renderApp = (a: AdminMentoringApplicationRow) => (
+    <li key={a.id} className='rounded-xl border p-3 text-sm'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='min-w-0'>
+          <span className='font-medium'>{a.student_name}</span>
+          {a.applicant_name && a.applicant_name !== a.student_name && (
+            <span className='text-muted-foreground'> — 신청자: {a.applicant_name}</span>
+          )}
+        </div>
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-xs',
+            a.status === 'pending' &&
+              'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100',
+            a.status === 'confirmed' && 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950',
+            a.status === 'rejected' && 'bg-red-100 text-red-900 dark:bg-red-950',
+            a.status === 'cancelled' && 'bg-muted',
+          )}
+        >
+          {statusLabel[a.status] ?? a.status}
+        </span>
+      </div>
+      {a.selected_subject && (
+        <p className='text-muted-foreground mt-1 text-xs'>
+          선택 과목: <span className='text-foreground font-medium'>{a.selected_subject}</span>
+        </p>
+      )}
+      {a.content && (
+        <p className='text-foreground/90 mt-2 text-sm whitespace-pre-wrap'>{a.content}</p>
+      )}
+      {Array.isArray(a.attachments) && a.attachments.length > 0 && (
+        <div className='mt-2 flex flex-wrap gap-2'>
+          {a.attachments.map((att, i) =>
+            att.mime_type?.startsWith('image/') ? (
+              <a
+                key={`${a.id}-att-${i}`}
+                href={att.url}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='bg-muted block size-16 overflow-hidden rounded-lg border'
+              >
+                <Image
+                  src={att.url}
+                  alt={att.name}
+                  width={64}
+                  height={64}
+                  unoptimized
+                  className='size-full object-cover'
+                />
+              </a>
+            ) : (
+              <a
+                key={`${a.id}-att-${i}`}
+                href={att.url}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='bg-muted hover:bg-muted/70 inline-flex max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs'
+              >
+                <Paperclip className='size-3.5 flex-shrink-0' />
+                <span className='max-w-[160px] truncate'>{att.name}</span>
+              </a>
+            ),
+          )}
+        </div>
+      )}
+      {a.reject_reason && (
+        <p className='text-muted-foreground mt-1 text-xs'>거절 사유: {a.reject_reason}</p>
+      )}
+      {a.cancel_reason && (
+        <p className='text-muted-foreground mt-1 text-xs'>취소 사유: {a.cancel_reason}</p>
+      )}
+      {a.status === 'pending' && (
+        <div className='mt-3 space-y-2'>
+          <button
+            type='button'
+            disabled={pending}
+            onClick={() => confirmApp(a.id)}
+            className='bg-primary text-primary-foreground w-full rounded-lg px-3 py-1.5 text-xs'
+          >
+            확정
+          </button>
+          <div className='flex items-center gap-2'>
+            <input
+              placeholder='거절 사유'
+              className='border-input min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs'
+              value={rejectReason[a.id] ?? ''}
+              onChange={(e) => setRejectReason((r) => ({ ...r, [a.id]: e.target.value }))}
+            />
+            <button
+              type='button'
+              disabled={pending}
+              onClick={() => rejectApp(a.id)}
+              className='rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:text-red-300'
+            >
+              거절
+            </button>
+          </div>
+        </div>
+      )}
+      {(a.status === 'pending' || a.status === 'confirmed') && (
+        <div className='mt-2 flex items-center gap-2'>
+          <input
+            placeholder='관리자 취소 사유'
+            className='border-input min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs'
+            value={cancelReason[a.id] ?? ''}
+            onChange={(e) => setCancelReason((r) => ({ ...r, [a.id]: e.target.value }))}
+          />
+          <button
+            type='button'
+            disabled={pending}
+            onClick={() => cancelApp(a.id)}
+            className='bg-muted rounded-lg px-3 py-1.5 text-xs'
+          >
+            강제 취소
+          </button>
+        </div>
+      )}
+    </li>
+  );
 
   return (
     <div className='space-y-5'>
@@ -382,8 +525,9 @@ export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
           <UserPlus className='size-4' />
           신청 추가
         </h2>
+        {/* 최고관리자는 전 지점 학생 검색(교차 지점 대리 등록). 일반 어드민은 슬롯 지점으로 한정. */}
         <StudentCombobox
-          branchId={slot.branch_id}
+          branchId={isSuperAdmin ? null : slot.branch_id}
           value={selectedStudent}
           onChange={setSelectedStudent}
           disabled={pending}
@@ -426,134 +570,25 @@ export function SlotDetailPanel({ slot, initialApplications, mentors }: Props) {
 
       <hr className='border-border' />
 
-      {/* 신청자 리스트 */}
+      {/* 신청자 리스트 (활성만) */}
       <div className='space-y-3'>
-        <h2 className='text-sm font-semibold'>신청자 ({applications.length})</h2>
-        {applications.length === 0 ? (
+        <h2 className='text-sm font-semibold'>신청자 ({activeApps.length})</h2>
+        {activeApps.length === 0 ? (
           <p className='text-muted-foreground text-sm'>신청이 없습니다.</p>
         ) : (
-          <ul className='space-y-3'>
-            {applications.map((a) => (
-              <li key={a.id} className='rounded-xl border p-3 text-sm'>
-                <div className='flex flex-wrap items-center justify-between gap-2'>
-                  <div className='min-w-0'>
-                    <span className='font-medium'>{a.student_name}</span>
-                    {a.applicant_name && a.applicant_name !== a.student_name && (
-                      <span className='text-muted-foreground'> — 신청자: {a.applicant_name}</span>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      'rounded-full px-2 py-0.5 text-xs',
-                      a.status === 'pending' &&
-                        'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100',
-                      a.status === 'confirmed' &&
-                        'bg-emerald-100 text-emerald-900 dark:bg-emerald-950',
-                      a.status === 'rejected' && 'bg-red-100 text-red-900 dark:bg-red-950',
-                      a.status === 'cancelled' && 'bg-muted',
-                    )}
-                  >
-                    {statusLabel[a.status] ?? a.status}
-                  </span>
-                </div>
-                {a.selected_subject && (
-                  <p className='text-muted-foreground mt-1 text-xs'>
-                    선택 과목:{' '}
-                    <span className='text-foreground font-medium'>{a.selected_subject}</span>
-                  </p>
-                )}
-                {a.content && (
-                  <p className='text-foreground/90 mt-2 text-sm whitespace-pre-wrap'>{a.content}</p>
-                )}
-                {Array.isArray(a.attachments) && a.attachments.length > 0 && (
-                  <div className='mt-2 flex flex-wrap gap-2'>
-                    {a.attachments.map((att, i) =>
-                      att.mime_type?.startsWith('image/') ? (
-                        <a
-                          key={`${a.id}-att-${i}`}
-                          href={att.url}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className='bg-muted block size-16 overflow-hidden rounded-lg border'
-                        >
-                          <Image
-                            src={att.url}
-                            alt={att.name}
-                            width={64}
-                            height={64}
-                            unoptimized
-                            className='size-full object-cover'
-                          />
-                        </a>
-                      ) : (
-                        <a
-                          key={`${a.id}-att-${i}`}
-                          href={att.url}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className='bg-muted hover:bg-muted/70 inline-flex max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs'
-                        >
-                          <Paperclip className='size-3.5 flex-shrink-0' />
-                          <span className='max-w-[160px] truncate'>{att.name}</span>
-                        </a>
-                      ),
-                    )}
-                  </div>
-                )}
-                {a.reject_reason && (
-                  <p className='text-muted-foreground mt-1 text-xs'>거절 사유: {a.reject_reason}</p>
-                )}
-                {a.status === 'pending' && (
-                  <div className='mt-3 space-y-2'>
-                    <button
-                      type='button'
-                      disabled={pending}
-                      onClick={() => confirmApp(a.id)}
-                      className='bg-primary text-primary-foreground w-full rounded-lg px-3 py-1.5 text-xs'
-                    >
-                      확정
-                    </button>
-                    <div className='flex items-center gap-2'>
-                      <input
-                        placeholder='거절 사유'
-                        className='border-input min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs'
-                        value={rejectReason[a.id] ?? ''}
-                        onChange={(e) => setRejectReason((r) => ({ ...r, [a.id]: e.target.value }))}
-                      />
-                      <button
-                        type='button'
-                        disabled={pending}
-                        onClick={() => rejectApp(a.id)}
-                        className='rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:text-red-300'
-                      >
-                        거절
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {(a.status === 'pending' || a.status === 'confirmed') && (
-                  <div className='mt-2 flex items-center gap-2'>
-                    <input
-                      placeholder='관리자 취소 사유'
-                      className='border-input min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs'
-                      value={cancelReason[a.id] ?? ''}
-                      onChange={(e) => setCancelReason((r) => ({ ...r, [a.id]: e.target.value }))}
-                    />
-                    <button
-                      type='button'
-                      disabled={pending}
-                      onClick={() => cancelApp(a.id)}
-                      className='bg-muted rounded-lg px-3 py-1.5 text-xs'
-                    >
-                      강제 취소
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ul className='space-y-3'>{activeApps.map(renderApp)}</ul>
         )}
       </div>
+
+      {/* 취소·거절 내역 (이력, 흐리게) */}
+      {inactiveApps.length > 0 && (
+        <div className='space-y-3'>
+          <h2 className='text-muted-foreground text-sm font-semibold'>
+            취소·거절 내역 ({inactiveApps.length})
+          </h2>
+          <ul className='space-y-3 opacity-60'>{inactiveApps.map(renderApp)}</ul>
+        </div>
+      )}
     </div>
   );
 }
