@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getStudyDate } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
+import { parseProblemGroups } from '@/lib/vocab-problem-group';
 import type { VocabPack } from '@/types/database';
 
 // ============================================================
@@ -255,7 +256,12 @@ type BuiltQuestion = {
   options: string[];
 };
 
-type ActiveWord = { id: string; english: string; korean_primary: string };
+type ActiveWord = {
+  id: string;
+  english: string;
+  korean_primary: string;
+  problem_group: string | null;
+};
 
 async function loadActiveWords(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -267,7 +273,7 @@ async function loadActiveWords(
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .from('vocab_pack_words')
-      .select('vocab_words!inner(id, english, korean_primary, is_active)')
+      .select('vocab_words!inner(id, english, korean_primary, problem_group, is_active)')
       .eq('pack_id', packId)
       .eq('vocab_words.is_active', true)
       .order('word_id', { ascending: true })
@@ -280,7 +286,12 @@ async function loadActiveWords(
       (r) => r.vocab_words as unknown as ActiveWord & { is_active: boolean },
     );
     for (const w of rows)
-      out.push({ id: w.id, english: w.english, korean_primary: w.korean_primary });
+      out.push({
+        id: w.id,
+        english: w.english,
+        korean_primary: w.korean_primary,
+        problem_group: w.problem_group,
+      });
     if ((data?.length ?? 0) < 1000) break;
   }
   return out;
@@ -292,7 +303,10 @@ async function loadActiveWords(
  *   미출제분이 40개 미만이면(꾸러미 활성 단어 < 160 또는 주 후반) 이미 출제분으로 40개를 채운다.
  * - 금요일 + 그 주 오답 있음: 오답 단어 **전체** 출제(40 상한·랜덤 보충 없음, 문항 수=오답 수).
  * - 금요일 + 오답 0: 평일과 동일 분기(servedWordIds 가 비어 사실상 랜덤 40 fallback).
- * 보기(distractor) 풀은 출제 문항 수와 무관하게 활성 단어 전체에서 뽑으므로 가변 길이에 안전.
+ * 보기(distractor): 정답 단어와 problem_group 이 하나라도 겹치는(교집합) 단어의 뜻을 1순위로,
+ *   부족분(< OPTIONS_COUNT-1)은 활성 단어 전체 뜻에서 보충한다. 단일 Set 누적으로
+ *   정답 제외·뜻 중복 제거·정확히 OPTIONS_COUNT-1개 확보를 한 불변식으로 보장한다
+ *   (그룹 NULL/소규모·금요일 가변 문항 모두 전체 보충으로 안전).
  */
 function buildQuestionSet(
   activeWords: ActiveWord[],
@@ -305,6 +319,18 @@ function buildQuestionSet(
   const uniqueMeanings = new Set(activeWords.map((w) => w.korean_primary));
   if (uniqueMeanings.size < MIN_UNIQUE_MEANINGS) {
     return { ok: false, error: '이 꾸러미는 현재 응시할 수 없습니다. (뜻 종류 부족)' };
+  }
+  // 전체 보충용 유니크 뜻(가드로 ≥ MIN_UNIQUE_MEANINGS 보장).
+  const allMeanings = [...uniqueMeanings];
+
+  // 그룹 번호 → 그 그룹 단어들의 뜻 집합(1회 선계산). 멀티값 단어는 자신의 모든 그룹에 등장.
+  const groupMeanings = new Map<number, Set<string>>();
+  for (const w of activeWords) {
+    for (const g of parseProblemGroups(w.problem_group)) {
+      let set = groupMeanings.get(g);
+      if (!set) groupMeanings.set(g, (set = new Set<string>()));
+      set.add(w.korean_primary);
+    }
   }
 
   const byId = new Map(activeWords.map((w) => [w.id, w]));
@@ -322,13 +348,29 @@ function buildQuestionSet(
     chosen = [...shuffle(unseen), ...shuffle(servedWords)].slice(0, EXAM_TOTAL);
   }
 
+  const NEED = OPTIONS_COUNT - 1; // 오답 보기 개수(=3)
   const questions: BuiltQuestion[] = chosen.map((word, idx) => {
     const answer = word.korean_primary;
-    const pool = Array.from(
-      new Set(activeWords.map((w) => w.korean_primary).filter((m) => m !== answer)),
-    );
-    const distractors = shuffle(pool).slice(0, OPTIONS_COUNT - 1);
-    const options = shuffle([answer, ...distractors]);
+    // 단일 Set 누적: 정답 제외 + 뜻 중복 제거 + 정확히 NEED 개 확보를 한 불변식으로 보장.
+    const picked = new Set<string>();
+    const tryAdd = (candidates: string[]): void => {
+      for (const m of shuffle(candidates)) {
+        if (m === answer || picked.has(m)) continue;
+        picked.add(m);
+        if (picked.size === NEED) return;
+      }
+    };
+    // 1순위: 정답 단어와 그룹이 겹치는(교집합) 단어 뜻.
+    const groupPool: string[] = [];
+    for (const g of parseProblemGroups(word.problem_group)) {
+      const set = groupMeanings.get(g);
+      if (set) for (const m of set) groupPool.push(m);
+    }
+    tryAdd(groupPool);
+    // 2순위(부족분): 활성 단어 전체 뜻에서 보충.
+    if (picked.size < NEED) tryAdd(allMeanings);
+
+    const options = shuffle([answer, ...picked]);
     return {
       question_no: idx + 1,
       word_id: word.id,
@@ -337,6 +379,15 @@ function buildQuestionSet(
       options,
     };
   });
+
+  // 방어 단언: 보기 4개·중복 없음·정답 포함(가드+누적 불변식으로 항상 참이어야 함).
+  const broken = questions.find(
+    (q) => new Set(q.options).size !== OPTIONS_COUNT || !q.options.includes(q.answer_snapshot),
+  );
+  if (broken) {
+    logError('[buildQuestionSet] invalid options', { question_no: broken.question_no });
+    return { ok: false, error: '문항 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
+  }
 
   return { ok: true, questions };
 }
