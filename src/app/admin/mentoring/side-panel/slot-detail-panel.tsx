@@ -48,9 +48,13 @@ export function SlotDetailPanel({
   // server fetch(via router.refresh) 결과를 권위로 삼고, 로컬 낙관적 갱신은 그 위에 덮어쓰는 패턴.
   const [applications, setApplications] = useState(initialApplications);
   const [prevInitial, setPrevInitial] = useState(initialApplications);
+  // 신청자 행별 액션(확정/거절/취소) 에러. 패널 최상단이 아니라 해당 버튼 옆에 노출.
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   if (prevInitial !== initialApplications) {
     setPrevInitial(initialApplications);
     setApplications(initialApplications);
+    // 새 서버 데이터로 동기화될 때 행별 에러도 함께 비운다(데이터만 리셋되고 에러가 남는 엣지 방지).
+    setRowError({});
   }
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -165,11 +169,21 @@ export function SlotDetailPanel({
     });
   }
 
+  function clearRowError(appId: string) {
+    setRowError((r) => {
+      if (!(appId in r)) return r;
+      const next = { ...r };
+      delete next[appId];
+      return next;
+    });
+  }
+
   function confirmApp(appId: string) {
     setError(null);
+    clearRowError(appId);
     startTransition(async () => {
       const res = await confirmMentoringApplication(appId);
-      if (res.error) setError(res.error);
+      if (res.error) setRowError((r) => ({ ...r, [appId]: res.error! }));
       else {
         setApplications((prev) =>
           prev.map((a) => (a.id === appId ? { ...a, status: 'confirmed' as const } : a)),
@@ -182,13 +196,14 @@ export function SlotDetailPanel({
   function rejectApp(appId: string) {
     const reason = (rejectReason[appId] ?? '').trim();
     if (!reason) {
-      setError('거절 사유를 입력해 주세요.');
+      setRowError((r) => ({ ...r, [appId]: '거절 사유를 입력해 주세요.' }));
       return;
     }
     setError(null);
+    clearRowError(appId);
     startTransition(async () => {
       const res = await rejectMentoringApplication(appId, reason);
-      if (res.error) setError(res.error);
+      if (res.error) setRowError((r) => ({ ...r, [appId]: res.error! }));
       else {
         setApplications((prev) =>
           prev.map((a) => (a.id === appId ? { ...a, status: 'rejected' as const } : a)),
@@ -201,13 +216,14 @@ export function SlotDetailPanel({
   function cancelApp(appId: string) {
     const reason = (cancelReason[appId] ?? '').trim();
     if (!reason) {
-      setError('취소 사유를 입력해 주세요.');
+      setRowError((r) => ({ ...r, [appId]: '취소 사유를 입력해 주세요.' }));
       return;
     }
     setError(null);
+    clearRowError(appId);
     startTransition(async () => {
       const res = await adminCancelMentoringApplication(appId, reason);
-      if (res.error) setError(res.error);
+      if (res.error) setRowError((r) => ({ ...r, [appId]: res.error! }));
       else {
         setApplications((prev) =>
           prev.map((a) => (a.id === appId ? { ...a, status: 'cancelled' as const } : a)),
@@ -222,6 +238,9 @@ export function SlotDetailPanel({
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='min-w-0'>
           <span className='font-medium'>{a.student_name}</span>
+          {a.student_branch_name && (
+            <span className='text-muted-foreground ml-1.5 text-xs'>{a.student_branch_name}</span>
+          )}
           {a.applicant_name && a.applicant_name !== a.student_name && (
             <span className='text-muted-foreground'> — 신청자: {a.applicant_name}</span>
           )}
@@ -334,6 +353,7 @@ export function SlotDetailPanel({
           </button>
         </div>
       )}
+      {rowError[a.id] && <p className='text-destructive mt-2 text-xs'>{rowError[a.id]}</p>}
     </li>
   );
 
