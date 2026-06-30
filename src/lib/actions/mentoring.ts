@@ -772,6 +772,8 @@ export type AdminMentoringApplicationRow = MentoringApplication & {
     | null;
   student_name: string;
   applicant_name: string;
+  /** 학생(응시자)의 소속 지점명. 교차 지점 신청·동명이인 식별용(슬롯 지점과 다를 수 있음). */
+  student_branch_name: string | null;
   /** 학생(응시자)이 퇴원 처리된 시각. 어드민 화면에서 [퇴원] 배지 노출용. */
   student_withdrawn_at: string | null;
   /** 신청자(학부모/학생)가 퇴원 처리된 시각. */
@@ -1114,12 +1116,20 @@ export async function getAdminMentoringApplications(
   const userIds = [...new Set(apps.flatMap((a) => [a.user_id, a.student_id]))];
   const { data: names } = await supabase
     .from('profiles')
-    .select('id, name, withdrawn_at')
+    .select('id, name, withdrawn_at, branches:branch_id ( name )')
     .in('id', userIds);
 
   const nameById = new Map((names ?? []).map((p) => [p.id, p.name ?? '']));
   const withdrawnById = new Map(
     (names ?? []).map((p) => [p.id, (p as { withdrawn_at: string | null }).withdrawn_at]),
+  );
+  // 지점명은 학생(student_id) 기준으로 사용. 임베디드 조인은 객체|배열|null 로 추론되므로 분기 필요.
+  const branchNameById = new Map(
+    (names ?? []).map((p) => {
+      const b = (p as { branches: { name: string } | { name: string }[] | null }).branches;
+      const branch = Array.isArray(b) ? b[0] : b;
+      return [p.id, branch?.name ?? null];
+    }),
   );
 
   return apps.map((a) => {
@@ -1132,6 +1142,7 @@ export async function getAdminMentoringApplications(
       mentoring_slots: slotJoin ?? null,
       student_name: nameById.get(a.student_id) ?? '',
       applicant_name: nameById.get(a.user_id) ?? '',
+      student_branch_name: branchNameById.get(a.student_id) ?? null,
       student_withdrawn_at: withdrawnById.get(a.student_id) ?? null,
       applicant_withdrawn_at: withdrawnById.get(a.user_id) ?? null,
       result_note: resultJoin?.result_note ?? null,

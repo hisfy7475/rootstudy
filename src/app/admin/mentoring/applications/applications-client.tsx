@@ -274,7 +274,12 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
                       <div>{slot?.date ?? '—'}</div>
                       <div className='text-muted-foreground text-xs'>{timeStr}</div>
                     </td>
-                    <td className='p-3'>{a.student_name}</td>
+                    <td className='p-3'>
+                      <div>{a.student_name}</div>
+                      {a.student_branch_name && (
+                        <div className='text-muted-foreground text-xs'>{a.student_branch_name}</div>
+                      )}
+                    </td>
                     <td className='p-3'>{a.applicant_name}</td>
                     <td className='p-3'>
                       <div>

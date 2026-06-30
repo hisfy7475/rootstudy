@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { formatMeaning } from '@/lib/vocab-format';
 import {
   saveVocabAnswer,
   submitVocabExam,
@@ -215,31 +216,47 @@ export default function RunnerClient({
           </div>
         </div>
 
-        {/* 문제 — 전 문항을 한 화면에 세로로 나열, 이 영역만 스크롤(롤다운) */}
-        <div className='flex-1 space-y-8 overflow-y-auto px-4 py-6'>
+        {/* 문제 — 전 문항을 한 화면에 세로로 나열, 이 영역만 스크롤(롤다운).
+            보기는 라디오형(원형 인디케이터 + 텍스트)으로 촘촘히 배치해 한 화면에 더 많은 문제를 노출한다.
+            문제 사이는 큰 여백 대신 얇은 구분선(divide-y)으로 구분. */}
+        <div className='divide-border flex-1 divide-y overflow-y-auto px-4'>
           {questions.map((q) => (
-            <div key={q.questionNo}>
+            <div key={q.questionNo} className='py-5'>
               <div className='flex items-baseline gap-2'>
-                <span className='text-muted-foreground text-sm font-medium'>{q.questionNo}.</span>
-                <p className='text-foreground text-2xl font-bold'>{q.english}</p>
+                <span className='text-muted-foreground text-sm font-semibold'>{q.questionNo}.</span>
+                <p className='text-foreground text-lg font-bold'>{q.english}</p>
               </div>
-              <div className='mt-4 space-y-3'>
+              {/* 보기 2열 배치: 4개 보기를 2×2 그리드로 깔아 세로 길이를 줄인다.
+                  긴 뜻이 줄바꿈될 수 있어 상단 정렬(items-start)로 라디오를 첫 줄에 맞춘다. */}
+              <div className='mt-2 grid grid-cols-2 gap-x-4 gap-y-1'>
                 {q.options.map((opt) => {
+                  // 비교·전송은 원본값(opt) 유지(채점은 저장 문자열의 정확 일치로 동작),
+                  // 화면 텍스트만 formatMeaning 으로 세미콜론→쉼표 보정.
                   const selected = answers[q.questionNo] === opt;
                   return (
                     <button
                       key={opt}
                       onClick={() => pick(q.questionNo, opt)}
                       aria-pressed={selected}
-                      className={cn(
-                        // 긴 뜻 대응: 글씨 축소 + 한글 단어 단위 줄바꿈(자르지 않음 — 정답 식별 보존).
-                        'w-full rounded-2xl border px-4 py-3.5 text-left text-sm leading-snug break-keep transition-all',
-                        selected
-                          ? 'border-primary bg-primary/10 ring-primary ring-2'
-                          : 'border-border bg-card active:scale-[0.99]',
-                      )}
+                      className='active:bg-muted/40 flex w-full items-start gap-2.5 py-2 text-left transition-colors'
                     >
-                      {opt}
+                      <span
+                        className={cn(
+                          'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                          selected ? 'border-primary' : 'border-muted-foreground/40',
+                        )}
+                      >
+                        {selected && <span className='bg-primary size-2.5 rounded-full' />}
+                      </span>
+                      {/* 긴 뜻 대응: 한글 단어 단위 줄바꿈(자르지 않음 — 정답 식별 보존). */}
+                      <span
+                        className={cn(
+                          'text-sm leading-snug break-keep transition-colors',
+                          selected ? 'text-foreground font-medium' : 'text-foreground/80',
+                        )}
+                      >
+                        {formatMeaning(opt)}
+                      </span>
                     </button>
                   );
                 })}

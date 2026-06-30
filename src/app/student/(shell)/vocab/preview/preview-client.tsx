@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { PackPicker } from '@/components/shared/vocab/pack-picker';
 import { getPreviewWords, type StudentPackView, type PreviewWord } from '@/lib/actions/vocab';
 import { formatProblemGroups } from '@/lib/vocab-problem-group';
+import { formatMeaning } from '@/lib/vocab-format';
 
 export default function PreviewClient({ packs }: { packs: StudentPackView[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -43,9 +44,11 @@ export default function PreviewClient({ packs }: { packs: StudentPackView[] }) {
                     )}
                   </div>
                   <div className='text-right'>
-                    <p className='text-foreground text-sm'>{w.koreanPrimary}</p>
+                    <p className='text-foreground text-sm'>{formatMeaning(w.koreanPrimary)}</p>
                     {w.koreanExtra && (
-                      <p className='text-muted-foreground text-xs'>{w.koreanExtra}</p>
+                      <p className='text-muted-foreground text-xs'>
+                        {formatMeaning(w.koreanExtra)}
+                      </p>
                     )}
                   </div>
                 </li>
