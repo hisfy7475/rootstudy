@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getWeeklyWrongWords } from '@/lib/actions/vocab';
+import { formatMeaning } from '@/lib/vocab-format';
 
 export default async function VocabReviewPage() {
   const words = await getWeeklyWrongWords();
@@ -25,7 +26,7 @@ export default async function VocabReviewPage() {
             {words.map((w, i) => (
               <li key={i} className='flex items-center justify-between gap-3 px-4 py-3'>
                 <p className='text-foreground font-semibold'>{w.english}</p>
-                <p className='text-foreground text-right text-sm'>{w.answer}</p>
+                <p className='text-foreground text-right text-sm'>{formatMeaning(w.answer)}</p>
               </li>
             ))}
           </ul>

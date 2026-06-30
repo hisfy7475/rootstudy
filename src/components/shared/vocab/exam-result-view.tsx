@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { formatMeaning } from '@/lib/vocab-format';
 import type { ExamResult } from '@/lib/actions/vocab';
 
 const TYPE_LABEL = { normal: '일반', friday_review: '금요일 오답' } as const;
@@ -74,12 +75,12 @@ export function ExamResultView({ result }: { result: ExamResult }) {
             <div className='mt-2 space-y-1 text-sm break-keep'>
               <p>
                 <span className='text-text-muted'>정답: </span>
-                <span className='text-text font-medium'>{q.answer}</span>
+                <span className='text-text font-medium'>{formatMeaning(q.answer)}</span>
               </p>
               <p>
                 <span className='text-text-muted'>내 답: </span>
                 <span className={cn('font-medium', q.isCorrect ? 'text-text' : 'text-error')}>
-                  {q.selected ?? '미선택'}
+                  {q.selected ? formatMeaning(q.selected) : '미선택'}
                 </span>
               </p>
             </div>
