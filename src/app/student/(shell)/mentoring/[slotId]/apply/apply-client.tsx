@@ -15,7 +15,7 @@ import {
 import type { MentoringAttachment } from '@/types/database';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import { cn, isNativeApp, isNativeAppAtLeast } from '@/lib/utils';
-import { postToNative } from '@/lib/native-bridge';
+import { postToNative, isSessionExpiredUploadMessage } from '@/lib/native-bridge';
 import { uploadToBucketAsUser } from '@/lib/uploads/client';
 import {
   ATTACHMENT_FILE_ACCEPT,
@@ -115,6 +115,11 @@ export function MentoringApplyClient({
       if (!parsed || parsed.payload?.context !== 'mentoring') return;
       if (parsed.type === 'FILE_UPLOAD_ERROR') {
         setUploading(false);
+        // 세션 만료(구버전 네이티브)는 폼 인라인 에러 대신 전역 재로그인 다이얼로그로 유도.
+        if (isSessionExpiredUploadMessage(parsed.payload?.message)) {
+          window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+          return;
+        }
         setUploadErr(parsed.payload?.message ?? '업로드에 실패했습니다.');
         return;
       }

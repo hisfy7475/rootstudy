@@ -12,6 +12,14 @@ export type NativeToWebMessage =
       type: 'SESSION_INJECT';
       payload: { access_token: string; refresh_token: string; returnPath?: string };
     }
+  // 네이티브가 업로드 직전 세션을 자동 갱신(refresh 토큰 회전)했을 때, 회전된 새 토큰을
+  // 브라우저 세션에도 반영시키기 위한 메시지. SESSION_INJECT 와 달리 navigate 하지 않는다.
+  // 이걸로 브라우저가 이후 stale 한(이미 회전된) refresh 토큰을 재제출해 세션 패밀리가
+  // revoke 되는(웹·앱 동시 로그아웃) 경로를 차단한다. AuthBridge 가 setSession 으로 처리.
+  | {
+      type: 'SESSION_SYNC';
+      payload: { access_token: string; refresh_token: string };
+    }
   | { type: 'PUSH_TOKEN'; payload: { expo_push_token: string; platform: 'ios' | 'android' } }
   | {
       type: 'FILE_UPLOADED';
@@ -83,4 +91,17 @@ export function onNativeMessage(handler: (msg: NativeToWebMessage) => void): () 
   };
   window.addEventListener('message', listener);
   return () => window.removeEventListener('message', listener);
+}
+
+/**
+ * 네이티브 업로드 에러 메시지가 "세션 만료" 사유인지 판별한다.
+ *
+ * 9ffa98d 이전(구버전) 네이티브 앱은 세션 만료 시 전용 신호 없이 FILE_UPLOAD_ERROR 로
+ * "로그인 세션이 만료되었습니다…" 문구를 보낸다. 웹이 이를 골라내 raw alert 대신 전역
+ * SessionExpiredDialog(재로그인 안내)로 라우팅하기 위한 판별(구버전 호환 shim).
+ * 코드 필드가 없어 문자열 매칭이 유일한 수단이며, 다른 업로드 에러 문구에는 "세션이 만료"가
+ * 없어 오탐이 없다. (신버전 네이티브는 rootstudy:session-expired 를 직접 쏘므로 여기 안 옴.)
+ */
+export function isSessionExpiredUploadMessage(message?: string): boolean {
+  return typeof message === 'string' && message.includes('세션이 만료');
 }

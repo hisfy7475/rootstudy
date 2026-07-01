@@ -8,6 +8,7 @@ import { useChatRoom } from '@/lib/chat/hooks';
 import { uploadToBucketAsUser } from '@/lib/uploads/client';
 import { resolveAttachmentFileMime, sanitizeAttachmentSegment } from '@shared/uploads/attachments';
 import { isNativeApp, randomUUID } from '@/lib/utils';
+import { isSessionExpiredUploadMessage } from '@/lib/native-bridge';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -188,6 +189,11 @@ export function ChatRoom({
         if (echoedRoomId != null && echoedRoomId !== roomId) return;
         if (parsed.type === 'FILE_UPLOAD_ERROR') {
           setIsSending(false);
+          // 세션 만료(구버전 네이티브)는 막다른 alert 대신 전역 재로그인 다이얼로그로 유도.
+          if (isSessionExpiredUploadMessage(parsed.payload?.message)) {
+            window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+            return;
+          }
           alert(parsed.payload?.message ?? '파일 업로드에 실패했습니다.');
           return;
         }

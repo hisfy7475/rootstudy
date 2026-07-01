@@ -16,6 +16,12 @@ export type NativeToWebMessage =
       type: 'SESSION_INJECT';
       payload: { access_token: string; refresh_token: string; returnPath?: string };
     }
+  // 업로드 직전 세션을 자동 갱신(refresh 토큰 회전)했을 때, 회전된 새 토큰을 브라우저 세션에도
+  // 반영시키기 위한 메시지. SESSION_INJECT 와 달리 웹에서 navigate 하지 않는다(AuthBridge 참고).
+  | {
+      type: 'SESSION_SYNC';
+      payload: { access_token: string; refresh_token: string };
+    }
   | { type: 'PUSH_TOKEN'; payload: { expo_push_token: string; platform: 'ios' | 'android' } }
   | {
       type: 'FILE_UPLOADED';
