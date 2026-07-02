@@ -137,6 +137,8 @@ export function Sidebar({
         description: message,
         duration: Infinity,
         action: link ? { label: '확인하기', onClick: () => router.push(link) } : undefined,
+        // 어드민 테마 컬러(파란색) 버튼으로 통일
+        actionButtonStyle: { background: 'var(--color-primary)', color: '#fff' },
       });
     };
 
