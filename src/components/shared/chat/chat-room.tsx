@@ -8,6 +8,7 @@ import { useChatRoom } from '@/lib/chat/hooks';
 import { uploadToBucketAsUser } from '@/lib/uploads/client';
 import { resolveAttachmentFileMime, sanitizeAttachmentSegment } from '@shared/uploads/attachments';
 import { isNativeApp, randomUUID } from '@/lib/utils';
+import { isSessionExpiredUploadMessage, isSessionErrorMessage } from '@/lib/native-bridge';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -125,7 +126,13 @@ export function ChatRoom({
         await send(content, imageUrl, fileAttachment, clientId);
       } catch (error) {
         console.error('Send message error:', error);
-        alert(error instanceof Error ? error.message : '메시지 전송에 실패했습니다.');
+        const message = error instanceof Error ? error.message : '';
+        // 세션 만료/재로그인 필요는 막다른 alert 대신 전역 SessionExpiredDialog로 유도.
+        if (isSessionErrorMessage(message)) {
+          window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+        } else {
+          alert(message || '메시지 전송에 실패했습니다.');
+        }
       } finally {
         setIsSending(false);
       }
@@ -157,7 +164,12 @@ export function ChatRoom({
       try {
         await send('', imageUrl, attachment, randomUUID());
       } catch (error) {
-        alert(error instanceof Error ? error.message : '메시지 전송에 실패했습니다.');
+        const message = error instanceof Error ? error.message : '';
+        if (isSessionErrorMessage(message)) {
+          window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+        } else {
+          alert(message || '메시지 전송에 실패했습니다.');
+        }
       } finally {
         setIsSending(false);
       }
@@ -188,6 +200,11 @@ export function ChatRoom({
         if (echoedRoomId != null && echoedRoomId !== roomId) return;
         if (parsed.type === 'FILE_UPLOAD_ERROR') {
           setIsSending(false);
+          // 세션 만료(구버전 네이티브)는 막다른 alert 대신 전역 재로그인 다이얼로그로 유도.
+          if (isSessionExpiredUploadMessage(parsed.payload?.message)) {
+            window.dispatchEvent(new CustomEvent('rootstudy:session-expired'));
+            return;
+          }
           alert(parsed.payload?.message ?? '파일 업로드에 실패했습니다.');
           return;
         }

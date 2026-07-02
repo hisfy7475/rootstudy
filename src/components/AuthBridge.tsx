@@ -18,6 +18,11 @@ export function AuthBridge() {
 
     const supabase = createClient();
 
+    // SESSION_SYNC(네이티브발 토큰 반영)가 유발하는 SIGNED_IN 에코를 1회 억제하기 위한 플래그.
+    // 그 에코를 네이티브로 되돌리면(LOGIN_SUCCESS), 좁은 로그아웃 레이스에서 네이티브 loggingOutRef가
+    // 잘못 리셋돼 세션이 되살아날 수 있다. 네이티브가 이미 이 토큰의 출처이므로 되돌릴 필요도 없다.
+    let suppressNextAuthPost = false;
+
     // 현재 세션 토큰을 네이티브로 전달해 SecureStore를 최신 상태로 유지한다.
     // TOKEN_REFRESHED/복귀 시점마다 쿠키를 재독해 사용자의 자동로그인 선택을 일관 반영한다.
     const postLoginSuccess = (session: { access_token: string; refresh_token: string }) => {
@@ -45,6 +50,11 @@ export function AuthBridge() {
         (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
         session
       ) {
+        // SESSION_SYNC가 유발한 에코면 네이티브로 되돌리지 않고 1회 건너뛴다.
+        if (suppressNextAuthPost) {
+          suppressNextAuthPost = false;
+          return;
+        }
         postLoginSuccess(session);
       }
     });
@@ -65,6 +75,19 @@ export function AuthBridge() {
     window.addEventListener('focus', onForeground);
 
     const unsubNative = onNativeMessage(async (msg: NativeToWebMessage) => {
+      // 네이티브가 업로드 중 회전시킨 토큰을 브라우저 세션에 반영한다(navigate 없음).
+      // 이후 브라우저가 stale 한(이미 회전된) refresh 토큰을 재제출해 세션이 revoke 되는 것을 막는다.
+      if (msg.type === 'SESSION_SYNC') {
+        suppressNextAuthPost = true;
+        const { error } = await supabase.auth.setSession({
+          access_token: msg.payload.access_token,
+          refresh_token: msg.payload.refresh_token,
+        });
+        // 실패 시 SIGNED_IN 이벤트가 발생하지 않으므로 억제 플래그를 되돌린다.
+        if (error) suppressNextAuthPost = false;
+        return;
+      }
+
       if (msg.type !== 'SESSION_INJECT') {
         return;
       }

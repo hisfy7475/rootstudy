@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { cn } from '@/lib/utils';
+import { cn, isNativeApp } from '@/lib/utils';
+import { openAttachmentNative } from '@/lib/native-bridge';
 import { copyText } from '@/lib/clipboard';
 import Image from 'next/image';
 import { Copy, FileText, MoreVertical, Trash2, X } from 'lucide-react';
@@ -138,6 +139,29 @@ export function ChatMessageItem({
     onDelete(id);
   }, [id, onDelete]);
 
+  // 이미지 미리보기: 웹은 전체보기 모달, 네이티브 앱은 브리지로 인앱 브라우저(미리보기+저장+닫기)를 연다.
+  const handleImageClick = useCallback(() => {
+    if (!imageUrl) return;
+    if (isNativeApp()) {
+      openAttachmentNative(imageUrl);
+      return;
+    }
+    setShowFullImage(true);
+  }, [imageUrl]);
+
+  // 파일 첨부: 웹은 <a download>로 브라우저 다운로드, 네이티브 앱은 브리지로 인앱 브라우저 열기.
+  // (Android WebView 는 download 링크를 DownloadListener 로 보내 인터셉트가 안 되므로 postMessage 사용.)
+  const handleFileClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>) => {
+      if (!fileUrl) return;
+      if (isNativeApp()) {
+        e.preventDefault();
+        openAttachmentNative(fileUrl);
+      }
+    },
+    [fileUrl],
+  );
+
   const hasText = !!content;
 
   // 삭제된 메시지: 자리 표시자 (대화 맥락은 유지)
@@ -169,8 +193,8 @@ export function ChatMessageItem({
     <>
       <div
         className={cn(
-          'group relative flex max-w-[80%] flex-col gap-1',
-          isOwn ? 'ml-auto items-end' : 'mr-auto items-start',
+          'group relative flex w-full flex-col gap-1',
+          isOwn ? 'items-end' : 'items-start',
         )}
       >
         {copiedHint && (
@@ -192,125 +216,126 @@ export function ChatMessageItem({
           </div>
         )}
 
-        {/* 메시지 버블 + 시간 + 복사/메뉴 버튼 */}
-        <div className={cn('flex items-end gap-2', isOwn && 'flex-row-reverse')}>
-          <div
-            className={cn(
-              'overflow-hidden rounded-2xl',
-              isOwn ? 'bg-primary rounded-br-md text-white' : 'text-text rounded-bl-md bg-gray-100',
-              imageUrl || (fileUrl && fileType === 'file') ? 'p-1' : 'px-4 py-2.5',
-            )}
-            onTouchStart={canDelete ? longPressHandlers.onTouchStart : undefined}
-            onTouchMove={canDelete ? longPressHandlers.onTouchMove : undefined}
-            onTouchEnd={canDelete ? longPressHandlers.onTouchEnd : undefined}
-            onTouchCancel={canDelete ? longPressHandlers.onTouchCancel : undefined}
-          >
-            {/* 일반 파일 첨부 */}
-            {fileUrl && fileType === 'file' && (
-              <a
-                href={fileUrl}
-                download={fileName ?? undefined}
-                target='_blank'
-                rel='noopener noreferrer'
-                className={cn(
-                  'mb-1 flex max-w-[280px] min-w-[200px] items-center gap-2 rounded-xl px-3 py-2.5',
-                  isOwn
-                    ? 'bg-white/15 text-white hover:bg-white/25'
-                    : 'text-text border border-gray-200 bg-white hover:bg-gray-50',
-                )}
-              >
-                <FileText className='h-8 w-8 flex-shrink-0 opacity-90' />
-                <span className='line-clamp-3 text-sm font-medium break-all'>
-                  {fileName || '첨부파일'}
-                </span>
-              </a>
-            )}
-            {/* 이미지 */}
-            {imageUrl && (
-              <div className='relative mb-1 cursor-pointer' onClick={() => setShowFullImage(true)}>
-                <Image
-                  src={imageUrl}
-                  alt='채팅 이미지'
-                  width={200}
-                  height={200}
-                  unoptimized
-                  className='max-h-[200px] max-w-[200px] rounded-xl object-cover'
-                  style={{ width: 'auto', height: 'auto' }}
-                />
-              </div>
-            )}
-            {/* 텍스트 내용 — select-text 유지하여 데스크톱 드래그 선택과
+        {/* 메시지 버블 + 복사/⋮. 시간은 버블 아래로 분리, 삭제 메뉴는 이 래퍼(=메시지 바깥 가장자리) 기준으로 열어
+            말풍선 폭·⋮ 위치와 무관하게 화면을 벗어나지 않게 한다. */}
+        <div
+          ref={menuRef}
+          className={cn('relative flex max-w-[85%] flex-col', isOwn ? 'items-end' : 'items-start')}
+        >
+          <div className={cn('flex items-end gap-1', isOwn && 'flex-row-reverse')}>
+            <div
+              className={cn(
+                'min-w-0 overflow-hidden rounded-2xl',
+                isOwn
+                  ? 'bg-primary rounded-br-md text-white'
+                  : 'text-text rounded-bl-md bg-gray-100',
+                imageUrl || (fileUrl && fileType === 'file') ? 'p-1' : 'px-4 py-2.5',
+              )}
+              onTouchStart={canDelete ? longPressHandlers.onTouchStart : undefined}
+              onTouchMove={canDelete ? longPressHandlers.onTouchMove : undefined}
+              onTouchEnd={canDelete ? longPressHandlers.onTouchEnd : undefined}
+              onTouchCancel={canDelete ? longPressHandlers.onTouchCancel : undefined}
+            >
+              {/* 일반 파일 첨부 */}
+              {fileUrl && fileType === 'file' && (
+                <a
+                  href={fileUrl}
+                  download={fileName ?? undefined}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  onClick={handleFileClick}
+                  className={cn(
+                    'mb-1 flex max-w-[280px] min-w-0 items-center gap-2 rounded-xl px-3 py-2.5',
+                    isOwn
+                      ? 'bg-white/15 text-white hover:bg-white/25'
+                      : 'text-text border border-gray-200 bg-white hover:bg-gray-50',
+                  )}
+                >
+                  <FileText className='h-8 w-8 flex-shrink-0 opacity-90' />
+                  <span className='line-clamp-3 text-sm font-medium break-all'>
+                    {fileName || '첨부파일'}
+                  </span>
+                </a>
+              )}
+              {/* 이미지 */}
+              {imageUrl && (
+                <div className='relative mb-1 cursor-pointer' onClick={handleImageClick}>
+                  <Image
+                    src={imageUrl}
+                    alt='채팅 이미지'
+                    width={200}
+                    height={200}
+                    unoptimized
+                    className='max-h-[200px] max-w-[200px] rounded-xl object-cover'
+                    style={{ width: 'auto', height: 'auto' }}
+                  />
+                </div>
+              )}
+              {/* 텍스트 내용 — select-text 유지하여 데스크톱 드래그 선택과
                 모바일 OS 기본 long-press 텍스트 선택 메뉴를 보존한다. */}
-            {hasText && (
-              <div
-                className={cn(
-                  'break-words whitespace-pre-wrap select-text',
-                  (imageUrl || (fileUrl && fileType === 'file')) && 'px-3 py-2',
+              {hasText && (
+                <div
+                  className={cn(
+                    'break-words whitespace-pre-wrap select-text',
+                    (imageUrl || (fileUrl && fileType === 'file')) && 'px-3 py-2',
+                  )}
+                >
+                  {content}
+                </div>
+              )}
+            </div>
+
+            {/* 복사/⋮ 액션 (시간은 아래로 분리). 터치 기기(hover 불가)에서도 항상 보이도록 opacity 고정. */}
+            {(hasText || canDelete) && (
+              <div className='flex flex-shrink-0 items-center gap-0.5 pb-0.5'>
+                {hasText && (
+                  <button
+                    type='button'
+                    onClick={handleCopy}
+                    aria-label='메시지 복사'
+                    className='text-text-muted flex-shrink-0 rounded-full p-1.5 opacity-60 transition-opacity duration-150 hover:bg-gray-100 hover:opacity-100'
+                  >
+                    <Copy className='h-3.5 w-3.5' />
+                  </button>
                 )}
-              >
-                {content}
+                {canDelete && (
+                  <button
+                    type='button'
+                    onClick={() => setMenuOpen((v) => !v)}
+                    aria-label='메시지 더보기'
+                    aria-haspopup='menu'
+                    aria-expanded={menuOpen}
+                    className='text-text-muted flex-shrink-0 rounded-full p-1.5 opacity-60 transition-opacity duration-150 hover:bg-gray-100 hover:opacity-100'
+                  >
+                    <MoreVertical className='h-3.5 w-3.5' />
+                  </button>
+                )}
               </div>
             )}
           </div>
 
-          {/* 액션 영역: 복사/⋮/시간을 묶어 텍스트 없는 케이스에서도 정렬 보존 */}
-          <div className='flex items-center gap-1'>
-            {hasText && (
+          {/* 삭제 메뉴: 래퍼 바깥 가장자리(본인=오른쪽, 상대=왼쪽) 기준으로 열어 말풍선 폭·⋮ 위치와 무관하게 화면 안. */}
+          {menuOpen && canDelete && (
+            <div
+              role='menu'
+              className={cn(
+                'absolute top-full z-30 mt-1 min-w-[140px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg',
+                isOwn ? 'right-0' : 'left-0',
+              )}
+            >
               <button
                 type='button'
-                onClick={handleCopy}
-                aria-label='메시지 복사'
-                className={cn(
-                  'text-text-muted flex-shrink-0 rounded-full p-1.5',
-                  'transition-opacity duration-150',
-                  'opacity-40 hover:bg-gray-100 hover:opacity-100',
-                  'md:opacity-0 md:group-hover:opacity-100',
-                )}
+                role='menuitem'
+                onClick={handleDelete}
+                className='flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50'
               >
-                <Copy className='h-3.5 w-3.5' />
+                <Trash2 className='h-4 w-4' />
+                메시지 삭제
               </button>
-            )}
-            {canDelete && (
-              <div className='relative' ref={menuRef}>
-                <button
-                  type='button'
-                  onClick={() => setMenuOpen((v) => !v)}
-                  aria-label='메시지 더보기'
-                  aria-haspopup='menu'
-                  aria-expanded={menuOpen}
-                  className={cn(
-                    'text-text-muted flex-shrink-0 rounded-full p-1.5',
-                    'transition-opacity duration-150',
-                    'opacity-40 hover:bg-gray-100 hover:opacity-100',
-                    'md:opacity-0 md:group-hover:opacity-100',
-                  )}
-                >
-                  <MoreVertical className='h-3.5 w-3.5' />
-                </button>
-                {menuOpen && (
-                  <div
-                    role='menu'
-                    className={cn(
-                      'absolute z-20 mt-1 min-w-[140px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg',
-                      isOwn ? 'right-0' : 'left-0',
-                    )}
-                  >
-                    <button
-                      type='button'
-                      role='menuitem'
-                      onClick={handleDelete}
-                      className='flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50'
-                    >
-                      <Trash2 className='h-4 w-4' />
-                      메시지 삭제
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            <span className='text-text-muted flex-shrink-0 text-xs'>{timeString}</span>
-          </div>
+            </div>
+          )}
         </div>
+        <span className='text-text-muted px-1 text-xs'>{timeString}</span>
       </div>
 
       {/* 이미지 전체보기 모달 — 상위 stacking context(헤더/네비바 transform·backdrop)를

@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   BackHandler,
   Keyboard,
@@ -31,6 +32,10 @@ import {
   uploadMentoringFileFromNative,
   uploadMentoringImageFromNative,
 } from "./lib/nativeChatUpload";
+import {
+  isStorageAttachmentUrl,
+  openAttachmentInBrowser,
+} from "./lib/nativeAttachment";
 import {
   buildInjectNativeMessageScript,
   parseWebMessage,
@@ -60,11 +65,16 @@ export default function WebViewScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [webUri, setWebUri] = useState(WEB_BASE_URL);
   const [retryNonce, setRetryNonce] = useState(0);
+  // 동일 첨부 URL 중복 열기 방지(iOS 는 같은 네비게이션을 여러 번 발화할 수 있음).
+  const openingAttachmentUrls = useRef<Set<string>>(new Set());
   const splashHiddenRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
   const lastUrlRef = useRef<string>(WEB_BASE_URL);
   const sessionInjectAttemptedRef = useRef(false);
   const deepLinkReturnPathRef = useRef<string | null>(null);
+  // 로그아웃 진행 중 플래그. 로그아웃으로 세션을 비운 직후, 뒤늦게 끝난 업로드의 토큰 write-back/
+  // 재주입이 세션을 되살리는 레이스를 막는다. LOGOUT 시 true, 진짜 재로그인(LOGIN_SUCCESS) 시 false.
+  const loggingOutRef = useRef(false);
 
   // 네이티브 앱 안에서는 safe-area 단일 출처를 "네이티브"로 고정한다.
   //  - top: SafeAreaView(edges=["top",...])가 WebView 자체를 상태바 아래로 이미 밀었으므로
@@ -175,6 +185,8 @@ export default function WebViewScreen() {
   const tryInjectStoredSession = useCallback(
     (url: string) => {
       if (!secureReady || sessionInjectAttemptedRef.current) return;
+      // 로그아웃 진행 중이면 (뒤늦게 memory 에 남은) 세션을 재주입하지 않는다.
+      if (loggingOutRef.current) return;
       if (!urlLooksLikeLoginPage(url)) return;
       const session = sessionRef.current;
       if (!session?.access_token || !session?.refresh_token) return;
@@ -248,11 +260,29 @@ export default function WebViewScreen() {
     );
   }, []);
 
+  // 업로드 직전 자동 갱신으로 회전된 새 토큰을 브라우저 세션에도 반영하도록 웹에 전달한다.
+  // 웹(AuthBridge)이 setSession 으로 채택 → 브라우저가 이후 stale(이미 회전된) refresh 토큰을
+  // 재제출해 세션 패밀리가 revoke 되는(웹·앱 동시 로그아웃) 경로를 차단한다. navigate 는 하지 않는다.
+  const postSessionSyncToWeb = useCallback((session: StoredSession) => {
+    if (loggingOutRef.current) return;
+    const script = buildInjectNativeMessageScript({
+      type: "SESSION_SYNC",
+      payload: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      },
+    });
+    webViewRef.current?.injectJavaScript(script);
+  }, []);
+
   // 업로드 직전 자동 갱신으로 회전된 새 토큰을 저장한다. 원래 영속성(자동로그인) 선택을
   // 유지하기 위해, SecureStore에 기존 세션이 있으면 영구 저장, 없으면 메모리만 갱신한다.
   const persistRefreshedSession = useCallback(
     async (next: StoredSession) => {
+      if (loggingOutRef.current) return;
       const stored = await getSession();
+      // getSession await 사이 LOGOUT 이 도착했을 수 있어 재확인(TOCTOU) — 로그아웃 후 세션 재기록 방지.
+      if (loggingOutRef.current) return;
       if (stored) {
         await saveSession(next.access_token, next.refresh_token);
       } else {
@@ -338,7 +368,11 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.fileSize ?? undefined,
               );
-        if (result.refreshedSession) await persistRefreshedSession(result.refreshedSession);
+        if (result.refreshedSession) {
+          await persistRefreshedSession(result.refreshedSession);
+          // 회전된 토큰을 브라우저 세션에도 반영해 이후 로그아웃(세션 revoke)을 예방.
+          postSessionSyncToWeb(result.refreshedSession);
+        }
         postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload image", e);
@@ -357,6 +391,7 @@ export default function WebViewScreen() {
       postFileUploadedToWeb,
       postFileUploadErrorToWeb,
       postSessionExpiredToWeb,
+      postSessionSyncToWeb,
       persistRefreshedSession,
     ],
   );
@@ -397,7 +432,11 @@ export default function WebViewScreen() {
                 asset.mimeType ?? undefined,
                 asset.size ?? null,
               );
-        if (result.refreshedSession) await persistRefreshedSession(result.refreshedSession);
+        if (result.refreshedSession) {
+          await persistRefreshedSession(result.refreshedSession);
+          // 회전된 토큰을 브라우저 세션에도 반영해 이후 로그아웃(세션 revoke)을 예방.
+          postSessionSyncToWeb(result.refreshedSession);
+        }
         postFileUploadedToWeb(result, payload.context, payload.roomId);
       } catch (e) {
         console.error("[WebViewScreen] upload file", e);
@@ -416,9 +455,29 @@ export default function WebViewScreen() {
       postFileUploadedToWeb,
       postFileUploadErrorToWeb,
       postSessionExpiredToWeb,
+      postSessionSyncToWeb,
       persistRefreshedSession,
     ],
   );
+
+  // 첨부(파일·이미지)를 앱 안 브라우저로 연다(미리보기+저장+닫기).
+  // 웹이 OPEN_ATTACHMENT 메시지로 URL 을 넘긴다. 네비게이션 가로채기 대신 postMessage 를 쓰는 이유:
+  // Android 는 파일 링크가 DownloadListener 로 새고(shouldOverrideUrlLoading 미발화), 이미지의
+  // programmatic navigation 도 콜백을 안 타 인터셉트가 신뢰 불가하기 때문(iOS 만 동작했음).
+  const handleOpenAttachment = useCallback(async (url: string) => {
+    // 브리지로 들어온 URL 은 Supabase Storage 첨부만 허용(임의 URL 열기 방지).
+    if (!isStorageAttachmentUrl(url)) return;
+    if (openingAttachmentUrls.current.has(url)) return; // 중복 발화 가드
+    openingAttachmentUrls.current.add(url);
+    try {
+      await openAttachmentInBrowser(url);
+    } catch (e) {
+      console.error("[WebViewScreen] open attachment", e);
+      Alert.alert("첨부 열기", "첨부를 여는 중 문제가 발생했습니다.");
+    } finally {
+      openingAttachmentUrls.current.delete(url);
+    }
+  }, []);
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -427,6 +486,8 @@ export default function WebViewScreen() {
 
       switch (msg.type) {
         case "LOGIN_SUCCESS":
+          // 진짜 새 로그인(또는 갱신) 신호 — 로그아웃 가드 해제.
+          loggingOutRef.current = false;
           // remember가 명시적 false면 SecureStore 비저장(메모리만). 미지정/true는 기존 영구 저장 경로.
           if (msg.payload.remember === false) {
             saveEphemeral(msg.payload.access_token, msg.payload.refresh_token);
@@ -435,6 +496,8 @@ export default function WebViewScreen() {
           }
           break;
         case "LOGOUT":
+          // 뒤늦게 끝난 업로드의 세션 write-back/재주입이 로그아웃을 되살리지 못하게 가드 설정.
+          loggingOutRef.current = true;
           void clearSession();
           sessionInjectAttemptedRef.current = false;
           break;
@@ -450,9 +513,20 @@ export default function WebViewScreen() {
         case "COPY_TEXT":
           void Clipboard.setStringAsync(msg.payload.text);
           break;
+        case "OPEN_ATTACHMENT":
+          void handleOpenAttachment(msg.payload.url);
+          break;
       }
     },
-    [sendPushTokenToWeb, saveSession, saveEphemeral, clearSession, handlePickImage, handlePickFile],
+    [
+      sendPushTokenToWeb,
+      saveSession,
+      saveEphemeral,
+      clearSession,
+      handlePickImage,
+      handlePickFile,
+      handleOpenAttachment,
+    ],
   );
 
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

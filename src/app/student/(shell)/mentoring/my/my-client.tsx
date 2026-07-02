@@ -10,6 +10,7 @@ import { cancelMentoringApplication } from '@/lib/actions/mentoring';
 import { mentoringSlotStartMs, type MentoringApplicationWithDetails } from '@/lib/mentoring-utils';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { handleNativeAttachmentClick } from '@/lib/native-bridge';
 
 type Tab = 'all' | 'pending' | 'confirmed' | 'ended';
 
@@ -172,6 +173,7 @@ export function MentoringMyClient({
                                 href={att.url}
                                 target='_blank'
                                 rel='noopener noreferrer'
+                                onClick={(e) => handleNativeAttachmentClick(e, att.url)}
                                 className='bg-muted block size-16 overflow-hidden rounded-lg border'
                               >
                                 <Image
@@ -189,6 +191,7 @@ export function MentoringMyClient({
                                 href={att.url}
                                 target='_blank'
                                 rel='noopener noreferrer'
+                                onClick={(e) => handleNativeAttachmentClick(e, att.url)}
                                 className='bg-muted hover:bg-muted/70 inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs'
                               >
                                 <Paperclip className='size-3.5 flex-shrink-0' />

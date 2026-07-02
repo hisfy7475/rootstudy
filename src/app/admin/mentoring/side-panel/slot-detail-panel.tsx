@@ -17,6 +17,7 @@ import {
 } from '@/lib/actions/mentoring';
 import { MENTORING_TYPE_LABEL, isMentoringActiveStatus } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { handleNativeAttachmentClick } from '@/lib/native-bridge';
 import { StudentCombobox, type StudentOption } from './student-combobox';
 
 interface Props {
@@ -275,6 +276,7 @@ export function SlotDetailPanel({
                 href={att.url}
                 target='_blank'
                 rel='noopener noreferrer'
+                onClick={(e) => handleNativeAttachmentClick(e, att.url)}
                 className='bg-muted block size-16 overflow-hidden rounded-lg border'
               >
                 <Image
@@ -292,6 +294,7 @@ export function SlotDetailPanel({
                 href={att.url}
                 target='_blank'
                 rel='noopener noreferrer'
+                onClick={(e) => handleNativeAttachmentClick(e, att.url)}
                 className='bg-muted hover:bg-muted/70 inline-flex max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs'
               >
                 <Paperclip className='size-3.5 flex-shrink-0' />
