@@ -8,6 +8,7 @@ import {
   type AnnouncementWithReadStatus,
 } from '@/lib/actions/announcement';
 import { ChevronLeft, Star, Calendar, FileText } from 'lucide-react';
+import { handleNativeAttachmentClick } from '@/lib/native-bridge';
 
 interface AnnouncementDetailViewProps {
   announcement: AnnouncementWithReadStatus;
@@ -83,6 +84,7 @@ export function AnnouncementDetailView({ announcement, backHref }: AnnouncementD
                     href={att.file_url}
                     target='_blank'
                     rel='noopener noreferrer'
+                    onClick={(e) => handleNativeAttachmentClick(e, att.file_url)}
                     className='text-primary flex items-center gap-2 text-sm hover:underline'
                   >
                     <FileText className='h-4 w-4 flex-shrink-0' />

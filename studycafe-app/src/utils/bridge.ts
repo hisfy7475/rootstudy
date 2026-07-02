@@ -67,7 +67,9 @@ export type WebToNativeMessage =
       };
     }
   | { type: 'REQUEST_PUSH_TOKEN'; payload: Record<string, never> }
-  | { type: 'COPY_TEXT'; payload: { text: string } };
+  | { type: 'COPY_TEXT'; payload: { text: string } }
+  // 첨부(파일·이미지) 열기 요청. 네이티브가 앱 안 브라우저(SafariVC/Custom Tabs)로 연다.
+  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } };
 
 export function parseWebMessage(raw: string): WebToNativeMessage | null {
   try {

@@ -3,6 +3,8 @@
  * Web에서는 window.ReactNativeWebView.postMessage 로 Native에 전달합니다.
  */
 
+import { isNativeApp } from './utils';
+
 // PICK 요청·응답이 어느 화면(채팅·멘토링 신청)에서 발생했는지를 구분하기 위한 컨텍스트.
 // 동일 WebView 안에 두 화면이 잔존할 수 있어, 응답이 잘못된 화면에 라우팅되지 않도록 메시지에 echo 한다.
 export type NativeUploadContext = 'chat' | 'mentoring';
@@ -64,7 +66,11 @@ export type WebToNativeMessage =
       };
     }
   | { type: 'REQUEST_PUSH_TOKEN'; payload: Record<string, never> }
-  | { type: 'COPY_TEXT'; payload: { text: string } };
+  | { type: 'COPY_TEXT'; payload: { text: string } }
+  // 첨부(파일·이미지) 열기 요청. 네이티브가 앱 안 브라우저로 미리보기+저장+닫기를 제공한다.
+  // 네비게이션 가로채기 대신 postMessage 로 넘기는 이유: Android 는 파일 링크가 DownloadListener 로
+  // 새고(shouldOverrideUrlLoading 미발화), 이미지의 programmatic navigation 도 콜백을 안 타 신뢰 불가.
+  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } };
 
 type RNWebViewWindow = Window & {
   ReactNativeWebView?: { postMessage: (message: string) => void };
@@ -74,6 +80,21 @@ export function postToNative(msg: WebToNativeMessage): void {
   if (typeof window === 'undefined') return;
   const w = window as RNWebViewWindow;
   w.ReactNativeWebView?.postMessage(JSON.stringify(msg));
+}
+
+/** 네이티브 앱에서 첨부(파일·이미지) URL 을 앱 안 브라우저로 열도록 요청한다. */
+export function openAttachmentNative(url: string): void {
+  postToNative({ type: 'OPEN_ATTACHMENT', payload: { url } });
+}
+
+/**
+ * 첨부 링크(`<a>`) onClick 헬퍼. 네이티브 앱이면 기본 네비게이션/다운로드를 막고 인앱 브라우저로 연다.
+ * 웹(PC)에서는 아무것도 하지 않아 `<a href download target=_blank>` 기본 동작이 유지된다.
+ */
+export function handleNativeAttachmentClick(e: { preventDefault: () => void }, url: string): void {
+  if (!isNativeApp()) return;
+  e.preventDefault();
+  openAttachmentNative(url);
 }
 
 export function onNativeMessage(handler: (msg: NativeToWebMessage) => void): () => void {
@@ -104,4 +125,17 @@ export function onNativeMessage(handler: (msg: NativeToWebMessage) => void): () 
  */
 export function isSessionExpiredUploadMessage(message?: string): boolean {
   return typeof message === 'string' && message.includes('세션이 만료');
+}
+
+/**
+ * 에러 메시지가 "세션 만료/재로그인 필요" 계열인지 판별한다(업로드·전송 공통).
+ * - 업로드 실패: "…세션이 만료…" (네이티브 SessionExpiredError, uploads/client.ts)
+ * - 전송 실패: "로그인이 필요합니다." (서버 액션 getUser 실패 시 반환 → send 훅이 throw)
+ * 두 경우 모두 막다른 alert 대신 전역 SessionExpiredDialog(재로그인)로 유도하기 위한 판별.
+ */
+export function isSessionErrorMessage(message?: string): boolean {
+  return (
+    typeof message === 'string' &&
+    (message.includes('세션이 만료') || message.includes('로그인이 필요'))
+  );
 }

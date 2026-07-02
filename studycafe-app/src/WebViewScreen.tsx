@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   BackHandler,
   Keyboard,
@@ -31,6 +32,10 @@ import {
   uploadMentoringFileFromNative,
   uploadMentoringImageFromNative,
 } from "./lib/nativeChatUpload";
+import {
+  isStorageAttachmentUrl,
+  openAttachmentInBrowser,
+} from "./lib/nativeAttachment";
 import {
   buildInjectNativeMessageScript,
   parseWebMessage,
@@ -60,6 +65,8 @@ export default function WebViewScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [webUri, setWebUri] = useState(WEB_BASE_URL);
   const [retryNonce, setRetryNonce] = useState(0);
+  // 동일 첨부 URL 중복 열기 방지(iOS 는 같은 네비게이션을 여러 번 발화할 수 있음).
+  const openingAttachmentUrls = useRef<Set<string>>(new Set());
   const splashHiddenRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
   const lastUrlRef = useRef<string>(WEB_BASE_URL);
@@ -453,6 +460,25 @@ export default function WebViewScreen() {
     ],
   );
 
+  // 첨부(파일·이미지)를 앱 안 브라우저로 연다(미리보기+저장+닫기).
+  // 웹이 OPEN_ATTACHMENT 메시지로 URL 을 넘긴다. 네비게이션 가로채기 대신 postMessage 를 쓰는 이유:
+  // Android 는 파일 링크가 DownloadListener 로 새고(shouldOverrideUrlLoading 미발화), 이미지의
+  // programmatic navigation 도 콜백을 안 타 인터셉트가 신뢰 불가하기 때문(iOS 만 동작했음).
+  const handleOpenAttachment = useCallback(async (url: string) => {
+    // 브리지로 들어온 URL 은 Supabase Storage 첨부만 허용(임의 URL 열기 방지).
+    if (!isStorageAttachmentUrl(url)) return;
+    if (openingAttachmentUrls.current.has(url)) return; // 중복 발화 가드
+    openingAttachmentUrls.current.add(url);
+    try {
+      await openAttachmentInBrowser(url);
+    } catch (e) {
+      console.error("[WebViewScreen] open attachment", e);
+      Alert.alert("첨부 열기", "첨부를 여는 중 문제가 발생했습니다.");
+    } finally {
+      openingAttachmentUrls.current.delete(url);
+    }
+  }, []);
+
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
       const msg: WebToNativeMessage | null = parseWebMessage(event.nativeEvent.data);
@@ -487,9 +513,20 @@ export default function WebViewScreen() {
         case "COPY_TEXT":
           void Clipboard.setStringAsync(msg.payload.text);
           break;
+        case "OPEN_ATTACHMENT":
+          void handleOpenAttachment(msg.payload.url);
+          break;
       }
     },
-    [sendPushTokenToWeb, saveSession, saveEphemeral, clearSession, handlePickImage, handlePickFile],
+    [
+      sendPushTokenToWeb,
+      saveSession,
+      saveEphemeral,
+      clearSession,
+      handlePickImage,
+      handlePickFile,
+      handleOpenAttachment,
+    ],
   );
 
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
