@@ -3,7 +3,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SignOutForm } from '@/components/SignOutForm';
 import { useSidebar } from './sidebar-context';
@@ -91,6 +92,7 @@ export function Sidebar({
   initialUnreadNotificationCount = 0,
 }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebar();
   // 채팅 미읽음 배지는 ChatProvider(단일 채널)가 채우는 SSOT store 에서 구독한다.
@@ -121,6 +123,23 @@ export function Sidebar({
         .catch((e) => console.error('[Sidebar] unread branch notif refetch', e));
     };
 
+    // 모든 이벤트에서 미읽음 카운트를 갱신하고(뱃지), 신규 INSERT 에 한해
+    // 확인 전까지 사라지지 않는 토스트를 띄운다. 멘토링/클리닉/상담 신청 접수만
+    // branch_notifications 에 INSERT 되므로 대상 필터링은 불필요.
+    const handleChange = (payload: {
+      eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+      new: { title?: string; message?: string; link?: string | null } | null;
+    }) => {
+      refetch();
+      if (payload.eventType !== 'INSERT' || !payload.new) return;
+      const { title, message, link } = payload.new;
+      toast(title ?? '새 신청이 접수되었습니다', {
+        description: message,
+        duration: Infinity,
+        action: link ? { label: '확인하기', onClick: () => router.push(link) } : undefined,
+      });
+    };
+
     (async () => {
       const {
         data: { session },
@@ -141,7 +160,7 @@ export function Sidebar({
           : { event: '*' as const, schema: 'public', table: 'branch_notifications' };
       channel = supabase
         .channel(`admin-sidebar-branch-notif-${userId}`)
-        .on('postgres_changes', changesFilter, refetch)
+        .on('postgres_changes', changesFilter, handleChange)
         .subscribe();
     })();
 
@@ -149,7 +168,7 @@ export function Sidebar({
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [userId, isSuperAdmin, branchId]);
+  }, [userId, isSuperAdmin, branchId, router]);
 
   // 경로 변경 시 모바일 메뉴 닫기
   useEffect(() => {
