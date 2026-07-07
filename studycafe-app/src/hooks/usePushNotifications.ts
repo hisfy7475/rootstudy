@@ -38,8 +38,31 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** 앱 프로세스당 1회만 getLastNotificationResponseAsync 사용 (일반 실행 시 이전 탭 오탐 방지) */
 let appColdStartNotificationChecked = false;
 
+export type NormalizedPushPermission = 'granted' | 'denied' | 'undetermined';
+
+/**
+ * 웹에 전달할 권한 상태를 정규화한다.
+ * iOS provisional/ephemeral(무음 허용)도 알림이 오는 상태이므로 'granted' 로 취급해
+ * 웹에서 "알림 꺼짐" 배너가 잘못 뜨지 않게 한다.
+ */
+function normalizePermission(
+  perm: Notifications.NotificationPermissionsStatus
+): NormalizedPushPermission {
+  const iosStatus = perm.ios?.status;
+  if (
+    perm.granted ||
+    iosStatus === Notifications.IosAuthorizationStatus.PROVISIONAL ||
+    iosStatus === Notifications.IosAuthorizationStatus.EPHEMERAL
+  ) {
+    return 'granted';
+  }
+  if (perm.status === 'denied') return 'denied';
+  return 'undetermined';
+}
+
 export type PushNotificationsApi = {
   sendPushTokenToWeb: () => void;
+  sendPermissionStatusToWeb: () => void;
 };
 
 export function usePushNotifications(
@@ -47,6 +70,7 @@ export function usePushNotifications(
   { webBaseUrl, setWebUri }: { webBaseUrl: string; setWebUri: (uri: string) => void }
 ): PushNotificationsApi {
   const tokenRef = useRef<string | null>(null);
+  const permissionStatusRef = useRef<NormalizedPushPermission | null>(null);
   const webViewLoadedRef = useRef(false);
   const tokenFetchInFlightRef = useRef(false);
   const platformRef = useRef<'ios' | 'android'>(Platform.OS === 'ios' ? 'ios' : 'android');
@@ -66,11 +90,45 @@ export function usePushNotifications(
     injectScript(script);
   }, [injectScript]);
 
+  const flushPermissionIfReady = useCallback(() => {
+    if (!webViewLoadedRef.current) return;
+    const status = permissionStatusRef.current;
+    if (!status) return;
+    const script = buildInjectNativeMessageScript({
+      type: 'PUSH_PERMISSION_STATUS',
+      payload: { status, platform: platformRef.current },
+    });
+    injectScript(script);
+  }, [injectScript]);
+
+  // 권한 상태만 재조회(요청은 안 함)해서 저장 + 웹에 반영. 설정에서 켜고 돌아온 경우 등에 사용.
+  const refreshPermissionStatus = useCallback(async () => {
+    if (!Device.isDevice) return;
+    try {
+      const perm = await Notifications.getPermissionsAsync();
+      permissionStatusRef.current = normalizePermission(perm);
+      flushPermissionIfReady();
+    } catch {
+      /* ignore */
+    }
+  }, [flushPermissionIfReady]);
+
   // WebView onLoadEnd 호출 = "WebView 로드 완료" 신호 + 토큰 준비됐으면 즉시 inject.
   const sendPushTokenToWeb = useCallback(() => {
     webViewLoadedRef.current = true;
     flushIfReady();
   }, [flushIfReady]);
+
+  // WebView 로드 완료/REQUEST_PUSH_TOKEN 시 최신 권한 상태를 웹에 전달.
+  // 아직 권한을 읽지 못했으면(예: 초기 레이스) 재조회한다.
+  const sendPermissionStatusToWeb = useCallback(() => {
+    webViewLoadedRef.current = true;
+    if (permissionStatusRef.current) {
+      flushPermissionIfReady();
+    } else {
+      void refreshPermissionStatus();
+    }
+  }, [flushPermissionIfReady, refreshPermissionStatus]);
 
   const fetchAndStoreToken = useCallback(async () => {
     if (tokenFetchInFlightRef.current) return;
@@ -89,13 +147,15 @@ export function usePushNotifications(
 
       if (!Device.isDevice) return;
 
-      const { status: existing } = await Notifications.getPermissionsAsync();
-      let final = existing;
-      if (existing !== 'granted') {
-        const req = await Notifications.requestPermissionsAsync();
-        final = req.status;
+      const existing = await Notifications.getPermissionsAsync();
+      let finalPerm = existing;
+      if (existing.status !== 'granted') {
+        finalPerm = await Notifications.requestPermissionsAsync();
       }
-      if (final !== 'granted') return;
+      // 정규화된 권한 상태를 저장하고 웹에 반영(배너 판정용). 요청 프롬프트 결과까지 포함.
+      permissionStatusRef.current = normalizePermission(finalPerm);
+      flushPermissionIfReady();
+      if (permissionStatusRef.current !== 'granted') return;
 
       const extra = Constants.expoConfig?.extra as
         | { eas?: { projectId?: string } }
@@ -127,7 +187,7 @@ export function usePushNotifications(
     } finally {
       tokenFetchInFlightRef.current = false;
     }
-  }, [flushIfReady]);
+  }, [flushIfReady, flushPermissionIfReady]);
 
   // 권한 + Expo 토큰 (초기 1회)
   useEffect(() => {
@@ -136,9 +196,11 @@ export function usePushNotifications(
   }, [fetchAndStoreToken]);
 
   // 포그라운드 복귀 시 — 토큰 없으면 재시도, 있으면 미전송분 flush.
+  // 권한 상태는 항상 재조회(설정에서 켜고 돌아온 경우 배너가 사라지도록).
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
+      void refreshPermissionStatus();
       if (!tokenRef.current) {
         void fetchAndStoreToken();
       } else {
@@ -146,7 +208,7 @@ export function usePushNotifications(
       }
     });
     return () => sub.remove();
-  }, [fetchAndStoreToken, flushIfReady]);
+  }, [fetchAndStoreToken, flushIfReady, refreshPermissionStatus]);
 
   const applyNotificationResponse = useCallback(
     (response: Notifications.NotificationResponse | null) => {
@@ -172,5 +234,5 @@ export function usePushNotifications(
     return () => sub.remove();
   }, [applyNotificationResponse]);
 
-  return { sendPushTokenToWeb };
+  return { sendPushTokenToWeb, sendPermissionStatusToWeb };
 }

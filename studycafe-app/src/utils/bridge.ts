@@ -23,6 +23,12 @@ export type NativeToWebMessage =
       payload: { access_token: string; refresh_token: string };
     }
   | { type: 'PUSH_TOKEN'; payload: { expo_push_token: string; platform: 'ios' | 'android' } }
+  // 알림 권한 상태 전달. status 는 네이티브에서 정규화한 값(iOS provisional/ephemeral → 'granted').
+  // 웹은 'denied' 일 때만 "알림 켜기" 배너를 띄운다. 구버전 웹은 이 타입을 무시한다.
+  | {
+      type: 'PUSH_PERMISSION_STATUS';
+      payload: { status: 'granted' | 'denied' | 'undetermined'; platform: 'ios' | 'android' };
+    }
   | {
       type: 'FILE_UPLOADED';
       payload: {
@@ -69,7 +75,9 @@ export type WebToNativeMessage =
   | { type: 'REQUEST_PUSH_TOKEN'; payload: Record<string, never> }
   | { type: 'COPY_TEXT'; payload: { text: string } }
   // 첨부(파일·이미지) 열기 요청. 네이티브가 앱 안 브라우저(SafariVC/Custom Tabs)로 연다.
-  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } };
+  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } }
+  // iOS/Android 시스템 설정(앱 설정 화면)을 연다. 알림 권한이 거부된 사용자를 유도할 때 사용.
+  | { type: 'OPEN_APP_SETTINGS'; payload: Record<string, never> };
 
 export function parseWebMessage(raw: string): WebToNativeMessage | null {
   try {

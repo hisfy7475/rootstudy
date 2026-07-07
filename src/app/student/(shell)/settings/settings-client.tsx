@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PushPermissionSetting } from '@/components/shared/push-permission-setting';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import {
@@ -410,6 +411,9 @@ export function SettingsClient({ profile, linkedParents, studentTypes }: Setting
           </div>
         )}
       </Card>
+
+      {/* 알림 상태 */}
+      <PushPermissionSetting />
 
       {/* 계정 관리 섹션 */}
       <Card className='p-4'>

@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PushPermissionSetting } from '@/components/shared/push-permission-setting';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import {
@@ -371,6 +372,9 @@ export function SettingsClient({ students: initialStudents }: SettingsClientProp
       {error && !isAddingChild && (
         <div className='bg-error/10 text-error rounded-xl p-3 text-center text-sm'>{error}</div>
       )}
+
+      {/* 알림 상태 */}
+      <PushPermissionSetting />
 
       {/* 계정 관리 */}
       <Card className='p-4'>

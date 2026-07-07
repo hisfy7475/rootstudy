@@ -1,5 +1,6 @@
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { StudentHeader } from '@/components/student/header';
+import { PushPermissionBanner } from '@/components/shared/push-permission-banner';
 import { StudentCountsProvider } from '@/components/shared/unread-counts-provider';
 import { ChatProvider } from '@/lib/chat/provider';
 import { createClient } from '@/lib/supabase/server';
@@ -48,7 +49,10 @@ export default async function StudentShellLayout({ children }: { children: React
         initialBadge={initialUnreadChatCount}
       >
         <StudentHeader userName={userName} seatNumber={seatNumber} userId={userId} />
-        <main className='mx-auto max-w-lg pb-24'>{children}</main>
+        <main className='mx-auto max-w-lg pb-24'>
+          <PushPermissionBanner />
+          {children}
+        </main>
         <BottomNav userType='student' basePath='/student' />
       </ChatProvider>
     </StudentCountsProvider>

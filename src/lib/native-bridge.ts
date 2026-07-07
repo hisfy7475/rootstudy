@@ -23,6 +23,12 @@ export type NativeToWebMessage =
       payload: { access_token: string; refresh_token: string };
     }
   | { type: 'PUSH_TOKEN'; payload: { expo_push_token: string; platform: 'ios' | 'android' } }
+  // 알림 권한 상태. status 는 네이티브에서 정규화한 값(iOS provisional/ephemeral → 'granted').
+  // 웹은 'denied' 일 때만 "알림 켜기" 배너를 띄운다. 구버전 앱은 이 메시지를 안 보내므로 status=null 유지.
+  | {
+      type: 'PUSH_PERMISSION_STATUS';
+      payload: { status: 'granted' | 'denied' | 'undetermined'; platform: 'ios' | 'android' };
+    }
   | {
       type: 'FILE_UPLOADED';
       payload: {
@@ -70,7 +76,9 @@ export type WebToNativeMessage =
   // 첨부(파일·이미지) 열기 요청. 네이티브가 앱 안 브라우저로 미리보기+저장+닫기를 제공한다.
   // 네비게이션 가로채기 대신 postMessage 로 넘기는 이유: Android 는 파일 링크가 DownloadListener 로
   // 새고(shouldOverrideUrlLoading 미발화), 이미지의 programmatic navigation 도 콜백을 안 타 신뢰 불가.
-  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } };
+  | { type: 'OPEN_ATTACHMENT'; payload: { url: string } }
+  // iOS/Android 시스템 앱 설정 화면을 연다. 알림 권한이 거부된 사용자를 유도할 때 사용.
+  | { type: 'OPEN_APP_SETTINGS'; payload: Record<string, never> };
 
 type RNWebViewWindow = Window & {
   ReactNativeWebView?: { postMessage: (message: string) => void };
@@ -85,6 +93,11 @@ export function postToNative(msg: WebToNativeMessage): void {
 /** 네이티브 앱에서 첨부(파일·이미지) URL 을 앱 안 브라우저로 열도록 요청한다. */
 export function openAttachmentNative(url: string): void {
   postToNative({ type: 'OPEN_ATTACHMENT', payload: { url } });
+}
+
+/** 네이티브 앱에서 시스템 설정(앱 설정) 화면을 열도록 요청한다. 알림 권한 재설정 유도용. */
+export function openAppSettings(): void {
+  postToNative({ type: 'OPEN_APP_SETTINGS', payload: {} });
 }
 
 /**
