@@ -1,14 +1,11 @@
 import { PushTokenListener } from '@/components/PushTokenListener';
+import { PushPermissionProvider } from '@/components/shared/push-permission-provider';
 
-export default function StudentRootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function StudentRootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className='bg-background min-h-screen'>
       <PushTokenListener />
-      {children}
+      <PushPermissionProvider>{children}</PushPermissionProvider>
     </div>
   );
 }

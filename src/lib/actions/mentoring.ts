@@ -273,6 +273,23 @@ const APPLICATION_CONTENT_MIN = 5;
 const APPLICATION_CONTENT_MAX = 2000;
 const APPLICATION_ATTACHMENTS_MAX = 3;
 
+// 정원 마감 안내(신청 경로 공통). CHECK(booked_count<=capacity) 위반(23514)도 이 메시지로 번역한다.
+const SLOT_CAPACITY_FULL_MSG = '정원이 마감되었습니다.';
+// 관리자 대리 등록용 정원 마감 안내. 그림자 슬롯 생성 우회를 막기 위해 정당한 대안을 제시한다.
+const SLOT_CAPACITY_FULL_ADMIN_MSG =
+  '정원이 마감된 슬롯입니다. 다른 시간대를 선택하거나 이 슬롯의 정원을 늘려 주세요.';
+// 같은 멘토·날짜·시각 활성 슬롯 중복(유니크 인덱스 23505) 안내.
+const SLOT_DUP_TIME_MSG = '해당 멘토는 그 시간에 이미 슬롯이 있습니다.';
+
+/** PostgREST/Postgres 에러에서 SQLSTATE code 추출 (23505 unique_violation, 23514 check_violation 등). */
+function pgErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
 export type MentoringApplyInput = {
   content: string;
   selectedSubject?: string | null;
@@ -469,6 +486,8 @@ export async function applyMentoring(
 
     if (upErr) {
       logPostgrestQueryError('[applyMentoring] re-apply update', upErr);
+      // 트리거 booked_count+1 이 CHECK(booked_count<=capacity) 위반 → 정원 마감 레이스.
+      if (pgErrorCode(upErr) === '23514') return { error: SLOT_CAPACITY_FULL_MSG };
       return { error: '재신청에 실패했습니다.' };
     }
     applicationId = existing.id;
@@ -489,6 +508,8 @@ export async function applyMentoring(
 
     if (insErr || !inserted) {
       logPostgrestQueryError('[applyMentoring] insert', insErr);
+      // 트리거 booked_count+1 이 CHECK(booked_count<=capacity) 위반 → 정원 마감 레이스.
+      if (pgErrorCode(insErr) === '23514') return { error: SLOT_CAPACITY_FULL_MSG };
       return { error: '신청에 실패했습니다.' };
     }
     applicationId = inserted.id as string;
@@ -1172,6 +1193,19 @@ export async function createMentoringSlot(
   const slotBranchId = (mentor as Mentor).branch_id ?? ctx.branchId;
   if (!slotBranchId) return { error: '지점이 지정되지 않았습니다.' };
 
+  // 같은 멘토·날짜·시각에 이미 활성 슬롯이 있으면 차단(멘토 더블부킹 방지).
+  // DB 유니크 인덱스(uq_mentoring_slots_mentor_time)가 최종 보증이지만, 친절 메시지를 위해
+  // 사전 조회한다. 반드시 정규화된 st 로 조회해야 저장값('HH:MM:SS')과 일치한다.
+  const { data: dupSlot } = await supabase
+    .from('mentoring_slots')
+    .select('id')
+    .eq('mentor_id', data.mentor_id)
+    .eq('date', data.date)
+    .eq('start_time', st)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (dupSlot) return { error: SLOT_DUP_TIME_MSG };
+
   const { data: inserted, error } = await supabase
     .from('mentoring_slots')
     .insert({
@@ -1192,6 +1226,8 @@ export async function createMentoringSlot(
 
   if (error || !inserted) {
     logPostgrestQueryError('[createMentoringSlot]', error);
+    // 유니크 인덱스 레이스 백스톱: 사전 조회 통과 후 동시 생성으로 충돌한 경우.
+    if (pgErrorCode(error) === '23505') return { error: SLOT_DUP_TIME_MSG };
     return { error: '슬롯 등록에 실패했습니다.' };
   }
 
@@ -1218,7 +1254,7 @@ export type MentoringSlotsBulkInput = {
 
 export async function createMentoringSlotsBulk(
   input: MentoringSlotsBulkInput,
-): Promise<{ created: number; error?: string }> {
+): Promise<{ created: number; skipped?: number; error?: string }> {
   const supabase = await createClient();
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return { created: 0, error: '권한이 없습니다.' };
@@ -1261,7 +1297,24 @@ export async function createMentoringSlotsBulk(
   // 멘토의 branch_id 를 슬롯 branch 로 사용. (슈퍼관리자가 다른 지점 mentor 에게 슬롯 일괄 등록 허용)
   const slotBranchId = (mentor as Mentor).branch_id ?? ctx.branchId;
   if (!slotBranchId) return { created: 0, error: '지점이 지정되지 않았습니다.' };
-  const payload = rows.map((r) => ({
+
+  // 같은 멘토·시각에 이미 활성 슬롯이 있는 날짜는 사전 제외(멘토 더블부킹 방지).
+  // rows 는 이미 정규화된 st/dateStr 를 가지므로 그대로 조회에 사용한다.
+  const batchDates = [...new Set(rows.map((r) => r.date))];
+  const { data: existingSlots } = await supabase
+    .from('mentoring_slots')
+    .select('date')
+    .eq('mentor_id', input.mentor_id)
+    .eq('start_time', st)
+    .eq('is_active', true)
+    .in('date', batchDates);
+  const takenDates = new Set((existingSlots ?? []).map((s) => s.date as string));
+
+  const freshRows = rows.filter((r) => !takenDates.has(r.date));
+  let skipped = rows.length - freshRows.length;
+  if (freshRows.length === 0) return { created: 0, skipped };
+
+  const payload = freshRows.map((r) => ({
     branch_id: slotBranchId,
     mentor_id: r.mentor_id,
     date: r.date,
@@ -1281,12 +1334,32 @@ export async function createMentoringSlotsBulk(
     .select('id');
 
   if (error) {
+    // 사전 필터 통과 후 동시 생성 레이스로 유니크 인덱스 충돌(23505). 단일 배치 INSERT 는
+    // all-or-nothing 이라 전체가 롤백되므로, 행별 재시도로 겹치지 않는 나머지를 살린다.
+    if (pgErrorCode(error) === '23505') {
+      let created = 0;
+      for (const row of payload) {
+        const { error: rowErr } = await supabase.from('mentoring_slots').insert(row);
+        if (rowErr) {
+          if (pgErrorCode(rowErr) === '23505') {
+            skipped += 1;
+            continue;
+          }
+          logPostgrestQueryError('[createMentoringSlotsBulk] row', rowErr);
+          revalidateMentoringAdmin();
+          return { created, skipped, error: '일부 슬롯 등록에 실패했습니다.' };
+        }
+        created += 1;
+      }
+      revalidateMentoringAdmin();
+      return { created, skipped };
+    }
     logPostgrestQueryError('[createMentoringSlotsBulk]', error);
-    return { created: 0, error: '벌크 등록에 실패했습니다. (중복 일정이 있는지 확인하세요)' };
+    return { created: 0, skipped, error: '벌크 등록에 실패했습니다.' };
   }
 
   revalidateMentoringAdmin();
-  return { created: (inserted ?? []).length };
+  return { created: (inserted ?? []).length, skipped };
 }
 
 export async function updateMentoringSlot(
@@ -1336,6 +1409,12 @@ export async function updateMentoringSlot(
 
   if (error || !updated) {
     logPostgrestQueryError('[updateMentoringSlot]', error);
+    // 정원 축소와 동시 신청이 경합해 booked_count>capacity 가 되면 CHECK(23514) 위반.
+    if (pgErrorCode(error) === '23514') {
+      return { error: '정원을 현재 신청 인원보다 적게 설정할 수 없습니다.' };
+    }
+    // 시각 변경 / 소프트삭제 슬롯 재활성화가 같은 멘토·시각 활성 슬롯과 충돌(23505).
+    if (pgErrorCode(error) === '23505') return { error: SLOT_DUP_TIME_MSG };
     return { error: '슬롯 수정에 실패했습니다.' };
   }
 
@@ -2221,7 +2300,7 @@ export async function adminApplyMentoring(
     }
     // rejected / cancelled → confirmed: 트리거가 booked_count +1 처리 (마이그레이션 보강 후).
     if (slotRow.booked_count >= slotRow.capacity) {
-      return { error: '정원이 마감되었습니다.' };
+      return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
     }
     const { error: upErr } = await adminDb
       .from('mentoring_applications')
@@ -2243,6 +2322,8 @@ export async function adminApplyMentoring(
       .eq('id', existing.id);
     if (upErr) {
       logPostgrestQueryError('[adminApplyMentoring] update re-apply', upErr);
+      // 트리거 booked_count+1 이 CHECK 위반 → 정원 마감 레이스.
+      if (pgErrorCode(upErr) === '23514') return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
       return { error: '재신청 처리에 실패했습니다.' };
     }
 
@@ -2265,7 +2346,7 @@ export async function adminApplyMentoring(
 
   // 신규 INSERT
   if (slotRow.booked_count >= slotRow.capacity) {
-    return { error: '정원이 마감되었습니다.' };
+    return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
   }
   const { data: inserted, error: insErr } = await adminDb
     .from('mentoring_applications')
@@ -2285,6 +2366,8 @@ export async function adminApplyMentoring(
 
   if (insErr || !inserted) {
     logPostgrestQueryError('[adminApplyMentoring] insert', insErr);
+    // 트리거 booked_count+1 이 CHECK 위반 → 정원 마감 레이스.
+    if (pgErrorCode(insErr) === '23514') return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
     return { error: '신청에 실패했습니다.' };
   }
 

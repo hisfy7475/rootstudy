@@ -10,6 +10,8 @@ import {
   AppState,
   BackHandler,
   Keyboard,
+  // expo-linking(딥링크 전용)과 구분하기 위해 RN 코어 Linking 은 RNLinking 으로 alias.
+  Linking as RNLinking,
   Platform,
   StyleSheet,
   Text,
@@ -130,7 +132,7 @@ export default function WebViewScreen() {
     setWebUri((prev) => (prev === uri ? prev : uri));
   }, []);
 
-  const { sendPushTokenToWeb } = usePushNotifications(webViewRef, {
+  const { sendPushTokenToWeb, sendPermissionStatusToWeb } = usePushNotifications(webViewRef, {
     webBaseUrl: WEB_BASE_URL,
     setWebUri: setWebUriStable,
   });
@@ -509,6 +511,7 @@ export default function WebViewScreen() {
           break;
         case "REQUEST_PUSH_TOKEN":
           sendPushTokenToWeb();
+          sendPermissionStatusToWeb();
           break;
         case "COPY_TEXT":
           void Clipboard.setStringAsync(msg.payload.text);
@@ -516,10 +519,14 @@ export default function WebViewScreen() {
         case "OPEN_ATTACHMENT":
           void handleOpenAttachment(msg.payload.url);
           break;
+        case "OPEN_APP_SETTINGS":
+          void RNLinking.openSettings();
+          break;
       }
     },
     [
       sendPushTokenToWeb,
+      sendPermissionStatusToWeb,
       saveSession,
       saveEphemeral,
       clearSession,
@@ -629,6 +636,7 @@ export default function WebViewScreen() {
             initialLoadDoneRef.current = true;
             hideSplashOnce();
             sendPushTokenToWeb();
+            sendPermissionStatusToWeb();
             tryInjectStoredSession(lastUrlRef.current);
             // 페이지 전환 시 CSS 변수가 초기화되므로 재주입.
             injectSafeAreaVars(insetsRef.current.bottom);

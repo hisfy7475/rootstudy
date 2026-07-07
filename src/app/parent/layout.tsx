@@ -1,4 +1,6 @@
 import { PushTokenListener } from '@/components/PushTokenListener';
+import { PushPermissionProvider } from '@/components/shared/push-permission-provider';
+import { PushPermissionBanner } from '@/components/shared/push-permission-banner';
 import { BottomNav } from '@/components/shared/bottom-nav';
 import { ParentHeader } from '@/components/parent/header';
 import { ParentCountsProvider } from '@/components/shared/unread-counts-provider';
@@ -53,22 +55,27 @@ export default async function ParentLayout({ children }: LayoutProps) {
   return (
     <div className='bg-background min-h-screen'>
       <PushTokenListener />
-      <ParentCountsProvider
-        key={userId}
-        userId={userId}
-        initialNotif={initialUnreadNotificationCount}
-      >
-        <ChatProvider
-          currentUserId={userId ?? ''}
-          scope='parent'
-          currentUserName={userName}
-          initialBadge={initialUnreadChatCount}
+      <PushPermissionProvider>
+        <ParentCountsProvider
+          key={userId}
+          userId={userId}
+          initialNotif={initialUnreadNotificationCount}
         >
-          <ParentHeader userName={userName} linkedChildren={linkedChildren} userId={userId} />
-          <main className='mx-auto max-w-lg pb-24'>{children}</main>
-          <BottomNav userType='parent' basePath='/parent' />
-        </ChatProvider>
-      </ParentCountsProvider>
+          <ChatProvider
+            currentUserId={userId ?? ''}
+            scope='parent'
+            currentUserName={userName}
+            initialBadge={initialUnreadChatCount}
+          >
+            <ParentHeader userName={userName} linkedChildren={linkedChildren} userId={userId} />
+            <main className='mx-auto max-w-lg pb-24'>
+              <PushPermissionBanner />
+              {children}
+            </main>
+            <BottomNav userType='parent' basePath='/parent' />
+          </ChatProvider>
+        </ParentCountsProvider>
+      </PushPermissionProvider>
     </div>
   );
 }
