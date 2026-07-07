@@ -149,7 +149,11 @@ export function SlotCreateForm({ mentors, defaultDate, defaultMentorId, onDirtyC
         setError(res.error);
         return;
       }
-      setOkMsg(`${res.created}개 슬롯이 등록되었습니다.`);
+      setOkMsg(
+        `${res.created}개 슬롯이 등록되었습니다.${
+          res.skipped ? ` (${res.skipped}개는 기존 일정과 겹쳐 제외)` : ''
+        }`,
+      );
       router.refresh();
     });
   }
