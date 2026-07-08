@@ -184,18 +184,37 @@ export async function signUpParent(formData: FormData): Promise<AuthResult> {
 
   // 1. 모든 학생 연결 코드 검증 (Admin 클라이언트로 RLS 우회) — 퇴원 학생은 매칭 거부
   const studentIds: string[] = [];
-  for (const code of parentCodes) {
+  for (const rawCode of parentCodes) {
+    // verifyParentCode와 동일하게 정규화(공백 제거·대문자)해 검증 경로를 일치시킨다.
+    const code = (rawCode ?? '').trim().toUpperCase();
     const { data: studentData, error: verifyError } = await supabaseAdmin
       .from('student_profiles')
       .select('id, profiles!inner(withdrawn_at)')
       .eq('parent_code', code)
       .maybeSingle();
 
+    // DB/서버 오류와 코드 불일치를 구분한다.
+    if (verifyError) {
+      console.error('[signUpParent] 코드 검증 중 DB 오류', {
+        codeLength: code.length,
+        error: verifyError,
+      });
+      return {
+        success: false,
+        error: '일시적인 오류로 가입을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.',
+      };
+    }
+
     const studentWithdrawnAt = (
       studentData?.profiles as unknown as { withdrawn_at: string | null } | undefined
     )?.withdrawn_at;
 
-    if (verifyError || !studentData || studentWithdrawnAt) {
+    if (!studentData || studentWithdrawnAt) {
+      console.warn('[signUpParent] 연결 코드 매칭 실패', {
+        code,
+        codeLength: code.length,
+        reason: studentWithdrawnAt ? 'withdrawn' : 'not_found',
+      });
       return { success: false, error: `유효하지 않은 연결 코드입니다: ${code}` };
     }
     studentIds.push(studentData.id);
@@ -454,7 +473,10 @@ export async function resetUpdatePassword(
  * 학부모 연결 코드 검증
  */
 export async function verifyParentCode(code: string): Promise<AuthResult> {
-  if (!code) {
+  // 붙여넣기·자동완성 등으로 앞뒤 공백이나 소문자가 섞여도 매칭되도록 정규화한다.
+  // parent_code는 항상 6자 대문자 영숫자(generateParentCode)이므로 서버에서 통일한다.
+  const normalizedCode = (code ?? '').trim().toUpperCase();
+  if (!normalizedCode) {
     return { success: false, error: '연결 코드를 입력해주세요.' };
   }
 
@@ -466,14 +488,33 @@ export async function verifyParentCode(code: string): Promise<AuthResult> {
   const { data: studentProfile, error: studentError } = await supabase
     .from('student_profiles')
     .select('id, profiles!inner(withdrawn_at)')
-    .eq('parent_code', code)
+    .eq('parent_code', normalizedCode)
     .maybeSingle();
+
+  // DB/서버 오류(일시 장애)와 "코드 불일치"를 구분한다.
+  // 이전에는 둘 다 같은 메시지로 반환되어 사후 원인 추적이 불가능했다.
+  if (studentError) {
+    console.error('[verifyParentCode] 코드 검증 중 DB 오류', {
+      codeLength: normalizedCode.length,
+      error: studentError,
+    });
+    return {
+      success: false,
+      error: '일시적인 오류로 코드를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.',
+    };
+  }
 
   const studentWithdrawnAt = (
     studentProfile?.profiles as unknown as { withdrawn_at: string | null } | undefined
   )?.withdrawn_at;
 
-  if (studentError || !studentProfile || studentWithdrawnAt) {
+  if (!studentProfile || studentWithdrawnAt) {
+    // 코드 불일치(오입력)·퇴원 학생 매칭. 사후 진단을 위해 입력 코드 자체를 로그로 남긴다.
+    console.warn('[verifyParentCode] 연결 코드 매칭 실패', {
+      code: normalizedCode,
+      codeLength: normalizedCode.length,
+      reason: studentWithdrawnAt ? 'withdrawn' : 'not_found',
+    });
     return { success: false, error: '유효하지 않은 연결 코드입니다.' };
   }
 
@@ -485,6 +526,10 @@ export async function verifyParentCode(code: string): Promise<AuthResult> {
     .single();
 
   if (profileError || !profile) {
+    console.error('[verifyParentCode] 학생 이름 조회 실패', {
+      studentId: studentProfile.id,
+      error: profileError,
+    });
     return { success: false, error: '학생 정보를 찾을 수 없습니다.' };
   }
 
