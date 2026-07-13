@@ -1,22 +1,139 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import { MealImage } from '@/components/shared/meal-image';
-import { Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MealProduct, MealProductVariant } from '@/types/database';
-import { deleteMealProduct, type MealProductsListResult } from '@/lib/actions/meal';
+import {
+  deleteMealProduct,
+  updateMealProduct,
+  type MealProductsListResult,
+} from '@/lib/actions/meal';
 
 const statusLabel: Record<MealProduct['status'], string> = {
   active: '판매중',
   inactive: '비활성',
   sold_out: '마감',
 };
+
+const statusBadgeClass: Record<MealProduct['status'], string> = {
+  active: 'bg-emerald-100 text-emerald-800',
+  inactive: 'bg-slate-100 text-slate-700',
+  sold_out: 'bg-amber-100 text-amber-900',
+};
+
+const statusOptions: MealProduct['status'][] = ['active', 'inactive', 'sold_out'];
+
+function StatusCell({
+  product,
+}: {
+  product: { id: string; name: string; status: MealProduct['status'] };
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // 낙관적 업데이트: 서버 응답 전까지 선택값을 즉시 반영
+  const [optimistic, setOptimistic] = useState<MealProduct['status'] | null>(null);
+  // 아래 공간이 부족하면(마지막 행 등) 위로 열어 Card overflow-hidden에 잘리지 않게 한다.
+  const [dropUp, setDropUp] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const status = optimistic ?? product.status;
+
+  // 서버 재조회(router.refresh)가 낙관적 값을 실제로 반영하면 낙관적 상태를 해제한다.
+  // (즉시 해제하면 refresh 완료 전이라 옛 값으로 깜빡이므로 prop 일치 시점까지 유지)
+  useEffect(() => {
+    if (optimistic !== null && product.status === optimistic) setOptimistic(null);
+  }, [product.status, optimistic]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const toggleOpen = () => {
+    setOpen((v) => {
+      const next = !v;
+      if (next && wrapRef.current) {
+        const rect = wrapRef.current.getBoundingClientRect();
+        // 옵션 3개 팝오버 대략 높이(≈120px)가 아래에 안 들어가면 위로 연다.
+        setDropUp(window.innerHeight - rect.bottom < 140);
+      }
+      return next;
+    });
+  };
+
+  const handleSelect = async (next: MealProduct['status']) => {
+    setOpen(false);
+    if (next === status || saving) return;
+    setSaving(true);
+    setOptimistic(next);
+    try {
+      const res = await updateMealProduct(product.id, { status: next });
+      if (res.error) {
+        setOptimistic(null);
+        window.alert(res.error);
+        return;
+      }
+      // 성공: 서버 최신값으로 재조회. 낙관적 상태 해제는 위 effect가 prop 반영 후 처리한다.
+      router.refresh();
+    } catch {
+      setOptimistic(null);
+      window.alert('상태 변경에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} className='relative inline-block'>
+      <button
+        type='button'
+        onClick={toggleOpen}
+        disabled={saving}
+        aria-label={`${product.name} 상태 변경`}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-opacity',
+          'hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50',
+          statusBadgeClass[status],
+        )}
+      >
+        {statusLabel[status]}
+        <ChevronDown className='size-3' />
+      </button>
+      {open && (
+        <div
+          className={cn(
+            'absolute left-0 z-10 min-w-28 overflow-hidden rounded-md border bg-white py-1 shadow-md',
+            dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
+          )}
+        >
+          {statusOptions.map((opt) => (
+            <button
+              key={opt}
+              type='button'
+              onClick={() => handleSelect(opt)}
+              className='hover:bg-muted flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs'
+            >
+              <Check className={cn('size-3', opt === status ? 'opacity-100' : 'opacity-0')} />
+              {statusLabel[opt]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface AdminMealsClientProps {
   initialResult: MealProductsListResult;
@@ -156,16 +273,7 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
                     <td className='p-3 whitespace-nowrap'>{variantSummary(p.variants)}</td>
                     <td className='p-3 whitespace-nowrap'>{priceRangeLabel(p.variants)}</td>
                     <td className='p-3'>
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-xs',
-                          p.status === 'active' && 'bg-emerald-100 text-emerald-800',
-                          p.status === 'inactive' && 'bg-slate-100 text-slate-700',
-                          p.status === 'sold_out' && 'bg-amber-100 text-amber-900',
-                        )}
-                      >
-                        {statusLabel[p.status]}
-                      </span>
+                      <StatusCell product={p} />
                     </td>
                     <td className='p-3 text-right'>
                       <button
