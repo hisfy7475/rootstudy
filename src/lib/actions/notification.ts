@@ -428,3 +428,57 @@ export async function notifyPointsGranted(
 
   await Promise.allSettled(tasks);
 }
+
+// ============================================
+// 영단어 시험 제출 알림 (연결된 모든 학부모)
+// ============================================
+
+// 진입점: vocab.ts finalizeExam 의 정상 제출(normal) 마감 지점에서 호출.
+// 학생이 영단어 시험을 제출하면 연결된 학부모에게 완료·점수 알림 + 푸시를 보낸다.
+// 링크가 '/'로 시작 → createUserNotification 내부에서 자동 푸시(딥링크 /parent/report).
+export async function notifyVocabExamSubmitted(
+  params: {
+    studentId: string;
+    score: number;
+    total: number;
+    studentName?: string; // 호출자가 보유 시 전달 — N+1 회피
+  },
+  opts: { awaitPush?: boolean } = {},
+): Promise<void> {
+  const supabase = createAdminClient();
+
+  let studentName = params.studentName;
+  if (!studentName) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', params.studentId)
+      .maybeSingle();
+    studentName = data?.name ?? '학생';
+  }
+
+  const { data: parentLinks } = await supabase
+    .from('parent_student_links')
+    .select('parent_id')
+    .eq('student_id', params.studentId);
+  const parentIds = (parentLinks ?? []).map((l) => l.parent_id as string);
+  if (parentIds.length === 0) return;
+
+  const title = '영단어 시험 완료';
+  const message = `${studentName} 학생이 영단어 시험을 완료했습니다 (${params.score}/${params.total}점)`;
+
+  await Promise.allSettled(
+    parentIds.map((parentId) =>
+      createUserNotification(
+        {
+          userId: parentId,
+          type: 'system',
+          title,
+          message,
+          link: '/parent/report',
+        },
+        { awaitPush: opts.awaitPush },
+      ),
+    ),
+  );
+}

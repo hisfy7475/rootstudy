@@ -8,6 +8,7 @@ import { SubjectBandChart } from './subject-band-chart';
 import { WeeklyTrendChart } from './weekly-trend-chart';
 import { PointsSummaryCard } from './points-summary-card';
 import { ExamScoreCard } from './exam-score-card';
+import { VocabScoreCard } from './vocab-score-card';
 
 const MENTORING_TYPE_LABEL: Record<string, string> = {
   mentoring: '멘토링',
@@ -138,12 +139,23 @@ export function ImmersionReportPrintView({
         >
           <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
         </div>
-        <div
-          className='print-report-card'
-          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-        >
-          <ExamScoreCard data={report.examScores} />
-        </div>
+        {report.vocabExam.rows.length > 0 && (
+          <div
+            className='print-report-card'
+            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+          >
+            <VocabScoreCard data={report.vocabExam} />
+          </div>
+        )}
+        {(report.examScores.weekScores.length > 0 ||
+          (report.examScores.trend.length >= 2 && report.examScores.subjects.length > 0)) && (
+          <div
+            className='print-report-card'
+            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+          >
+            <ExamScoreCard data={report.examScores} />
+          </div>
+        )}
         <div
           className='print-report-card'
           style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}

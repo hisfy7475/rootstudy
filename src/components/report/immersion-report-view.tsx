@@ -9,6 +9,7 @@ import { SubjectBandChart } from './subject-band-chart';
 import { WeeklyTrendChart } from './weekly-trend-chart';
 import { PointsSummaryCard } from './points-summary-card';
 import { ExamScoreCard } from './exam-score-card';
+import { VocabScoreCard } from './vocab-score-card';
 import {
   CounselingReportCard,
   type CounselingReportCardSavePayload,
@@ -46,6 +47,7 @@ export function ImmersionReportView({
             gradeAvgSeconds={report.gradeStudyPeerAvgSeconds}
           />
           <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
+          {report.vocabExam.rows.length > 0 && <VocabScoreCard data={report.vocabExam} />}
           <ExamScoreCard data={report.examScores} />
           <SubjectBandChart data={report.subjectByDay} />
           <WeeklyTrendChart data={weeklyTrend} />
@@ -74,6 +76,7 @@ export function ImmersionReportView({
         gradeAvgSeconds={report.gradeStudyPeerAvgSeconds}
       />
       <FocusScoreCard dailyData={report.dailyData} weeklyFocusAvg={report.weeklyFocusAvg} />
+      {report.vocabExam.rows.length > 0 && <VocabScoreCard data={report.vocabExam} />}
       <ExamScoreCard data={report.examScores} />
       <SubjectBandChart data={report.subjectByDay} />
       <WeeklyTrendChart data={weeklyTrend} />

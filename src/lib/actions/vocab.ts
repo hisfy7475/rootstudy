@@ -5,6 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getStudyDate } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
 import { parseProblemGroups } from '@/lib/vocab-problem-group';
+import { notifyVocabExamSubmitted } from '@/lib/actions/notification';
 import type { VocabPack } from '@/types/database';
 
 // ============================================================
@@ -792,7 +793,7 @@ async function finalizeExam(
     .update({ score, submit_type: submitType, submitted_at: new Date().toISOString() })
     .eq('id', examId)
     .is('submitted_at', null) // 멱등: 이미 제출됐으면 무시
-    .select('student_id, exam_date')
+    .select('student_id, exam_date, total')
     .maybeSingle();
   if (uErr) {
     logError('[finalizeExam] update', uErr);
@@ -801,6 +802,12 @@ async function finalizeExam(
   // 정상 제출이고 이 호출이 마감을 수행했을 때만 1회 부여(auto/lazy/cron 마감은 제외).
   if (updated && submitType === 'normal') {
     await awardVocabReward(updated.student_id, updated.exam_date);
+    // 연결된 학부모에게 완료·점수 알림(발송 실패가 채점 확정을 막지 않도록 예외는 로깅만).
+    await notifyVocabExamSubmitted({
+      studentId: updated.student_id,
+      score,
+      total: updated.total,
+    }).catch((e) => logError('[finalizeExam] notifyVocabExamSubmitted', e));
   }
   return score;
 }

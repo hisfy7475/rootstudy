@@ -107,6 +107,19 @@ export interface ExamScoreReportData {
   subjects: string[];
 }
 
+/** 주간 영단어 시험 결과 1행(요일당 최대 1건) */
+export interface VocabExamRow {
+  weekday: string; // '월'~'일'
+  levelLabel: string; // 팩명(예: 수능 단어 LEVEL 1) 또는 '누적 오답 테스트'(금요일)
+  score: number; // 맞은 개수
+  total: number; // 문항 수 — 평일 40 고정, 금요일(friday_review)은 가변
+}
+
+export interface VocabExamReportData {
+  /** 이번 주차(학습일 기준)에 응시·제출한 영단어 시험(요일 오름차순) */
+  rows: VocabExamRow[];
+}
+
 /** 멘토링/상담 결과 기록 1건 */
 export interface MentoringRecordItem {
   date: string; // 'YYYY-MM-DD'
@@ -130,6 +143,8 @@ export interface ImmersionReportData {
   points: PointsSummary;
   counseling: CounselingReportData;
   examScores: ExamScoreReportData;
+  /** 해당 주차에 응시한 영단어 시험 결과 */
+  vocabExam: VocabExamReportData;
   /** 해당 주차에 기록된 멘토링/상담 결과 */
   mentoringRecords: MentoringRecordItem[];
 }
@@ -409,6 +424,7 @@ export async function getImmersionReportData(
     { data: counselingRow },
     { data: examScoreRows },
     { data: mentoringResultRows },
+    { data: vocabExamRows },
   ] = await Promise.all([
     studentTypeId
       ? supabase.rpc('peer_top_avg_seconds', {
@@ -459,6 +475,13 @@ export async function getImmersionReportData(
       )
       .eq('student_id', studentId)
       .eq('status', 'confirmed'),
+    // 영단어 시험: 이번 주차(월~일 학습일) 제출 완료분 — 요일/레벨/점수로 가공
+    supabase
+      .from('vocab_exams')
+      .select('exam_date, exam_type, score, total, pack:vocab_packs(name)')
+      .eq('student_id', studentId)
+      .in('exam_date', weekDates)
+      .not('submitted_at', 'is', null),
   ]);
 
   const attendance = (attendanceRows ?? []) as AttendanceRecord[];
@@ -657,6 +680,26 @@ export async function getImmersionReportData(
     subjects: Array.from(examSubjectSet),
   };
 
+  // === 영단어 시험: 이번 주차 응시분을 요일/레벨/점수로 가공 ===
+  const vocabRawRows = (vocabExamRows ?? []) as unknown as Array<{
+    exam_date: string;
+    exam_type: string;
+    score: number | null;
+    total: number | null;
+    pack: { name: string } | null;
+  }>;
+  const vocabRows: VocabExamRow[] = vocabRawRows
+    .filter((r) => weekDates.includes(r.exam_date)) // 주차 밖 방어
+    .sort((a, b) => weekDates.indexOf(a.exam_date) - weekDates.indexOf(b.exam_date)) // 월→일
+    .map((r) => ({
+      weekday: dayLabels[weekDates.indexOf(r.exam_date)]!,
+      levelLabel:
+        r.exam_type === 'friday_review' ? '누적 오답 테스트' : (r.pack?.name ?? '영단어 시험'),
+      score: r.score ?? 0,
+      total: r.total ?? 0,
+    }));
+  const vocabExam: VocabExamReportData = { rows: vocabRows };
+
   // === 멘토링/상담 결과: 슬롯 날짜가 이번 주에 속한 확정 건 ===
   // PostgREST 임베드는 관계를 배열로 추론하므로 unknown 경유 후 배열/객체 모두 정규화한다.
   type RawMentoringRow = {
@@ -712,6 +755,7 @@ export async function getImmersionReportData(
     points,
     counseling,
     examScores,
+    vocabExam,
     mentoringRecords,
   };
 }

@@ -130,6 +130,9 @@ export function ExamScoreCard({ data }: ExamScoreCardProps) {
   const groups = groupWeekScores(data.weekScores);
   const hasTrend = data.trend.length >= 2 && data.subjects.length > 0;
 
+  // 이번 주 성적도, 표시할 추이도 없으면 카드 자체를 숨긴다.
+  if (groups.length === 0 && !hasTrend) return null;
+
   return (
     <Card>
       <CardHeader className='pb-2'>
