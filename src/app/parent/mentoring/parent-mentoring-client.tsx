@@ -11,11 +11,13 @@ export function ParentMentoringClient({
   year,
   month,
   students,
+  initialMentorId,
 }: {
   initialSlots: MentoringSlotWithMentor[];
   year: number;
   month: number;
   students: LinkedStudent[];
+  initialMentorId?: string | null;
 }) {
   // 활성(재원 중) 자녀 우선 선택. 퇴원 자녀가 첫 번째여도 신청 가능한 자녀로 시작.
   const [selectedId, setSelectedId] = useState(students.find((s) => !s.withdrawnAt)?.id ?? '');
@@ -62,19 +64,22 @@ export function ParentMentoringClient({
           </button>
         ))}
       </div>
-      {selectedWithdrawn ? (
+      {selectedWithdrawn && (
         <p className='text-muted-foreground py-8 text-center text-sm'>
           퇴원한 자녀는 신규 멘토링 신청을 할 수 없습니다. 재원 중인 자녀를 선택해 주세요.
         </p>
-      ) : (
+      )}
+      {/* 퇴원 자녀 선택 시에도 언마운트하지 않고 숨긴다 — 자녀를 오가도 멘토 필터 state 보존 */}
+      <div className={cn(selectedWithdrawn && 'hidden')}>
         <MentoringCalendarClient
           initialSlots={initialSlots}
           year={year}
           month={month}
           basePath='/parent/mentoring'
           selectedStudentId={selectedId}
+          initialMentorId={initialMentorId}
         />
-      )}
+      </div>
     </div>
   );
 }

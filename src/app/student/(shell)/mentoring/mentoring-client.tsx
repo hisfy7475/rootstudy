@@ -43,6 +43,12 @@ type MentorGroup = {
   slots: MentoringSlotWithMentor[];
 };
 
+export type MentorChip = {
+  id: string;
+  name: string;
+  profileImageUrl: string | null;
+};
+
 function groupSlotsByMentorAndType(slots: MentoringSlotWithMentor[]): MentorGroup[] {
   const map = new Map<string, MentorGroup>();
   for (const s of slots) {
@@ -79,6 +85,7 @@ export function MentoringCalendarClient({
   basePath,
   selectedStudentId,
   forQueryKey = 'for',
+  initialMentorId,
 }: {
   initialSlots: MentoringSlotWithMentor[];
   year: number;
@@ -87,6 +94,8 @@ export function MentoringCalendarClient({
   /** 학부모: 신청 링크에 붙일 학생 ID */
   selectedStudentId?: string | null;
   forQueryKey?: string;
+  /** URL ?mentor= 복원값 (신청 폼 왕복 등 재마운트 시에만 적용) */
+  initialMentorId?: string | null;
 }) {
   // 월/년이 바뀌면 선택된 일자를 초기화한다.
   // 공식 React 권고: useEffect+setState 가 아니라 렌더 중 비교 → setState 패턴 사용.
@@ -99,15 +108,69 @@ export function MentoringCalendarClient({
     setSelectedYmd(null);
   }
 
+  // 뒤로가기 시 Next 라우터 캐시가 필터 선택 전의 RSC 페이로드(구 initialMentorId)로 재마운트하므로,
+  // 클라이언트 마운트에서는 prop 대신 실제 URL(?mentor=)을 읽어 복원한다. SSR/hydration에서는 URL과
+  // searchParams가 일치하므로 불일치가 없다.
+  const [mentorId, setMentorId] = useState(() => {
+    if (typeof window === 'undefined') return initialMentorId || 'all';
+    return new URLSearchParams(window.location.search).get('mentor') || 'all';
+  });
+  // 선택 시점의 멘토 정보 캐시 — 다른 달로 이동해 이 달 슬롯에 멘토가 없어도 이름을 표시하기 위함
+  const [selectedMentorInfo, setSelectedMentorInfo] = useState<MentorChip | null>(null);
+
+  const mentorChips = useMemo(() => {
+    const m = new Map<string, MentorChip>();
+    for (const s of initialSlots) {
+      if (!m.has(s.mentor_id)) {
+        m.set(s.mentor_id, {
+          id: s.mentor_id,
+          name: s.mentors?.name ?? '멘토',
+          profileImageUrl: s.mentors?.profile_image_url ?? null,
+        });
+      }
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }, [initialSlots]);
+
+  // 선택된 멘토가 이 달 칩 목록에 있으면 캐시 갱신 — 슬롯 없는 달로 이동해도 이름을 표시하기 위함.
+  // monthKey 패턴과 같은 렌더 중 setState (조건으로 루프 방지).
+  const chipInfo = mentorId !== 'all' ? (mentorChips.find((c) => c.id === mentorId) ?? null) : null;
+  if (chipInfo && selectedMentorInfo?.id !== chipInfo.id) {
+    setSelectedMentorInfo(chipInfo);
+  }
+
+  const selectMentor = (id: string) => {
+    setMentorId(id);
+    // 신청 폼 왕복(재마운트)·새로고침 시 복원되도록 URL에 반영. y/m 쿼리는 보존.
+    const params = new URLSearchParams(window.location.search);
+    if (id === 'all') params.delete('mentor');
+    else params.set('mentor', id);
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+    );
+  };
+
+  const filteredSlots = useMemo(
+    () => (mentorId === 'all' ? initialSlots : initialSlots.filter((s) => s.mentor_id === mentorId)),
+    [initialSlots, mentorId],
+  );
+  // 선택된 멘토의 슬롯이 이 달에 하나도 없는 경우 (필터는 유지하고 안내만 노출)
+  const mentorMissing = mentorId !== 'all' && !mentorChips.some((c) => c.id === mentorId);
+  const missingMentorName =
+    selectedMentorInfo?.id === mentorId ? selectedMentorInfo.name : null;
+
   const slotsByDate = useMemo(() => {
     const m = new Map<string, MentoringSlotWithMentor[]>();
-    for (const s of initialSlots) {
+    for (const s of filteredSlots) {
       const list = m.get(s.date) ?? [];
       list.push(s);
       m.set(s.date, list);
     }
     return m;
-  }, [initialSlots]);
+  }, [filteredSlots]);
 
   const dim = kstDaysInMonth(year, month);
   const firstWd = kstWeekday(year, month, 1);
@@ -123,6 +186,8 @@ export function MentoringCalendarClient({
 
   const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
+  // 월 이동 후 새로고침/신청 폼 왕복 시에도 필터가 복원되도록 URL 일관성 유지
+  const mentorQuery = mentorId !== 'all' ? `&mentor=${encodeURIComponent(mentorId)}` : '';
 
   const applyQuery =
     selectedStudentId != null && selectedStudentId !== ''
@@ -137,9 +202,52 @@ export function MentoringCalendarClient({
 
   return (
     <div className='space-y-4'>
+      {mentorChips.length > 0 && (
+        <div className='flex gap-2 overflow-x-auto pb-1'>
+          <button
+            type='button'
+            onClick={() => selectMentor('all')}
+            className={cn(
+              'shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
+              mentorId === 'all'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground',
+            )}
+          >
+            전체
+          </button>
+          {mentorChips.map((c) => (
+            <button
+              key={c.id}
+              type='button'
+              onClick={() => selectMentor(c.id)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pr-3 text-sm font-medium transition-colors',
+                c.profileImageUrl ? 'pl-1.5' : 'pl-3',
+                mentorId === c.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {c.profileImageUrl && (
+                <Image
+                  src={c.profileImageUrl}
+                  alt=''
+                  width={20}
+                  height={20}
+                  unoptimized
+                  className='size-5 shrink-0 rounded-full object-cover'
+                />
+              )}
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className='flex items-center justify-between gap-2'>
         <Link
-          href={`${basePath}?y=${prev.y}&m=${prev.m}`}
+          href={`${basePath}?y=${prev.y}&m=${prev.m}${mentorQuery}`}
           className='border-border text-muted-foreground hover:bg-muted rounded-lg border p-2'
           scroll={false}
         >
@@ -147,7 +255,7 @@ export function MentoringCalendarClient({
         </Link>
         <span className='text-base font-semibold'>{monthLabel}</span>
         <Link
-          href={`${basePath}?y=${next.y}&m=${next.m}`}
+          href={`${basePath}?y=${next.y}&m=${next.m}${mentorQuery}`}
           className='border-border text-muted-foreground hover:bg-muted rounded-lg border p-2'
           scroll={false}
         >
@@ -183,6 +291,22 @@ export function MentoringCalendarClient({
           );
         })}
       </div>
+
+      {mentorMissing && (
+        <Card className='space-y-2 p-4 text-center'>
+          <p className='text-muted-foreground text-sm'>
+            이번 달에는 {missingMentorName ? `'${missingMentorName}'` : '선택한 선생님의'} 일정이
+            없습니다.
+          </p>
+          <button
+            type='button'
+            onClick={() => selectMentor('all')}
+            className='text-primary text-sm font-medium underline underline-offset-2'
+          >
+            전체 일정 보기
+          </button>
+        </Card>
+      )}
 
       {selectedYmd && (
         <div>

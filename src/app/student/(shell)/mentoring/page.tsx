@@ -7,7 +7,7 @@ import { MentoringCalendarClient } from './mentoring-client';
 export default async function StudentMentoringPage({
   searchParams,
 }: {
-  searchParams: Promise<{ y?: string; m?: string }>;
+  searchParams: Promise<{ y?: string; m?: string; mentor?: string }>;
 }) {
   const sp = await searchParams;
   const today = getTodayKST();
@@ -30,13 +30,14 @@ export default async function StudentMentoringPage({
         </Link>
       </div>
       <p className='text-muted-foreground mb-4 text-sm'>
-        날짜를 선택한 뒤 신청 가능한 슬롯을 확인하세요.
+        선생님 또는 날짜를 선택해 신청 가능한 슬롯을 확인하세요.
       </p>
       <MentoringCalendarClient
         initialSlots={slots}
         year={y}
         month={m}
         basePath='/student/mentoring'
+        initialMentorId={sp.mentor || null}
       />
     </div>
   );

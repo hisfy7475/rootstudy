@@ -8,7 +8,7 @@ import { ParentMentoringClient } from './parent-mentoring-client';
 export default async function ParentMentoringPage({
   searchParams,
 }: {
-  searchParams: Promise<{ y?: string; m?: string }>;
+  searchParams: Promise<{ y?: string; m?: string; mentor?: string }>;
 }) {
   const sp = await searchParams;
   const today = getTodayKST();
@@ -33,8 +33,16 @@ export default async function ParentMentoringPage({
           신청 내역
         </Link>
       </div>
-      <p className='text-muted-foreground mb-4 text-sm'>자녀를 선택한 뒤 날짜·슬롯을 고르세요.</p>
-      <ParentMentoringClient initialSlots={slots} year={y} month={m} students={students} />
+      <p className='text-muted-foreground mb-4 text-sm'>
+        자녀를 선택한 뒤 선생님·날짜별로 슬롯을 확인하세요.
+      </p>
+      <ParentMentoringClient
+        initialSlots={slots}
+        year={y}
+        month={m}
+        students={students}
+        initialMentorId={sp.mentor || null}
+      />
     </div>
   );
 }
