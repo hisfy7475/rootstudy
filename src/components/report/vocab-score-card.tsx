@@ -9,8 +9,16 @@ export interface VocabScoreCardProps {
 
 const BAR_COLOR = '#7C9FF5';
 
-/** 정답률(%) 막대그래프 — 요일별. 금요일은 만점(total)이 가변이라 원점수 대신 정답률로 정규화. */
-function VocabRateChart({ data }: { data: VocabExamReportData }) {
+// 표시 축 만점 = 평일 시험 문항 수(40). 금요일 누적 오답 테스트는 total(문항 수)이 가변이라,
+// 막대 높이는 정답률(score/total)을 이 40점 축으로 환산해 그린다.
+const MAX_SCORE = 40;
+
+/**
+ * 요일별 영단어 테스트 막대그래프 (40점 만점 축).
+ * 막대 높이 = 정답률 × 40 — 평일(total=40)은 원점수와 동일, 금요일(가변 total)은 40점으로 환산해
+ * 요일 간 성취도가 공정하게 비교된다. 막대 라벨·표에는 실제 score/total 을 그대로 노출한다.
+ */
+function VocabScoreChart({ data }: { data: VocabExamReportData }) {
   const rows = data.rows;
   if (rows.length === 0) return null;
 
@@ -28,8 +36,11 @@ function VocabRateChart({ data }: { data: VocabExamReportData }) {
   const barW = Math.min(40, (chartW - gap * (n - 1)) / n);
   const groupW = (chartW - barW * n) / Math.max(1, n - 1 || 1);
 
+  // 0 / 10 / 20 / 30 / 40 눈금
   const gridRatios = [0, 0.25, 0.5, 0.75, 1];
-  const getY = (rate: number) => padT + chartH - (rate / 100) * chartH;
+  // 40점 환산 점수(0~40)를 y좌표로. Math.min 은 부동소수 오차 방어용.
+  const getY = (scaled: number) =>
+    padT + chartH - (Math.min(scaled, MAX_SCORE) / MAX_SCORE) * chartH;
 
   return (
     <svg
@@ -43,16 +54,17 @@ function VocabRateChart({ data }: { data: VocabExamReportData }) {
           <g key={i}>
             <line x1={padL} y1={y} x2={vbW - padR} y2={y} stroke='#f0f0f0' strokeWidth='1' />
             <text x={padL - 6} y={y + 3} textAnchor='end' fontSize='8' fill='#9ca3af'>
-              {Math.round(100 * ratio)}
+              {Math.round(MAX_SCORE * ratio)}
             </text>
           </g>
         );
       })}
 
       {rows.map((r, i) => {
-        const rate = r.total > 0 ? Math.round((r.score / r.total) * 100) : 0;
+        // 정답률을 40점으로 환산한 높이(평일은 원점수와 동일). total=0 방어.
+        const scaled = r.total > 0 ? (r.score / r.total) * MAX_SCORE : 0;
         const x = padL + i * (barW + (n > 1 ? groupW : 0));
-        const y = getY(rate);
+        const y = getY(scaled);
         const h = padT + chartH - y;
         return (
           <g key={`${r.weekday}-${i}`}>
@@ -84,7 +96,7 @@ export function VocabScoreCard({ data }: VocabScoreCardProps) {
     <Card>
       <CardHeader className='pb-2'>
         <h3 className='text-text text-lg font-semibold'>영단어 테스트</h3>
-        <p className='text-text-muted text-xs'>요일별 영단어 테스트 결과 (정답률 기준)</p>
+        <p className='text-text-muted text-xs'>요일별 영단어 테스트 결과 (40점 만점)</p>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -93,7 +105,7 @@ export function VocabScoreCard({ data }: VocabScoreCardProps) {
           </p>
         ) : (
           <div className='space-y-4'>
-            <VocabRateChart data={data} />
+            <VocabScoreChart data={data} />
             <div className='overflow-hidden rounded-2xl border border-gray-200'>
               <table className='w-full text-sm'>
                 <thead>
