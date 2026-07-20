@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "supabase-dev": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=aautdcslwmbyjjwhmzqf"
+    },
+    "supabase-prod": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=ficqpjkulkqpglsvrnuw"
+    }
+  }
+}
