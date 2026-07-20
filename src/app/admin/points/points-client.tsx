@@ -775,15 +775,121 @@ export function PointsClient({
     ));
   }
 
+  // 학생별 현황에서 펼친 상벌점 이력 패널 — 데스크톱 표(td colSpan)와 모바일 카드에서 재사용
+  function renderExpandedHistory() {
+    const PAGE_SIZE = 5;
+    const totalPages = Math.ceil(expandedHistory.length / PAGE_SIZE);
+    const pagedHistory = expandedHistory.slice(
+      expandedHistoryPage * PAGE_SIZE,
+      (expandedHistoryPage + 1) * PAGE_SIZE,
+    );
+    if (expandedLoading) {
+      return (
+        <div className='text-text-muted flex items-center justify-center gap-2 py-6 text-sm'>
+          <RefreshCw className='h-4 w-4 animate-spin' />
+          불러오는 중...
+        </div>
+      );
+    }
+    if (expandedHistory.length === 0) {
+      return (
+        <p className='text-text-muted py-4 text-center text-sm'>상벌점 내역이 없습니다.</p>
+      );
+    }
+    return (
+      <>
+        <div className='mb-3 space-y-2'>
+          {pagedHistory.map((item) => (
+            <div
+              key={item.id}
+              className={cn(
+                'flex items-center justify-between rounded-lg border-l-4 px-4 py-2.5 text-sm',
+                item.type === 'reward'
+                  ? 'border-green-400 bg-green-50'
+                  : 'border-red-400 bg-red-50',
+              )}
+            >
+              <div className='flex min-w-0 items-center gap-3'>
+                <div
+                  className={cn(
+                    'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full',
+                    item.type === 'reward' ? 'bg-green-100' : 'bg-red-100',
+                  )}
+                >
+                  {item.type === 'reward' ? (
+                    <Plus className='h-3 w-3 text-green-600' />
+                  ) : (
+                    <Minus className='h-3 w-3 text-red-500' />
+                  )}
+                </div>
+                <div className='min-w-0'>
+                  <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
+                    <span
+                      className={cn(
+                        'font-semibold',
+                        item.type === 'reward' ? 'text-green-700' : 'text-red-600',
+                      )}
+                    >
+                      {item.type === 'reward' ? '+' : '-'}
+                      {item.amount}점
+                    </span>
+                    <span className='text-gray-700'>{item.reason}</span>
+                    {item.is_auto && (
+                      <span className='rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500'>
+                        자동
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className='text-text-muted ml-4 flex-shrink-0 text-right text-xs'>
+                <p>{formatDate(item.created_at)}</p>
+                <p>by {item.adminName}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {totalPages > 1 && (
+          <div className='mt-2 flex items-center justify-center gap-3'>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedHistoryPage((p) => Math.max(0, p - 1));
+              }}
+              disabled={expandedHistoryPage === 0}
+              className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
+            >
+              <ChevronLeft className='h-4 w-4' />
+            </button>
+            <span className='text-text-muted text-xs'>
+              {expandedHistoryPage + 1} / {totalPages}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedHistoryPage((p) => Math.min(totalPages - 1, p + 1));
+              }}
+              disabled={expandedHistoryPage >= totalPages - 1}
+              className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
+            >
+              <ChevronRight className='h-4 w-4' />
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>상벌점 관리</h1>
           <p className='text-text-muted mt-1'>학생들의 상점과 벌점을 관리하세요</p>
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           <Button variant='outline' onClick={() => setShowPresetManager(!showPresetManager)}>
             <Settings className='mr-2 h-4 w-4' />
             규정 관리
@@ -814,7 +920,7 @@ export function PointsClient({
             <Settings className='h-4 w-4' />
             상벌점 규정 관리
           </h3>
-          <div className='grid grid-cols-2 gap-6'>
+          <div className='grid grid-cols-1 gap-6 sm:grid-cols-2'>
             <div>
               <p className='mb-2 text-sm font-medium text-green-700'>상점 규정</p>
               <div className='mb-3 max-h-48 space-y-3 overflow-y-auto'>
@@ -1145,7 +1251,7 @@ export function PointsClient({
             학생별 상벌점 현황
           </h2>
 
-          <div className='overflow-x-auto'>
+          <div className='hidden overflow-x-auto md:block'>
             <table className='w-full'>
               <thead className='border-b border-gray-100 bg-gray-50'>
                 <tr>
@@ -1219,12 +1325,6 @@ export function PointsClient({
                     )
                     .map((student) => {
                       const isExpanded = expandedStudentId === student.id;
-                      const PAGE_SIZE = 5;
-                      const totalPages = Math.ceil(expandedHistory.length / PAGE_SIZE);
-                      const pagedHistory = expandedHistory.slice(
-                        expandedHistoryPage * PAGE_SIZE,
-                        (expandedHistoryPage + 1) * PAGE_SIZE,
-                      );
 
                       return (
                         <Fragment key={student.id}>
@@ -1289,108 +1389,7 @@ export function PointsClient({
                                 colSpan={7}
                                 className='border-b border-gray-200 bg-gray-50 px-0 py-0'
                               >
-                                <div className='px-6 py-4'>
-                                  {expandedLoading ? (
-                                    <div className='text-text-muted flex items-center justify-center gap-2 py-6 text-sm'>
-                                      <RefreshCw className='h-4 w-4 animate-spin' />
-                                      불러오는 중...
-                                    </div>
-                                  ) : expandedHistory.length === 0 ? (
-                                    <p className='text-text-muted py-4 text-center text-sm'>
-                                      상벌점 내역이 없습니다.
-                                    </p>
-                                  ) : (
-                                    <>
-                                      <div className='mb-3 space-y-2'>
-                                        {pagedHistory.map((item) => (
-                                          <div
-                                            key={item.id}
-                                            className={cn(
-                                              'flex items-center justify-between rounded-lg border-l-4 px-4 py-2.5 text-sm',
-                                              item.type === 'reward'
-                                                ? 'border-green-400 bg-green-50'
-                                                : 'border-red-400 bg-red-50',
-                                            )}
-                                          >
-                                            <div className='flex items-center gap-3'>
-                                              <div
-                                                className={cn(
-                                                  'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full',
-                                                  item.type === 'reward'
-                                                    ? 'bg-green-100'
-                                                    : 'bg-red-100',
-                                                )}
-                                              >
-                                                {item.type === 'reward' ? (
-                                                  <Plus className='h-3 w-3 text-green-600' />
-                                                ) : (
-                                                  <Minus className='h-3 w-3 text-red-500' />
-                                                )}
-                                              </div>
-                                              <div>
-                                                <div className='flex items-center gap-2'>
-                                                  <span
-                                                    className={cn(
-                                                      'font-semibold',
-                                                      item.type === 'reward'
-                                                        ? 'text-green-700'
-                                                        : 'text-red-600',
-                                                    )}
-                                                  >
-                                                    {item.type === 'reward' ? '+' : '-'}
-                                                    {item.amount}점
-                                                  </span>
-                                                  <span className='text-gray-700'>
-                                                    {item.reason}
-                                                  </span>
-                                                  {item.is_auto && (
-                                                    <span className='rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500'>
-                                                      자동
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            </div>
-                                            <div className='text-text-muted ml-4 flex-shrink-0 text-right text-xs'>
-                                              <p>{formatDate(item.created_at)}</p>
-                                              <p>by {item.adminName}</p>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-
-                                      {totalPages > 1 && (
-                                        <div className='mt-2 flex items-center justify-center gap-3'>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setExpandedHistoryPage((p) => Math.max(0, p - 1));
-                                            }}
-                                            disabled={expandedHistoryPage === 0}
-                                            className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
-                                          >
-                                            <ChevronLeft className='h-4 w-4' />
-                                          </button>
-                                          <span className='text-text-muted text-xs'>
-                                            {expandedHistoryPage + 1} / {totalPages}
-                                          </span>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setExpandedHistoryPage((p) =>
-                                                Math.min(totalPages - 1, p + 1),
-                                              );
-                                            }}
-                                            disabled={expandedHistoryPage >= totalPages - 1}
-                                            className='rounded-lg p-1 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-30'
-                                          >
-                                            <ChevronRight className='h-4 w-4' />
-                                          </button>
-                                        </div>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
+                                <div className='px-6 py-4'>{renderExpandedHistory()}</div>
                               </td>
                             </tr>
                           )}
@@ -1400,6 +1399,77 @@ export function PointsClient({
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* 모바일: 카드 리스트 */}
+          <div className='divide-y divide-gray-100 md:hidden'>
+            {overview.length === 0 ? (
+              <p className='text-text-muted py-8 text-center'>등록된 학생이 없습니다.</p>
+            ) : (
+              sortedOverview
+                .slice(
+                  (overviewPageNum - 1) * OVERVIEW_PAGE_SIZE,
+                  overviewPageNum * OVERVIEW_PAGE_SIZE,
+                )
+                .map((student) => {
+                  const isExpanded = expandedStudentId === student.id;
+                  return (
+                    <div key={student.id}>
+                      <div className='flex items-center gap-2 p-3'>
+                        <button
+                          onClick={() => handleToggleStudentHistory(student.id)}
+                          className='flex min-w-0 flex-1 items-center gap-2 text-left'
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className='text-text-muted h-4 w-4 shrink-0' />
+                          ) : (
+                            <ChevronDown className='text-text-muted h-4 w-4 shrink-0' />
+                          )}
+                          <div className='bg-primary/10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full'>
+                            <User className='text-primary h-4 w-4' />
+                          </div>
+                          <div className='min-w-0'>
+                            <div className='truncate font-medium'>
+                              {student.name}
+                              {student.seatNumber ? (
+                                <span className='text-text-muted ml-1 text-xs font-normal'>
+                                  ({student.seatNumber}번)
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className='mt-0.5 flex items-center gap-2 text-xs'>
+                              <span className='text-green-600'>+{student.reward}</span>
+                              <span className='text-red-500'>-{student.penalty}</span>
+                              <span
+                                className={cn(
+                                  'font-semibold',
+                                  student.total >= 0 ? 'text-green-600' : 'text-red-500',
+                                )}
+                              >
+                                합계 {student.total >= 0 ? '+' : ''}
+                                {student.total}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenFormForStudent(student.id);
+                          }}
+                          className='text-primary border-primary/30 hover:bg-primary/10 inline-flex shrink-0 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium'
+                        >
+                          <Plus className='h-3 w-3' />
+                          부여
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div className='bg-gray-50 px-4 py-3'>{renderExpandedHistory()}</div>
+                      )}
+                    </div>
+                  );
+                })
+            )}
           </div>
 
           <div className='mt-4 flex justify-center'>
@@ -1421,9 +1491,9 @@ export function PointsClient({
       {activeTab === 'history' && (
         <Card className='p-6'>
           <div className='mb-4 flex flex-col gap-4'>
-            <div className='flex items-center justify-between'>
+            <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
               <h2 className='text-lg font-semibold'>상벌점 내역 ({historyTotal}건)</h2>
-              <div className='flex gap-2'>
+              <div className='flex flex-wrap gap-2'>
                 {!isSelectMode ? (
                   <Button variant='outline' size='sm' onClick={() => setIsSelectMode(true)}>
                     <CheckSquare className='mr-1 h-4 w-4' />
@@ -1609,8 +1679,8 @@ export function PointsClient({
                   onClick={isSelectMode ? () => toggleSelectPoint(item.id) : undefined}
                   style={isSelectMode ? { cursor: 'pointer' } : undefined}
                 >
-                  <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-3'>
+                  <div className='flex flex-wrap items-start justify-between gap-2'>
+                    <div className='flex min-w-0 items-center gap-3'>
                       {isSelectMode && (
                         <button
                           onClick={(e) => {
@@ -1638,8 +1708,8 @@ export function PointsClient({
                           <Minus className='h-4 w-4 text-red-500' />
                         )}
                       </div>
-                      <div>
-                        <div className='flex items-center gap-2'>
+                      <div className='min-w-0'>
+                        <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
                           <span className='font-medium'>
                             {item.studentSeatNumber || '-'}번 {item.studentName}
                           </span>

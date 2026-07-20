@@ -112,7 +112,7 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
         <div className='divide-y'>
           {queue.map((row) => (
             <div key={row.id} className='space-y-3 p-4'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div className='space-y-1'>
                   <p className='font-semibold'>{studentName(row)}</p>
                   <p className='text-text-muted text-xs'>
@@ -129,7 +129,7 @@ export function RedemptionQueueTab({ queue, onRefresh }: Props) {
                     <strong>{row.points_used}점</strong>
                   </p>
                 </div>
-                <div className='flex gap-2'>
+                <div className='flex flex-shrink-0 gap-2'>
                   <Button
                     size='sm'
                     variant='outline'

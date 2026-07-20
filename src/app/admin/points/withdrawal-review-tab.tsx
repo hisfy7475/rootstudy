@@ -89,7 +89,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
 
   const renderRow = (row: QueueRow) => (
     <div key={row.studentId} className='space-y-2 p-4'>
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='space-y-1'>
           <p className='font-semibold'>
             {row.name}
@@ -129,7 +129,7 @@ export function WithdrawalReviewTab({ reviewQueue, requiredQueue, onRefresh }: P
           )}
           {row.markedReason && <p className='text-text-muted text-xs'>사유: {row.markedReason}</p>}
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-shrink-0 flex-wrap gap-2'>
           {row.kind === 'review' ? (
             <>
               <Button
