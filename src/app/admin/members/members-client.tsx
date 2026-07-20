@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { DataCard, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
@@ -562,6 +563,318 @@ export function MembersClient({
     });
   };
 
+  // ── 학생 셀 렌더 헬퍼 (데스크톱 표 <td> 와 모바일 카드에서 공용) ──
+  const renderStudentNameCell = (member: Member) =>
+    editingNameId === member.id ? (
+      <div className='flex items-center gap-1'>
+        <Input
+          type='text'
+          value={editingNameValue}
+          onChange={(e) => setEditingNameValue(e.target.value)}
+          className='h-6 w-20 px-1.5 text-xs'
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveNameEdit(member.id);
+            if (e.key === 'Escape') setEditingNameId(null);
+          }}
+        />
+        <button
+          onClick={() => handleSaveNameEdit(member.id)}
+          className='text-green-600 hover:text-green-700'
+          disabled={loading}
+        >
+          <Check className='h-3.5 w-3.5' />
+        </button>
+        <button
+          onClick={() => setEditingNameId(null)}
+          className='text-red-500 hover:text-red-600'
+        >
+          <X className='h-3.5 w-3.5' />
+        </button>
+      </div>
+    ) : (
+      <div className='group flex items-center gap-1.5'>
+        <div
+          className={cn(
+            'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full',
+            member.is_approved
+              ? 'bg-primary/10'
+              : member.is_rejected
+                ? 'bg-red-100'
+                : 'bg-yellow-100',
+          )}
+        >
+          <User
+            className={cn(
+              'h-3 w-3',
+              member.is_approved
+                ? 'text-primary'
+                : member.is_rejected
+                  ? 'text-red-600'
+                  : 'text-yellow-600',
+            )}
+          />
+        </div>
+        <span className='font-medium'>{member.name}</span>
+        <button
+          onClick={() => handleStartEditName(member)}
+          className='hover:text-primary text-gray-400 opacity-0 transition-opacity group-hover:opacity-100'
+        >
+          <Edit3 className='h-3 w-3' />
+        </button>
+      </div>
+    );
+
+  const renderStudentSchoolCell = (member: Member) => (
+    <input
+      type='text'
+      defaultValue={member.school || ''}
+      placeholder='-'
+      className='focus:border-primary focus:ring-primary/50 h-6 w-20 rounded border border-transparent bg-transparent px-1.5 text-xs hover:border-gray-200 focus:ring-1 focus:outline-none'
+      onBlur={(e) => {
+        if (e.target.value !== (member.school || '')) {
+          handleUpdateStudentField(member.id, 'school', e.target.value);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+
+  const renderStudentBranchCell = (member: Member) => (
+    <select
+      value={member.branch_id || ''}
+      onChange={(e) => handleUpdateStudentBranch(member.id, e.target.value)}
+      disabled={loading}
+      className={cn(
+        'focus:ring-primary/50 h-6 rounded border px-1.5 text-xs focus:ring-1 focus:outline-none',
+        member.branch_id
+          ? 'border-blue-200 bg-blue-50 font-medium text-blue-700 hover:border-blue-400'
+          : 'border-transparent bg-transparent text-gray-400 hover:border-gray-200',
+      )}
+    >
+      <option value=''>-</option>
+      {branches.map((b) => (
+        <option key={b.id} value={b.id}>
+          {b.name}
+        </option>
+      ))}
+    </select>
+  );
+
+  const renderStudentTypeCell = (member: Member) => (
+    <select
+      value={member.student_type_id || ''}
+      onChange={(e) => handleUpdateStudentTypeInline(member.id, e.target.value)}
+      disabled={loading}
+      className='focus:border-primary focus:ring-primary/50 h-6 rounded border border-transparent bg-transparent px-1.5 text-xs hover:border-gray-200 focus:ring-1 focus:outline-none'
+    >
+      <option value=''>-</option>
+      {allStudentTypes.map((type) => (
+        <option key={type.id} value={type.id}>
+          {type.name}
+        </option>
+      ))}
+    </select>
+  );
+
+  const renderStudentParentCell = (member: Member) => {
+    const linkedParents = studentParentMap[member.id];
+    if (!linkedParents || linkedParents.length === 0) {
+      return <span className='text-[10px] text-gray-400'>-</span>;
+    }
+    return (
+      <div className='flex flex-col gap-0.5'>
+        {linkedParents.map((p) => (
+          <span
+            key={p.id}
+            className='bg-secondary/10 text-secondary inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium'
+            title={p.phone || undefined}
+          >
+            <UserCheck className='h-2.5 w-2.5 flex-shrink-0' />
+            {p.name}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  const renderStudentStatusCell = (member: Member) => (
+    <select
+      value={member.is_approved ? 'approved' : member.is_rejected ? 'rejected' : 'pending'}
+      onChange={(e) =>
+        handleUpdateApprovalStatus(
+          member.id,
+          e.target.value as 'approved' | 'pending' | 'rejected',
+        )
+      }
+      disabled={loading}
+      className={cn(
+        'focus:ring-primary/50 h-6 cursor-pointer rounded border px-1.5 text-[10px] font-medium focus:ring-1 focus:outline-none',
+        member.is_approved
+          ? 'border-green-200 bg-green-50 text-green-700 hover:border-green-400'
+          : member.is_rejected
+            ? 'border-red-200 bg-red-50 text-red-700 hover:border-red-400'
+            : 'border-yellow-200 bg-yellow-50 text-yellow-700 hover:border-yellow-400',
+      )}
+    >
+      <option value='approved'>✓ 승인</option>
+      <option value='pending'>⏱ 대기</option>
+      <option value='rejected'>✕ 비승인</option>
+    </select>
+  );
+
+  const renderStudentActionCell = (member: Member) => (
+    <div className='flex items-center justify-center gap-0.5'>
+      {!member.is_approved && !member.is_rejected ? (
+        <>
+          <Button
+            size='sm'
+            onClick={() => handleOpenApproval(member)}
+            disabled={loading}
+            className='h-6 bg-green-600 px-2 text-xs text-white hover:bg-green-700'
+          >
+            <UserPlus className='mr-0.5 h-3 w-3' />
+            승인
+          </Button>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => handleOpenDeleteModal(member, 'student')}
+            disabled={loading}
+            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+          >
+            <UserMinus className='h-3 w-3' />
+          </Button>
+        </>
+      ) : (
+        <>
+          {member.is_approved && (
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => handleViewDetail(member.id)}
+              disabled={loading}
+              className='h-6 px-1.5'
+            >
+              <Eye className='h-3 w-3' />
+            </Button>
+          )}
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => handleOpenDeleteModal(member, 'student')}
+            disabled={loading}
+            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+          >
+            <UserMinus className='h-3 w-3' />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+
+  // ── 관리자 셀 렌더 헬퍼 ──
+  const renderAdminBranchCell = (admin: Admin) =>
+    admin.is_super_admin ? (
+      <span className='inline-flex items-center gap-0.5 rounded border border-purple-200 bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700'>
+        전 지점
+      </span>
+    ) : (
+      <select
+        value={admin.branch_id || ''}
+        onChange={(e) => handleBranchChange(admin.id, e.target.value)}
+        disabled={loading || !currentIsSuperAdmin}
+        className={cn(
+          'focus:ring-primary/50 rounded border px-2 py-1 text-xs focus:ring-1 focus:outline-none',
+          !admin.branch_id
+            ? 'border-yellow-300 bg-yellow-50 text-yellow-700'
+            : 'border-gray-200 bg-white',
+          !currentIsSuperAdmin && 'cursor-not-allowed opacity-70',
+        )}
+      >
+        <option value=''>지점 미지정</option>
+        {branches.map((branch) => (
+          <option key={branch.id} value={branch.id}>
+            {branch.name}
+          </option>
+        ))}
+      </select>
+    );
+
+  const renderAdminActionCell = (admin: Admin) => (
+    <div className='flex items-center justify-center gap-1'>
+      {currentIsSuperAdmin && (
+        <>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => setResetPasswordTarget(admin)}
+            disabled={loading}
+            className='h-6 border-amber-200 px-1.5 text-amber-600 hover:bg-amber-50'
+            title='비밀번호 강제 재설정'
+          >
+            <Key className='h-3 w-3' />
+          </Button>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => handleToggleSuperAdmin(admin)}
+            disabled={loading}
+            className={cn(
+              'h-6 px-2 text-[11px] font-medium',
+              admin.is_super_admin
+                ? 'border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                : 'border-purple-200 text-purple-600 hover:bg-purple-50',
+            )}
+            title={admin.is_super_admin ? '최고 관리자 권한 회수' : '최고 관리자 권한 부여'}
+          >
+            {admin.is_super_admin ? '권한 회수' : '권한 부여'}
+          </Button>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => setDeleteAdminTarget(admin)}
+            disabled={loading}
+            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+            title='어드민 삭제'
+          >
+            <Trash2 className='h-3 w-3' />
+          </Button>
+        </>
+      )}
+      {!currentIsSuperAdmin && <span className='text-[10px] text-gray-400'>최고 관리자 전용</span>}
+    </div>
+  );
+
+  // ── 학부모 셀 렌더 헬퍼 ──
+  const renderParentActionCell = (parent: ParentMember) => (
+    <div className='flex items-center justify-center gap-1'>
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={() => setParentAccountTarget(parent)}
+        disabled={loading}
+        className='h-6 px-1.5 text-amber-600 hover:bg-amber-50 hover:text-amber-700'
+        title='계정 관리(이메일·비밀번호·중복정리)'
+      >
+        <Key className='h-3 w-3' />
+      </Button>
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={() => handleOpenDeleteModal(parent, 'parent')}
+        disabled={loading}
+        className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+      >
+        <UserMinus className='h-3 w-3' />
+      </Button>
+    </div>
+  );
+
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
@@ -728,7 +1041,7 @@ export function MembersClient({
             )}
 
             <Card className='overflow-hidden'>
-              <div className='overflow-x-auto'>
+              <div className='hidden overflow-x-auto md:block'>
                 <table className='w-full text-xs'>
                   <thead className='border-b border-gray-100 bg-gray-50'>
                     <tr>
@@ -777,98 +1090,56 @@ export function MembersClient({
                           </td>
                           <td className='px-2 py-1.5 text-gray-600'>{admin.email}</td>
                           <td className='px-2 py-1.5'>{admin.phone || '-'}</td>
-                          <td className='px-2 py-1.5'>
-                            {admin.is_super_admin ? (
-                              <span className='inline-flex items-center gap-0.5 rounded border border-purple-200 bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700'>
-                                전 지점
-                              </span>
-                            ) : (
-                              <select
-                                value={admin.branch_id || ''}
-                                onChange={(e) => handleBranchChange(admin.id, e.target.value)}
-                                disabled={loading || !currentIsSuperAdmin}
-                                className={cn(
-                                  'focus:ring-primary/50 rounded border px-2 py-1 text-xs focus:ring-1 focus:outline-none',
-                                  !admin.branch_id
-                                    ? 'border-yellow-300 bg-yellow-50 text-yellow-700'
-                                    : 'border-gray-200 bg-white',
-                                  !currentIsSuperAdmin && 'cursor-not-allowed opacity-70',
-                                )}
-                              >
-                                <option value=''>지점 미지정</option>
-                                {branches.map((branch) => (
-                                  <option key={branch.id} value={branch.id}>
-                                    {branch.name}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                          </td>
+                          <td className='px-2 py-1.5'>{renderAdminBranchCell(admin)}</td>
                           <td className='px-2 py-1.5 text-gray-500'>
                             {formatDate(admin.created_at)}
                           </td>
-                          <td className='px-2 py-1.5 text-center'>
-                            <div className='flex items-center justify-center gap-1'>
-                              {currentIsSuperAdmin && (
-                                <>
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() => setResetPasswordTarget(admin)}
-                                    disabled={loading}
-                                    className='h-6 border-amber-200 px-1.5 text-amber-600 hover:bg-amber-50'
-                                    title='비밀번호 강제 재설정'
-                                  >
-                                    <Key className='h-3 w-3' />
-                                  </Button>
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() => handleToggleSuperAdmin(admin)}
-                                    disabled={loading}
-                                    className={cn(
-                                      'h-6 px-2 text-[11px] font-medium',
-                                      admin.is_super_admin
-                                        ? 'border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100'
-                                        : 'border-purple-200 text-purple-600 hover:bg-purple-50',
-                                    )}
-                                    title={
-                                      admin.is_super_admin
-                                        ? '최고 관리자 권한 회수'
-                                        : '최고 관리자 권한 부여'
-                                    }
-                                  >
-                                    {admin.is_super_admin ? '권한 회수' : '권한 부여'}
-                                  </Button>
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() => setDeleteAdminTarget(admin)}
-                                    disabled={loading}
-                                    className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                                    title='어드민 삭제'
-                                  >
-                                    <Trash2 className='h-3 w-3' />
-                                  </Button>
-                                </>
-                              )}
-                              {!currentIsSuperAdmin && (
-                                <span className='text-[10px] text-gray-400'>최고 관리자 전용</span>
-                              )}
-                            </div>
-                          </td>
+                          <td className='px-2 py-1.5 text-center'>{renderAdminActionCell(admin)}</td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
+              {/* 모바일: 카드 리스트 */}
+              {admins.length === 0 ? (
+                <div className='p-6 text-center text-xs text-gray-500 md:hidden'>
+                  관리자가 없습니다.
+                </div>
+              ) : (
+                <div className='divide-y divide-gray-100 md:hidden'>
+                  {admins.map((admin) => (
+                    <DataCard key={admin.id}>
+                      <DataCardHeader
+                        title={
+                          <div className='flex items-center gap-1.5'>
+                            <div className='flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100'>
+                              <Shield className='h-3 w-3 text-purple-600' />
+                            </div>
+                            <span>{admin.name}</span>
+                            {admin.is_super_admin && (
+                              <span className='inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700'>
+                                최고
+                              </span>
+                            )}
+                          </div>
+                        }
+                        meta={admin.email}
+                      />
+                      <DataCardRow label='전화번호'>{admin.phone || '-'}</DataCardRow>
+                      <DataCardRow label='소속 지점'>{renderAdminBranchCell(admin)}</DataCardRow>
+                      <DataCardRow label='가입일'>{formatDate(admin.created_at)}</DataCardRow>
+                      <DataCardRow label='액션'>{renderAdminActionCell(admin)}</DataCardRow>
+                    </DataCard>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         ) : activeTab === 'students' ? (
           /* 학생 목록 테이블 */
           <Card className='overflow-hidden'>
-            <div className='overflow-x-auto'>
+            <div className='hidden overflow-x-auto md:block'>
               <table className='w-full text-xs'>
                 <thead className='border-b border-gray-100 bg-gray-50'>
                   <tr>
@@ -957,67 +1228,7 @@ export function MembersClient({
                           </span>
                         </td>
                         {/* 이름 (편집 가능) */}
-                        <td className='px-2 py-1.5'>
-                          {editingNameId === member.id ? (
-                            <div className='flex items-center gap-1'>
-                              <Input
-                                type='text'
-                                value={editingNameValue}
-                                onChange={(e) => setEditingNameValue(e.target.value)}
-                                className='h-6 w-20 px-1.5 text-xs'
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleSaveNameEdit(member.id);
-                                  if (e.key === 'Escape') setEditingNameId(null);
-                                }}
-                              />
-                              <button
-                                onClick={() => handleSaveNameEdit(member.id)}
-                                className='text-green-600 hover:text-green-700'
-                                disabled={loading}
-                              >
-                                <Check className='h-3.5 w-3.5' />
-                              </button>
-                              <button
-                                onClick={() => setEditingNameId(null)}
-                                className='text-red-500 hover:text-red-600'
-                              >
-                                <X className='h-3.5 w-3.5' />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className='group flex items-center gap-1.5'>
-                              <div
-                                className={cn(
-                                  'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full',
-                                  member.is_approved
-                                    ? 'bg-primary/10'
-                                    : member.is_rejected
-                                      ? 'bg-red-100'
-                                      : 'bg-yellow-100',
-                                )}
-                              >
-                                <User
-                                  className={cn(
-                                    'h-3 w-3',
-                                    member.is_approved
-                                      ? 'text-primary'
-                                      : member.is_rejected
-                                        ? 'text-red-600'
-                                        : 'text-yellow-600',
-                                  )}
-                                />
-                              </div>
-                              <span className='font-medium'>{member.name}</span>
-                              <button
-                                onClick={() => handleStartEditName(member)}
-                                className='hover:text-primary text-gray-400 opacity-0 transition-opacity group-hover:opacity-100'
-                              >
-                                <Edit3 className='h-3 w-3' />
-                              </button>
-                            </div>
-                          )}
-                        </td>
+                        <td className='px-2 py-1.5'>{renderStudentNameCell(member)}</td>
                         {/* 이메일 */}
                         <td
                           className='max-w-[160px] truncate px-2 py-1.5 text-gray-600'
@@ -1026,168 +1237,22 @@ export function MembersClient({
                           {member.email}
                         </td>
                         {/* 학교 */}
-                        <td className='px-2 py-1.5'>
-                          <input
-                            type='text'
-                            defaultValue={member.school || ''}
-                            placeholder='-'
-                            className='focus:border-primary focus:ring-primary/50 h-6 w-20 rounded border border-transparent bg-transparent px-1.5 text-xs hover:border-gray-200 focus:ring-1 focus:outline-none'
-                            onBlur={(e) => {
-                              if (e.target.value !== (member.school || '')) {
-                                handleUpdateStudentField(member.id, 'school', e.target.value);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                (e.target as HTMLInputElement).blur();
-                              }
-                            }}
-                          />
-                        </td>
+                        <td className='px-2 py-1.5'>{renderStudentSchoolCell(member)}</td>
                         {/* 센터 */}
-                        <td className='px-2 py-1.5'>
-                          <select
-                            value={member.branch_id || ''}
-                            onChange={(e) => handleUpdateStudentBranch(member.id, e.target.value)}
-                            disabled={loading}
-                            className={cn(
-                              'focus:ring-primary/50 h-6 rounded border px-1.5 text-xs focus:ring-1 focus:outline-none',
-                              member.branch_id
-                                ? 'border-blue-200 bg-blue-50 font-medium text-blue-700 hover:border-blue-400'
-                                : 'border-transparent bg-transparent text-gray-400 hover:border-gray-200',
-                            )}
-                          >
-                            <option value=''>-</option>
-                            {branches.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                {b.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
+                        <td className='px-2 py-1.5'>{renderStudentBranchCell(member)}</td>
                         {/* 학생 타입 */}
-                        <td className='px-2 py-1.5'>
-                          <select
-                            value={member.student_type_id || ''}
-                            onChange={(e) =>
-                              handleUpdateStudentTypeInline(member.id, e.target.value)
-                            }
-                            disabled={loading}
-                            className='focus:border-primary focus:ring-primary/50 h-6 rounded border border-transparent bg-transparent px-1.5 text-xs hover:border-gray-200 focus:ring-1 focus:outline-none'
-                          >
-                            <option value=''>-</option>
-                            {allStudentTypes.map((type) => (
-                              <option key={type.id} value={type.id}>
-                                {type.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
+                        <td className='px-2 py-1.5'>{renderStudentTypeCell(member)}</td>
                         {/* 전화번호 */}
                         <td className='px-2 py-1.5'>{member.phone || '-'}</td>
                         {/* 학부모 */}
-                        <td className='px-2 py-1.5'>
-                          {(() => {
-                            const linkedParents = studentParentMap[member.id];
-                            if (!linkedParents || linkedParents.length === 0) {
-                              return <span className='text-[10px] text-gray-400'>-</span>;
-                            }
-                            return (
-                              <div className='flex flex-col gap-0.5'>
-                                {linkedParents.map((p) => (
-                                  <span
-                                    key={p.id}
-                                    className='bg-secondary/10 text-secondary inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium'
-                                    title={p.phone || undefined}
-                                  >
-                                    <UserCheck className='h-2.5 w-2.5 flex-shrink-0' />
-                                    {p.name}
-                                  </span>
-                                ))}
-                              </div>
-                            );
-                          })()}
-                        </td>
+                        <td className='px-2 py-1.5'>{renderStudentParentCell(member)}</td>
                         {/* 상태 */}
                         <td className='px-2 py-1.5 text-center'>
-                          <select
-                            value={
-                              member.is_approved
-                                ? 'approved'
-                                : member.is_rejected
-                                  ? 'rejected'
-                                  : 'pending'
-                            }
-                            onChange={(e) =>
-                              handleUpdateApprovalStatus(
-                                member.id,
-                                e.target.value as 'approved' | 'pending' | 'rejected',
-                              )
-                            }
-                            disabled={loading}
-                            className={cn(
-                              'focus:ring-primary/50 h-6 cursor-pointer rounded border px-1.5 text-[10px] font-medium focus:ring-1 focus:outline-none',
-                              member.is_approved
-                                ? 'border-green-200 bg-green-50 text-green-700 hover:border-green-400'
-                                : member.is_rejected
-                                  ? 'border-red-200 bg-red-50 text-red-700 hover:border-red-400'
-                                  : 'border-yellow-200 bg-yellow-50 text-yellow-700 hover:border-yellow-400',
-                            )}
-                          >
-                            <option value='approved'>✓ 승인</option>
-                            <option value='pending'>⏱ 대기</option>
-                            <option value='rejected'>✕ 비승인</option>
-                          </select>
+                          {renderStudentStatusCell(member)}
                         </td>
                         {/* 액션 */}
                         <td className='px-2 py-1.5 text-center'>
-                          <div className='flex items-center justify-center gap-0.5'>
-                            {!member.is_approved && !member.is_rejected ? (
-                              <>
-                                <Button
-                                  size='sm'
-                                  onClick={() => handleOpenApproval(member)}
-                                  disabled={loading}
-                                  className='h-6 bg-green-600 px-2 text-xs text-white hover:bg-green-700'
-                                >
-                                  <UserPlus className='mr-0.5 h-3 w-3' />
-                                  승인
-                                </Button>
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  onClick={() => handleOpenDeleteModal(member, 'student')}
-                                  disabled={loading}
-                                  className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                                >
-                                  <UserMinus className='h-3 w-3' />
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                {member.is_approved && (
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() => handleViewDetail(member.id)}
-                                    disabled={loading}
-                                    className='h-6 px-1.5'
-                                  >
-                                    <Eye className='h-3 w-3' />
-                                  </Button>
-                                )}
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  onClick={() => handleOpenDeleteModal(member, 'student')}
-                                  disabled={loading}
-                                  className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                                >
-                                  <UserMinus className='h-3 w-3' />
-                                </Button>
-                              </>
-                            )}
-                          </div>
+                          {renderStudentActionCell(member)}
                         </td>
                       </tr>
                     ))
@@ -1195,6 +1260,56 @@ export function MembersClient({
                 </tbody>
               </table>
             </div>
+            {/* 모바일: 카드 리스트 */}
+            {students.length === 0 ? (
+              <div className='p-6 text-center text-xs text-gray-500 md:hidden'>
+                {studentFilter === 'pending'
+                  ? '승인 대기중인 학생이 없습니다.'
+                  : studentFilter === 'rejected'
+                    ? '비승인된 학생이 없습니다.'
+                    : studentTypeFilter === 'unassigned'
+                      ? '미배정 학생이 없습니다.'
+                      : studentTypeFilter !== 'all'
+                        ? '해당 타입의 학생이 없습니다.'
+                        : '학생이 없습니다.'}
+              </div>
+            ) : (
+              <div className='divide-y divide-gray-100 md:hidden'>
+                {students.map((member) => (
+                  <DataCard
+                    key={member.id}
+                    className={cn(
+                      member.is_rejected && 'bg-red-50/50',
+                      !member.is_approved && !member.is_rejected && 'bg-yellow-50/50',
+                    )}
+                  >
+                    <DataCardHeader
+                      title={renderStudentNameCell(member)}
+                      meta={member.email}
+                      right={
+                        <span
+                          className={cn(
+                            'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium',
+                            member.seat_number
+                              ? 'bg-primary/10 text-primary'
+                              : 'bg-gray-100 text-gray-400',
+                          )}
+                        >
+                          {member.seat_number || '-'}
+                        </span>
+                      }
+                    />
+                    <DataCardRow label='학교'>{renderStudentSchoolCell(member)}</DataCardRow>
+                    <DataCardRow label='센터'>{renderStudentBranchCell(member)}</DataCardRow>
+                    <DataCardRow label='타입'>{renderStudentTypeCell(member)}</DataCardRow>
+                    <DataCardRow label='전화번호'>{member.phone || '-'}</DataCardRow>
+                    <DataCardRow label='학부모'>{renderStudentParentCell(member)}</DataCardRow>
+                    <DataCardRow label='상태'>{renderStudentStatusCell(member)}</DataCardRow>
+                    <DataCardRow label='액션'>{renderStudentActionCell(member)}</DataCardRow>
+                  </DataCard>
+                ))}
+              </div>
+            )}
           </Card>
         ) : (
           /* 학부모 목록 테이블 */
@@ -1223,7 +1338,7 @@ export function MembersClient({
               </button>
             )}
             <Card className='overflow-hidden'>
-              <div className='overflow-x-auto'>
+              <div className='hidden overflow-x-auto md:block'>
                 <table className='w-full text-xs'>
                   <thead className='border-b border-gray-100 bg-gray-50'>
                     <tr>
@@ -1365,27 +1480,7 @@ export function MembersClient({
                               {formatDate(parent.created_at)}
                             </td>
                             <td className='px-2 py-1.5 text-center'>
-                              <div className='flex items-center justify-center gap-1'>
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  onClick={() => setParentAccountTarget(parent)}
-                                  disabled={loading}
-                                  className='h-6 px-1.5 text-amber-600 hover:bg-amber-50 hover:text-amber-700'
-                                  title='계정 관리(이메일·비밀번호·중복정리)'
-                                >
-                                  <Key className='h-3 w-3' />
-                                </Button>
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  onClick={() => handleOpenDeleteModal(parent, 'parent')}
-                                  disabled={loading}
-                                  className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-                                >
-                                  <UserMinus className='h-3 w-3' />
-                                </Button>
-                              </div>
+                              {renderParentActionCell(parent)}
                             </td>
                           </tr>
                         );
@@ -1394,6 +1489,90 @@ export function MembersClient({
                   </tbody>
                 </table>
               </div>
+              {/* 모바일: 카드 리스트 */}
+              {parents.length === 0 ? (
+                <div className='p-6 text-center text-xs text-gray-500 md:hidden'>
+                  학부모가 없습니다.
+                </div>
+              ) : (
+                <div className='divide-y divide-gray-100 md:hidden'>
+                  {parents.map((parent) => {
+                    const hasChildren = parent.students && parent.students.length > 0;
+                    const uniqueBranches = hasChildren
+                      ? ([
+                          ...new Set(parent.students.map((s) => s.branchName).filter(Boolean)),
+                        ] as string[])
+                      : [];
+                    return (
+                      <DataCard key={parent.id}>
+                        <DataCardHeader
+                          title={
+                            <div className='flex items-center gap-1.5'>
+                              <div className='bg-secondary/10 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full'>
+                                <UserCheck className='text-secondary h-3 w-3' />
+                              </div>
+                              <span>{parent.name}</span>
+                            </div>
+                          }
+                          meta={parent.email}
+                          right={renderParentActionCell(parent)}
+                        />
+                        <DataCardRow label='학생번호'>
+                          {!hasChildren ? (
+                            <span className='text-gray-400'>-</span>
+                          ) : (
+                            <div className='flex flex-wrap justify-end gap-0.5'>
+                              {parent.students.map((s, i) => (
+                                <span
+                                  key={`${parent.id}-mseat-${i}`}
+                                  className='bg-primary/10 text-primary inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium'
+                                >
+                                  {s.seatNumber ? `${s.seatNumber}번` : '-'}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </DataCardRow>
+                        <DataCardRow label='학생명'>
+                          {!hasChildren ? (
+                            <span className='text-gray-400'>-</span>
+                          ) : (
+                            <div className='flex flex-wrap justify-end gap-0.5'>
+                              {parent.students.map((s, i) => (
+                                <span
+                                  key={`${parent.id}-mname-${i}`}
+                                  className='inline-flex items-center rounded px-1.5 py-0.5 text-[10px]'
+                                >
+                                  {s.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </DataCardRow>
+                        <DataCardRow label='지점'>
+                          {!hasChildren || uniqueBranches.length === 0 ? (
+                            <span className='text-gray-400'>-</span>
+                          ) : (
+                            <div className='flex flex-wrap justify-end gap-0.5'>
+                              {uniqueBranches.map((branchName) => (
+                                <span
+                                  key={branchName}
+                                  className='inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700'
+                                >
+                                  <Building2 className='h-2.5 w-2.5 flex-shrink-0' />
+                                  {branchName}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </DataCardRow>
+                        <DataCardRow label='전화번호'>{parent.phone || '-'}</DataCardRow>
+                        <DataCardRow label='가입일'>{formatDate(parent.created_at)}</DataCardRow>
+                      </DataCard>
+                    );
+                  })}
+                </div>
+              )}
             </Card>
           </>
         )}

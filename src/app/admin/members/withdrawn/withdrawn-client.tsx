@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { DataCard, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/ui/search-input';
@@ -98,7 +99,7 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
         {rows.length === 0 ? (
           <div className='text-text-muted py-12 text-center'>퇴원 처리된 회원이 없습니다.</div>
         ) : (
-          <div className='overflow-x-auto'>
+          <div className='hidden overflow-x-auto md:block'>
             <table className='w-full text-sm'>
               <thead className='text-text-muted border-b text-left text-xs uppercase'>
                 <tr>
@@ -151,6 +152,57 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* 모바일: 카드 리스트 */}
+        {rows.length > 0 && (
+          <div className='divide-y divide-gray-100 md:hidden'>
+            {rows.map((row) => (
+              <DataCard key={row.id}>
+                <DataCardHeader
+                  title={row.name}
+                  meta={row.email}
+                  right={
+                    <span className='rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600'>
+                      {USER_TYPE_LABEL[row.user_type]}
+                    </span>
+                  }
+                />
+                <DataCardRow label='지점'>{row.branch_name ?? '-'}</DataCardRow>
+                <DataCardRow label='퇴원일'>
+                  <span className='whitespace-nowrap'>{formatDate(row.withdrawn_at)}</span>
+                </DataCardRow>
+                <DataCardRow label='사유'>
+                  <span className='block max-w-[200px] truncate' title={row.withdrawn_reason ?? ''}>
+                    {row.withdrawn_reason ?? '-'}
+                  </span>
+                </DataCardRow>
+                <div className='flex gap-1.5 pt-1'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setDetailTarget(row)}
+                    className='flex-1 gap-1'
+                  >
+                    <Eye className='h-3.5 w-3.5' />
+                    상세
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      setRestoreTarget(row);
+                      setConfirmName('');
+                    }}
+                    className='flex-1 gap-1'
+                  >
+                    <RotateCcw className='h-3.5 w-3.5' />
+                    복구
+                  </Button>
+                </div>
+              </DataCard>
+            ))}
           </div>
         )}
 
