@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import {
   createVocabPack,
   updateVocabPack,
@@ -192,8 +193,8 @@ export default function PacksClient({ initialPacks }: { initialPacks: AdminPackR
         </div>
       )}
 
-      {/* 목록 */}
-      <div className='overflow-x-auto rounded-2xl border border-gray-200'>
+      {/* 목록 (데스크톱 표) */}
+      <div className='hidden overflow-x-auto rounded-2xl border border-gray-200 md:block'>
         <table className='w-full min-w-[760px] text-sm'>
           <thead className='text-text-muted bg-gray-50'>
             <tr>
@@ -255,6 +256,40 @@ export default function PacksClient({ initialPacks }: { initialPacks: AdminPackR
           </tbody>
         </table>
       </div>
+
+      {/* 목록 (모바일 카드) */}
+      {initialPacks.length === 0 ? (
+        <div className='text-text-muted rounded-2xl border border-gray-200 px-3 py-8 text-center text-sm md:hidden'>
+          등록된 꾸러미가 없습니다.
+        </div>
+      ) : (
+        <DataCardList className='border-gray-200'>
+          {initialPacks.map((p) => (
+            <DataCard key={p.id}>
+              <DataCardHeader
+                title={p.name}
+                meta={p.code}
+                right={<Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>}
+              />
+              <DataCardRow label='등록단어'>{p.totalWords}</DataCardRow>
+              <DataCardRow label='사용가능'>
+                <span className={p.activeWords < 40 ? 'text-error' : ''}>{p.activeWords}</span>
+              </DataCardRow>
+              <DataCardRow label='순서'>{p.displayOrder}</DataCardRow>
+              <DataCardRow label='등록일'>{fmtDate(p.createdAt)}</DataCardRow>
+              <DataCardRow label='수정일'>{fmtDate(p.updatedAt)}</DataCardRow>
+              <div className='flex gap-3 pt-1 text-sm'>
+                <button onClick={() => openEdit(p)} className='text-primary hover:underline'>
+                  수정
+                </button>
+                <button onClick={() => removeOrDisable(p)} className='text-error hover:underline'>
+                  {p.hasExamRecords ? '사용중지' : '삭제'}
+                </button>
+              </div>
+            </DataCard>
+          ))}
+        </DataCardList>
+      )}
     </div>
   );
 }

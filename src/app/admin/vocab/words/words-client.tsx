@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Upload, FileSpreadsheet, Download, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import { cn } from '@/lib/utils';
 import { formatProblemGroups } from '@/lib/vocab-problem-group';
 import {
@@ -511,8 +512,8 @@ export default function WordsClient({
         </div>
       )}
 
-      {/* 목록 */}
-      <div className='overflow-x-auto rounded-2xl border border-gray-200'>
+      {/* 목록 (데스크톱 표) */}
+      <div className='hidden overflow-x-auto rounded-2xl border border-gray-200 md:block'>
         <table className='w-full min-w-[820px] text-sm'>
           <thead className='text-text-muted bg-gray-50'>
             <tr>
@@ -586,6 +587,62 @@ export default function WordsClient({
           </tbody>
         </table>
       </div>
+
+      {/* 목록 (모바일 카드) */}
+      {words.length === 0 ? (
+        <div className='text-text-muted rounded-2xl border border-gray-200 px-3 py-8 text-center text-sm md:hidden'>
+          단어가 없습니다.
+        </div>
+      ) : (
+        <DataCardList className='border-gray-200'>
+          {words.map((w) => (
+            <DataCard key={w.id}>
+              <DataCardHeader
+                title={w.english}
+                right={
+                  <Badge variant={w.isActive ? 'success' : 'muted'}>
+                    {w.isActive ? '사용' : '사용안함'}
+                  </Badge>
+                }
+              />
+              <DataCardRow label='대표뜻'>{w.koreanPrimary}</DataCardRow>
+              <DataCardRow label='추가뜻'>{w.koreanExtra ?? '-'}</DataCardRow>
+              <DataCardRow label='문제그룹'>{formatProblemGroups(w.problemGroup) || '-'}</DataCardRow>
+              <DataCardRow label='꾸러미'>
+                <div className='flex flex-wrap justify-end gap-1'>
+                  {w.packIds.map((pid) => (
+                    <Badge key={pid} variant='muted'>
+                      {packName.get(pid) ?? '?'}
+                    </Badge>
+                  ))}
+                </div>
+              </DataCardRow>
+              <div className='flex gap-3 pt-1 text-sm'>
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setForm({
+                      id: w.id,
+                      english: w.english,
+                      koreanPrimary: w.koreanPrimary,
+                      koreanExtra: w.koreanExtra ?? '',
+                      problemGroup: w.problemGroup ?? '',
+                      isActive: w.isActive,
+                      packIds: w.packIds,
+                    });
+                  }}
+                  className='text-primary hover:underline'
+                >
+                  수정
+                </button>
+                <button onClick={() => toggleActive(w)} className='text-text-muted hover:underline'>
+                  {w.isActive ? '사용안함' : '사용'}
+                </button>
+              </div>
+            </DataCard>
+          ))}
+        </DataCardList>
+      )}
     </div>
   );
 }

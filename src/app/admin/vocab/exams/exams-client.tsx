@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import {
   getAdminVocabExams,
   getVocabExamsForExport,
@@ -200,8 +201,8 @@ export default function ExamsClient({
         <span className='text-text-muted text-sm'>{rows.length}건</span>
       </div>
 
-      {/* 목록 */}
-      <div className='overflow-x-auto rounded-2xl border border-gray-200'>
+      {/* 목록 (데스크톱 표) */}
+      <div className='hidden overflow-x-auto rounded-2xl border border-gray-200 md:block'>
         <table className='w-full min-w-[900px] text-sm'>
           <thead className='text-text-muted bg-gray-50'>
             <tr>
@@ -278,6 +279,59 @@ export default function ExamsClient({
           </tbody>
         </table>
       </div>
+
+      {/* 목록 (모바일 카드) */}
+      {rows.length === 0 ? (
+        <div className='text-text-muted rounded-2xl border border-gray-200 px-3 py-8 text-center text-sm md:hidden'>
+          응시 내역이 없습니다.
+        </div>
+      ) : (
+        <DataCardList className='border-gray-200'>
+          {rows.map((r) => (
+            <DataCard key={r.examId}>
+              <DataCardHeader
+                title={r.studentName}
+                meta={`${r.packName} · ${r.examDate}`}
+                right={
+                  <Link
+                    href={`/admin/vocab/exams/${r.examId}`}
+                    className='text-primary text-sm hover:underline'
+                  >
+                    상세
+                  </Link>
+                }
+              />
+              <DataCardRow label='그룹 / 자리'>
+                {(r.groupName ?? '-') + ' / ' + (r.seatNumber ?? '-')}
+              </DataCardRow>
+              <DataCardRow label='센터'>{r.branchName ?? '-'}</DataCardRow>
+              <DataCardRow label='시작'>{fmtDateTime(r.startedAt)}</DataCardRow>
+              <DataCardRow label='제출일시'>{fmtDateTime(r.submittedAt)}</DataCardRow>
+              <DataCardRow label='구분'>
+                <Badge variant={r.examType === 'friday_review' ? 'warning' : 'muted'}>
+                  {TYPE_LABEL[r.examType]}
+                </Badge>
+              </DataCardRow>
+              <DataCardRow label='점수'>
+                {r.score === null ? '-' : `${r.score}/${r.total}`}
+              </DataCardRow>
+              <DataCardRow label='제출방식'>
+                <Badge
+                  variant={
+                    r.submitStatus === 'auto'
+                      ? 'warning'
+                      : r.submitStatus === 'normal'
+                        ? 'success'
+                        : 'info'
+                  }
+                >
+                  {STATUS_LABEL[r.submitStatus]}
+                </Badge>
+              </DataCardRow>
+            </DataCard>
+          ))}
+        </DataCardList>
+      )}
     </div>
   );
 }
