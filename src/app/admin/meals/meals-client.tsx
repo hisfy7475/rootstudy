@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
+import { DataCard, DataCardList, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { MealImage } from '@/components/shared/meal-image';
 import { Check, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -226,7 +227,7 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
       />
 
       <Card className='overflow-hidden'>
-        <div className='overflow-x-auto'>
+        <div className='hidden overflow-x-auto md:block'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 border-b text-left'>
               <tr>
@@ -297,6 +298,52 @@ export function AdminMealsClient({ initialResult }: AdminMealsClientProps) {
             </tbody>
           </table>
         </div>
+
+        {/* 모바일: 카드 리스트 */}
+        {products.length === 0 ? (
+          <div className='text-muted-foreground p-8 text-center md:hidden'>
+            등록된 상품이 없습니다.
+          </div>
+        ) : (
+          <DataCardList className='rounded-none border-0'>
+            {products.map((p) => (
+              <DataCard key={p.id}>
+                <DataCardHeader
+                  title={
+                    <Link
+                      href={`/admin/meals/${p.id}`}
+                      className='text-primary hover:underline'
+                    >
+                      {p.name}
+                    </Link>
+                  }
+                  meta={p.meal_type === 'lunch' ? '중식' : '석식'}
+                  right={
+                    <>
+                      <StatusCell product={p} />
+                      <button
+                        type='button'
+                        onClick={(e) => handleDelete(e, p)}
+                        disabled={deletingId === p.id}
+                        title='상품 삭제'
+                        aria-label={`${p.name} 상품 삭제`}
+                        className={cn(
+                          'inline-flex items-center justify-center rounded-md p-2 transition-colors',
+                          'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
+                          'disabled:cursor-not-allowed disabled:opacity-50',
+                        )}
+                      >
+                        <Trash2 className='size-4' />
+                      </button>
+                    </>
+                  }
+                />
+                <DataCardRow label='옵션'>{variantSummary(p.variants)}</DataCardRow>
+                <DataCardRow label='가격'>{priceRangeLabel(p.variants)}</DataCardRow>
+              </DataCard>
+            ))}
+          </DataCardList>
+        )}
       </Card>
 
       <div className='flex justify-center'>

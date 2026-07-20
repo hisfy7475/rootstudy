@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DataCard, DataCardList, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import {
   adminCancelMealOrder,
   type MealOrderForAdmin,
@@ -230,7 +231,7 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
       </div>
 
       <Card className='overflow-hidden'>
-        <div className='overflow-x-auto'>
+        <div className='hidden overflow-x-auto md:block'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 border-b text-left'>
               <tr>
@@ -323,6 +324,82 @@ export function AdminProductOrdersClient({ product, initialOrders, category }: P
             </tbody>
           </table>
         </div>
+
+        {/* 모바일: 카드 리스트 */}
+        {filtered.length === 0 ? (
+          <div className='text-muted-foreground p-8 text-center md:hidden'>내역이 없습니다.</div>
+        ) : (
+          <DataCardList className='rounded-none border-0'>
+            {filtered.map((o) => (
+              <DataCard key={o.id}>
+                <DataCardHeader
+                  title={
+                    <span className='flex flex-wrap items-center gap-1'>
+                      {o.student_name ?? o.student_id.slice(0, 8)}
+                      {o.student_withdrawn_at && (
+                        <span className='inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600'>
+                          퇴원
+                        </span>
+                      )}
+                    </span>
+                  }
+                  meta={
+                    formatSeatSnapshot(o.seat_number_snapshot, o.student_seat_number_current) ||
+                    undefined
+                  }
+                  right={<span className='text-xs'>{statusLabel[o.status] ?? o.status}</span>}
+                />
+                <DataCardRow label='결제자'>
+                  <span className='flex flex-wrap items-center justify-end gap-1'>
+                    {o.payer_name ?? o.user_id.slice(0, 8)}
+                    {o.payer_withdrawn_at && (
+                      <span className='inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600'>
+                        퇴원
+                      </span>
+                    )}
+                  </span>
+                </DataCardRow>
+                <DataCardRow label='옵션'>
+                  {isExam
+                    ? formatOptionSelectionsSummary(parseOptionSelections(o.option_selections)) ||
+                      '-'
+                    : variantLabel(o.variant?.kind)}
+                </DataCardRow>
+                <DataCardRow label={dateLabel}>
+                  {o.variant
+                    ? o.variant.product_start_date === o.variant.product_end_date
+                      ? o.variant.product_start_date
+                      : `${o.variant.product_start_date} ~ ${o.variant.product_end_date}`
+                    : '-'}
+                </DataCardRow>
+                <DataCardRow label='금액'>{o.amount.toLocaleString()}원</DataCardRow>
+                <DataCardRow label='결제일'>
+                  {o.paid_at
+                    ? new Date(o.paid_at).toLocaleString('ko-KR', {
+                        timeZone: 'Asia/Seoul',
+                        month: 'numeric',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '-'}
+                </DataCardRow>
+                {o.status === 'paid' && (
+                  <DataCardRow label='관리'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={() => openCancel(o.id)}
+                    >
+                      취소/환불
+                    </Button>
+                  </DataCardRow>
+                )}
+              </DataCard>
+            ))}
+          </DataCardList>
+        )}
       </Card>
 
       {cancelId != null && (

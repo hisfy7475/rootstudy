@@ -72,7 +72,7 @@ export function OrderVariantGrid({
       {grouped.map(([dateStr, list]) => (
         <section key={dateStr} className='space-y-3'>
           <h2 className='text-foreground text-base font-bold'>{formatHeader(dateStr)}</h2>
-          <div className='grid grid-cols-3 gap-3'>
+          <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
             {list.map((item) => {
               const dis = disabledFor?.(item);
               return (

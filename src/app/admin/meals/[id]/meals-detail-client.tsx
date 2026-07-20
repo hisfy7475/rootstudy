@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MealImageUploader } from '@/components/shared/meal-image-uploader';
+import { DataCard, DataCardList, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import {
   updateMealProduct,
   deleteMealProductImage,
@@ -372,58 +373,103 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
         {variants.length === 0 && !variantFormOpen ? (
           <p className='text-muted-foreground text-sm'>등록된 옵션이 없습니다.</p>
         ) : (
-          <div className='overflow-x-auto'>
-            <table className='w-full text-sm'>
-              <thead className='bg-muted/50 border-b text-left'>
-                <tr>
-                  <th className='p-2 font-medium'>종류</th>
-                  <th className='p-2 font-medium'>가격</th>
-                  <th className='p-2 font-medium'>판매기간</th>
-                  <th className='p-2 font-medium'>식사기간</th>
-                  <th className='p-2 font-medium'>정원</th>
-                  <th className='p-2 font-medium'>상태</th>
-                  <th className='p-2'></th>
-                </tr>
-              </thead>
-              <tbody>
-                {variants.map((v) => (
-                  <tr key={v.id} className='border-b last:border-0'>
-                    <td className='p-2'>{v.kind === 'recurring' ? '정기' : '일일'}</td>
-                    <td className='p-2'>{v.price.toLocaleString()}원</td>
-                    <td className='p-2 whitespace-nowrap'>
-                      {v.sale_start_date} ~ {v.sale_end_date}
-                    </td>
-                    <td className='p-2 whitespace-nowrap'>
-                      {v.product_start_date} ~ {v.product_end_date}
-                    </td>
-                    <td className='p-2'>
-                      {v.max_capacity == null ? '무제한' : `${v.max_capacity}명`}
-                    </td>
-                    <td className='p-2'>{STATUS_LABEL[v.status]}</td>
-                    <td className='p-2 whitespace-nowrap'>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        size='sm'
-                        onClick={() => openEditVariant(v)}
-                      >
-                        수정
-                      </Button>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        className='text-destructive ml-1'
-                        onClick={() => void removeVariant(v)}
-                      >
-                        <Trash2 className='size-4' />
-                      </Button>
-                    </td>
+          <>
+            <div className='hidden overflow-x-auto md:block'>
+              <table className='w-full text-sm'>
+                <thead className='bg-muted/50 border-b text-left'>
+                  <tr>
+                    <th className='p-2 font-medium'>종류</th>
+                    <th className='p-2 font-medium'>가격</th>
+                    <th className='p-2 font-medium'>판매기간</th>
+                    <th className='p-2 font-medium'>식사기간</th>
+                    <th className='p-2 font-medium'>정원</th>
+                    <th className='p-2 font-medium'>상태</th>
+                    <th className='p-2'></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {variants.map((v) => (
+                    <tr key={v.id} className='border-b last:border-0'>
+                      <td className='p-2'>{v.kind === 'recurring' ? '정기' : '일일'}</td>
+                      <td className='p-2'>{v.price.toLocaleString()}원</td>
+                      <td className='p-2 whitespace-nowrap'>
+                        {v.sale_start_date} ~ {v.sale_end_date}
+                      </td>
+                      <td className='p-2 whitespace-nowrap'>
+                        {v.product_start_date} ~ {v.product_end_date}
+                      </td>
+                      <td className='p-2'>
+                        {v.max_capacity == null ? '무제한' : `${v.max_capacity}명`}
+                      </td>
+                      <td className='p-2'>{STATUS_LABEL[v.status]}</td>
+                      <td className='p-2 whitespace-nowrap'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => openEditVariant(v)}
+                        >
+                          수정
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='text-destructive ml-1'
+                          onClick={() => void removeVariant(v)}
+                        >
+                          <Trash2 className='size-4' />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모바일: 카드 리스트 */}
+            <DataCardList className='rounded-none border-x-0 border-b-0'>
+              {variants.map((v) => (
+                <DataCard key={v.id}>
+                  <DataCardHeader
+                    title={v.kind === 'recurring' ? '정기' : '일일'}
+                    meta={STATUS_LABEL[v.status]}
+                    right={
+                      <>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => openEditVariant(v)}
+                        >
+                          수정
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='text-destructive'
+                          onClick={() => void removeVariant(v)}
+                        >
+                          <Trash2 className='size-4' />
+                        </Button>
+                      </>
+                    }
+                  />
+                  <DataCardRow label='가격'>{v.price.toLocaleString()}원</DataCardRow>
+                  <DataCardRow label='판매기간'>
+                    {v.sale_start_date} ~ {v.sale_end_date}
+                  </DataCardRow>
+                  <DataCardRow label='식사기간'>
+                    {v.product_start_date} ~ {v.product_end_date}
+                  </DataCardRow>
+                  <DataCardRow label='정원'>
+                    {v.max_capacity == null ? '무제한' : `${v.max_capacity}명`}
+                  </DataCardRow>
+                </DataCard>
+              ))}
+            </DataCardList>
+          </>
         )}
 
         {variantFormOpen && (

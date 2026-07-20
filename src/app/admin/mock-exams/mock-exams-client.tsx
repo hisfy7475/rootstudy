@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
+import { DataCard, DataCardList, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { MealImage } from '@/components/shared/meal-image';
 import { Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,6 +18,21 @@ const statusLabel: Record<MealProduct['status'], string> = {
   inactive: '비활성',
   sold_out: '마감',
 };
+
+function StatusBadge({ status }: { status: MealProduct['status'] }) {
+  return (
+    <span
+      className={cn(
+        'rounded-full px-2 py-0.5 text-xs',
+        status === 'active' && 'bg-emerald-100 text-emerald-800',
+        status === 'inactive' && 'bg-slate-100 text-slate-700',
+        status === 'sold_out' && 'bg-amber-100 text-amber-900',
+      )}
+    >
+      {statusLabel[status]}
+    </span>
+  );
+}
 
 interface AdminMockExamsClientProps {
   initialResult: MealProductsListResult;
@@ -95,7 +111,7 @@ export function AdminMockExamsClient({
       />
 
       <Card className='overflow-hidden'>
-        <div className='overflow-x-auto'>
+        <div className='hidden overflow-x-auto md:block'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 border-b text-left'>
               <tr>
@@ -160,16 +176,7 @@ export function AdminMockExamsClient({
                             : `${v.max_capacity}명`}
                       </td>
                       <td className='p-3'>
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-xs',
-                            p.status === 'active' && 'bg-emerald-100 text-emerald-800',
-                            p.status === 'inactive' && 'bg-slate-100 text-slate-700',
-                            p.status === 'sold_out' && 'bg-amber-100 text-amber-900',
-                          )}
-                        >
-                          {statusLabel[p.status]}
-                        </span>
+                        <StatusBadge status={p.status} />
                       </td>
                       <td className='p-3 text-right'>
                         <button
@@ -194,6 +201,67 @@ export function AdminMockExamsClient({
             </tbody>
           </table>
         </div>
+
+        {/* 모바일: 카드 리스트 */}
+        {products.length === 0 ? (
+          <div className='text-muted-foreground p-8 text-center md:hidden'>
+            등록된 모의고사가 없습니다.
+          </div>
+        ) : (
+          <DataCardList className='rounded-none border-0'>
+            {products.map((p) => {
+              const v = p.variants[0];
+              return (
+                <DataCard key={p.id}>
+                  <DataCardHeader
+                    title={
+                      <Link
+                        href={`/admin/mock-exams/${p.id}`}
+                        className='text-primary hover:underline'
+                      >
+                        {p.name}
+                      </Link>
+                    }
+                    meta={v ? `${v.price.toLocaleString()}원` : '-'}
+                    right={
+                      <>
+                        <StatusBadge status={p.status} />
+                        <button
+                          type='button'
+                          onClick={(e) => handleDelete(e, p)}
+                          disabled={deletingId === p.id}
+                          title='모의고사 삭제'
+                          aria-label={`${p.name} 모의고사 삭제`}
+                          className={cn(
+                            'inline-flex items-center justify-center rounded-md p-2 transition-colors',
+                            'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
+                            'disabled:cursor-not-allowed disabled:opacity-50',
+                          )}
+                        >
+                          <Trash2 className='size-4' />
+                        </button>
+                      </>
+                    }
+                  />
+                  {optionSummaries[p.id] ? (
+                    <DataCardRow label='옵션'>
+                      <span className='whitespace-pre-wrap'>{optionSummaries[p.id]}</span>
+                    </DataCardRow>
+                  ) : null}
+                  <DataCardRow label='신청 기간'>
+                    {v ? `${v.sale_start_date} ~ ${v.sale_end_date}` : '-'}
+                  </DataCardRow>
+                  <DataCardRow label='시험 기간'>
+                    {v ? `${v.product_start_date} ~ ${v.product_end_date}` : '-'}
+                  </DataCardRow>
+                  <DataCardRow label='정원'>
+                    {v == null ? '-' : v.max_capacity == null ? '무제한' : `${v.max_capacity}명`}
+                  </DataCardRow>
+                </DataCard>
+              );
+            })}
+          </DataCardList>
+        )}
       </Card>
 
       <div className='flex justify-center'>
