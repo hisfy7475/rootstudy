@@ -341,7 +341,7 @@ export default function StudentTypesClient({
       {showAddForm && (
         <Card className='p-4'>
           <h3 className='mb-4 font-semibold'>새 학생 타입 추가</h3>
-          <div className='grid grid-cols-3 items-end gap-4'>
+          <div className='grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-end'>
             <div>
               <label className='mb-1 block text-sm font-medium text-gray-700'>타입명 *</label>
               <Input
@@ -383,7 +383,7 @@ export default function StudentTypesClient({
       )}
 
       {/* 통계 */}
-      <div className='grid grid-cols-3 gap-4'>
+      <div className='grid grid-cols-3 gap-2 sm:gap-4'>
         <Card className='p-4'>
           <div className='text-sm text-gray-500'>전체 타입</div>
           <div className='text-2xl font-bold text-gray-800'>{types.length}</div>
@@ -406,8 +406,8 @@ export default function StudentTypesClient({
 
       {/* 과목 설정 모달 */}
       {subjectEditingId && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50'>
-          <Card className='m-4 w-full max-w-lg p-6'>
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <Card className='w-full max-w-lg p-6'>
             <div className='mb-4 flex items-center justify-between'>
               <h3 className='text-lg font-semibold'>선택 가능 과목 설정</h3>
               <Button
@@ -543,8 +543,8 @@ export default function StudentTypesClient({
 
       {/* 주간 목표 설정 모달 */}
       {goalEditingId && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50'>
-          <Card className='m-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto p-6'>
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <Card className='max-h-[90vh] w-full max-w-2xl overflow-y-auto p-6'>
             <div className='mb-4 flex items-center justify-between'>
               <div>
                 <h3 className='text-lg font-semibold'>주간 목표 설정</h3>
@@ -632,8 +632,8 @@ export default function StudentTypesClient({
               </div>
             ) : (
               <>
-                {/* 테이블 헤더 - 투트랙 */}
-                <div className='mb-2 grid grid-cols-5 gap-3 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600'>
+                {/* 테이블 헤더 - 투트랙 (모바일에선 각 입력에 라벨을 붙이므로 숨김) */}
+                <div className='mb-2 hidden grid-cols-5 gap-3 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 sm:grid'>
                   <div>날짜 타입</div>
                   <div className='text-center'>주간 목표 (시간)</div>
                   <div className='text-center'>달성 상점</div>
@@ -646,9 +646,9 @@ export default function StudentTypesClient({
                   {dateTypes.map((dt) => (
                     <div
                       key={dt.id}
-                      className='grid grid-cols-5 items-center gap-3 rounded-lg bg-gray-50 px-3 py-3'
+                      className='grid grid-cols-2 items-center gap-3 rounded-lg bg-gray-50 px-3 py-3 sm:grid-cols-5'
                     >
-                      <div className='flex items-center gap-2'>
+                      <div className='col-span-2 flex items-center gap-2 sm:col-span-1'>
                         <div
                           className='h-3 w-3 rounded-full'
                           style={{ backgroundColor: dt.color }}
@@ -656,6 +656,7 @@ export default function StudentTypesClient({
                         <span className='font-medium text-gray-800'>{dt.name}</span>
                       </div>
                       <div>
+                        <span className='mb-1 block text-xs text-gray-500 sm:hidden'>주간 목표</span>
                         <Input
                           type='number'
                           min='0'
@@ -672,6 +673,7 @@ export default function StudentTypesClient({
                         />
                       </div>
                       <div>
+                        <span className='mb-1 block text-xs text-gray-500 sm:hidden'>달성 상점</span>
                         <Input
                           type='number'
                           min='0'
@@ -688,6 +690,7 @@ export default function StudentTypesClient({
                         />
                       </div>
                       <div>
+                        <span className='mb-1 block text-xs text-gray-500 sm:hidden'>최소 시간</span>
                         <Input
                           type='number'
                           min='0'
@@ -704,6 +707,7 @@ export default function StudentTypesClient({
                         />
                       </div>
                       <div>
+                        <span className='mb-1 block text-xs text-gray-500 sm:hidden'>미달 벌점</span>
                         <Input
                           type='number'
                           min='0'
@@ -768,7 +772,7 @@ export default function StudentTypesClient({
             types.map((type) => (
               <Card key={type.id} className='p-4'>
                 {editingId === type.id ? (
-                  <div className='grid grid-cols-3 items-end gap-4'>
+                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-end'>
                     <div>
                       <label className='mb-1 block text-sm font-medium text-gray-700'>타입명</label>
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
@@ -795,7 +799,7 @@ export default function StudentTypesClient({
                     </div>
                   </div>
                 ) : (
-                  <div className='flex items-center justify-between'>
+                  <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                     <div className='flex items-center gap-4'>
                       <div className='bg-primary/10 flex h-12 w-12 items-center justify-center rounded-xl'>
                         <GraduationCap className='text-primary h-6 w-6' />
@@ -804,7 +808,7 @@ export default function StudentTypesClient({
                         <h3 className='font-semibold text-gray-800'>{type.name}</h3>
                       </div>
                     </div>
-                    <div className='flex items-center gap-6'>
+                    <div className='flex flex-wrap items-center gap-x-4 gap-y-2'>
                       <div
                         className='flex items-center gap-2 text-gray-500'
                         title='신규 타입 생성 시의 기본값. 학기/방학별 목표 시간은 Target 버튼에서 설정.'

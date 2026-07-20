@@ -3,6 +3,7 @@
 import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { DataCardRow } from '@/components/ui/data-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
@@ -460,12 +461,12 @@ export default function SchedulesClient({
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold text-gray-800'>부재 스케줄 관리</h1>
           <p className='mt-1 text-gray-500'>학생들의 부재 일정을 관리합니다.</p>
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           {selectedIds.size > 0 && (
             <>
               <Button
@@ -521,7 +522,7 @@ export default function SchedulesClient({
               {pendingSchedules.length}건
             </span>
           </div>
-          <div className='overflow-x-auto rounded-lg border border-amber-100 bg-white'>
+          <div className='hidden overflow-x-auto rounded-lg border border-amber-100 bg-white md:block'>
             <table className='w-full text-xs'>
               <thead className='border-b border-amber-100 bg-amber-50/80'>
                 <tr>
@@ -613,6 +614,73 @@ export default function SchedulesClient({
               </tbody>
             </table>
           </div>
+
+          {/* 모바일: 카드 리스트 */}
+          <div className='divide-y divide-amber-100 md:hidden'>
+            {pendingSchedules.map((schedule) => (
+              <div key={schedule.id} className='space-y-2 p-3'>
+                <div className='flex items-start gap-2'>
+                  <div
+                    className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded',
+                      schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
+                    )}
+                  >
+                    {schedule.is_recurring ? (
+                      <Repeat className='text-primary h-3 w-3' />
+                    ) : (
+                      <CalendarDays className='h-3 w-3 text-amber-600' />
+                    )}
+                  </div>
+                  <div className='min-w-0 flex-1'>
+                    <div className='truncate font-medium text-gray-800'>
+                      {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
+                      {schedule.student_name}
+                    </div>
+                    <div className='truncate text-gray-600' title={schedule.title}>
+                      {schedule.title}
+                    </div>
+                  </div>
+                  <div className='flex shrink-0 gap-1'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => handleReject(schedule.id)}
+                      disabled={isPending}
+                      className='h-7 border-red-200 px-2 text-[11px] text-red-600 hover:bg-red-50'
+                    >
+                      거부
+                    </Button>
+                    <Button
+                      size='sm'
+                      onClick={() => handleApprove(schedule.id)}
+                      disabled={isPending}
+                      className='bg-primary hover:bg-primary/90 h-7 px-2 text-[11px]'
+                    >
+                      승인
+                    </Button>
+                  </div>
+                </div>
+                <DataCardRow label='시간'>
+                  <span className='tabular-nums text-gray-600'>
+                    {formatTimeRange(schedule.start_time, schedule.end_time)}
+                  </span>
+                </DataCardRow>
+                <DataCardRow label='반복/날짜'>
+                  {schedule.is_recurring
+                    ? formatDaysOfWeek(schedule.day_of_week)
+                    : schedule.specific_date
+                      ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', {
+                          locale: ko,
+                        })
+                      : '—'}
+                </DataCardRow>
+                <DataCardRow label='적용'>
+                  <span className='text-gray-500'>{formatDateType(schedule.date_type)}</span>
+                </DataCardRow>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -676,7 +744,7 @@ export default function SchedulesClient({
         </Card>
       ) : (
         <Card className='relative overflow-hidden p-0'>
-          <div className='overflow-x-auto'>
+          <div className='hidden overflow-x-auto md:block'>
             <table className='w-full text-xs'>
               <thead className='border-b bg-gray-50'>
                 <tr>
@@ -891,6 +959,151 @@ export default function SchedulesClient({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* 모바일: 카드 리스트 */}
+          <div className='divide-y divide-gray-100 md:hidden'>
+            {schedules.map((schedule) => (
+              <div
+                key={schedule.id}
+                className={cn(
+                  'space-y-2 p-4',
+                  !schedule.is_active && 'bg-gray-50/80 opacity-70',
+                  selectedIds.has(schedule.id) && 'bg-primary/5',
+                )}
+              >
+                <div className='flex items-start gap-2'>
+                  <button
+                    type='button'
+                    onClick={() => toggleSelectOne(schedule.id)}
+                    aria-label='선택'
+                    className='mt-0.5 shrink-0'
+                  >
+                    {selectedIds.has(schedule.id) ? (
+                      <CheckSquare className='text-primary h-4 w-4' />
+                    ) : (
+                      <Square className='h-4 w-4 text-gray-400' />
+                    )}
+                  </button>
+                  <div className='min-w-0 flex-1'>
+                    <div className='flex items-center gap-1.5'>
+                      <div
+                        className={cn(
+                          'flex h-6 w-6 shrink-0 items-center justify-center rounded',
+                          schedule.is_recurring ? 'bg-primary/10' : 'bg-amber-100',
+                        )}
+                      >
+                        {schedule.is_recurring ? (
+                          <Repeat className='text-primary h-3 w-3' />
+                        ) : (
+                          <CalendarDays className='h-3 w-3 text-amber-600' />
+                        )}
+                      </div>
+                      <span className='truncate font-medium text-gray-800'>
+                        {schedule.seat_number != null ? `${schedule.seat_number}번 ` : ''}
+                        {schedule.student_name}
+                      </span>
+                    </div>
+                    <div className='mt-1 flex flex-wrap items-center gap-1'>
+                      <span
+                        className='max-w-[180px] truncate font-medium text-gray-800'
+                        title={schedule.title}
+                      >
+                        {schedule.title}
+                      </span>
+                      {!schedule.is_active && (
+                        <span className='shrink-0 rounded bg-gray-200 px-1 py-0 text-[10px] text-gray-600'>
+                          비활성
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className='flex shrink-0'>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => openEditModal(schedule)}
+                      className='hover:text-primary h-7 w-7 p-0 text-gray-400'
+                    >
+                      <Pencil className='h-3.5 w-3.5' />
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => handleDelete(schedule)}
+                      disabled={isPending}
+                      className='h-7 w-7 p-0 text-gray-400 hover:text-red-500'
+                    >
+                      <Trash2 className='h-3.5 w-3.5' />
+                    </Button>
+                  </div>
+                </div>
+
+                <DataCardRow label='시간'>
+                  <span className='tabular-nums text-gray-700'>
+                    {formatTimeRange(schedule.start_time, schedule.end_time)}
+                  </span>
+                </DataCardRow>
+                <DataCardRow label='면제(버퍼)'>
+                  <span className='text-[11px] tabular-nums text-gray-500'>
+                    {formatExemptionRange(
+                      schedule.start_time,
+                      schedule.end_time,
+                      schedule.buffer_minutes,
+                    )}
+                  </span>
+                </DataCardRow>
+                <DataCardRow label='반복/날짜'>
+                  {schedule.is_recurring
+                    ? formatDaysOfWeek(schedule.day_of_week)
+                    : schedule.specific_date
+                      ? format(new Date(schedule.specific_date + 'T12:00:00+09:00'), 'M/d (eee)', {
+                          locale: ko,
+                        })
+                      : '—'}
+                </DataCardRow>
+                <DataCardRow label='구분·기간'>
+                  <div className='flex flex-wrap items-center justify-end gap-1'>
+                    <span
+                      className={cn(
+                        'inline-block rounded px-1.5 py-0 text-[10px]',
+                        !schedule.is_recurring
+                          ? 'bg-amber-100 text-amber-700'
+                          : schedule.date_type === 'semester'
+                            ? 'bg-blue-100 text-blue-700'
+                            : schedule.date_type === 'vacation'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-600',
+                      )}
+                    >
+                      {schedule.is_recurring ? formatDateType(schedule.date_type) : '일회성'}
+                    </span>
+                    {schedule.is_recurring && (schedule.valid_from || schedule.valid_until) && (
+                      <span className='text-[10px] tabular-nums text-gray-500'>
+                        {schedule.valid_from
+                          ? format(new Date(schedule.valid_from + 'T12:00:00+09:00'), 'M/d', {
+                              locale: ko,
+                            })
+                          : ''}
+                        ~
+                        {schedule.valid_until
+                          ? format(new Date(schedule.valid_until + 'T12:00:00+09:00'), 'M/d', {
+                              locale: ko,
+                            })
+                          : '∞'}
+                      </span>
+                    )}
+                  </div>
+                </DataCardRow>
+                {schedule.description && (
+                  <DataCardRow label='비고'>
+                    <span className='block max-w-[220px] truncate' title={schedule.description}>
+                      {schedule.description}
+                    </span>
+                  </DataCardRow>
+                )}
+              </div>
+            ))}
           </div>
         </Card>
       )}
