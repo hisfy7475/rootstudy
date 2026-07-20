@@ -186,7 +186,7 @@ export default function DownloadPage() {
 
         {/* 다운로드 옵션 */}
         <div>
-          <Card className="p-6 sticky top-6">
+          <Card className="p-6 sticky top-20 md:top-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-primary" />
               다운로드 옵션

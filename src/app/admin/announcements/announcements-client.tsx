@@ -396,12 +396,12 @@ export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClien
   return (
     <div className='space-y-6 p-6'>
       {/* 헤더 */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>공지사항 관리</h1>
           <p className='text-text-muted mt-1'>학생과 학부모에게 공지사항을 전달하세요</p>
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           <Button variant='outline' onClick={refreshData} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             새로고침
@@ -519,9 +519,9 @@ export function AnnouncementsClient({ initialResult, stats }: AnnouncementsClien
                   </div>
 
                   <div className='min-w-0 flex-1'>
-                    <div className='mb-1 flex items-center gap-2'>
+                    <div className='mb-1 flex flex-wrap items-center gap-2'>
                       {announcement.is_important && (
-                        <Star className='h-4 w-4 fill-yellow-500 text-yellow-500' />
+                        <Star className='h-4 w-4 flex-shrink-0 fill-yellow-500 text-yellow-500' />
                       )}
                       <span className='font-medium'>{announcement.title}</span>
                       <span

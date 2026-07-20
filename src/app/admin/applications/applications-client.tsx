@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DataCard, DataCardList, DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { Pagination } from '@/components/ui/pagination';
 import { cn, getTodayKST } from '@/lib/utils';
 import {
@@ -433,7 +434,7 @@ export function ApplicationsClient({
           <span className='text-muted-foreground'>결과: </span>
           <span className='font-semibold'>{total.toLocaleString('ko-KR')}건</span>
         </div>
-        <div className='overflow-x-auto'>
+        <div className='hidden overflow-x-auto md:block'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50 text-muted-foreground'>
               <tr>
@@ -511,6 +512,20 @@ export function ApplicationsClient({
             </tbody>
           </table>
         </div>
+
+        {/* 모바일: 카드 리스트 */}
+        {rows.length === 0 ? (
+          <div className='text-muted-foreground px-3 py-8 text-center md:hidden'>
+            조건에 맞는 신청 내역이 없습니다.
+          </div>
+        ) : (
+          <DataCardList className='rounded-none border-0'>
+            {rows.map((r) => (
+              <ApplicationCard key={`${r.domain}-${r.application_id}`} row={r} />
+            ))}
+          </DataCardList>
+        )}
+
         <div className='flex justify-center border-t px-4 py-3'>
           <Pagination
             total={total}
@@ -592,6 +607,77 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
         </Link>
       </td>
     </tr>
+  );
+}
+
+function ApplicationCard({ row }: { row: UnifiedAppRow }) {
+  const subText = describeSubCategory(row.domain, row.sub_category);
+  const itemDisplay = row.item_name
+    ? subText
+      ? `${row.item_name} · ${subText}`
+      : row.item_name
+    : subText || '-';
+  const optionSummary = row.domain === 'exam' ? row.option_summary : null;
+
+  return (
+    <DataCard>
+      <DataCardHeader
+        title={
+          <span className='flex flex-wrap items-center gap-1'>
+            {row.student_name ?? '—'}
+            {row.student_withdrawn_at && (
+              <span className='rounded bg-gray-100 px-1 text-[10px] text-gray-600'>퇴원</span>
+            )}
+          </span>
+        }
+        meta={
+          <span>
+            {row.branch_name ?? '—'}
+            {row.user_name && row.user_name !== row.student_name
+              ? ` · 신청자 ${row.user_name}`
+              : ''}
+          </span>
+        }
+        right={
+          <span className='flex flex-col items-end gap-1'>
+            <span
+              className={cn('rounded-full px-2 py-0.5 text-xs', DOMAIN_BADGE_CLASS[row.domain])}
+            >
+              {DOMAIN_LABEL[row.domain]}
+            </span>
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-xs',
+                STATUS_BADGE_CLASS[row.status_normalized],
+              )}
+            >
+              {statusToText(row.status_normalized)}
+            </span>
+          </span>
+        }
+      />
+      <DataCardRow label='좌석'>
+        {formatSeatSnapshot(row.seat_number_snapshot, row.student_seat_number_current)}
+      </DataCardRow>
+      <DataCardRow label='내역'>
+        <span className='block'>{itemDisplay}</span>
+        {optionSummary ? (
+          <span className='text-muted-foreground mt-0.5 block text-xs'>옵션: {optionSummary}</span>
+        ) : null}
+      </DataCardRow>
+      <DataCardRow label='이용일자'>{formatServiceDate(row)}</DataCardRow>
+      <DataCardRow label='금액'>{formatAmount(row.amount)}</DataCardRow>
+      <DataCardRow label='신청일'>{formatDateTime(row.applied_at)}</DataCardRow>
+      <DataCardRow label='결제일'>{formatDateTime(row.paid_at)}</DataCardRow>
+      <DataCardRow label='상세'>
+        <Link
+          href={row.detail_href}
+          className='text-primary inline-flex items-center gap-1 text-xs hover:underline'
+        >
+          상세 <ExternalLink className='h-3 w-3' />
+        </Link>
+      </DataCardRow>
+    </DataCard>
   );
 }
 

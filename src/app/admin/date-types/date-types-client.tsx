@@ -411,7 +411,7 @@ export default function DateTypesClient({
           {/* 일괄 지정 폼 */}
           {bulkMode && (
             <div className='mb-4 space-y-3 rounded-xl bg-gray-50 p-4'>
-              <div className='grid grid-cols-2 gap-4'>
+              <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
                 <div>
                   <label className='text-sm text-gray-600'>시작일</label>
                   <Input
@@ -448,7 +448,7 @@ export default function DateTypesClient({
                 <label className='mb-2 block text-sm text-gray-600'>
                   적용 요일 (미선택시 모든 요일)
                 </label>
-                <div className='flex gap-2'>
+                <div className='flex flex-wrap gap-2'>
                   {dayNames.map((day, idx) => (
                     <button
                       key={idx}

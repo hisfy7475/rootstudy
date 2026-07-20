@@ -239,14 +239,14 @@ export function MyNotifications({
 
   return (
     <Card className='p-6'>
-      <div className='mb-4 flex items-center justify-between'>
+      <div className='mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h2 className='text-lg font-semibold'>내 알림</h2>
           <p className='text-text-muted mt-0.5 text-sm'>
             {unreadCount > 0 ? `읽지 않은 알림 ${unreadCount}개` : '읽지 않은 알림이 없습니다.'}
           </p>
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           <Button variant='outline' size='sm' onClick={refresh} disabled={loading}>
             <RefreshCw className={cn('mr-1.5 h-4 w-4', loading && 'animate-spin')} />
             새로고침

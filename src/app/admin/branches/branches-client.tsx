@@ -165,7 +165,7 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
       {isSuperAdmin && showAddForm && (
         <Card className='p-4'>
           <h3 className='mb-4 font-semibold'>새 지점 추가</h3>
-          <div className='flex items-end gap-4'>
+          <div className='flex flex-col gap-4 sm:flex-row sm:items-end'>
             <div className='flex-1'>
               <label className='mb-1 block text-sm font-medium text-gray-700'>지점명 *</label>
               <Input
@@ -202,7 +202,7 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
       )}
 
       {/* 통계 */}
-      <div className='grid grid-cols-3 gap-4'>
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
         <Card className='p-4'>
           <div className='text-sm text-gray-500'>전체 지점</div>
           <div className='text-2xl font-bold text-gray-800'>{branches.length}</div>
@@ -227,7 +227,7 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
             activeBranches.map((branch) => (
               <Card key={branch.id} className='p-4'>
                 {editingId === branch.id ? (
-                  <div className='flex items-end gap-4'>
+                  <div className='flex flex-col gap-4 sm:flex-row sm:items-end'>
                     <div className='flex-1'>
                       <label className='mb-1 block text-sm font-medium text-gray-700'>지점명</label>
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
@@ -246,8 +246,8 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
                     </div>
                   </div>
                 ) : (
-                  <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-4'>
+                  <div className='flex items-center justify-between gap-3'>
+                    <div className='flex min-w-0 items-center gap-4'>
                       {/* 순서 변경 버튼 */}
                       {isSuperAdmin && (
                         <div className='flex flex-col gap-0.5'>
@@ -276,15 +276,17 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
                           </Button>
                         </div>
                       )}
-                      <div className='bg-primary/10 flex h-12 w-12 items-center justify-center rounded-xl'>
+                      <div className='bg-primary/10 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl'>
                         <Building2 className='text-primary h-6 w-6' />
                       </div>
-                      <div>
-                        <h3 className='font-semibold text-gray-800'>{branch.name}</h3>
-                        <p className='text-sm text-gray-500'>{branch.address || '주소 미등록'}</p>
+                      <div className='min-w-0'>
+                        <h3 className='truncate font-semibold text-gray-800'>{branch.name}</h3>
+                        <p className='truncate text-sm text-gray-500'>
+                          {branch.address || '주소 미등록'}
+                        </p>
                       </div>
                     </div>
-                    <div className='flex items-center gap-4'>
+                    <div className='flex flex-shrink-0 items-center gap-4'>
                       <div className='flex items-center gap-2 text-gray-500'>
                         <Users className='h-4 w-4' />
                         <span>{branch.studentCount}명</span>
@@ -321,17 +323,19 @@ export default function BranchesClient({ initialBranches, isSuperAdmin }: Branch
           <div className='space-y-3'>
             {inactiveBranches.map((branch) => (
               <Card key={branch.id} className='bg-gray-50 p-4 opacity-60'>
-                <div className='flex items-center justify-between'>
-                  <div className='flex items-center gap-4'>
-                    <div className='flex h-12 w-12 items-center justify-center rounded-xl bg-gray-200'>
+                <div className='flex items-center justify-between gap-3'>
+                  <div className='flex min-w-0 items-center gap-4'>
+                    <div className='flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gray-200'>
                       <Building2 className='h-6 w-6 text-gray-400' />
                     </div>
-                    <div>
-                      <h3 className='font-semibold text-gray-500'>{branch.name}</h3>
-                      <p className='text-sm text-gray-400'>{branch.address || '주소 미등록'}</p>
+                    <div className='min-w-0'>
+                      <h3 className='truncate font-semibold text-gray-500'>{branch.name}</h3>
+                      <p className='truncate text-sm text-gray-400'>
+                        {branch.address || '주소 미등록'}
+                      </p>
                     </div>
                   </div>
-                  <div className='flex items-center gap-4'>
+                  <div className='flex flex-shrink-0 items-center gap-4'>
                     <div className='flex items-center gap-2 text-gray-400'>
                       <Users className='h-4 w-4' />
                       <span>{branch.studentCount}명</span>

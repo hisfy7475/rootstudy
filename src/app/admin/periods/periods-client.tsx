@@ -281,7 +281,7 @@ export default function PeriodsClient({
           </div>
 
           {/* 버튼들 */}
-          <div className='flex gap-2'>
+          <div className='flex flex-wrap gap-2'>
             {selectedDateTypeId && filteredPeriods.length > 0 && (
               <Button variant='outline' onClick={() => setShowCopyModal(true)} disabled={isLoading}>
                 <Copy className='mr-2 h-4 w-4' />
@@ -518,8 +518,8 @@ export default function PeriodsClient({
 
       {/* 복사 모달 */}
       {showCopyModal && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50'>
-          <Card className='mx-4 w-full max-w-md p-6'>
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <Card className='w-full max-w-md p-6'>
             <h3 className='mb-4 text-lg font-bold'>교시 복사</h3>
             <p className='text-text-muted mb-4'>
               현재 선택된 날짜 타입의 교시를 다른 지점/날짜 타입으로 복사합니다.
