@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import { setStudentSubject } from '@/lib/actions/admin';
 import {
   User,
@@ -84,8 +83,79 @@ export function StudentTable({ students }: StudentTableProps) {
     setSelectedSubject('');
   };
 
+  // 과목 표시/편집 컨트롤 — 데스크톱 표와 모바일 카드에서 동일하게 재사용
+  const renderSubjectControl = (student: Student) => {
+    if (editingSubject === student.id) {
+      return (
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+            className="px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            <option value="">선택</option>
+            {subjectList.map((subject) => (
+              <option key={subject} value={subject}>
+                {subject}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => handleSubjectSave(student.id)}
+            disabled={loading || !selectedSubject}
+            className="p-1 text-success hover:bg-success/10 rounded"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleSubjectCancel}
+            className="p-1 text-error hover:bg-error/10 rounded"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2">
+        {student.currentSubject ? (
+          <div className="flex items-center gap-1">
+            <BookOpen className="w-4 h-4 text-accent" />
+            <span className="text-sm">{student.currentSubject}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 text-warning">
+            <AlertCircle className="w-4 h-4" />
+            <span className="text-sm">미설정</span>
+          </div>
+        )}
+        {student.status === 'checked_in' && (
+          <button
+            onClick={() => handleSubjectEdit(student.id, student.currentSubject)}
+            className="p-1 text-text-muted hover:text-primary hover:bg-primary/10 rounded"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const statusBadge = (student: Student) => (
+    <span
+      className={cn(
+        'px-2 py-1 rounded-full text-xs font-medium',
+        statusConfig[student.status].color
+      )}
+    >
+      {statusConfig[student.status].label}
+    </span>
+  );
+
   return (
-    <Card className="overflow-hidden">
+    <>
+    {/* 데스크톱: 표 */}
+    <Card className="hidden overflow-hidden md:block">
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-100">
@@ -136,16 +206,7 @@ export function StudentTable({ students }: StudentTableProps) {
                     </td>
 
                     {/* 상태 */}
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'px-2 py-1 rounded-full text-xs font-medium',
-                          statusConfig[student.status].color
-                        )}
-                      >
-                        {statusConfig[student.status].label}
-                      </span>
-                    </td>
+                    <td className="px-4 py-3">{statusBadge(student)}</td>
 
                     {/* 입실시간 */}
                     <td className="px-4 py-3">
@@ -163,59 +224,7 @@ export function StudentTable({ students }: StudentTableProps) {
                     </td>
 
                     {/* 현재 과목 */}
-                    <td className="px-4 py-3">
-                      {editingSubject === student.id ? (
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={selectedSubject}
-                            onChange={(e) => setSelectedSubject(e.target.value)}
-                            className="px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                          >
-                            <option value="">선택</option>
-                            {subjectList.map((subject) => (
-                              <option key={subject} value={subject}>
-                                {subject}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => handleSubjectSave(student.id)}
-                            disabled={loading || !selectedSubject}
-                            className="p-1 text-success hover:bg-success/10 rounded"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={handleSubjectCancel}
-                            className="p-1 text-error hover:bg-error/10 rounded"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {student.currentSubject ? (
-                            <div className="flex items-center gap-1">
-                              <BookOpen className="w-4 h-4 text-accent" />
-                              <span className="text-sm">{student.currentSubject}</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-warning">
-                              <AlertCircle className="w-4 h-4" />
-                              <span className="text-sm">미설정</span>
-                            </div>
-                          )}
-                          {student.status === 'checked_in' && (
-                            <button
-                              onClick={() => handleSubjectEdit(student.id, student.currentSubject)}
-                              className="p-1 text-text-muted hover:text-primary hover:bg-primary/10 rounded"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </td>
+                    <td className="px-4 py-3">{renderSubjectControl(student)}</td>
 
                     {/* 몰입도 */}
                     <td className="px-4 py-3">
@@ -236,5 +245,55 @@ export function StudentTable({ students }: StudentTableProps) {
         </table>
       </div>
     </Card>
+
+    {/* 모바일: 카드 리스트 */}
+    {students.length === 0 ? (
+      <Card className="p-8 text-center text-text-muted md:hidden">
+        등록된 학생이 없습니다.
+      </Card>
+    ) : (
+      <DataCardList>
+        {students.map((student) => {
+          const isNoSubject = student.status === 'checked_in' && !student.currentSubject;
+          return (
+            <DataCard key={student.id} className={cn(isNoSubject && 'bg-warning/10')}>
+              <DataCardHeader
+                title={
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <User className="w-4 h-4 text-primary" />
+                    </div>
+                    <span>{student.name}</span>
+                  </div>
+                }
+                meta={student.seatNumber ? `좌석 ${student.seatNumber}` : '좌석 미배정'}
+                right={statusBadge(student)}
+              />
+              <DataCardRow label="입실시간">
+                <span className="inline-flex items-center gap-1 text-text-muted">
+                  <Clock className="w-4 h-4" />
+                  {formatCheckInTime(student.checkInTime)}
+                </span>
+              </DataCardRow>
+              <DataCardRow label="학습시간">
+                <span className="font-medium">{formatTime(student.totalStudySeconds)}</span>
+              </DataCardRow>
+              <DataCardRow label="현재 과목">{renderSubjectControl(student)}</DataCardRow>
+              <DataCardRow label="몰입도">
+                {student.avgFocus !== null ? (
+                  <span className="inline-flex items-center gap-1 font-medium">
+                    <Brain className="w-4 h-4 text-secondary" />
+                    {student.avgFocus}
+                  </span>
+                ) : (
+                  <span className="text-text-muted">-</span>
+                )}
+              </DataCardRow>
+            </DataCard>
+          );
+        })}
+      </DataCardList>
+    )}
+    </>
   );
 }

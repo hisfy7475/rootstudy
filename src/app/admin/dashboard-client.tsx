@@ -102,12 +102,12 @@ export function DashboardClient({
 
   return (
     <div className='space-y-6 p-6'>
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>학생 현황</h1>
           <p className='text-text-muted mt-1'>실시간 학생 상태를 확인하세요</p>
         </div>
-        <Button variant='outline' onClick={handleRefresh}>
+        <Button variant='outline' onClick={handleRefresh} className='self-start sm:self-auto'>
           <RefreshCw className='mr-2 h-4 w-4' />
           새로고침
         </Button>
@@ -121,7 +121,7 @@ export function DashboardClient({
       />
 
       {/* 상태 필터 버튼 */}
-      <div className='flex gap-2'>
+      <div className='flex flex-wrap gap-2'>
         {filterButtons.map((btn) => (
           <Button
             key={btn.value}

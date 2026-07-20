@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
+import { DataCardHeader, DataCardRow } from '@/components/ui/data-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
@@ -490,7 +491,7 @@ export function AttendanceClient({
   return (
     <div className='space-y-6 p-6 print:space-y-2 print:p-2'>
       {/* 헤더 */}
-      <div className='flex items-center justify-between print:mb-2'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:mb-2'>
         <div>
           <h1 className='text-2xl font-bold print:text-lg'>출석부</h1>
           <div className='text-text-muted mt-1 flex items-center gap-2 print:text-sm'>
@@ -545,9 +546,9 @@ export function AttendanceClient({
       </div>
 
       {/* 뷰 전환 탭 + 날짜/주 선택 */}
-      <div className='flex items-center justify-between gap-4 print:hidden'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden'>
         {/* 뷰 전환 탭 */}
-        <div className='flex rounded-lg bg-gray-100 p-1'>
+        <div className='flex self-start rounded-lg bg-gray-100 p-1 sm:self-auto'>
           <button
             onClick={() => {
               setViewMode('daily');
@@ -581,7 +582,7 @@ export function AttendanceClient({
         </div>
 
         {/* 학생 이름 검색 */}
-        <SearchInput placeholder='학생 이름 검색...' className='max-w-xs flex-1' />
+        <SearchInput placeholder='학생 이름 검색...' className='w-full sm:max-w-xs sm:flex-1' />
 
         {/* 날짜/주 선택 */}
         {viewMode === 'daily' ? (
@@ -625,7 +626,7 @@ export function AttendanceClient({
       {viewMode === 'daily' ? (
         <>
           {/* 통계 카드 - 클릭 시 필터 */}
-          <div className='grid grid-cols-4 gap-3 print:grid-cols-4 print:gap-1'>
+          <div className='grid grid-cols-2 gap-3 sm:grid-cols-4 print:grid-cols-4 print:gap-1'>
             {/* 전체 - 필터 해제 */}
             <button
               onClick={() => {
@@ -726,7 +727,7 @@ export function AttendanceClient({
                 <p className='text-xs text-gray-500'>전체 명단을 한 번에 가져오고 있습니다</p>
               </div>
             )}
-            <div className='overflow-x-auto'>
+            <div className='hidden overflow-x-auto md:block print:block'>
               <table className='w-full text-xs'>
                 <thead className='border-b bg-gray-50 print:bg-gray-100'>
                   <tr>
@@ -975,6 +976,132 @@ export function AttendanceClient({
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* 모바일: 카드 리스트 */}
+            <div className='divide-y divide-gray-100 md:hidden print:hidden'>
+              {loading && data.length === 0 ? (
+                <div className='flex flex-col items-center justify-center gap-3 px-2 py-16 text-gray-600'>
+                  <RefreshCw className='text-primary h-8 w-8 animate-spin' />
+                  <span className='text-sm font-medium'>목록을 불러오는 중입니다…</span>
+                </div>
+              ) : data.length === 0 ? (
+                <div className='px-2 py-6 text-center text-xs text-gray-500'>
+                  {q ? `"${q}" 검색 결과가 없습니다.` : '등록된 학생이 없습니다.'}
+                </div>
+              ) : (
+                sortedData.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE).map((student) => {
+                  const statusDisplay = getStatusDisplay(student.status);
+                  const StatusIcon = statusDisplay.icon;
+                  const isNotArrived =
+                    student.status === 'checked_out' && !student.firstCheckInTime;
+                  return (
+                    <div
+                      key={student.id}
+                      className={cn('space-y-2 p-4', isNotArrived && 'bg-red-50/50')}
+                    >
+                      <DataCardHeader
+                        title={
+                          <Link
+                            href={`/admin/chat?studentId=${student.id}`}
+                            className='hover:text-primary hover:underline'
+                          >
+                            {student.name}
+                          </Link>
+                        }
+                        meta={student.seatNumber ? `번호 ${student.seatNumber}` : '번호 -'}
+                        right={
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium',
+                              statusDisplay.bg,
+                              statusDisplay.color,
+                            )}
+                          >
+                            <StatusIcon className='h-3 w-3' />
+                            {statusDisplay.label}
+                          </span>
+                        }
+                      />
+                      <DataCardRow label='입실시간'>
+                        <span
+                          className={cn(
+                            student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400',
+                          )}
+                        >
+                          {formatTime(student.firstCheckInTime)}
+                        </span>
+                      </DataCardRow>
+                      <DataCardRow label='퇴실시간'>
+                        {student.status === 'checked_out' && student.lastCheckOutTime ? (
+                          <span className='text-gray-700'>
+                            {formatTime(student.lastCheckOutTime)}
+                          </span>
+                        ) : (
+                          <span className='text-gray-400'>-</span>
+                        )}
+                      </DataCardRow>
+                      <DataCardRow label='당일 순공'>
+                        <span
+                          className={cn(
+                            'font-medium',
+                            student.todayStudyMinutes > 0 ? 'text-blue-600' : 'text-gray-400',
+                          )}
+                        >
+                          {formatStudyMinutes(student.todayStudyMinutes)}
+                        </span>
+                      </DataCardRow>
+                      <DataCardRow label='몰입도'>
+                        {student.avgFocus !== null ? (
+                          <span
+                            className={cn(
+                              'font-semibold',
+                              student.avgFocus >= 8
+                                ? 'text-green-600'
+                                : student.avgFocus >= 6
+                                  ? 'text-primary'
+                                  : student.avgFocus >= 4
+                                    ? 'text-amber-600'
+                                    : 'text-red-500',
+                            )}
+                          >
+                            {student.avgFocus}{' '}
+                            <span className='text-[10px] font-normal text-gray-400'>
+                              ({student.focusCount}회)
+                            </span>
+                          </span>
+                        ) : (
+                          <span className='text-gray-400'>-</span>
+                        )}
+                      </DataCardRow>
+                      <DataCardRow label='벌점'>
+                        {student.todayPenalty > 0 ? (
+                          <span className='font-semibold text-red-600'>
+                            -{student.todayPenalty}
+                          </span>
+                        ) : (
+                          <span className='text-gray-400'>-</span>
+                        )}
+                      </DataCardRow>
+                      {student.absenceSchedules.length > 0 && (
+                        <DataCardRow label='부재일정'>
+                          <div className='flex flex-col items-end gap-0.5'>
+                            {student.absenceSchedules.map((schedule) => (
+                              <span
+                                key={schedule.id}
+                                className='inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600'
+                              >
+                                <Calendar className='h-2.5 w-2.5' />
+                                {schedule.title} ({schedule.startTime}~{schedule.endTime})
+                              </span>
+                            ))}
+                          </div>
+                        </DataCardRow>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </Card>
 

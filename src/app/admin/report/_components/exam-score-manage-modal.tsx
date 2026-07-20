@@ -265,8 +265,8 @@ export function ExamScoreManageModal({
                   <th className='px-2 py-2 text-left font-medium'>시험</th>
                   <th className='px-2 py-2 text-left font-medium'>과목</th>
                   <th className='px-2 py-2 text-right font-medium'>원점수</th>
-                  <th className='px-2 py-2 text-right font-medium'>표준</th>
-                  <th className='px-2 py-2 text-right font-medium'>백분위</th>
+                  <th className='hidden px-2 py-2 text-right font-medium sm:table-cell'>표준</th>
+                  <th className='hidden px-2 py-2 text-right font-medium sm:table-cell'>백분위</th>
                   <th className='px-2 py-2 text-right font-medium'>등급</th>
                   <th className='px-2 py-2 text-right font-medium'>관리</th>
                 </tr>
@@ -280,8 +280,12 @@ export function ExamScoreManageModal({
                     </td>
                     <td className='text-text px-2 py-2'>{r.subject}</td>
                     <td className='text-text px-2 py-2 text-right'>{r.rawScore ?? '—'}</td>
-                    <td className='text-text px-2 py-2 text-right'>{r.standardScore ?? '—'}</td>
-                    <td className='text-text px-2 py-2 text-right'>{r.percentile ?? '—'}</td>
+                    <td className='text-text hidden px-2 py-2 text-right sm:table-cell'>
+                      {r.standardScore ?? '—'}
+                    </td>
+                    <td className='text-text hidden px-2 py-2 text-right sm:table-cell'>
+                      {r.percentile ?? '—'}
+                    </td>
                     <td className='text-text px-2 py-2 text-right'>
                       {r.grade !== null ? `${r.grade}` : '—'}
                     </td>
