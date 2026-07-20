@@ -374,7 +374,8 @@ export function AdminChatClient({
         <p className='text-text-muted mt-1'>학생 · 학부모와 실시간 소통</p>
       </div>
 
-      <div className='flex h-[calc(100vh-180px)] gap-6'>
+      {/* 모바일은 SidebarMain의 pt-16(64px)만큼 가용 높이가 줄어 244px, 데스크톱은 기존 180px */}
+      <div className='flex h-[calc(100vh-244px)] gap-6 md:h-[calc(100vh-180px)]'>
         {/* 채팅방 목록 */}
         <div
           className={cn(
