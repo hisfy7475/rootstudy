@@ -1,4 +1,3 @@
-import * as React from 'react';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -53,7 +52,10 @@ export function Pagination({
     page < totalPages ? buildListHref(pathname, searchParams, { page: page + 1 }) : null;
 
   return (
-    <nav className={cn('flex items-center gap-1', className)} aria-label='페이지네이션'>
+    <nav
+      className={cn('flex flex-wrap items-center justify-center gap-1', className)}
+      aria-label='페이지네이션'
+    >
       {prevHref ? (
         <Link
           href={prevHref}
