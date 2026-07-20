@@ -438,7 +438,7 @@ export function SlotDetailPanel({
                 onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
               />
             </label>
-            <div className='grid grid-cols-2 gap-3'>
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
               <label className='block space-y-1 text-sm'>
                 <span className='text-muted-foreground'>시작</span>
                 <input
@@ -458,7 +458,7 @@ export function SlotDetailPanel({
                 />
               </label>
             </div>
-            <div className='grid grid-cols-2 gap-3'>
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
               <label className='block space-y-1 text-sm'>
                 <span className='text-muted-foreground'>유형</span>
                 <select

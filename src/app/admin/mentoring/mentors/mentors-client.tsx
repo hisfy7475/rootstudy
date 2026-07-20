@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react';
 import Image from 'next/image';
 import { Card } from '@/components/ui/card';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import { cn } from '@/lib/utils';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import type { Mentor } from '@/types/database';
@@ -351,7 +352,8 @@ export function AdminMentorsClient({ initialMentors }: Props) {
         </Card>
       )}
 
-      <Card className='overflow-hidden'>
+      {/* 데스크톱: 표 */}
+      <Card className='hidden overflow-x-auto md:block'>
         <table className='w-full text-sm'>
           <thead className='bg-muted/50 border-b text-left'>
             <tr>
@@ -399,6 +401,45 @@ export function AdminMentorsClient({ initialMentors }: Props) {
           </tbody>
         </table>
       </Card>
+
+      {/* 모바일: 카드 리스트 */}
+      <DataCardList>
+        {filtered.map((m) => {
+          const subjects =
+            m.subjects && m.subjects.length > 0 ? m.subjects : m.subject ? [m.subject] : [];
+          return (
+            <DataCard key={m.id}>
+              <DataCardHeader
+                title={m.name}
+                meta={m.headline ?? undefined}
+                right={
+                  <button
+                    type='button'
+                    onClick={() => startEdit(m)}
+                    className='text-primary text-sm font-medium hover:underline'
+                  >
+                    수정
+                  </button>
+                }
+              />
+              <DataCardRow label='과목'>
+                {subjects.length === 0 ? (
+                  <span className='text-muted-foreground'>—</span>
+                ) : (
+                  <div className='flex flex-wrap justify-end gap-1'>
+                    {subjects.map((s) => (
+                      <span key={s} className='bg-muted rounded-full px-2 py-0.5 text-xs'>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </DataCardRow>
+              <DataCardRow label='상태'>{m.is_active ? '활성' : '비활성'}</DataCardRow>
+            </DataCard>
+          );
+        })}
+      </DataCardList>
     </div>
   );
 }

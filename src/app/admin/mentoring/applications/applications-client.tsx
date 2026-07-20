@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
+import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { MENTORING_TYPE_LABEL } from '@/lib/constants';
@@ -242,7 +243,7 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
 
       {error && <p className='text-destructive text-sm'>{error}</p>}
 
-      <Card className='overflow-x-auto'>
+      <Card className='hidden overflow-x-auto md:block'>
         <table className='w-full min-w-[720px] text-sm'>
           <thead className='bg-muted/50 border-b text-left'>
             <tr>
@@ -399,6 +400,150 @@ export function AdminMentoringApplicationsClient({ initialRows, initialFilters, 
           </tbody>
         </table>
       </Card>
+
+      {/* 모바일: 카드 리스트 */}
+      {rows.length === 0 ? (
+        <Card className='text-muted-foreground p-6 text-center text-sm md:hidden'>
+          내역이 없습니다.
+        </Card>
+      ) : (
+        <DataCardList>
+          {rows.map((a) => {
+            const slot = a.mentoring_slots;
+            const timeStr =
+              slot &&
+              `${String(slot.start_time).slice(0, 5)}–${String(slot.end_time).slice(0, 5)}`;
+            return (
+              <DataCard key={a.id}>
+                <DataCardHeader
+                  title={a.student_name}
+                  meta={a.student_branch_name ?? undefined}
+                  right={
+                    <span className='text-xs'>{String(a.status)}</span>
+                  }
+                />
+                <DataCardRow label='날짜·시간'>
+                  <div>{slot?.date ?? '—'}</div>
+                  <div className='text-muted-foreground text-xs'>{timeStr}</div>
+                </DataCardRow>
+                <DataCardRow label='신청자'>{a.applicant_name}</DataCardRow>
+                <DataCardRow label='멘토·과목'>
+                  <div>
+                    {slot?.mentors?.name ?? '—'}
+                    {slot?.type && (
+                      <span className='text-muted-foreground ml-1 text-xs'>
+                        [{MENTORING_TYPE_LABEL[slot.type as MentoringType]}]
+                      </span>
+                    )}
+                  </div>
+                  <div className='text-muted-foreground text-xs'>
+                    {a.selected_subject ?? slot?.subject ?? '—'}
+                  </div>
+                </DataCardRow>
+
+                <div className='space-y-2 pt-1'>
+                  <Link
+                    href={`/admin/mentoring?view=month&slot=${a.slot_id}`}
+                    className='text-primary block text-xs hover:underline'
+                  >
+                    슬롯 상세
+                  </Link>
+                  {a.status === 'pending' && (
+                    <div className='space-y-2'>
+                      <button
+                        type='button'
+                        disabled={pending}
+                        onClick={() => confirmApp(a.id)}
+                        className='bg-primary text-primary-foreground rounded px-3 py-1.5 text-xs'
+                      >
+                        확정
+                      </button>
+                      <div className='flex items-center gap-2'>
+                        <input
+                          placeholder='거절 사유'
+                          className='border-input min-w-0 flex-1 rounded border px-2 py-1 text-xs'
+                          value={rejectReason[a.id] ?? ''}
+                          onChange={(e) =>
+                            setRejectReason((r) => ({ ...r, [a.id]: e.target.value }))
+                          }
+                        />
+                        <button
+                          type='button'
+                          disabled={pending}
+                          onClick={() => rejectApp(a.id)}
+                          className='rounded border px-3 py-1.5 text-xs'
+                        >
+                          거절
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(a.status === 'pending' || a.status === 'confirmed') && (
+                    <div className='flex items-center gap-2'>
+                      <input
+                        placeholder='강제 취소 사유'
+                        className='border-input min-w-0 flex-1 rounded border px-2 py-1 text-xs'
+                        value={cancelReason[a.id] ?? ''}
+                        onChange={(e) =>
+                          setCancelReason((r) => ({ ...r, [a.id]: e.target.value }))
+                        }
+                      />
+                      <button
+                        type='button'
+                        disabled={pending}
+                        onClick={() => cancelApp(a.id)}
+                        className='bg-muted rounded px-3 py-1.5 text-xs'
+                      >
+                        강제 취소
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <DataCardRow label='상담 결과' className='items-start'>
+                  {a.status !== 'confirmed' ? (
+                    <span className='text-muted-foreground text-xs'>확정 후 입력</span>
+                  ) : resultEditing[a.id] || !a.result_note ? (
+                    <div className='space-y-1'>
+                      <textarea
+                        placeholder='상담 결과 내용'
+                        rows={2}
+                        className='border-input w-full rounded border px-2 py-1 text-left text-xs'
+                        value={resultNote[a.id] ?? a.result_note ?? ''}
+                        onChange={(e) =>
+                          setResultNote((r) => ({ ...r, [a.id]: e.target.value }))
+                        }
+                      />
+                      <button
+                        type='button'
+                        disabled={pending}
+                        onClick={() => requestSaveResult(a.id)}
+                        className='bg-primary text-primary-foreground rounded px-2 py-1 text-xs'
+                      >
+                        결과 저장
+                      </button>
+                    </div>
+                  ) : (
+                    <div className='space-y-1'>
+                      <p className='text-text text-xs whitespace-pre-wrap'>{a.result_note}</p>
+                      <button
+                        type='button'
+                        onClick={() => {
+                          setResultNote((r) => ({ ...r, [a.id]: a.result_note ?? '' }));
+                          setResultEditing((s) => ({ ...s, [a.id]: true }));
+                        }}
+                        className='rounded border px-2 py-1 text-xs'
+                      >
+                        수정
+                      </button>
+                    </div>
+                  )}
+                </DataCardRow>
+              </DataCard>
+            );
+          })}
+        </DataCardList>
+      )}
 
       <ConfirmDialog
         open={confirmSendId !== null}
