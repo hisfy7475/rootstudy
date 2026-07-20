@@ -1363,6 +1363,61 @@ function QuickInputView({
     );
   }
 
+  // 프리셋 몰입도 버튼 — 데스크톱 표(td)와 모바일 카드에서 동일하게 재사용
+  const renderPresetButton = (student: Student, preset: FocusScorePreset) => {
+    const studentScores = focusScoresByPeriod[student.id] || {};
+    const currentScore = studentScores[selectedPeriodId];
+    const isCheckedOut = student.status === 'checked_out';
+    const cellKey = `${student.id}-${selectedPeriodId}`;
+    const isSaving = savingCell === cellKey;
+    const isActive = currentScore?.note === preset.label;
+    const hasOtherSelection = currentScore && !isActive;
+    return (
+      <button
+        className={cn(
+          'min-h-[22px] w-full rounded px-1 py-0.5 text-[9px] font-semibold transition-all',
+          'active:scale-95 disabled:opacity-40',
+          isCheckedOut
+            ? 'cursor-not-allowed bg-gray-200 text-gray-400'
+            : isActive
+              ? 'ring-primary bg-primary text-white shadow-md ring-2 ring-offset-1'
+              : hasOtherSelection
+                ? cn(
+                    'text-white/70 opacity-50 shadow-sm hover:opacity-80',
+                    preset.color ||
+                      (preset.score >= 9
+                        ? 'bg-emerald-600'
+                        : preset.score >= 7
+                          ? 'bg-blue-500'
+                          : 'bg-amber-500'),
+                  )
+                : cn(
+                    'text-white shadow-sm hover:opacity-90',
+                    preset.color ||
+                      (preset.score >= 9
+                        ? 'bg-emerald-600'
+                        : preset.score >= 7
+                          ? 'bg-blue-500'
+                          : 'bg-amber-500'),
+                  ),
+        )}
+        onClick={() => onQuickScore(student.id, preset.score, preset.label)}
+        disabled={isSaving || isCheckedOut}
+      >
+        {isSaving ? (
+          <RefreshCw className='mx-auto h-2.5 w-2.5 animate-spin' />
+        ) : isActive ? (
+          <span className='flex items-center justify-center gap-0.5'>
+            <Check className='h-2.5 w-2.5' />
+            {preset.label}
+          </span>
+        ) : (
+          preset.label
+        )}
+      </button>
+    );
+  };
+
   return (
     <Card className='overflow-hidden p-0'>
       <div className='flex items-center justify-between border-b bg-gray-50 px-2 py-1.5'>
@@ -1375,7 +1430,7 @@ function QuickInputView({
         </div>
         <span className='text-text-muted text-[10px]'>{students.length}명</span>
       </div>
-      <div className='overflow-x-auto'>
+      <div className='hidden overflow-x-auto md:block'>
         <table className='w-full text-xs'>
           <thead className='border-b bg-gray-50/50'>
             <tr>
@@ -1468,59 +1523,11 @@ function QuickInputView({
                       </div>
                     )}
                   </td>
-                  {presets.map((preset) => {
-                    const cellKey = `${student.id}-${selectedPeriodId}`;
-                    const isSaving = savingCell === cellKey;
-                    const isActive = currentScore?.note === preset.label;
-                    const hasOtherSelection = currentScore && !isActive;
-
-                    return (
-                      <td key={preset.id} className='px-0.5 py-0.5 text-center'>
-                        <button
-                          className={cn(
-                            'min-h-[22px] w-full rounded px-1 py-0.5 text-[9px] font-semibold transition-all',
-                            'active:scale-95 disabled:opacity-40',
-                            isCheckedOut
-                              ? 'cursor-not-allowed bg-gray-200 text-gray-400'
-                              : isActive
-                                ? 'ring-primary bg-primary text-white shadow-md ring-2 ring-offset-1'
-                                : hasOtherSelection
-                                  ? cn(
-                                      'text-white/70 opacity-50 shadow-sm hover:opacity-80',
-                                      preset.color ||
-                                        (preset.score >= 9
-                                          ? 'bg-emerald-600'
-                                          : preset.score >= 7
-                                            ? 'bg-blue-500'
-                                            : 'bg-amber-500'),
-                                    )
-                                  : cn(
-                                      'text-white shadow-sm hover:opacity-90',
-                                      preset.color ||
-                                        (preset.score >= 9
-                                          ? 'bg-emerald-600'
-                                          : preset.score >= 7
-                                            ? 'bg-blue-500'
-                                            : 'bg-amber-500'),
-                                    ),
-                          )}
-                          onClick={() => onQuickScore(student.id, preset.score, preset.label)}
-                          disabled={isSaving || isCheckedOut}
-                        >
-                          {isSaving ? (
-                            <RefreshCw className='mx-auto h-2.5 w-2.5 animate-spin' />
-                          ) : isActive ? (
-                            <span className='flex items-center justify-center gap-0.5'>
-                              <Check className='h-2.5 w-2.5' />
-                              {preset.label}
-                            </span>
-                          ) : (
-                            preset.label
-                          )}
-                        </button>
-                      </td>
-                    );
-                  })}
+                  {presets.map((preset) => (
+                    <td key={preset.id} className='px-0.5 py-0.5 text-center'>
+                      {renderPresetButton(student, preset)}
+                    </td>
+                  ))}
                   <td className='px-2 py-1 text-center'>
                     {currentScore ? (
                       <span
@@ -1540,6 +1547,94 @@ function QuickInputView({
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* 모바일: 카드 리스트 */}
+      <div className='divide-y divide-gray-100 md:hidden'>
+        {students.map((student) => {
+          const studentScores = focusScoresByPeriod[student.id] || {};
+          const currentScore = studentScores[selectedPeriodId];
+          const isCheckedOut = student.status === 'checked_out';
+          const phoneStatus = phoneSubmissions[student.id] || 'submitted';
+          return (
+            <div
+              key={student.id}
+              className={cn('space-y-2 p-3', isCheckedOut && 'bg-gray-50 opacity-50')}
+            >
+              <div className='flex items-center justify-between gap-2'>
+                <div className='flex min-w-0 items-center gap-1.5'>
+                  <span
+                    className={cn(
+                      'text-xs font-semibold',
+                      isCheckedOut ? 'text-gray-400' : 'text-primary',
+                    )}
+                  >
+                    {student.seatNumber ?? '-'}
+                  </span>
+                  <span className='truncate text-sm font-medium'>{student.name}</span>
+                  {isCheckedOut && (
+                    <span className='shrink-0 rounded bg-gray-200 px-1 py-0.5 text-[9px] text-gray-400'>
+                      퇴실
+                    </span>
+                  )}
+                </div>
+                {currentScore ? (
+                  <span
+                    className={cn(
+                      'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                      getScoreColor(currentScore.score),
+                    )}
+                  >
+                    {currentScore.score}
+                  </span>
+                ) : (
+                  <span className='shrink-0 text-xs text-gray-300'>-</span>
+                )}
+              </div>
+
+              {isCheckedOut ? (
+                <p className='text-[11px] text-gray-400'>퇴실 학생 — 입력할 수 없습니다.</p>
+              ) : (
+                <>
+                  <div className='flex flex-wrap items-center gap-x-3 gap-y-1.5'>
+                    <div className='flex items-center gap-1'>
+                      <span className='text-text-muted text-[10px]'>과목</span>
+                      <SubjectInline
+                        studentId={student.id}
+                        currentSubject={student.currentSubject}
+                        subjects={subjectsByStudent[student.id] ?? []}
+                        onSubjectChange={onSubjectChange}
+                      />
+                    </div>
+                    <div className='flex items-center gap-1'>
+                      <span className='text-text-muted text-[10px]'>폰</span>
+                      <div className='flex gap-0.5'>
+                        {PHONE_STATUS_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => onPhoneSubmission(student.id, opt.value)}
+                            className={cn(
+                              'rounded px-1.5 py-0.5 text-[9px] font-semibold transition-all',
+                              phoneStatus === opt.value ? opt.activeColor : opt.color,
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='grid grid-cols-3 gap-1'>
+                    {presets.map((preset) => (
+                      <div key={preset.id}>{renderPresetButton(student, preset)}</div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Card>
   );
