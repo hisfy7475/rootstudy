@@ -213,10 +213,15 @@ export async function checkIn() {
   } = await supabase.auth.getUser();
   if (!user) return { error: '로그인이 필요합니다.' };
 
+  // insert timestamp 와 지각 판정 기준 시각(at)을 반드시 동일 인스턴스로 맞춘다.
+  // (기록 시각은 DB default now(), 판정은 별도 new Date() 로 두면 미세 차이로 방금 넣은
+  //  행이 '이전 입실'로 잡혀 진짜 지각 첫 입실이 잘못 스킵될 수 있음 → 첫 입실 가드 오작동.)
+  const now = new Date();
   const { error } = await supabase.from('attendance').insert({
     student_id: user.id,
     type: 'check_in',
     source: 'manual',
+    timestamp: now.toISOString(),
   });
 
   if (error) {
@@ -230,7 +235,7 @@ export async function checkIn() {
     supabase,
     studentId: user.id,
     type: 'late',
-    at: new Date(),
+    at: now,
   }).catch(console.error);
 
   revalidatePath('/student');
