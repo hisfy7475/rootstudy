@@ -10,7 +10,8 @@
 // 의존하지 않는다 (CLAUDE.md 도메인 규칙).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getStudyDate } from '@/lib/utils';
+import { getStudyDate, getStudyDayBounds } from '@/lib/utils';
+import { isStudyExcluded } from '@/lib/study-time';
 import { PENALTY_RULES, ABSENCE_BUFFER_MINUTES } from '@/lib/constants';
 import { notifyPointsGranted } from '@/lib/actions/notification';
 
@@ -219,6 +220,29 @@ export async function evaluateAttendancePenalty(params: {
     triggered = atMin < targetMin - grace;
   }
   if (!triggered) return { charged: false, reason: 'within_grace' };
+
+  // 지각은 "그 학습일의 첫 입실"에만 부과한다. 점심 외출 후 재입실(오후 check_in)도
+  // check_in 이벤트라 여기까지 오는데, 이 이벤트보다 이른 실입실이 이미 있으면 재입실 →
+  // 부과하지 않는다. (조기퇴실 early 경로는 이 가드를 타지 않는다.)
+  if (type === 'late') {
+    const { start } = getStudyDayBounds(getStudyDate(at));
+    const { data: earlier, error: firstErr } = await supabase
+      .from('attendance')
+      .select('timestamp, source, gate_name')
+      .eq('student_id', studentId)
+      .eq('type', 'check_in')
+      .gte('timestamp', start.toISOString())
+      .lt('timestamp', at.toISOString()); // 이 이벤트보다 엄격히 이른 입실
+    if (firstErr) {
+      // 조회 실패 시 부과하지 않는다(fail-closed): 오부과보다 미부과가 회복 쉬움.
+      console.error('[attendance-penalty] first_checkin query error', firstErr);
+      return { charged: false, reason: 'first_checkin_query_error' };
+    }
+    // 직원/경비 게이트 핑은 실입실로 치지 않는다(isStudyExcluded).
+    if ((earlier ?? []).some((r) => !isStudyExcluded(r))) {
+      return { charged: false, reason: 'not_first_checkin' };
+    }
+  }
 
   // 시스템 프리셋 + 자동 부과 게이팅
   const preset = await fetchSystemPreset(supabase, branchId, PRESET_CODE[type]);
