@@ -127,6 +127,21 @@ function formatDateTime(value: string | null | undefined): string {
   return new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 }
 
+/**
+ * 취소 건의 취소 시각(meta.cancelled_at). 취소/환불 상태가 아니거나 값이 없으면 null.
+ * 거절(rejected) 건은 meta.rejected_at 을 쓰므로 여기서 잡히지 않는다.
+ */
+function cancelledAtOf(row: UnifiedAppRow): string | null {
+  if (row.status_normalized !== 'cancelled' && row.status_normalized !== 'refunded') return null;
+  const raw = (row.meta as Record<string, unknown>).cancelled_at;
+  return typeof raw === 'string' && raw ? raw : null;
+}
+
+/** 표/카드용 — 취소일은 날짜만 표시해 컬럼 폭 팽창을 막는다. 엑셀은 시각까지 넣는다. */
+function formatDateOnly(value: string): string {
+  return new Date(value).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+}
+
 function formatAmount(amount: number | null | undefined): string {
   if (amount == null) return '—';
   return `${amount.toLocaleString('ko-KR')}원`;
@@ -548,6 +563,7 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
       : row.item_name
     : subText || '-';
   const optionSummary = row.domain === 'exam' ? row.option_summary : null;
+  const cancelledAt = cancelledAtOf(row);
 
   return (
     <tr className='border-t'>
@@ -566,6 +582,9 @@ function ApplicationRow({ row }: { row: UnifiedAppRow }) {
         >
           {statusToText(row.status_normalized)}
         </span>
+        {cancelledAt ? (
+          <div className='text-muted-foreground mt-0.5 text-xs'>{formatDateOnly(cancelledAt)}</div>
+        ) : null}
       </td>
       <td className='px-3 py-2 align-top text-xs whitespace-nowrap'>
         {formatSeatSnapshot(row.seat_number_snapshot, row.student_seat_number_current)}
@@ -618,6 +637,7 @@ function ApplicationCard({ row }: { row: UnifiedAppRow }) {
       : row.item_name
     : subText || '-';
   const optionSummary = row.domain === 'exam' ? row.option_summary : null;
+  const cancelledAt = cancelledAtOf(row);
 
   return (
     <DataCard>
@@ -669,6 +689,9 @@ function ApplicationCard({ row }: { row: UnifiedAppRow }) {
       <DataCardRow label='금액'>{formatAmount(row.amount)}</DataCardRow>
       <DataCardRow label='신청일'>{formatDateTime(row.applied_at)}</DataCardRow>
       <DataCardRow label='결제일'>{formatDateTime(row.paid_at)}</DataCardRow>
+      {cancelledAt ? (
+        <DataCardRow label='취소일'>{formatDateOnly(cancelledAt)}</DataCardRow>
+      ) : null}
       <DataCardRow label='상세'>
         <Link
           href={row.detail_href}
@@ -746,6 +769,11 @@ async function downloadXlsx(rows: UnifiedAppRow[]): Promise<void> {
       이용시간: formatServiceTimeForExcel(r),
       금액: r.amount ?? '',
       결제일: formatDateTime(r.paid_at),
+      // 취소가 아닌 행은 빈 셀로 둔다(formatDateTime 은 null 에 '—' 를 넣어버림).
+      취소일: (() => {
+        const at = cancelledAtOf(r);
+        return at ? new Date(at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '';
+      })(),
       취소사유:
         ((r.meta as Record<string, unknown>).cancel_reason as string | null | undefined) ?? '',
       거절사유:

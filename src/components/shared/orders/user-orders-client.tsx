@@ -79,6 +79,8 @@ export function UserOrdersClient({
                 category: productCategory,
                 variantKind: o.variant.kind,
                 productStart: o.variant.product_start_date,
+                // 표시용 폴백은 'active'. 실제 차단은 서버(executePaidMealOrderCancel)가 담당한다.
+                productStatus: o.product?.status ?? 'active',
               })
             : null;
         const showCancel = o.status === 'paid' && decision?.ok === true;
