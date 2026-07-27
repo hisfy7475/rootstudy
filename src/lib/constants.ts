@@ -162,6 +162,15 @@ export const REWARD_RULES = {
   dailyFocusWeekdays: [1, 2, 3, 4, 5] as const,
   /** 미분류 자투리 임계값 (초). 과목 전환 phantom gap 및 진짜 1분 미만 갭을 카운트에서 제외. */
   dailyFocusMinSegmentSeconds: 60,
+  /**
+   * 일일 자동 상점 종료 학습일 (YYYY-MM-DD, 이 날짜 포함 이후 미부여).
+   * 클라이언트 요청으로 2026-08-01 학습일부터 중단. 7/31 이전 부여분은 회수하지 않는다.
+   *
+   * 판정은 `isDailyFocusActive()`(src/lib/utils.ts) 한 곳으로 모았다. 이 상수를 null 로
+   * 되돌리면 크론·위젯이 모두 즉시 재개된다 (크론은 프리셋 is_active 를 보지 않으므로
+   * 프리셋 상태와 무관하게 부여가 살아난다). 타입 주석은 롤백 시 null 대입을 위한 것.
+   */
+  dailyFocusEndDate: '2026-08-01' as string | null,
 } as const;
 
 // 멘토링·상담 참여 자동 상점 (mentoring-reward 크론, KST 09:00)

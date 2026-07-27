@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { getRecentDailyFocusEvaluations } from '@/lib/actions/student';
+import { isDailyFocusActive } from '@/lib/utils';
 import { Check, X, Minus } from 'lucide-react';
 
 /**
@@ -70,7 +71,9 @@ export async function Last7DaysCalendarStrip() {
         })}
       </div>
       <p className='text-text-muted mt-2 text-[10px]'>
-        평일 3시간 학습 + 미분류 ≤ 5분 시 +1점 자동 부여
+        {isDailyFocusActive()
+          ? '평일 3시간 학습 + 미분류 ≤ 5분 시 +1점 자동 부여'
+          : '이 자동 상점은 중단되었습니다. 지난 부여 내역만 표시됩니다.'}
       </p>
     </Card>
   );
