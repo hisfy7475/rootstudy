@@ -1277,10 +1277,7 @@ export async function getMealMenus(productId: string): Promise<MealMenu[]> {
 // 학생/학부모: 주문
 // ---------------------------------------------------------------------------
 
-export type OrderProductInfo = Pick<
-  MealProduct,
-  'id' | 'name' | 'meal_type' | 'category' | 'status'
->;
+export type OrderProductInfo = Pick<MealProduct, 'id' | 'name' | 'meal_type' | 'category'>;
 export type OrderVariantInfo = Pick<
   MealProductVariant,
   | 'id'
@@ -1327,8 +1324,6 @@ function pickVariantWithProduct(raw: unknown): {
           name: product.name,
           meal_type: product.meal_type,
           category: product.category,
-          // 비활성 상품의 셀프 환불 차단 안내(canCancelOrder)에 필요.
-          status: product.status,
         }
       : null,
   };
@@ -1349,13 +1344,11 @@ export async function getMealOrders(
     .eq('id', user.id)
     .single();
 
-  // status 는 "판매 중지 상품은 셀프 환불 불가" 안내에만 쓴다.
-  // !inner 조인이므로 여기에 status 필터를 걸면 비활성 상품 주문이 내역에서 통째로 사라진다.
   const selectFields = `
     *,
     meal_product_variants!inner(
       id, kind, price, product_id, product_start_date, product_end_date, sale_start_date, sale_end_date,
-      meal_products!inner(id, name, meal_type, category, status)
+      meal_products!inner(id, name, meal_type, category)
     )
   `;
 
