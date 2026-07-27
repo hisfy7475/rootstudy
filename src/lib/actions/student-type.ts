@@ -354,7 +354,14 @@ export async function getWeeklyGoalSettings(
   return data || [];
 }
 
-// 지점에 해당하는 날짜 타입 목록 조회
+// 지점에 해당하는 날짜 타입 목록 조회 (주간 목표 설정용)
+//
+// 자율등원 타입(is_mandatory=false, 주말/공휴일)은 제외한다.
+// computeWeeklyGoal(src/lib/study/weekly-goal.ts)은 설정이 없는 날을 assignedDays 에서 빼고
+// scale = 7/assignedDays 로 보정하므로, 자율등원일에 설정을 두지 않아야 주간 목표가 불변한다.
+// 반대로 설정이 생기면 주말 값이 평일과 섞여 목표·최소시간이 조용히 움직인다.
+// (이 화면은 설정이 없는 타입에 기본값을 채워 보여주고 저장 시 그대로 기록하므로,
+//  목록에서 빼지 않으면 모달을 열기만 해도 설정이 생긴다.)
 export async function getDateTypesForBranch(branchId: string): Promise<DateTypeDefinition[]> {
   const supabase = await createClient();
 
@@ -362,6 +369,7 @@ export async function getDateTypesForBranch(branchId: string): Promise<DateTypeD
     .from('date_type_definitions')
     .select('*')
     .eq('branch_id', branchId)
+    .neq('is_mandatory', false)
     .order('name');
 
   if (dateError) {

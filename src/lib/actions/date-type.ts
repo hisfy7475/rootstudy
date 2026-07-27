@@ -14,6 +14,8 @@ export interface DateTypeDefinition {
   default_start_time: string;
   default_end_time: string;
   color: string;
+  /** 의무등원 여부. false = 자율등원(주말/공휴일) — 지각·조기퇴실 자동 벌점 미부과 */
+  is_mandatory: boolean;
   created_at: string;
 }
 
@@ -53,7 +55,8 @@ export async function createDateTypeDefinition(
   name: string,
   defaultStartTime: string,
   defaultEndTime: string,
-  color?: string
+  color?: string,
+  isMandatory: boolean = true
 ) {
   const supabase = await createClient();
 
@@ -65,6 +68,7 @@ export async function createDateTypeDefinition(
       default_start_time: defaultStartTime,
       default_end_time: defaultEndTime,
       color: color || '#7C9FF5',
+      is_mandatory: isMandatory,
     })
     .select()
     .single();
@@ -86,6 +90,7 @@ export async function updateDateTypeDefinition(
     default_start_time?: string;
     default_end_time?: string;
     color?: string;
+    is_mandatory?: boolean;
   }
 ) {
   const supabase = await createClient();
@@ -228,6 +233,7 @@ export async function getMandatoryTime(branchId: string, date: string): Promise<
   startTime: string | null;
   endTime: string | null;
   dateTypeName: string | null;
+  isMandatory: boolean;
 }> {
   const supabase = await createClient();
 
@@ -239,7 +245,8 @@ export async function getMandatoryTime(branchId: string, date: string): Promise<
       date_type:date_type_id (
         name,
         default_start_time,
-        default_end_time
+        default_end_time,
+        is_mandatory
       )
     `)
     .eq('branch_id', branchId)
@@ -252,13 +259,14 @@ export async function getMandatoryTime(branchId: string, date: string): Promise<
 
   // 해당 날짜에 타입 지정이 없으면 null 반환
   if (!assignment || !assignment.date_type) {
-    return { startTime: null, endTime: null, dateTypeName: null };
+    return { startTime: null, endTime: null, dateTypeName: null, isMandatory: true };
   }
 
   const dateType = assignment.date_type as unknown as {
     name: string;
     default_start_time: string;
     default_end_time: string;
+    is_mandatory: boolean | null;
   };
 
   // custom 시간이 있으면 사용, 없으면 default 사용
@@ -269,6 +277,7 @@ export async function getMandatoryTime(branchId: string, date: string): Promise<
     startTime,
     endTime,
     dateTypeName: dateType.name,
+    isMandatory: dateType.is_mandatory !== false,
   };
 }
 

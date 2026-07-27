@@ -51,6 +51,9 @@ export type MandatoryTime = {
   startTime: string | null;
   endTime: string | null;
   dateTypeName: string | null;
+  /** 의무등원 여부. false = 자율등원(주말/공휴일) → 자동 벌점 미부과.
+   *  배정이 없거나 조회에 실패한 경우는 true(기존 동작 유지 — 미부과 판단은 startTime 부재로 처리). */
+  isMandatory: boolean;
 };
 
 // 특정 날짜의 의무시간 조회 (주입 클라이언트 사용 — date-type.ts getMandatoryTime 의 클라이언트 주입판)
@@ -59,27 +62,35 @@ export async function fetchMandatoryTime(
   branchId: string,
   dateStr: string,
 ): Promise<MandatoryTime> {
-  const { data: assignment } = await supabase
+  const { data: assignment, error } = await supabase
     .from('date_assignments')
     .select(
-      `custom_start_time, custom_end_time, date_type:date_type_id ( name, default_start_time, default_end_time )`,
+      `custom_start_time, custom_end_time, date_type:date_type_id ( name, default_start_time, default_end_time, is_mandatory )`,
     )
     .eq('branch_id', branchId)
     .eq('date', dateStr)
     .maybeSingle();
 
+  // 조회 실패와 "배정 없음"은 결과가 같아(둘 다 미부과) 구분되지 않는다.
+  // 스키마 불일치(예: 컬럼 배포 순서 사고)로 전 지점 벌점이 무음으로 멈추는 것을 막기 위해 남긴다.
+  if (error) {
+    console.error('[attendance-penalty] fetchMandatoryTime error', { branchId, dateStr, error });
+  }
+
   if (!assignment || !assignment.date_type) {
-    return { startTime: null, endTime: null, dateTypeName: null };
+    return { startTime: null, endTime: null, dateTypeName: null, isMandatory: true };
   }
   const dt = assignment.date_type as unknown as {
     name: string;
     default_start_time: string;
     default_end_time: string;
+    is_mandatory: boolean | null;
   };
   return {
     startTime: assignment.custom_start_time || dt.default_start_time,
     endTime: assignment.custom_end_time || dt.default_end_time,
     dateTypeName: dt.name,
+    isMandatory: dt.is_mandatory !== false,
   };
 }
 
@@ -199,6 +210,11 @@ export async function evaluateAttendancePenalty(params: {
 
   const dateStr = studyDateStr(at);
   const mandatory = params.mandatory ?? (await fetchMandatoryTime(supabase, branchId, dateStr));
+
+  // 자율등원일(주말/공휴일) — 지각·조기퇴실 모두 미부과.
+  // 이후 단계(첫 입실 가드/프리셋 조회/부재 면제)는 전부 순수 SELECT 이고 RPC 이전이라
+  // 여기서 빠져나가도 부작용이 없다. 가장 앞에 두어 주말 입·퇴실마다 드는 조회를 아낀다.
+  if (!mandatory.isMandatory) return { charged: false, reason: 'not_mandatory_day' };
 
   const targetTime = type === 'late' ? mandatory.startTime : mandatory.endTime;
   if (!targetTime) return { charged: false, reason: 'no_mandatory_time' };

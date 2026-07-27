@@ -309,6 +309,8 @@ export interface Database {
           default_start_time: string;
           default_end_time: string;
           color: string;
+          /** false = 자율등원(주말/공휴일) — 지각·조기퇴실 자동 벌점 미부과 */
+          is_mandatory: boolean;
           created_at: string;
         };
         Insert: {
@@ -318,6 +320,7 @@ export interface Database {
           default_start_time: string;
           default_end_time: string;
           color?: string;
+          is_mandatory?: boolean;
           created_at?: string;
         };
         Update: {
@@ -327,6 +330,7 @@ export interface Database {
           default_start_time?: string;
           default_end_time?: string;
           color?: string;
+          is_mandatory?: boolean;
           created_at?: string;
         };
       };

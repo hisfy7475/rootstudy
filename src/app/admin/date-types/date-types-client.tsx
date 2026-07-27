@@ -12,6 +12,7 @@ import {
   updateDateTypeDefinition,
   deleteDateTypeDefinition,
   setDateAssignment,
+  deleteDateAssignment,
   bulkSetDateAssignments,
   type DateTypeDefinition,
   type DateAssignment,
@@ -46,6 +47,9 @@ export default function DateTypesClient({
   const [typeStartTime, setTypeStartTime] = useState('07:00');
   const [typeEndTime, setTypeEndTime] = useState('01:00');
   const [typeColor, setTypeColor] = useState('#7C9FF5');
+  // 자율등원(주말/공휴일) — 지각·조기퇴실 자동 벌점 미부과.
+  // 체크해도 시작/종료 값은 그대로 유지해 전송한다 (DB NOT NULL 이라 빈 값을 보내면 22007/23502).
+  const [typeIsMandatory, setTypeIsMandatory] = useState(true);
 
   // 종료 시간이 시작 시간보다 이르면 익일로 판단
   const isNextDay = (startTime: string, endTime: string) => {
@@ -65,6 +69,9 @@ export default function DateTypesClient({
   // 캘린더 선택
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
+
+  // 배정 해제 모드 — 기본 클릭에 삭제를 붙이면 첫 클릭이 곧 삭제 confirm 이 되어 위험하다.
+  const [unassignMode, setUnassignMode] = useState(false);
 
   // 일괄 지정 모드
   const [bulkMode, setBulkMode] = useState(false);
@@ -118,6 +125,7 @@ export default function DateTypesClient({
         default_start_time: typeStartTime,
         default_end_time: typeEndTime,
         color: typeColor,
+        is_mandatory: typeIsMandatory,
       });
     } else {
       await createDateTypeDefinition(
@@ -126,6 +134,7 @@ export default function DateTypesClient({
         typeStartTime,
         typeEndTime,
         typeColor,
+        typeIsMandatory,
       );
     }
     await reloadCurrent();
@@ -144,9 +153,12 @@ export default function DateTypesClient({
   const handleEditType = (type: DateTypeDefinition) => {
     setEditingTypeId(type.id);
     setTypeName(type.name);
-    setTypeStartTime(type.default_start_time);
-    setTypeEndTime(type.default_end_time);
+    // DB 는 'HH:MM:SS' 로 내려주는데 <input type='time'> 이 이를 sanitize 해 빈 값이 될 수 있고,
+    // 그 빈 값이 그대로 저장 경로로 되돌아간다 → 'HH:MM' 으로 잘라서 넣는다.
+    setTypeStartTime(type.default_start_time.slice(0, 5));
+    setTypeEndTime(type.default_end_time.slice(0, 5));
     setTypeColor(type.color);
+    setTypeIsMandatory(type.is_mandatory !== false);
     setShowTypeForm(true);
   };
 
@@ -157,10 +169,31 @@ export default function DateTypesClient({
     setTypeStartTime('07:00');
     setTypeEndTime('01:00');
     setTypeColor('#7C9FF5');
+    setTypeIsMandatory(true);
   };
 
   // 캘린더 날짜 클릭
   const handleDateClick = async (date: string) => {
+    // 배정 해제 모드 — 이 모드에서만 삭제된다.
+    if (unassignMode) {
+      const assignment = assignments.find((a) => a.date === date);
+      if (!assignment) return;
+      if (
+        !confirm(
+          `${date} 배정을 해제하시겠습니까?\n\n` +
+            '해제하면 이 날은 "타입 없는 날"이 되어 교시가 표시되지 않고, ' +
+            '그 주의 주간 목표시간이 나머지 요일 기준으로 재계산되어 올라갑니다.',
+        )
+      ) {
+        return;
+      }
+      setIsLoading(true);
+      await deleteDateAssignment(selectedBranchId, date);
+      await reloadCurrent();
+      setIsLoading(false);
+      return;
+    }
+
     if (!selectedTypeId) {
       setSelectedDate(date);
       return;
@@ -264,29 +297,50 @@ export default function DateTypesClient({
                 value={typeName}
                 onChange={(e) => setTypeName(e.target.value)}
               />
+              <label className='flex cursor-pointer items-start gap-2 rounded-lg bg-white p-2'>
+                <input
+                  type='checkbox'
+                  checked={!typeIsMandatory}
+                  onChange={(e) => setTypeIsMandatory(!e.target.checked)}
+                  className='mt-0.5 h-4 w-4 cursor-pointer'
+                />
+                <span className='text-xs text-gray-700'>
+                  <span className='font-medium'>자율등원</span> (주말·공휴일)
+                  <span className='mt-0.5 block text-gray-500'>
+                    지각·조기퇴실 자동 벌점을 부과하지 않습니다.
+                  </span>
+                </span>
+              </label>
               <div className='flex gap-2'>
                 <div className='flex-1'>
                   <label className='text-xs text-gray-500'>시작</label>
                   <Input
                     type='time'
                     value={typeStartTime}
+                    disabled={!typeIsMandatory}
                     onChange={(e) => setTypeStartTime(e.target.value)}
                   />
                 </div>
                 <div className='flex-1'>
                   <label className='text-xs text-gray-500'>
                     종료{' '}
-                    {isNextDay(typeStartTime, typeEndTime) && (
+                    {typeIsMandatory && isNextDay(typeStartTime, typeEndTime) && (
                       <span className='text-primary font-medium'>(익일)</span>
                     )}
                   </label>
                   <Input
                     type='time'
                     value={typeEndTime}
+                    disabled={!typeIsMandatory}
                     onChange={(e) => setTypeEndTime(e.target.value)}
                   />
                 </div>
               </div>
+              {!typeIsMandatory && (
+                <p className='text-xs text-gray-500'>
+                  자율등원 타입은 의무시간을 사용하지 않습니다.
+                </p>
+              )}
               <div className='flex items-center gap-2'>
                 <label className='text-xs text-gray-500'>색상</label>
                 <input
@@ -323,7 +377,13 @@ export default function DateTypesClient({
                   <div>
                     <div className='font-medium text-gray-800'>{type.name}</div>
                     <div className='text-xs text-gray-500'>
-                      {formatTimeDisplay(type.default_start_time, type.default_end_time)}
+                      {type.is_mandatory === false ? (
+                        <span className='rounded bg-gray-200 px-1.5 py-0.5 font-medium text-gray-600'>
+                          자율등원 · 벌점 미부과
+                        </span>
+                      ) : (
+                        formatTimeDisplay(type.default_start_time, type.default_end_time)
+                      )}
                     </div>
                   </div>
                 </div>
@@ -392,21 +452,48 @@ export default function DateTypesClient({
                 <ChevronRight className='h-4 w-4' />
               </Button>
             </div>
-            <Button
-              size='sm'
-              variant={bulkMode ? 'default' : 'outline'}
-              onClick={() => {
-                if (!bulkMode && selectedTypeId) {
-                  // 일괄지정 모드를 열 때 현재 선택된 타입을 자동으로 설정
-                  setBulkTypeId(selectedTypeId);
-                }
-                setBulkMode(!bulkMode);
-              }}
-            >
-              <Calendar className='mr-1 h-4 w-4' />
-              일괄 지정
-            </Button>
+            <div className='flex items-center gap-2'>
+              <Button
+                size='sm'
+                variant={unassignMode ? 'default' : 'outline'}
+                className={unassignMode ? 'bg-red-500 hover:bg-red-600' : 'text-red-500'}
+                onClick={() => {
+                  const next = !unassignMode;
+                  setUnassignMode(next);
+                  // 해제 모드에서는 타입 선택/일괄 지정이 겹치지 않도록 정리
+                  if (next) {
+                    setSelectedTypeId(null);
+                    setBulkMode(false);
+                  }
+                }}
+              >
+                <Trash2 className='mr-1 h-4 w-4' />
+                배정 해제
+              </Button>
+              <Button
+                size='sm'
+                variant={bulkMode ? 'default' : 'outline'}
+                onClick={() => {
+                  if (!bulkMode && selectedTypeId) {
+                    // 일괄지정 모드를 열 때 현재 선택된 타입을 자동으로 설정
+                    setBulkTypeId(selectedTypeId);
+                  }
+                  setBulkMode(!bulkMode);
+                  setUnassignMode(false);
+                }}
+              >
+                <Calendar className='mr-1 h-4 w-4' />
+                일괄 지정
+              </Button>
+            </div>
           </div>
+
+          {unassignMode && (
+            <div className='mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700'>
+              배정 해제 모드입니다. 캘린더에서 배정된 날짜를 클릭하면 타입 지정이 해제됩니다. 해제된
+              날은 교시가 표시되지 않고 그 주의 주간 목표시간이 재계산되니 주의하세요.
+            </div>
+          )}
 
           {/* 일괄 지정 폼 */}
           {bulkMode && (
@@ -468,6 +555,22 @@ export default function DateTypesClient({
                       {day}
                     </button>
                   ))}
+                </div>
+                {/* 프리셋 — 방학/학기 일괄 지정 시 주말까지 덮어쓰는 실수를 줄인다. */}
+                <div className='mt-2 flex flex-wrap gap-2'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => setBulkDaysOfWeek([1, 2, 3, 4, 5])}
+                  >
+                    평일만 (월~금)
+                  </Button>
+                  <Button size='sm' variant='outline' onClick={() => setBulkDaysOfWeek([0, 6])}>
+                    주말만 (토·일)
+                  </Button>
+                  <Button size='sm' variant='ghost' onClick={() => setBulkDaysOfWeek([])}>
+                    전체 요일
+                  </Button>
                 </div>
               </div>
               <div className='flex gap-2'>
