@@ -13,20 +13,31 @@ export type MealCancelResult =
   | { success: true }
   | { success: false; error: string; status?: number };
 
+type ProductJoin = {
+  category: 'meal' | 'exam';
+  status: 'active' | 'inactive' | 'sold_out';
+};
+
 type VariantJoin = {
   kind: 'one_time' | 'recurring';
   product_start_date: string;
-  meal_products: { category: 'meal' | 'exam' } | { category: 'meal' | 'exam' }[] | null;
+  meal_products: ProductJoin | ProductJoin[] | null;
 };
 
-function pickVariant(
-  raw: VariantJoin | VariantJoin[] | null,
-): { kind: 'one_time' | 'recurring'; productStart: string; category: 'meal' | 'exam' } | null {
+function pickVariant(raw: VariantJoin | VariantJoin[] | null): {
+  kind: 'one_time' | 'recurring';
+  productStart: string;
+  category: 'meal' | 'exam';
+  productStatus: 'active' | 'inactive' | 'sold_out';
+} | null {
   const v = raw == null ? null : Array.isArray(raw) ? (raw[0] ?? null) : raw;
   if (!v) return null;
   const productJoin = Array.isArray(v.meal_products) ? v.meal_products[0] : v.meal_products;
   const category = productJoin?.category ?? 'meal';
-  return { kind: v.kind, productStart: v.product_start_date, category };
+  // 상품 조인이 비면 차단 쪽으로 판정한다(fail-closed). !inner + FK NOT NULL 이라 실제로는
+  // 발생하지 않지만, 조인 누락이 환불 가드를 조용히 무력화하는 형태로 두지 않는다.
+  const productStatus = productJoin?.status ?? 'inactive';
+  return { kind: v.kind, productStart: v.product_start_date, category, productStatus };
 }
 
 /**
@@ -37,6 +48,8 @@ function pickVariant(
  *  - exam: 절대 불가
  *  - recurring: 직전 주 금요일까지
  *  - one_time: 식사일 2일 전까지
+ *  - 상품이 비활성(inactive)이면 기한과 무관하게 셀프 환불 불가
+ *    (관리자 강제 취소 executeAdminMealOrderCancel 은 계속 가능)
  */
 export async function executePaidMealOrderCancel(
   admin: AdminClient,
@@ -59,10 +72,12 @@ export async function executePaidMealOrderCancel(
       amount,
       status,
       tid,
+      paid_at,
+      created_at,
       meal_product_variants (
         kind,
         product_start_date,
-        meal_products (category)
+        meal_products (category, status)
       )
     `,
     )
@@ -81,6 +96,8 @@ export async function executePaidMealOrderCancel(
     amount: number;
     status: string;
     tid: string | null;
+    paid_at: string | null;
+    created_at: string;
     meal_product_variants: VariantJoin | VariantJoin[] | null;
   };
 
@@ -115,6 +132,8 @@ export async function executePaidMealOrderCancel(
     category: variant.category,
     variantKind: variant.kind,
     productStart: variant.productStart,
+    productStatus: variant.productStatus,
+    purchasedAt: raw.paid_at ?? raw.created_at,
   });
   if (!decision.ok) {
     return { success: false, error: cancelReasonMessage(decision.reason), status: 400 };
