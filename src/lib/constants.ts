@@ -164,6 +164,36 @@ export const REWARD_RULES = {
   dailyFocusMinSegmentSeconds: 60,
 } as const;
 
+// 멘토링·상담 참여 자동 상점 (mentoring-reward 크론, KST 09:00)
+//
+// 확정(confirmed) 신청 1건당 1점 — 세션당 부여. 현행 수동 운영과 동일한 단위.
+// 멱등은 mentoring_reward_grants 원장(application_id PK)이 담당한다.
+export const MENTORING_REWARD = {
+  /** 확정 신청 1건당 부여 점수. 멘토링/클리닉/상담 유형 무관 동일. */
+  amount: 1,
+  /** 지점별 reward_presets.code */
+  presetCode: 'mentoring_attend',
+  /**
+   * points.reason — 학생 알림·상벌점 내역·리포트에 그대로 노출된다.
+   * 프리셋 reason('[자동] …')과 달리 접두어를 빼는 이유: 접두어는 관리자 드롭다운에서
+   * 기존 수동 프리셋('상담/멘토링 참여')과 구분하기 위한 것이고,
+   * 학생 화면에는 이미 is_auto 기반 '자동' 배지가 붙어 중복이다.
+   */
+  reason: '멘토링·상담 참여',
+  /**
+   * 자동 부여를 시작할 슬롯 학습일 (YYYY-MM-DD, 이 날짜 포함).
+   *
+   * ⚠️ 배포 직전에 "실제 배포일의 다음날"로 반드시 다시 확인할 것.
+   * 이 날짜 이전 슬롯은 관리자가 수동 부여를 마친 구간이며, 수동 부여분은
+   * preset 이 다르고 study_date 도 NULL 이라 DB 레벨 중복 차단이 전혀 없다.
+   * 값이 과거로 남으면 그 구간이 이중 지급된다 (크론이 7일을 소급하므로 최대 7일치).
+   * 형식이 깨지면 크론이 500 으로 실패한다(조용한 0건 처리 방지).
+   */
+  startDate: '2026-07-28',
+  /** 사후 확정·대리등록을 주워가기 위한 소급 조회 창(일). 상한일 포함. */
+  lookbackDays: 7,
+} as const;
+
 // 정책 버전 (변경 시 학생/학부모에 모달 재노출)
 export const POLICY_VERSION = 'v1' as const;
 

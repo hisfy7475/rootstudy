@@ -9,6 +9,14 @@ export type MentoringAttachment = {
   size: number;
 };
 
+/** 멘토링 자동 상점 미부여 사유 (mentoring_reward_grants.skip_reason) */
+export type MentoringRewardSkipReason =
+  | 'withdrawn'
+  | 'not_approved'
+  | 'no_student_profile'
+  | 'no_preset'
+  | 'insert_failed';
+
 export interface Database {
   public: {
     Tables: {
@@ -589,6 +597,7 @@ export interface Database {
             | 'auto_weekly'
             | 'auto_daily_focus'
             | 'auto_vocab'
+            | 'auto_mentoring'
             | 'auto_late'
             | 'auto_early'
             | 'reset_on_threshold'
@@ -615,6 +624,7 @@ export interface Database {
             | 'auto_weekly'
             | 'auto_daily_focus'
             | 'auto_vocab'
+            | 'auto_mentoring'
             | 'auto_late'
             | 'auto_early'
             | 'reset_on_threshold'
@@ -641,6 +651,7 @@ export interface Database {
             | 'auto_weekly'
             | 'auto_daily_focus'
             | 'auto_vocab'
+            | 'auto_mentoring'
             | 'auto_late'
             | 'auto_early'
             | 'reset_on_threshold'
@@ -1131,6 +1142,10 @@ export interface Database {
           color: string;
           sort_order: number;
           is_active: boolean;
+          /** 자동 부여 크론이 지점별로 찾아 쓰는 키 (daily_focus / mentoring_attend) */
+          code: string | null;
+          /** true 면 삭제 불가 — 자동 부여가 이 프리셋에 의존한다 */
+          is_system: boolean;
           created_at: string;
         };
         Insert: {
@@ -1141,6 +1156,8 @@ export interface Database {
           color?: string;
           sort_order?: number;
           is_active?: boolean;
+          code?: string | null;
+          is_system?: boolean;
           created_at?: string;
         };
         Update: {
@@ -1151,6 +1168,8 @@ export interface Database {
           color?: string;
           sort_order?: number;
           is_active?: boolean;
+          code?: string | null;
+          is_system?: boolean;
           created_at?: string;
         };
       };
@@ -2057,6 +2076,40 @@ export interface Database {
           updated_at?: string;
         };
       };
+      /**
+       * 멘토링·상담 참여 자동 상점 부여 원장.
+       * application_id 가 PK 라 신청 1건당 1행 — 멱등·동시성 가드를 겸한다.
+       * point_id 는 ON DELETE SET NULL (상점을 지워도 원장은 남아 재부여를 막는다).
+       */
+      mentoring_reward_grants: {
+        Row: {
+          application_id: string;
+          student_id: string;
+          study_date: string;
+          point_id: string | null;
+          granted: boolean;
+          skip_reason: MentoringRewardSkipReason | null;
+          created_at: string;
+        };
+        Insert: {
+          application_id: string;
+          student_id: string;
+          study_date: string;
+          point_id?: string | null;
+          granted?: boolean;
+          skip_reason?: MentoringRewardSkipReason | null;
+          created_at?: string;
+        };
+        Update: {
+          application_id?: string;
+          student_id?: string;
+          study_date?: string;
+          point_id?: string | null;
+          granted?: boolean;
+          skip_reason?: MentoringRewardSkipReason | null;
+          created_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -2219,6 +2272,7 @@ export type PaymentLog = Database['public']['Tables']['payment_logs']['Row'];
 export type Mentor = Database['public']['Tables']['mentors']['Row'];
 export type MentoringSlot = Database['public']['Tables']['mentoring_slots']['Row'];
 export type MentoringApplication = Database['public']['Tables']['mentoring_applications']['Row'];
+export type MentoringRewardGrant = Database['public']['Tables']['mentoring_reward_grants']['Row'];
 export type VocabPack = Database['public']['Tables']['vocab_packs']['Row'];
 export type VocabWord = Database['public']['Tables']['vocab_words']['Row'];
 export type VocabPackWord = Database['public']['Tables']['vocab_pack_words']['Row'];

@@ -698,15 +698,25 @@ export function PointsClient({
         key={preset.id}
         className='flex items-center justify-between rounded-lg border bg-white p-2'
       >
-        <span className='truncate text-sm'>{preset.reason}</span>
+        <div className='flex min-w-0 items-center gap-2'>
+          <span className='truncate text-sm'>{preset.reason}</span>
+          {preset.is_system && (
+            <span className='shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500'>
+              자동
+            </span>
+          )}
+        </div>
         <div className='flex shrink-0 items-center gap-2'>
           <span className='font-semibold text-green-600'>+{preset.amount}점</span>
-          <button
-            onClick={() => handleDeleteRewardPreset(preset.id)}
-            className='text-gray-400 hover:text-red-500'
-          >
-            <X className='h-4 w-4' />
-          </button>
+          {/* 시스템 프리셋(일일 순공/멘토링·상담 참여)은 자동 부여 크론이 참조하므로 삭제 불가 */}
+          {!preset.is_system && (
+            <button
+              onClick={() => handleDeleteRewardPreset(preset.id)}
+              className='text-gray-400 hover:text-red-500'
+            >
+              <X className='h-4 w-4' />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -792,9 +802,7 @@ export function PointsClient({
       );
     }
     if (expandedHistory.length === 0) {
-      return (
-        <p className='text-text-muted py-4 text-center text-sm'>상벌점 내역이 없습니다.</p>
-      );
+      return <p className='text-text-muted py-4 text-center text-sm'>상벌점 내역이 없습니다.</p>;
     }
     return (
       <>

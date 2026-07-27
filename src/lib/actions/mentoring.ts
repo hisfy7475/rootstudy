@@ -2143,19 +2143,53 @@ export async function adminCancelMentoringApplication(
   const subjectLabel =
     slotJoin.subject?.trim() || MENTORING_TYPE_LABEL[slotJoin.type as MentoringType];
 
-  await notifyStudentAndParentsMentoringDecision({
-    studentId: app.student_id,
-    subjectLabel,
-    slotType: slotJoin.type as MentoringType,
-    dateYmd: slotJoin.date,
-    startTime: slotJoin.start_time,
-    endTime: slotJoin.end_time,
-    kind: 'cancelled',
-    rejectReason: trimmed,
-  });
+  // 이미 시작된 슬롯의 강제 취소는 "노쇼 처리" 용도다(자동 상점 부여 대상에서 제외).
+  // 참석하지 않은 일정에 대해 뒤늦게 "취소되었습니다" 알림이 가면 혼란만 주므로 보내지 않는다.
+  // adminApplyMentoring 의 isPastSlot 분기와 동일한 정책.
+  const isPastSlot = Date.now() >= mentoringSlotStartMs(slotJoin.date, slotJoin.start_time);
+  if (!isPastSlot) {
+    await notifyStudentAndParentsMentoringDecision({
+      studentId: app.student_id,
+      subjectLabel,
+      slotType: slotJoin.type as MentoringType,
+      dateYmd: slotJoin.date,
+      startTime: slotJoin.start_time,
+      endTime: slotJoin.end_time,
+      kind: 'cancelled',
+      rejectReason: trimmed,
+    });
+  }
 
   revalidateMentoringAdmin();
   return { success: true };
+}
+
+/**
+ * 이미 지난 슬롯에 대한 관리자 대리등록은 정원 마감이어도 허용한다.
+ *
+ * 앱으로 신청하지 않고 참여한 학생을 사후에 명단에 넣는 것이 대리등록의 주 용도인데,
+ * 프로덕션 지난 슬롯의 75%가 정원 마감이라 그대로 두면 4번 중 3번 막힌다
+ * (멘토링·상담 참여 자동 상점의 "앱 밖 참여자 흡수" 경로이기도 하다).
+ *
+ * DB 에 CHECK(booked_count <= capacity) 가 있어 가드만 빼면 트리거가 23514 로 거부하므로,
+ * 정원을 한 칸 늘려 자리를 만든 뒤 진행한다. 이미 끝난 슬롯이라 정원 확장의 부작용은 없다.
+ * 미래 슬롯은 기존대로 정원을 지킨다.
+ */
+async function ensureCapacityForPastSlot(
+  adminDb: ReturnType<typeof createAdminClient>,
+  slot: { id: string; booked_count: number; capacity: number },
+): Promise<boolean> {
+  if (slot.booked_count < slot.capacity) return true;
+  const { error } = await adminDb
+    .from('mentoring_slots')
+    .update({ capacity: slot.booked_count + 1, updated_at: new Date().toISOString() })
+    .eq('id', slot.id);
+  if (error) {
+    logPostgrestQueryError('[ensureCapacityForPastSlot]', error);
+    return false;
+  }
+  slot.capacity = slot.booked_count + 1;
+  return true;
 }
 
 // 어드민이 학생을 대신해 슬롯에 신청한다. 즉시 confirmed 로 들어간다.
@@ -2300,7 +2334,11 @@ export async function adminApplyMentoring(
     }
     // rejected / cancelled → confirmed: 트리거가 booked_count +1 처리 (마이그레이션 보강 후).
     if (slotRow.booked_count >= slotRow.capacity) {
-      return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
+      // 지난 슬롯이면 사후 등록을 위해 정원을 한 칸 확장한다.
+      if (!isPastSlot) return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
+      if (!(await ensureCapacityForPastSlot(adminDb, slotRow))) {
+        return { error: '정원 확장에 실패해 사후 등록할 수 없습니다.' };
+      }
     }
     const { error: upErr } = await adminDb
       .from('mentoring_applications')
@@ -2346,7 +2384,11 @@ export async function adminApplyMentoring(
 
   // 신규 INSERT
   if (slotRow.booked_count >= slotRow.capacity) {
-    return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
+    // 지난 슬롯이면 사후 등록을 위해 정원을 한 칸 확장한다.
+    if (!isPastSlot) return { error: SLOT_CAPACITY_FULL_ADMIN_MSG };
+    if (!(await ensureCapacityForPastSlot(adminDb, slotRow))) {
+      return { error: '정원 확장에 실패해 사후 등록할 수 없습니다.' };
+    }
   }
   const { data: inserted, error: insErr } = await adminDb
     .from('mentoring_applications')
