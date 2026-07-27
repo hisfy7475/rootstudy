@@ -72,6 +72,8 @@ export async function executePaidMealOrderCancel(
       amount,
       status,
       tid,
+      paid_at,
+      created_at,
       meal_product_variants (
         kind,
         product_start_date,
@@ -94,6 +96,8 @@ export async function executePaidMealOrderCancel(
     amount: number;
     status: string;
     tid: string | null;
+    paid_at: string | null;
+    created_at: string;
     meal_product_variants: VariantJoin | VariantJoin[] | null;
   };
 
@@ -129,6 +133,7 @@ export async function executePaidMealOrderCancel(
     variantKind: variant.kind,
     productStart: variant.productStart,
     productStatus: variant.productStatus,
+    purchasedAt: raw.paid_at ?? raw.created_at,
   });
   if (!decision.ok) {
     return { success: false, error: cancelReasonMessage(decision.reason), status: 400 };
