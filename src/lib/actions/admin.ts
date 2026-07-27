@@ -5083,6 +5083,18 @@ export async function createRewardPreset(
 export async function deleteRewardPreset(id: string) {
   const supabase = await createClient();
 
+  // 시스템 프리셋(일일 순공/멘토링·상담 참여)은 삭제 불가 — deletePenaltyPreset 과 동일 정책.
+  // 자동 부여 크론이 이 프리셋의 preset_id 를 points 에 기록하므로, 비활성화되면 해당 지점의
+  // 자동 부여가 조용히 멈추고 시드 재생성도 WHERE NOT EXISTS 로 막혀 복구가 어렵다.
+  const { data: target } = await supabase
+    .from('reward_presets')
+    .select('is_system')
+    .eq('id', id)
+    .maybeSingle();
+  if (target?.is_system) {
+    return { error: '시스템 프리셋(자동 부여용)은 삭제할 수 없습니다.' };
+  }
+
   const { error } = await supabase.from('reward_presets').update({ is_active: false }).eq('id', id);
 
   if (error) {
