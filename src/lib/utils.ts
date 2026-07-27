@@ -1,7 +1,7 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { parse, addMinutes, subMinutes } from 'date-fns';
-import { DAY_CONFIG, ABSENCE_BUFFER_MINUTES } from './constants';
+import { DAY_CONFIG, ABSENCE_BUFFER_MINUTES, REWARD_RULES } from './constants';
 import type { StudentAbsenceSchedule } from '@/types/database';
 
 export function cn(...inputs: ClassValue[]) {
@@ -194,6 +194,37 @@ export function isWithinStudyDay(date: Date = new Date()): boolean {
 
   // 06:00 ~ 23:59 또는 00:00 ~ 03:00
   return totalMinutes >= startMinutes || totalMinutes < endMinutes;
+}
+
+/**
+ * 해당 학습일에 일일 자동 상점(daily_focus)이 유효한지.
+ *
+ * 크론 게이트(daily-reset)·진행도 위젯·상점 페이지가 같은 판정을 쓰도록 여기 한 곳에 모은다.
+ * `REWARD_RULES.dailyFocusEndDate` 가 null 이면 항상 true (= 부여 재개).
+ * 학습일 문자열은 항상 zero-pad YYYY-MM-DD 라 사전식 비교로 충분하다.
+ *
+ * @param studyDateStr - 학습일 (기본값: 오늘 학습일)
+ */
+export function isDailyFocusActive(studyDateStr: string = formatDate(getStudyDate())): boolean {
+  const endDate = REWARD_RULES.dailyFocusEndDate;
+  return !endDate || studyDateStr < endDate;
+}
+
+/**
+ * 일일 자동 상점 종료 후에도 '최근 7일' 이력 UI 를 남겨둘지.
+ *
+ * 마지막 부여분(종료일 전날 학습일) 알림은 종료일 KST 09:00 에 발송된다
+ * (api/cron/daily-focus-notify). 종료와 동시에 이력까지 감추면 학생이 "+1점" 푸시를 받고
+ * 들어와도 아무것도 볼 수 없으므로, 스트립이 다루는 창(7일)만큼 더 노출한다.
+ */
+export function isDailyFocusHistoryVisible(
+  studyDateStr: string = formatDate(getStudyDate()),
+): boolean {
+  const endDate = REWARD_RULES.dailyFocusEndDate;
+  if (!endDate) return true;
+  const graceEnd = new Date(`${endDate}T00:00:00.000Z`);
+  graceEnd.setUTCDate(graceEnd.getUTCDate() + 7);
+  return studyDateStr < graceEnd.toISOString().split('T')[0];
 }
 
 /**

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { DAY_CONFIG, REWARD_RULES } from '@/lib/constants';
-import { formatDate, getStudyDate, getStudyDayBounds } from '@/lib/utils';
+import { formatDate, getStudyDate, getStudyDayBounds, isDailyFocusActive } from '@/lib/utils';
 import { notifyPointsGranted } from '@/lib/actions/notification';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
 
@@ -30,8 +30,9 @@ function getResetTimeUTC(): { hour: number; minute: number } {
 // 단계 9: 자동 일일 상점 평가 (전 학생 순회)
 //
 // 미분류 시간 계산은 공통 헬퍼 `calculateUnclassifiedMetrics` 에 일임 (UI/위젯과 동일 알고리즘).
-// 멱등성은 `daily_focus_evaluations.point_id` 선조회로 보장 — `uq_points_daily_preset` 는
-// `created_at::date(KST)` 기준이라 백필(다른 calendar day) 시 충돌 안 함.
+// 멱등성은 `daily_focus_evaluations.point_id` 선조회가 전적으로 담당한다.
+// (points 유니크 인덱스 `uq_points_study_date_preset` 는 study_date 기준인데 이 부여는
+//  study_date 를 채우지 않아 NULL 끼리 distinct → DB 레벨 중복 차단이 없다.)
 async function evaluateDailyFocus(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   studyDateStr: string,
@@ -41,7 +42,15 @@ async function evaluateDailyFocus(
   granted: number;
   alreadyGranted: number;
   errors: number;
+  skipped?: 'daily_focus_ended';
 }> {
+  // 종료일 게이트 — 클라이언트 요청으로 중단된 구간은 평가 자체를 하지 않는다.
+  // 프리셋 비활성화만으로는 멈추지 않으므로(아래 preset 조회가 is_active 를 보지 않음)
+  // 이 가드가 유일한 차단선이다. 조용한 0건 처리로 오인되지 않도록 skipped 를 실어 보낸다.
+  if (!isDailyFocusActive(studyDateStr)) {
+    return { evaluated: 0, granted: 0, alreadyGranted: 0, errors: 0, skipped: 'daily_focus_ended' };
+  }
+
   // 학습일 경계 (KST)
   const { start: dayStart, end: dayEnd } = getStudyDayBounds(studyDateStr);
 
@@ -142,8 +151,8 @@ async function evaluateDailyFocus(
       // 부여 케이스만 먼저 points 인서트해서 pointId 확정 → upsert 한 번에 점수까지 연결.
       let pointId: string | null = null;
       if (didGrant && presetId) {
-        // 백필 모드일 때만 created_at 명시 — uq_points_daily_preset(student_id, preset_id, KST date)
-        // 충돌 방지. 정규 cron 은 NOW() default 그대로 사용.
+        // 백필 모드일 때만 created_at 명시 — 부여 시각을 정상 cron 과 같은 위치에 박아
+        // 상벌점 내역의 날짜가 어긋나지 않게 한다. 정규 cron 은 NOW() default 그대로 사용.
         const { data: point, error: pointErr } = await supabase
           .from('points')
           .insert({
@@ -271,7 +280,7 @@ export async function GET(request: Request) {
     }
     try {
       // 정상 cron 이 학습일 종료 시점(다음날 KST 03:00 = 학습일 18:00 UTC)에 부여했을
-      // created_at 으로 박아 uq_points_daily_preset (student_id, preset_id, KST date) 충돌 회피.
+      // created_at 으로 박아 상벌점 내역의 부여 시각을 정규 경로와 일치시킨다.
       const [y, m, d] = backfillStudyDate.split('-').map(Number);
       const backfillCreatedAt = new Date(Date.UTC(y, m - 1, d, 18, 0, 0)).toISOString();
       const focusResult = await evaluateDailyFocus(supabase, backfillStudyDate, {
@@ -414,6 +423,7 @@ export async function GET(request: Request) {
 
     // -------------------------------------------------------
     // 4. 자동 일일 상점 평가 (단계 9)
+    //    - REWARD_RULES.dailyFocusEndDate 이후 학습일은 부여 중단 (클라이언트 요청)
     //    - 학습일(어제) 종료 시점 기준
     //    - 순공시간 ≥ 3시간 + 미분류 ≤ 5분 + 주 5일 캡(월~금)
     //    - 결과는 daily_focus_evaluations 에 UPSERT (사후 분석용)

@@ -60,8 +60,8 @@ export default function PointsPolicyPage() {
       <Card className='space-y-3 p-4'>
         <h2 className='text-text text-base font-bold'>④ 상품권 발급 ({REWARD_RULES.redeemAt}점)</h2>
         <p className='text-text-muted text-sm'>
-          상점 {REWARD_RULES.redeemAt}점이 모이면 학생이 직접 신청할 수 있으며, 관리자가 발급합니다.
-          {REWARD_RULES.redeemAt}점만 차감되고 잔여 상점은 그대로 보존됩니다.
+          상점 {REWARD_RULES.redeemAt}점이 모이면 발급 대기열에 자동으로 등록되며, 관리자가
+          발급합니다. {REWARD_RULES.redeemAt}점만 차감되고 잔여 상점은 그대로 보존됩니다.
         </p>
       </Card>
 
@@ -73,17 +73,16 @@ export default function PointsPolicyPage() {
       </Card>
 
       <Card className='space-y-3 p-4'>
-        <h2 className='text-text text-base font-bold'>⑥ 일일 자동 상점</h2>
-        <p className='text-text-muted text-sm'>
-          학습일에 다음 조건을 모두 만족하면 자동으로 상점 {REWARD_RULES.dailyFocusAmount}점을
-          획득합니다.
-        </p>
+        <h2 className='text-text text-base font-bold'>⑥ 상점 획득 경로</h2>
         <ul className='text-text-muted space-y-1 text-sm'>
-          <li>· 순공시간 ≥ {REWARD_RULES.dailyFocusHours}시간</li>
-          <li>· 입실 중 과목 미선택 시간 ≤ {REWARD_RULES.dailyFocusUnclassifiedGraceMinutes}분</li>
-          <li>· 월~금 (주말 미부여)</li>
+          <li>· 주간 학습 목표 시간 달성 (주간 정산)</li>
+          <li>· 영단어 시험 월~금 개근 (주간 정산)</li>
+          <li>· 멘토링·클리닉·상담 참여 (참여 다음날 정산)</li>
+          <li>· 그 밖의 항목은 지점 관리자가 직접 부여합니다.</li>
         </ul>
-        <p className='text-text-muted text-xs'>결과는 다음날 새벽에 자동 정산됩니다.</p>
+        <p className='text-text-muted text-xs'>
+          자동 부여분은 정산 시점에 상벌점 내역과 알림으로 함께 안내됩니다.
+        </p>
       </Card>
 
       <section className='space-y-3 pt-2'>

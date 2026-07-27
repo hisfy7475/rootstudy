@@ -8,6 +8,7 @@ import {
   getWeekStart,
   formatDateKST,
   getWeekDateStringsFromMondayKST,
+  isDailyFocusActive,
 } from '@/lib/utils';
 import { REWARD_RULES } from '@/lib/constants';
 import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
@@ -810,8 +811,16 @@ export async function acknowledgePolicy(): Promise<{ success: true } | { error: 
   return { success: true };
 }
 
-/** 단계 9: 오늘 자동 상점 진행도 (학습일 종료 전 실시간 계산) */
+/**
+ * 단계 9: 오늘 자동 상점 진행도 (학습일 종료 전 실시간 계산)
+ *
+ * 종료일(REWARD_RULES.dailyFocusEndDate) 이후에는 null 을 반환해 위젯이 통째로 사라지게 한다.
+ */
 export async function getTodayFocusProgress() {
+  if (!isDailyFocusActive()) {
+    return null;
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

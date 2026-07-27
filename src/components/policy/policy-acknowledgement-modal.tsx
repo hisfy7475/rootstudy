@@ -59,7 +59,7 @@ export function PolicyAcknowledgementModal({
                 상점 {REWARD_RULES.redeemAt}점 = 상품권 1장
               </p>
               <p className='text-text-muted text-xs'>
-                평일 3시간 학습 + 미분류 ≤ 5분 시 매일 자동 +1점
+                주간 목표 시간 달성·영단어 개근·멘토링 참여 시 자동 적립
               </p>
             </div>
           </div>
