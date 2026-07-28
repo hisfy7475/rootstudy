@@ -1516,6 +1516,8 @@ export interface Database {
           id: string;
           student_id: string;
           pack_id: string;
+          /** 응시 시점 꾸러미명 스냅샷. 비활성 꾸러미는 학생·학부모 RLS 로 조인이 NULL 이 되므로 이 값을 우선 사용. */
+          pack_name_snapshot: string | null;
           exam_type: 'normal' | 'friday_review';
           exam_date: string;
           started_at: string;
@@ -1530,6 +1532,7 @@ export interface Database {
           id?: string;
           student_id: string;
           pack_id: string;
+          pack_name_snapshot?: string | null;
           exam_type?: 'normal' | 'friday_review';
           exam_date: string;
           started_at?: string;
@@ -1544,6 +1547,7 @@ export interface Database {
           id?: string;
           student_id?: string;
           pack_id?: string;
+          pack_name_snapshot?: string | null;
           exam_type?: 'normal' | 'friday_review';
           exam_date?: string;
           started_at?: string;

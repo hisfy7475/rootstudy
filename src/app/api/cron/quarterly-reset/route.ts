@@ -108,6 +108,8 @@ export async function GET(request: Request) {
         message: '벌점 누적이 0으로 초기화되었습니다. 새 분기 화이팅!',
         link: '/student/points',
       },
+      // 크론은 응답 반환과 함께 인보케이션이 동결될 수 있어 푸시를 반드시 await 한다.
+      { awaitPush: true },
     ).catch(console.error);
   }
 

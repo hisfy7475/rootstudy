@@ -51,6 +51,7 @@ export default function RunnerClient({
 
   const [remaining, setRemaining] = useState(remainingSec);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const submittedRef = useRef(false);
 
   // 타이머 만료/제출 콜백에서 최신 답안을 참조하기 위한 ref(이펙트 deps 누락 방지).
@@ -91,7 +92,27 @@ export default function RunnerClient({
     }
     submittedRef.current = true;
     setSubmitting(true);
-    await submitVocabExam(examId, answersRef.current);
+    setSubmitError(null);
+
+    // 제출 실패를 삼키면 안 된다. 여기서 예외가 새면 결과 화면으로 넘어가지 못한 채
+    // submittedRef 가 true 로 잠겨 재시도가 막히고, 시험은 in_progress 로 남아
+    // 새벽 크론이 auto(0점)로 마감한다 → 학생 입장에선 "다 풀고 제출했는데 미응시".
+    // 하루 1회 제약(UNIQUE(student_id, exam_date))이라 재응시로 복구할 수도 없다.
+    try {
+      const res = await submitVocabExam(examId, answersRef.current);
+      if (res?.error) {
+        submittedRef.current = false;
+        setSubmitting(false);
+        setSubmitError(res.error);
+        return;
+      }
+    } catch {
+      submittedRef.current = false;
+      setSubmitting(false);
+      setSubmitError('제출에 실패했습니다. 네트워크 상태를 확인하고 다시 제출해 주세요.');
+      return;
+    }
+
     try {
       localStorage.removeItem(storageKey);
     } catch {}
@@ -267,9 +288,21 @@ export default function RunnerClient({
 
         {/* 하단 (safe-bottom, 제출 버튼 항상 고정 노출) */}
         <div className='border-border bg-background pb-safe shrink-0 border-t px-4'>
+          {submitError && (
+            <p
+              role='alert'
+              className='text-destructive bg-destructive/10 mt-3 rounded-lg px-3 py-2 text-sm'
+            >
+              {submitError}
+            </p>
+          )}
           <div className='pt-3 pb-3'>
             <Button className='w-full' disabled={submitting} onClick={submit}>
-              {submitting ? '제출 중…' : `제출 (${answeredCount}/${total})`}
+              {submitting
+                ? '제출 중…'
+                : submitError
+                  ? '다시 제출'
+                  : `제출 (${answeredCount}/${total})`}
             </Button>
           </div>
         </div>

@@ -478,7 +478,7 @@ export async function getImmersionReportData(
     // 영단어 시험: 이번 주차(월~일 학습일) 제출 완료분 — 요일/레벨/점수로 가공
     supabase
       .from('vocab_exams')
-      .select('exam_date, exam_type, score, total, pack:vocab_packs(name)')
+      .select('exam_date, exam_type, score, total, pack_name_snapshot, pack:vocab_packs(name)')
       .eq('student_id', studentId)
       .in('exam_date', weekDates)
       .not('submitted_at', 'is', null),
@@ -686,6 +686,8 @@ export async function getImmersionReportData(
     exam_type: string;
     score: number | null;
     total: number | null;
+    /** 응시 시점 꾸러미명. 학부모 RLS 는 비활성 꾸러미를 못 읽어 pack 조인이 NULL 이 되므로 이 값을 우선한다. */
+    pack_name_snapshot: string | null;
     pack: { name: string } | null;
   }>;
   const vocabRows: VocabExamRow[] = vocabRawRows
@@ -694,7 +696,9 @@ export async function getImmersionReportData(
     .map((r) => ({
       weekday: dayLabels[weekDates.indexOf(r.exam_date)]!,
       levelLabel:
-        r.exam_type === 'friday_review' ? '누적 오답 테스트' : (r.pack?.name ?? '영단어 시험'),
+        r.exam_type === 'friday_review'
+          ? '누적 오답 테스트'
+          : (r.pack_name_snapshot ?? r.pack?.name ?? '영단어 시험'),
       score: r.score ?? 0,
       total: r.total ?? 0,
     }));

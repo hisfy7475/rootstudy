@@ -1470,7 +1470,7 @@ export async function deletePointsByFilter(params: {
   idsQuery = idsQuery.not(
     'event_kind',
     'in',
-    '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus)',
+    '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus,auto_vocab)',
   );
 
   const { data: idsData, error: idsError } = await idsQuery.limit(10000);
@@ -1942,7 +1942,8 @@ export async function cancelPoint(pointId: string, reason?: string) {
 //
 // 정책 (단계 5):
 // - event_kind IN ('reset_on_threshold', 'reset_on_threshold_revert', 'redeem',
-//   'manual_cancel', 'auto_daily_focus') 는 DB BEFORE DELETE 트리거가 차단.
+//   'manual_cancel', 'auto_daily_focus', 'auto_vocab') 는 DB BEFORE DELETE 트리거가 차단.
+//   (auto_vocab 은 삭제만 막고 cancelPoint 취소는 허용 — 되돌릴 경로는 남겨둔다)
 // - 삭제 후 type='penalty' 라면 분기 누적 재계산 → < 30 이면 자동 검토 취소 + 상점 복구.
 // - append-only 정책 권장: 대안 `cancelPoint` (manual_cancel 음수 행 INSERT) 도 제공.
 export async function deletePoint(pointId: string) {
@@ -1978,6 +1979,9 @@ export async function deletePoint(pointId: string) {
     'redeem',
     'manual_cancel',
     'auto_daily_focus',
+    // 부여 시 학생·학부모에게 알림이 나가므로 하드 삭제하면 알림만 남고 점수가 사라진다.
+    // 되돌리려면 cancelPoint(음수 행) 사용 — 취소는 계속 허용된다.
+    'auto_vocab',
   ]);
   if (protectedKinds.has(pointData.event_kind as string)) {
     return {
@@ -2053,7 +2057,7 @@ export async function deletePoints(pointIds: string[]) {
     .not(
       'event_kind',
       'in',
-      '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus)',
+      '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus,auto_vocab)',
     );
 
   if (!pointsData || pointsData.length === 0) {

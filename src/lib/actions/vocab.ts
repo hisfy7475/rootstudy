@@ -5,7 +5,8 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getStudyDate } from '@/lib/utils';
 import { getUserScope } from '@/lib/auth/scope';
 import { parseProblemGroups } from '@/lib/vocab-problem-group';
-import { notifyVocabExamSubmitted } from '@/lib/actions/notification';
+import { EXAM_TOTAL, examTimeLimitSec } from '@/lib/vocab-exam-time';
+import { notifyVocabExamSubmitted, notifyPointsGranted } from '@/lib/actions/notification';
 import type { VocabPack } from '@/types/database';
 
 // ============================================================
@@ -15,8 +16,6 @@ import type { VocabPack } from '@/types/database';
 // 에러 컨벤션(mentoring.ts 준수): 조회 실패→빈배열/null, 쓰기→{ error }/{ success }.
 // ============================================================
 
-const EXAM_TOTAL = 40;
-const TIME_LIMIT_SEC = 10 * 60;
 const OPTIONS_COUNT = 4;
 const MIN_ACTIVE_WORDS = 40;
 const MIN_UNIQUE_MEANINGS = OPTIONS_COUNT; // 정답 1 + 오답 3
@@ -37,6 +36,18 @@ function logError(scope: string, error: unknown): void {
 /** getStudyDate 결과(UTC 자정 Date)를 학습일 YYYY-MM-DD 문자열로. */
 function studyDateStr(d: Date = new Date()): string {
   return getStudyDate(d).toISOString().slice(0, 10);
+}
+
+/**
+ * 표시용 꾸러미명 해석. 스냅샷(응시 시점 이름) 우선.
+ * 학생·학부모 RLS 는 public/preparing 꾸러미만 읽히므로 비활성 꾸러미는 조인이 NULL 이 된다.
+ * 조인 값은 스냅샷 도입(20260728110000) 이전/배포 갭 행을 위한 fallback 으로만 남긴다.
+ */
+function resolvePackName(
+  snapshot: string | null | undefined,
+  joined: { name: string } | null | undefined,
+): string {
+  return snapshot ?? joined?.name ?? '';
 }
 
 /**
@@ -535,7 +546,7 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
   // 꾸러미 노출/선택 가능 검증.
   const { data: pack, error: packErr } = await supabase
     .from('vocab_packs')
-    .select('id, status, publish_start_at, publish_end_at')
+    .select('id, name, status, publish_start_at, publish_end_at')
     .eq('id', packId)
     .maybeSingle();
   if (packErr || !pack) return { ok: false, error: '꾸러미를 찾을 수 없습니다.' };
@@ -563,6 +574,9 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
     .insert({
       student_id: studentId,
       pack_id: packId,
+      // 응시 시점 이름 박제 — 이후 꾸러미가 비활성/rename 되어도 이력 제목이 살아남는다.
+      // (DB 트리거 trg_vocab_exams_pack_name_snapshot 이 최종 방어선)
+      pack_name_snapshot: pack.name,
       exam_type: friday ? 'friday_review' : 'normal',
       exam_date: examDate,
       started_at: now.toISOString(),
@@ -616,8 +630,9 @@ export async function startVocabExam(packId: string): Promise<StartExamResult> {
 // 학생 — 진행 / 저장 / 제출
 // ============================================================
 
-function isExpired(startedAt: string, now: Date = new Date()): boolean {
-  return now.getTime() > new Date(startedAt).getTime() + TIME_LIMIT_SEC * 1000;
+/** 제한시간 경과 여부. 제한시간은 문항 수 비례(@/lib/vocab-exam-time) — 금요일 가변 문항 대응. */
+function isExpired(startedAt: string, total: number, now: Date = new Date()): boolean {
+  return now.getTime() > new Date(startedAt).getTime() + examTimeLimitSec(total) * 1000;
 }
 
 export async function saveVocabAnswer(
@@ -631,11 +646,12 @@ export async function saveVocabAnswer(
 
   const { data: exam } = await supabase
     .from('vocab_exams')
-    .select('id, student_id, submitted_at, started_at')
+    .select('id, student_id, submitted_at, started_at, total')
     .eq('id', examId)
     .maybeSingle();
   if (!exam || exam.student_id !== scope.userId) return { error: '시험을 찾을 수 없습니다.' };
-  if (exam.submitted_at || isExpired(exam.started_at)) return { error: '시험이 종료되었습니다.' };
+  if (exam.submitted_at || isExpired(exam.started_at, exam.total))
+    return { error: '시험이 종료되었습니다.' };
 
   // 정답 비교를 위해 해당 문항 answer 조회 후 is_correct 동시 저장.
   const { data: q } = await supabase
@@ -763,9 +779,20 @@ async function awardVocabReward(studentId: string, examDate: string): Promise<vo
       preset_id: null,
       preset_type: null,
     });
-    if (error && (error as { code?: string }).code !== '23505') {
-      logError('[awardVocabReward]', error);
+    if (error) {
+      // 23505 = 그 주 이미 부여됨(멱등 인덱스). 정상 흐름이므로 로그도 알림도 없이 흡수.
+      if ((error as { code?: string }).code !== '23505') logError('[awardVocabReward]', error);
+      return;
     }
+
+    // 실제로 INSERT 된 경우에만 알림. 수기 부여와 같은 문구·경로(학생+학부모)를 쓴다.
+    // await 필수 — 떠 있는 promise 는 서버리스에서 응답 반환과 함께 유실된다.
+    await notifyPointsGranted({
+      studentId,
+      type: 'reward',
+      amount: VOCAB_REWARD_AMOUNT,
+      reason: '영단어 시험 주간 개근(월~금)',
+    }).catch((e) => logError('[awardVocabReward] notify', e));
   } catch (e) {
     logError('[awardVocabReward] exception', e);
   }
@@ -834,6 +861,7 @@ export async function submitVocabExam(
   const score = await finalizeExam(supabase, examId, 'normal');
   if (score === null) return { error: '제출에 실패했습니다.' };
   revalidatePath('/student/vocab/history');
+  revalidatePath('/student/vocab'); // 홈 현황 카드(오늘 상태·개근 진행도) 갱신
   return { success: true, score };
 }
 
@@ -858,13 +886,15 @@ export async function getVocabExamForResume(examId: string): Promise<ResumeView 
 
   const { data: exam } = await supabase
     .from('vocab_exams')
-    .select('id, student_id, submitted_at, started_at, pack_id, vocab_packs(name)')
+    .select(
+      'id, student_id, submitted_at, started_at, total, pack_id, pack_name_snapshot, vocab_packs(name)',
+    )
     .eq('id', examId)
     .maybeSingle();
   if (!exam || exam.student_id !== scope.userId) return null;
 
   // 만료+미제출 → lazy 자동마감.
-  if (!exam.submitted_at && isExpired(exam.started_at)) {
+  if (!exam.submitted_at && isExpired(exam.started_at, exam.total)) {
     await finalizeExam(supabase, examId, 'auto');
     return { status: 'finished', examId };
   }
@@ -878,9 +908,13 @@ export async function getVocabExamForResume(examId: string): Promise<ResumeView 
 
   const remainingSec = Math.max(
     0,
-    TIME_LIMIT_SEC - Math.floor((Date.now() - new Date(exam.started_at).getTime()) / 1000),
+    examTimeLimitSec(exam.total) -
+      Math.floor((Date.now() - new Date(exam.started_at).getTime()) / 1000),
   );
-  const packName = (exam.vocab_packs as unknown as { name: string } | null)?.name ?? '';
+  const packName = resolvePackName(
+    exam.pack_name_snapshot,
+    exam.vocab_packs as unknown as { name: string } | null,
+  );
   return {
     status: 'in_progress',
     examId,
@@ -903,7 +937,7 @@ export async function getVocabExamResult(examId: string): Promise<ExamResult | n
   const { data: exam } = await supabase
     .from('vocab_exams')
     .select(
-      'id, student_id, pack_id, exam_type, exam_date, score, total, submit_type, submitted_at, started_at, vocab_packs(name)',
+      'id, student_id, pack_id, pack_name_snapshot, exam_type, exam_date, score, total, submit_type, submitted_at, started_at, vocab_packs(name)',
     )
     .eq('id', examId)
     .maybeSingle();
@@ -915,7 +949,11 @@ export async function getVocabExamResult(examId: string): Promise<ExamResult | n
   let submitType = exam.submit_type;
   let score = exam.score;
   let submittedAt = exam.submitted_at;
-  if (!exam.submitted_at && scope.userType === 'student' && isExpired(exam.started_at)) {
+  if (
+    !exam.submitted_at &&
+    scope.userType === 'student' &&
+    isExpired(exam.started_at, exam.total)
+  ) {
     const s = await finalizeExam(supabase, examId, 'auto');
     if (s !== null) {
       submitType = 'auto';
@@ -932,7 +970,10 @@ export async function getVocabExamResult(examId: string): Promise<ExamResult | n
 
   return {
     examId,
-    packName: (exam.vocab_packs as unknown as { name: string } | null)?.name ?? '',
+    packName: resolvePackName(
+      exam.pack_name_snapshot,
+      exam.vocab_packs as unknown as { name: string } | null,
+    ),
     examType: exam.exam_type,
     examDate: exam.exam_date,
     score: score ?? 0,
@@ -947,6 +988,126 @@ export async function getVocabExamResult(examId: string): Promise<ExamResult | n
       isCorrect: q.is_correct === true,
       options: (q.options as string[]) ?? [],
     })),
+  };
+}
+
+// ============================================================
+// 학생 — 오늘/이번 주 응시 현황 (영단어 홈 카드)
+// ============================================================
+
+/** 'future' = 아직 오지 않은 요일. 나머지는 그 날 시험의 표시 상태. */
+export type VocabDayStatus = 'normal' | 'auto' | 'in_progress' | 'none' | 'future';
+
+export type VocabWeekStatus = {
+  todayStudyDate: string;
+  /** 오늘이 월~금인지. 주말 응시는 개근 집계 대상이 아니라는 안내에 쓴다. */
+  isWeekday: boolean;
+  today: {
+    status: Exclude<VocabDayStatus, 'future'>;
+    examId: string | null;
+    score: number | null;
+    total: number | null;
+  };
+  week: {
+    mondayStr: string;
+    fridayStr: string;
+    days: { date: string; label: string; status: VocabDayStatus }[];
+    /** 그 주 월~금 중 정상 제출한 서로 다른 학습일 수(0~5). 개근 판정과 같은 셈법. */
+    normalDays: number;
+    rewardGranted: boolean;
+  };
+};
+
+const WEEKDAY_LABELS = ['월', '화', '수', '목', '금'] as const;
+
+/**
+ * 학생 본인의 오늘/이번 학습주 영단어 응시 현황.
+ *
+ * - 개근 판정(awardVocabReward)과 **같은 헬퍼**(weekMondayStr/mondayToFridayStrs)를 써야
+ *   카드에 보이는 숫자와 실제 상점 부여 기준이 어긋나지 않는다.
+ * - **읽기 전용**: getMyVocabHistory·getVocabExamForResume 와 달리 만료분 lazy finalize
+ *   (finalizeExam)를 호출하지 않는다. 홈 진입만으로 채점이 확정되면 안 되기 때문.
+ *   대신 표시 상태를 isExpired 로 유도해 응시내역 화면과 같은 값이 보이게 한다
+ *   (그냥 in_progress 로 두면 "진행 중"으로 보였다가 탭하는 순간 auto 확정되어 두 화면이 어긋난다).
+ */
+export async function getMyVocabWeekStatus(): Promise<VocabWeekStatus | null> {
+  const supabase = await createClient();
+  const scope = await getUserScope();
+  if (!scope || scope.userType !== 'student') return null;
+
+  const now = new Date();
+  const today = studyDateStr(now);
+  const mondayStr = weekMondayStr(today);
+  const weekdays = mondayToFridayStrs(today);
+  // 요일 판정은 UTC 자정 파싱 후 getUTCDay() — 서버 로컬 타임존 의존 금지(CLAUDE.md).
+  const todayDow = new Date(`${today}T00:00:00.000Z`).getUTCDay();
+  const isWeekday = todayDow >= 1 && todayDow <= 5;
+
+  const dates = [...new Set([...weekdays, today])];
+  const { data: rows, error } = await supabase
+    .from('vocab_exams')
+    .select('id, exam_date, submit_type, submitted_at, started_at, score, total')
+    .eq('student_id', scope.userId)
+    .in('exam_date', dates);
+  if (error) {
+    logError('[getMyVocabWeekStatus] exams', error);
+    return null;
+  }
+
+  type ExamRow = {
+    id: string;
+    exam_date: string;
+    submit_type: 'in_progress' | 'normal' | 'auto';
+    submitted_at: string | null;
+    started_at: string;
+    score: number | null;
+    total: number;
+  };
+  const byDate = new Map<string, ExamRow>();
+  for (const r of (rows ?? []) as ExamRow[]) byDate.set(r.exam_date, r);
+
+  /** 쓰기 없이 표시 상태 유도 — 만료된 미제출은 곧 auto 로 확정될 값을 미리 보여준다. */
+  const displayStatus = (r: ExamRow): Exclude<VocabDayStatus, 'future' | 'none'> => {
+    if (r.submitted_at) return r.submit_type === 'in_progress' ? 'auto' : r.submit_type;
+    return isExpired(r.started_at, r.total, now) ? 'auto' : 'in_progress';
+  };
+
+  const days = weekdays.map((date, i) => {
+    const row = byDate.get(date);
+    let status: VocabDayStatus;
+    if (row) status = displayStatus(row);
+    else status = date > today ? 'future' : 'none';
+    return { date, label: WEEKDAY_LABELS[i]!, status };
+  });
+
+  const todayRow = byDate.get(today);
+  // 개근 셈법: 그 주 월~금 중 submit_type='normal' 인 서로 다른 학습일 수(awardVocabReward 와 동일).
+  const normalDays = weekdays.filter((d) => byDate.get(d)?.submit_type === 'normal').length;
+
+  const { data: rewardRow } = await supabase
+    .from('points')
+    .select('id')
+    .eq('student_id', scope.userId)
+    .eq('event_kind', 'auto_vocab')
+    .eq('study_date', mondayStr)
+    .maybeSingle();
+
+  return {
+    todayStudyDate: today,
+    isWeekday,
+    today: {
+      status: todayRow ? displayStatus(todayRow) : 'none',
+      examId: todayRow?.id ?? null,
+      score: todayRow?.score ?? null,
+      total: todayRow?.total ?? null,
+    },
+    week: {
+      mondayStr,
+      fridayStr: weekdays[4]!,
+      days,
+      normalDays,
+      rewardGranted: !!rewardRow,
+    },
   };
 }
 
@@ -968,7 +1129,7 @@ export async function getMyVocabHistory(): Promise<HistoryItem[]> {
   const { data, error } = await supabase
     .from('vocab_exams')
     .select(
-      'id, exam_type, exam_date, score, total, submit_type, submitted_at, started_at, vocab_packs(name)',
+      'id, exam_type, exam_date, score, total, submit_type, submitted_at, started_at, pack_name_snapshot, vocab_packs(name)',
     )
     .eq('student_id', scope.userId)
     .order('exam_date', { ascending: false })
@@ -983,7 +1144,7 @@ export async function getMyVocabHistory(): Promise<HistoryItem[]> {
   for (const e of data ?? []) {
     let submitType = e.submit_type;
     let score = e.score;
-    if (!e.submitted_at && isExpired(e.started_at)) {
+    if (!e.submitted_at && isExpired(e.started_at, e.total)) {
       const s = await finalizeExam(supabase, e.id, 'auto');
       if (s !== null) {
         submitType = 'auto';
@@ -992,7 +1153,10 @@ export async function getMyVocabHistory(): Promise<HistoryItem[]> {
     }
     items.push({
       examId: e.id,
-      packName: (e.vocab_packs as unknown as { name: string } | null)?.name ?? '',
+      packName: resolvePackName(
+        e.pack_name_snapshot,
+        e.vocab_packs as unknown as { name: string } | null,
+      ),
       examType: e.exam_type,
       examDate: e.exam_date,
       score,
@@ -1443,6 +1607,7 @@ type ExamJoinRow = {
   submit_type: 'in_progress' | 'normal' | 'auto';
   score: number | null;
   total: number;
+  pack_name_snapshot: string | null;
   vocab_packs: { name: string } | null;
   profiles: {
     name: string;
@@ -1466,6 +1631,7 @@ async function fetchAdminExamRows(filters: AdminExamFilters): Promise<AdminExamR
     .from('vocab_exams')
     .select(
       `id, exam_type, exam_date, started_at, submitted_at, submit_type, score, total,
+       pack_name_snapshot,
        vocab_packs(name),
        profiles!vocab_exams_student_id_fkey(name, branch_id, branches(name),
          student_profiles(seat_number, student_type_id, student_types(name)))`,
@@ -1492,7 +1658,7 @@ async function fetchAdminExamRows(filters: AdminExamFilters): Promise<AdminExamR
     const prof = e.profiles;
     const sp = prof?.student_profiles ?? null;
     const computed: AdminExamRow['submitStatus'] =
-      !e.submitted_at && isExpired(e.started_at, now) ? 'auto' : e.submit_type;
+      !e.submitted_at && isExpired(e.started_at, e.total, now) ? 'auto' : e.submit_type;
     return {
       examId: e.id,
       studentName: prof?.name ?? '',
@@ -1502,7 +1668,8 @@ async function fetchAdminExamRows(filters: AdminExamFilters): Promise<AdminExamR
       examDate: e.exam_date,
       startedAt: e.started_at,
       submittedAt: e.submitted_at,
-      packName: e.vocab_packs?.name ?? '',
+      // 이력은 "응시 시점 이름" 기준. 꾸러미 rename 시 목록·엑셀은 옛 이름으로 남는다(의도).
+      packName: resolvePackName(e.pack_name_snapshot, e.vocab_packs),
       examType: e.exam_type,
       score: e.score,
       total: e.total,

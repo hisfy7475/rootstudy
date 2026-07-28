@@ -4,6 +4,7 @@ import { DAY_CONFIG, REWARD_RULES } from '@/lib/constants';
 import { formatDate, getStudyDate, getStudyDayBounds, isDailyFocusActive } from '@/lib/utils';
 import { notifyPointsGranted } from '@/lib/actions/notification';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
+import { TIME_LIMIT_SEC, examTimeLimitSec } from '@/lib/vocab-exam-time';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -218,20 +219,30 @@ async function evaluateDailyFocus(
 }
 
 /**
- * 영단어 시험: 제한시간(10분) 경과 + 미제출(in_progress) 레코드를 auto 로 확정 채점.
+ * 영단어 시험: 제한시간 경과 + 미제출(in_progress) 레코드를 auto 로 확정 채점.
  * is_correct 는 답안 저장 시점에 이미 기록되므로 score = is_correct=true 개수.
  * 멱등: `.is('submitted_at', null)` 조건으로 이미 마감된 건 갱신하지 않는다.
+ *
+ * 제한시간은 문항 수 비례(examTimeLimitSec)라 시험마다 다르다. 1차 필터는 최소 제한시간
+ * (TIME_LIMIT_SEC)으로 후보를 좁히고, 실제 만료 판정은 행별 total 로 다시 한다.
+ * 고정 10분 cutoff 로 지우면 20분짜리 금요일 시험을 진행 중에 강제 마감하게 된다.
  */
 async function finalizeIncompleteVocabExams(
   supabase: ReturnType<typeof getSupabaseAdmin>,
 ): Promise<number> {
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  const { data: open, error } = await supabase
+  const now = Date.now();
+  const cutoff = new Date(now - TIME_LIMIT_SEC * 1000).toISOString();
+  const { data: rows, error } = await supabase
     .from('vocab_exams')
-    .select('id')
+    .select('id, started_at, total')
     .is('submitted_at', null)
     .lt('started_at', cutoff);
-  if (error || !open || open.length === 0) return 0;
+  if (error || !rows || rows.length === 0) return 0;
+
+  const open = rows.filter(
+    (r) => now > new Date(r.started_at).getTime() + examTimeLimitSec(r.total) * 1000,
+  );
+  if (open.length === 0) return 0;
 
   let finalized = 0;
   for (const e of open) {

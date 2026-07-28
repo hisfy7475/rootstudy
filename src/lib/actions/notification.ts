@@ -328,9 +328,14 @@ export async function createStudentNotification(
 
 // 다수 학생에게 알림 생성
 // invariant: createUserNotification 위 주석 참조 — INSERT는 admin client.
+//
+// opts.awaitPush: 크론(서버리스)에서 호출할 때는 반드시 true 로 넘긴다.
+// 기본값(false)은 푸시를 띄워 보내는데, 크론은 응답 반환과 함께 인보케이션이 동결될 수 있어
+// 그 상태로는 푸시가 통째로 유실된다. createStudentNotification 과 동일한 옵션.
 export async function createBulkStudentNotifications(
   studentIds: string[],
   notification: Omit<CreateNotificationParams, 'studentId'>,
+  opts: { awaitPush?: boolean } = {},
 ) {
   const supabase = createAdminClient();
 
@@ -349,12 +354,13 @@ export async function createBulkStudentNotifications(
     return { error: '알림 생성에 실패했습니다.' };
   }
 
-  void sendPushToUsers(
+  const pushPromise = sendPushToUsers(
     studentIds,
     notification.title,
     notification.message,
     pushDataFromLink(notification.link),
   ).catch((e) => console.error('[push] createBulkStudentNotifications', e));
+  if (opts.awaitPush) await pushPromise;
 
   return { success: true };
 }
