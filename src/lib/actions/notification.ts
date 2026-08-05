@@ -448,7 +448,10 @@ export type PenaltyThresholdResult =
       reward_after: number;
       penalty_after_net: number;
       will_require_withdrawal: false;
-      protected_queue_count: number;
+      protected_queue_count?: number;
+      queue_count_before?: number;
+      /** 상계로 잔액이 줄어 자동 취소된 상품권 발급 대기 건수 */
+      cancelled_redemptions?: number;
       offset_already_consumed?: boolean;
     }
   | {
@@ -472,11 +475,11 @@ const WARNING_MESSAGES: Record<PenaltyWarning, { title: string; message: string 
   },
   warn_20: {
     title: '주의 — 분기 벌점 20점 도달',
-    message: '30점 도달 시 보유 상점과 1:1 상계됩니다.',
+    message: '30점 도달 시 상점이 30점 이상이면 1:1 상계됩니다(재원 중 1회 한정).',
   },
   warn_25: {
     title: '경고 — 분기 벌점 25점 도달',
-    message: '5점만 더 쌓이면 보유 상점과 상계됩니다. 상점이 부족하면 강제 퇴원 대상이 됩니다.',
+    message: '5점만 더 쌓이면 상계됩니다. 상점이 30점에 못 미치면 상계 없이 강제 퇴원 대상이 됩니다.',
   },
 };
 
@@ -515,7 +518,13 @@ export async function notifyPenaltyThreshold(params: {
         studentId,
         type: 'point',
         title: '벌점 30점 도달 — 상점과 상계되었습니다',
-        message: `상점 ${threshold.offset_amount}점이 벌점과 상계되었습니다. 잔존 벌점 ${threshold.penalty_after_net}점.`,
+        // 상계로 잔액이 100점 아래로 내려가면 발급 대기 건이 자동 취소된다.
+        // 조용히 사라지면 문의가 들어오므로 같은 알림에서 함께 안내한다.
+        message:
+          `상점 ${threshold.offset_amount}점이 벌점과 상계되었습니다. 잔존 벌점 ${threshold.penalty_after_net}점.` +
+          ((threshold.cancelled_redemptions ?? 0) > 0
+            ? ` 상점 잔액이 줄어 상품권 발급 대기 ${threshold.cancelled_redemptions}건이 취소되었습니다.`
+            : ''),
         link: '/student/points',
       }),
     );

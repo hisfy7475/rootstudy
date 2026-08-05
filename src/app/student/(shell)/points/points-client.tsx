@@ -234,9 +234,10 @@ export function PointsPageClient({
           {/* 20점 이상 사전 경고 */}
           {summary.penaltyQuarter >= 20 && !blocked && (
             <p className='mt-2 text-[10px] font-medium text-red-600'>
-              {balance > 0
-                ? `⚠ 30점 도달 시 보유 상점 ${balance}점과 1:1 상계됩니다`
-                : '⚠ 30점 도달 시 가용 상점이 없으면 강제 퇴원 대상이 됩니다'}
+              {/* 상계는 벌점 전액을 덮을 만큼 상점이 있을 때만 실행된다 */}
+              {balance >= 30
+                ? `⚠ 30점 도달 시 보유 상점 30점과 1:1 상계됩니다 (재원 중 1회 한정)`
+                : `⚠ 30점 도달 시 상점이 30점 미만이면 상계 없이 강제 퇴원 대상이 됩니다 (현재 ${balance}점)`}
             </p>
           )}
         </Card>
