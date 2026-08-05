@@ -452,6 +452,8 @@ export async function getImmersionReportData(
       .select('subject_name, started_at, ended_at, is_current')
       .eq('student_id', studentId)
       .lt('started_at', periodEnd.toISOString()),
+    // 기간 필터 없음이 의도다 — 이 카드는 "개인 상벌점 현황 / 누적 상점·누적 벌점" 으로
+    // 주간 리포트 안의 평생 누적 스냅샷을 보여준다(다른 카드와 달리 주차 값이 아니다).
     supabase.from('points').select('type, amount, reason').eq('student_id', studentId),
     supabase
       .from('counseling_reports')

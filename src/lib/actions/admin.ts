@@ -31,37 +31,58 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
   );
 }
 
+// 상벌점 감사 로그 — 부여/취소/삭제를 admin_action_log 에 남긴다.
+//
+// 상계 행이 하드 삭제되어 학생 상태가 깨진 사고가 있었는데, 누가 언제 지웠는지
+// 추적할 수단이 전혀 없었다(로그 전체가 학부모 계정 복구 건뿐이었다).
+// 기록 실패가 본 작업을 되돌리면 안 되므로 항상 catch 로 삼킨다.
+async function logPointsAction(
+  actorId: string,
+  action: 'points_grant' | 'points_cancel' | 'points_delete',
+  targetId: string | null,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const adminClient = createAdminClient();
+    await adminClient.from('admin_action_log').insert({
+      actor_id: actorId,
+      target_id: targetId,
+      action,
+      detail,
+    });
+  } catch (e) {
+    console.error('[logPointsAction]', action, e);
+  }
+}
+
 // 단계 5: 벌점 삭제·취소 후 분기 net 누적이 30점 미만으로 떨어지면 검토/강제 퇴원 대상 해제.
 // withdrawal_review_at 또는 withdrawal_required_at 둘 중 하나라도 마크되어 있어야 동작.
-// 신규 정책: net 누적 = raw SUM − penalty_offset_in_quarter_total.
+//
+// net 은 판정에 쓰이므로 반드시 DB SSOT(penalty_quarter_state)에서 가져온다.
+// (구: student_profiles.penalty_offset_in_quarter_total 카운터를 직접 읽었으나,
+//  원장과 어긋나면 마크를 잘못 해제/유지하게 되어 원장 파생으로 전환)
 async function maybeRevertWithdrawalReview(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studentId: string,
 ): Promise<void> {
-  const { getCurrentQuarterStartKST } = await import('@/lib/utils');
-  const quarterStart = getCurrentQuarterStartKST();
+  const { getPenaltyQuarterState, maybeRevertPenaltyOffset } = await import('@/lib/points');
 
-  const [{ data: profile }, { data: penalties }] = await Promise.all([
-    supabase
-      .from('student_profiles')
-      .select(
-        'withdrawal_review_at, withdrawal_required_at, threshold_consumed_in_quarter_at, penalty_offset_in_quarter_total',
-      )
-      .eq('id', studentId)
-      .maybeSingle(),
-    supabase
-      .from('points')
-      .select('amount')
-      .eq('student_id', studentId)
-      .eq('type', 'penalty')
-      .gte('created_at', quarterStart.toISOString()),
-  ]);
+  // 상계가 불필요해졌으면 먼저 되돌린다 (상점·벌점 양쪽 복구 + 1회 제한 해제).
+  // cancel_point 는 RPC 안에서 같은 처리를 하지만 삭제 경로는 이쪽만 타므로,
+  // 여기서 호출하지 않으면 "삭제로 지운 경우에는 자격이 복구되지 않는" 비대칭이 생긴다.
+  await maybeRevertPenaltyOffset(supabase, studentId).catch((e) =>
+    console.error('maybeRevertPenaltyOffset error:', e),
+  );
+
+  const { data: profile } = await supabase
+    .from('student_profiles')
+    .select('withdrawal_review_at, withdrawal_required_at, threshold_consumed_in_quarter_at')
+    .eq('id', studentId)
+    .maybeSingle();
 
   if (!profile?.withdrawal_review_at && !profile?.withdrawal_required_at) return;
 
-  const raw = (penalties ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
-  const offset = profile.penalty_offset_in_quarter_total ?? 0;
-  const net = raw - offset;
+  const { net } = await getPenaltyQuarterState(supabase, studentId);
   if (net >= 30) return;
 
   await supabase.rpc('cancel_withdrawal_review', {
@@ -928,12 +949,13 @@ export async function givePoints(
   isAuto: boolean = false,
   presetId: string | null = null,
 ) {
-  const supabase = await createClient();
+  // ⚠️ 인가 필수 — 벌점 경로는 give_penalty_with_threshold_check(SECURITY DEFINER) 를
+  // 타므로 RLS 가 적용되지 않는다. 상점은 RLS 가 막아주지만 벌점은 뚫린다.
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+  const user = { id: ctx.userId };
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
+  const supabase = await createClient();
 
   // 슈퍼관리자가 부여하는 케이스: client 가 전 지점 preset 합집합에서 첫 매칭 ID 를 보내
   // 학생의 실제 지점 preset 과 다를 수 있다 (같은 이름의 preset 이 여러 지점에 존재).
@@ -1050,58 +1072,24 @@ export async function givePoints(
     }
   }
 
-  // 학생에게 알림 발송 (자동 부여가 아닌 경우만 - 자동은 student.ts에서 처리)
+  await logPointsAction(user.id, 'points_grant', studentId, {
+    type,
+    amount,
+    reason,
+    is_auto: isAuto,
+    preset_id: effectivePresetId,
+    threshold_status: thresholdResult?.status ?? null,
+  });
+
+  // 학생에게 알림 발송 (자동 부여가 아닌 경우만 - 자동은 호출 측 크론에서 처리)
   if (!isAuto) {
-    const { createStudentNotification, notifyPointsGranted } = await import('./notification');
+    const { notifyPointsGranted, notifyPenaltyThreshold } = await import('./notification');
     await notifyPointsGranted({ studentId, type, amount, reason }).catch(console.error);
-
-    // 학생 단계 알림 — 인앱 추가 발송 (warn_10/20/25 별 톤)
-    if (warnings.length > 0) {
-      const warnMessages: Record<(typeof warnings)[number], { title: string; message: string }> = {
-        warn_10: {
-          title: '분기 벌점 10점에 도달했어요',
-          message: '학습 페이스를 조금만 더 신경 써주세요.',
-        },
-        warn_20: {
-          title: '주의 — 분기 벌점 20점 도달',
-          message: '30점 도달 시 보유 상점과 1:1 상계됩니다.',
-        },
-        warn_25: {
-          title: '경고 — 분기 벌점 25점 도달',
-          message:
-            '5점만 더 쌓이면 보유 상점과 상계됩니다. 상점이 부족하면 강제 퇴원 대상이 됩니다.',
-        },
-      };
-      for (const w of warnings) {
-        const m = warnMessages[w];
-        await createStudentNotification({
-          studentId,
-          type: 'point',
-          title: m.title,
-          message: m.message,
-          link: '/student/points',
-        }).catch(console.error);
-      }
-    }
-
-    // 30점 도달 학생 인앱 알림 — 상계/강제 퇴원 대상 분기
-    if (thresholdResult?.status === 'offset') {
-      await createStudentNotification({
-        studentId,
-        type: 'point',
-        title: '벌점 30점 도달 — 상점과 상계되었습니다',
-        message: `상점 ${thresholdResult.offset_amount}점이 벌점과 상계되었습니다. 잔존 벌점 ${thresholdResult.penalty_after_net}점.`,
-        link: '/student/points',
-      }).catch(console.error);
-    } else if (thresholdResult?.status === 'withdrawal_required') {
-      await createStudentNotification({
-        studentId,
-        type: 'point',
-        title: '강제 퇴원 대상으로 분류되었습니다',
-        message: '가용 상점이 없어 강제 퇴원 대상으로 분류되었습니다.',
-        link: '/student/points',
-      }).catch(console.error);
-    }
+    await notifyPenaltyThreshold({
+      studentId,
+      warnings,
+      threshold: thresholdResult,
+    }).catch(console.error);
   }
 
   revalidatePath('/admin');
@@ -1295,6 +1283,171 @@ export async function giveRewardBatch(params: {
   };
 }
 
+// 벌점 다중 학생 일괄 부여 — giveRewardBatch 의 벌점 판.
+//
+// 구 givePointsBatch 는 points 에 직접 배열 INSERT 해서 임계 RPC 를 우회했다.
+// 그 결과 이 경로로 10/20/25/30 을 넘긴 학생은 경고도, 상계도, 강제 퇴원 마크도 받지 못했다.
+// 벌점은 반드시 give_penalty_with_threshold_check 를 타야 하므로 학생별 RPC 로 처리한다
+// (RPC 1회가 INSERT + 임계 판정을 단일 트랜잭션으로 처리 — 학생 간 원자성은 필요 없다).
+export async function givePenaltyBatch(params: {
+  studentIds: string[];
+  amount: number;
+  reason: string;
+  presetId: string | null;
+}): Promise<{
+  success: boolean;
+  successCount: number;
+  duplicateCount: number;
+  failedCount: number;
+  duplicateNames?: string[];
+  error?: string;
+}> {
+  const { studentIds, amount, reason, presetId } = params;
+
+  const fail = (error: string) => ({
+    success: false,
+    successCount: 0,
+    duplicateCount: 0,
+    failedCount: 0,
+    error,
+  });
+
+  if (!Array.isArray(studentIds) || studentIds.length === 0) return fail('학생을 선택해주세요.');
+  if (!Number.isFinite(amount) || amount < 1) return fail('올바른 점수를 입력해주세요.');
+  if (!reason || !reason.trim()) return fail('사유를 입력해주세요.');
+
+  // ⚠️ 인가 필수 — 이 액션은 give_penalty_with_threshold_check(SECURITY DEFINER) 를
+  // 호출하므로 RLS 가 적용되지 않는다. 로그인 확인만으로는 학생·학부모가
+  // 임의 학생에게 벌점을 부여할 수 있다. (구 givePointsBatch 는 평문 INSERT 라
+  // RLS 정책 'Admins can manage all points' 가 막아주고 있었다.)
+  const ctx = await requireAdminBranch();
+  if (!ctx) return fail('관리자 권한이 필요합니다.');
+
+  const supabase = await createClient();
+
+  const { data: profilesData } = await supabase
+    .from('profiles')
+    .select('id, name, branch_id')
+    .in('id', studentIds);
+  const profilesById = new Map<string, { name: string; branch_id: string | null }>();
+  for (const p of (profilesData ?? []) as Array<{
+    id: string;
+    name: string | null;
+    branch_id: string | null;
+  }>) {
+    profilesById.set(p.id, { name: p.name ?? '', branch_id: p.branch_id });
+  }
+
+  // 지점 격리 — 일반 관리자는 본인 지점 학생에게만 부여할 수 있다.
+  if (!ctx.isSuperAdmin) {
+    const outsider = studentIds.find((id) => profilesById.get(id)?.branch_id !== ctx.branchId);
+    if (outsider) return fail('다른 지점 학생이 포함되어 있습니다.');
+  }
+
+  // 지점별 preset 재매칭 — 슈퍼관리자가 타 지점 학생을 섞어 선택할 수 있다.
+  // 매칭 실패 시 preset_id=null 로 부여한다(벌점은 미부여보다 부여가 안전하며,
+  // preset_id 가 null 이면 학습일 중복 인덱스만 적용되지 않는다).
+  //
+  // 지점 단위 결과를 캐시한다 — 학생마다 재조회하면 171명 선택 시 왕복이 배로 늘어난다.
+  const presetCache = new Map<string, string | null>();
+  async function resolvePenaltyPresetForStudent(branchId: string | null): Promise<string | null> {
+    if (!branchId || !presetId) return null;
+    const cached = presetCache.get(branchId);
+    if (cached !== undefined) return cached;
+
+    let resolved: string | null = null;
+    const { data: preset } = await supabase
+      .from('penalty_presets')
+      .select('id, branch_id')
+      .eq('id', presetId)
+      .maybeSingle();
+    if (preset && (preset.branch_id as string) === branchId) {
+      resolved = presetId;
+    } else {
+      const { data: matched } = await supabase
+        .from('penalty_presets')
+        .select('id')
+        .eq('branch_id', branchId)
+        .eq('reason', reason)
+        .eq('is_active', true)
+        .maybeSingle();
+      resolved = (matched?.id as string | undefined) ?? null;
+    }
+    presetCache.set(branchId, resolved);
+    return resolved;
+  }
+
+  const { notifyPointsGranted, notifyPenaltyThreshold } = await import('./notification');
+  const duplicateNames: string[] = [];
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const studentId of studentIds) {
+    const profile = profilesById.get(studentId);
+    const studentName = profile?.name || '학생';
+    const effectivePresetId = await resolvePenaltyPresetForStudent(profile?.branch_id ?? null);
+
+    const { data: rpcData, error } = await supabase.rpc('give_penalty_with_threshold_check', {
+      p_student_id: studentId,
+      p_admin_id: ctx.userId,
+      p_amount: amount,
+      p_reason: reason,
+      p_preset_id: effectivePresetId,
+      p_event_kind: 'manual',
+    });
+
+    if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        duplicateNames.push(studentName);
+      } else {
+        console.error('givePenaltyBatch rpc error:', error, { studentId });
+        failedCount++;
+      }
+      continue;
+    }
+    successCount++;
+
+    await logPointsAction(ctx.userId, 'points_grant', studentId, {
+      scope: 'batch',
+      type: 'penalty',
+      amount,
+      reason,
+      preset_id: effectivePresetId,
+    });
+
+    const result = rpcData as {
+      warnings: Array<'warn_10' | 'warn_20' | 'warn_25'>;
+      threshold: Parameters<typeof notifyPenaltyThreshold>[0]['threshold'];
+    };
+
+    // fire-and-forget — 알림 실패가 부여를 되돌리지 않는다
+    notifyPointsGranted({
+      studentId,
+      type: 'penalty',
+      amount,
+      reason,
+      studentName: profile?.name || undefined,
+    }).catch((e) => console.error('givePenaltyBatch notifyPointsGranted error:', e));
+    notifyPenaltyThreshold({
+      studentId,
+      warnings: result?.warnings ?? [],
+      threshold: result?.threshold ?? null,
+    }).catch((e) => console.error('givePenaltyBatch notifyPenaltyThreshold error:', e));
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  revalidatePath('/admin/focus');
+
+  return {
+    success: true,
+    successCount,
+    duplicateCount: duplicateNames.length,
+    failedCount,
+    ...(duplicateNames.length > 0 ? { duplicateNames } : {}),
+  };
+}
+
 // 상벌점 현황 — points_summary RPC 로 단일 쿼리 집계.
 // branchId === null 은 슈퍼관리자의 "전 지점" 신호.
 export async function getPointsOverview(params: { branchId: string | null }) {
@@ -1317,18 +1470,39 @@ export async function getPointsOverview(params: { branchId: string | null }) {
     p_branch_id: branchId,
   });
 
-  const summaryMap = new Map<string, { reward: number; penalty: number; total: number }>();
+  // RPC 는 분기 값도 반환한다. 예전에는 여기서 버려서, 정책 기준(분기 net)이 30점에
+  // 도달했는지를 관리자가 볼 수 있는 화면이 퇴원검토 탭(이미 마크된 학생만 나옴)뿐이었다.
+  type SummaryEntry = {
+    reward: number;
+    penalty: number;
+    total: number;
+    penaltyQuarterRaw: number;
+    penaltyOffsetInQuarter: number;
+    penaltyQuarter: number;
+  };
+  const EMPTY_SUMMARY: SummaryEntry = {
+    reward: 0,
+    penalty: 0,
+    total: 0,
+    penaltyQuarterRaw: 0,
+    penaltyOffsetInQuarter: 0,
+    penaltyQuarter: 0,
+  };
+  const summaryMap = new Map<string, SummaryEntry>();
   for (const row of summary ?? []) {
     summaryMap.set(row.student_id, {
       reward: row.reward_total,
       penalty: row.penalty_total,
       total: row.net_total,
+      penaltyQuarterRaw: row.penalty_quarter_raw ?? 0,
+      penaltyOffsetInQuarter: row.penalty_offset_quarter ?? 0,
+      penaltyQuarter: row.penalty_quarter_net ?? 0,
     });
   }
 
   return students.map((student) => {
     const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
-    const s = summaryMap.get(student.id) ?? { reward: 0, penalty: 0, total: 0 };
+    const s = summaryMap.get(student.id) ?? EMPTY_SUMMARY;
     return {
       id: student.id,
       seatNumber: student.seat_number,
@@ -1336,6 +1510,12 @@ export async function getPointsOverview(params: { branchId: string | null }) {
       reward: s.reward,
       penalty: s.penalty,
       total: s.total,
+      /** 분기 raw 벌점 (상계 차감 전) */
+      penaltyQuarterRaw: s.penaltyQuarterRaw,
+      /** 분기 순상계액 */
+      penaltyOffsetInQuarter: s.penaltyOffsetInQuarter,
+      /** 분기 net 벌점 — 30점 임계 판정의 기준값 */
+      penaltyQuarter: s.penaltyQuarter,
     };
   });
 }
@@ -1443,6 +1623,10 @@ export async function deletePointsByFilter(params: {
 }) {
   const supabase = await createClient();
 
+  // 대량 삭제인데 인가 확인이 없었다. RLS 만으로는 "관리자인지" 를 보장하지 않는다.
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { success: false, error: '관리자 권한이 필요합니다.', deletedCount: 0 };
+
   // 1) 매칭되는 행 조회 (event_kind/type/student_id 포함, count + 학생별 분기 재계산용)
   // 검색 q 는 "사유 OR 학생 이름" 부분 일치. 학생 이름 매칭은 profiles 에서 ID 후보를
   // 먼저 가져와 student_id IN (...) 조건으로 결합.
@@ -1467,13 +1651,11 @@ export async function deletePointsByFilter(params: {
     }
   }
   // protected event_kind 는 사전 제외 (DB 트리거가 이중 차단하지만 silent skip 위해)
-  idsQuery = idsQuery.not(
-    'event_kind',
-    'in',
-    '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus,auto_vocab)',
-  );
+  const { PROTECTED_DELETE_EVENT_KINDS_FILTER } = await import('@/lib/points');
+  idsQuery = idsQuery.not('event_kind', 'in', PROTECTED_DELETE_EVENT_KINDS_FILTER);
 
-  const { data: idsData, error: idsError } = await idsQuery.limit(10000);
+  const DELETE_SCAN_LIMIT = 10000;
+  const { data: idsData, error: idsError } = await idsQuery.limit(DELETE_SCAN_LIMIT);
   if (idsError) {
     return { success: false, error: '대상 조회 실패', deletedCount: 0 };
   }
@@ -1504,7 +1686,24 @@ export async function deletePointsByFilter(params: {
   revalidatePath('/admin');
   revalidatePath('/admin/points');
   revalidatePath('/admin/notifications');
-  return { success: true, deletedCount: ids.length };
+  // 스캔 상한에 걸렸으면 "필터 결과 전체 삭제" 가 아니다. 조용히 남기지 않고 알린다.
+  const truncated = rows.length === DELETE_SCAN_LIMIT;
+  await logPointsAction(ctx.userId, 'points_delete', null, {
+    scope: 'filter',
+    filter: params,
+    deleted: ids.length,
+    truncated,
+  });
+  return {
+    success: true,
+    deletedCount: ids.length,
+    ...(truncated
+      ? {
+          truncated: true,
+          warning: `한 번에 최대 ${DELETE_SCAN_LIMIT}건까지만 삭제됩니다. 남은 항목이 있으면 다시 실행해주세요.`,
+        }
+      : {}),
+  };
 }
 
 // 단계 8: 벌점 부여 dry-run (관리자 confirm 모달용)
@@ -1536,14 +1735,35 @@ export async function previewPenalty(studentId: string, amount: number) {
       reward_after_offset: number;
       penalty_after_offset_net: number;
       will_require_withdrawal: boolean;
+      /** 이미 마크(검토/강제 퇴원) 또는 승인 대기 후보 — 임계가 재진입하지 않는다 */
+      already_marked: boolean;
+      /** 30점 도달이 감지되어 관리자 승인 대기 중 (아직 학생에게 통보되지 않음) */
+      pending_approval: boolean;
+      /** 상계 자격을 이미 소진 — 30점 재도달 시 상점이 있어도 상계 없이 강제 퇴원 대상 */
+      offset_already_consumed: boolean;
     },
   };
 }
 
 // 단계 8: 퇴원 검토 대기 + 강제 퇴원 대상 큐 조회 (관리자 화면)
-// - kind='review'  : 구 정책 withdrawal_review_at 마크 학생 (점진 폐기)
-// - kind='required': 신규 정책 withdrawal_required_at 마크 학생
-export type WithdrawalQueueKind = 'review' | 'required';
+// - kind='candidate': 30점 도달이 감지된 승인 대기 학생 (학생에게는 미노출)
+// - kind='review'   : 구 정책 withdrawal_review_at 마크 학생 (점진 폐기)
+// - kind='required' : 신규 정책 withdrawal_required_at 마크 학생
+// - kind='dismissed' : 관리자가 이번 분기에 처리하지 않기로 한 학생 (되돌릴 수 있어야 하므로 노출)
+export type WithdrawalQueueKind = 'review' | 'required' | 'candidate' | 'dismissed';
+
+const QUEUE_MARK_COLUMN: Record<WithdrawalQueueKind, string> = {
+  review: 'withdrawal_review_at',
+  required: 'withdrawal_required_at',
+  candidate: 'withdrawal_candidate_at',
+  dismissed: 'withdrawal_dismissed_at',
+};
+const QUEUE_REASON_COLUMN: Record<WithdrawalQueueKind, string> = {
+  review: 'withdrawal_review_reason',
+  required: 'withdrawal_required_reason',
+  candidate: 'withdrawal_candidate_reason',
+  dismissed: 'withdrawal_dismissed_reason',
+};
 
 export async function getWithdrawalReviewQueue(
   branchId: string | null,
@@ -1553,9 +1773,8 @@ export async function getWithdrawalReviewQueue(
   const { getCurrentQuarterStartKST } = await import('@/lib/utils');
   const qStart = getCurrentQuarterStartKST();
 
-  const markColumn = kind === 'review' ? 'withdrawal_review_at' : 'withdrawal_required_at';
-  const reasonColumn =
-    kind === 'review' ? 'withdrawal_review_reason' : 'withdrawal_required_reason';
+  const markColumn = QUEUE_MARK_COLUMN[kind];
+  const reasonColumn = QUEUE_REASON_COLUMN[kind];
 
   let query = supabase
     .from('student_profiles')
@@ -1567,8 +1786,14 @@ export async function getWithdrawalReviewQueue(
       withdrawal_review_reason,
       withdrawal_required_at,
       withdrawal_required_reason,
+      withdrawal_candidate_at,
+      withdrawal_candidate_reason,
+      withdrawal_candidate_net,
+      withdrawal_candidate_available_reward,
+      withdrawal_candidate_offset_consumed,
+      withdrawal_dismissed_at,
+      withdrawal_dismissed_reason,
       threshold_consumed_in_quarter_at,
-      penalty_offset_in_quarter_total,
       profiles!inner (
         name,
         branch_id,
@@ -1588,26 +1813,38 @@ export async function getWithdrawalReviewQueue(
   if (!students || students.length === 0) return [];
 
   const studentIds = students.map((s) => s.id);
-  const [{ data: penalties }, { data: lastPoints }, { data: pendings }] = await Promise.all([
-    supabase
-      .from('points')
-      .select('student_id, amount')
-      .in('student_id', studentIds)
-      .eq('type', 'penalty')
-      .gte('created_at', qStart.toISOString()),
-    supabase
-      .from('points')
-      .select('student_id, reason, amount, created_at')
-      .in('student_id', studentIds)
-      .eq('type', 'penalty')
-      .order('created_at', { ascending: false }),
-    // 보호 큐 = requested + auto_pending 둘 다
-    supabase
-      .from('reward_redemptions')
-      .select('student_id, status')
-      .in('student_id', studentIds)
-      .in('status', ['requested', 'auto_pending']),
-  ]);
+  const { OFFSET_EVENT_KINDS, sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } =
+    await import('@/lib/points');
+  const [{ data: penalties }, { data: offsetRows }, { data: lastPoints }, { data: pendings }] =
+    await Promise.all([
+      supabase
+        .from('points')
+        .select('student_id, amount')
+        .in('student_id', studentIds)
+        .eq('type', 'penalty')
+        .gte('created_at', qStart.toISOString()),
+      // 분기 순상계액 — 원장 파생.
+      // 상계는 상점·벌점 한 쌍이라 type='penalty' 로 한정하지 않으면 2배가 된다.
+      supabase
+        .from('points')
+        .select('student_id, type, amount, event_kind, created_at')
+        .in('student_id', studentIds)
+        .eq('type', 'penalty')
+        .in('event_kind', OFFSET_EVENT_KINDS as unknown as string[])
+        .gte('created_at', qStart.toISOString()),
+      supabase
+        .from('points')
+        .select('student_id, reason, amount, created_at')
+        .in('student_id', studentIds)
+        .eq('type', 'penalty')
+        .order('created_at', { ascending: false }),
+      // 보호 큐 = requested + auto_pending 둘 다
+      supabase
+        .from('reward_redemptions')
+        .select('student_id, status')
+        .in('student_id', studentIds)
+        .in('status', ['requested', 'auto_pending']),
+    ]);
 
   const penaltyRawByStudent = new Map<string, number>();
   for (const p of penalties ?? []) {
@@ -1627,11 +1864,14 @@ export async function getWithdrawalReviewQueue(
   for (const r of pendings ?? []) {
     pendingByStudent.set(r.student_id, (pendingByStudent.get(r.student_id) ?? 0) + 1);
   }
+  const offsetRowsByStudent = groupById(offsetRows ?? []);
 
   return students.map((s) => {
     const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
-    const raw = penaltyRawByStudent.get(s.id) ?? 0;
-    const offset = s.penalty_offset_in_quarter_total ?? 0;
+    // 벌점 행 합에 상계(음수)가 이미 포함되어 있으므로 이 값이 잔존(net)이다.
+    const net = computePenaltyNet(penaltyRawByStudent.get(s.id) ?? 0);
+    const offset = sumPenaltyOffsetInQuarter(offsetRowsByStudent[s.id] ?? [], qStart);
+    const raw = computePenaltyRaw(net, offset);
     return {
       studentId: s.id,
       name: (profile as { name?: string })?.name ?? '이름 없음',
@@ -1644,16 +1884,32 @@ export async function getWithdrawalReviewQueue(
       // 신규 정책 필드
       requiredAt: s.withdrawal_required_at,
       requiredReason: s.withdrawal_required_reason,
+      // 승인 대기 후보 (학생에게는 노출되지 않는 상태)
+      candidateAt: s.withdrawal_candidate_at,
+      candidateReason: s.withdrawal_candidate_reason,
+      candidateNet: s.withdrawal_candidate_net,
+      candidateAvailableReward: s.withdrawal_candidate_available_reward,
+      candidateOffsetConsumed: s.withdrawal_candidate_offset_consumed,
+      dismissedAt: s.withdrawal_dismissed_at,
+      dismissedReason: s.withdrawal_dismissed_reason,
       // 표시용
-      markedAt: (kind === 'review' ? s.withdrawal_review_at : s.withdrawal_required_at) as
-        | string
-        | null,
+      markedAt: (kind === 'review'
+        ? s.withdrawal_review_at
+        : kind === 'candidate'
+          ? s.withdrawal_candidate_at
+          : kind === 'dismissed'
+            ? s.withdrawal_dismissed_at
+            : s.withdrawal_required_at) as string | null,
       markedReason: (kind === 'review'
         ? s.withdrawal_review_reason
-        : s.withdrawal_required_reason) as string | null,
+        : kind === 'candidate'
+          ? s.withdrawal_candidate_reason
+          : kind === 'dismissed'
+            ? s.withdrawal_dismissed_reason
+            : s.withdrawal_required_reason) as string | null,
       _reasonColumn: reasonColumn, // debug 용
       penaltyQuarterRaw: raw,
-      penaltyQuarter: raw - offset, // net
+      penaltyQuarter: net,
       penaltyOffsetInQuarter: offset,
       lastPenalty: lastByStudent.get(s.id) ?? null,
       protectedRedemptionCount: pendingByStudent.get(s.id) ?? 0,
@@ -1772,6 +2028,136 @@ export async function cancelWithdrawalReviewAction(
     success: true,
     restoredReward: result.restored_reward,
     cancelledPending: result.cancelled_pending,
+  };
+}
+
+// ============================================
+// 강제 퇴원 승인 큐 — 시스템은 후보만 올리고, 실행은 관리자가 결정한다
+// ============================================
+// 자동 경로(주간 크론·자동 지각)에서 30점 도달이 감지되면 후보로만 기록되고
+// 학생에게는 아무것도 통보되지 않는다. 여기서 승인해야 상계 또는 강제 퇴원 마크가
+// 실행되고 그때 학생 알림이 나간다.
+//
+// 되돌릴 수 없는 처분이라 승인제로 뒀다. 기존 구조는 시스템이 먼저 마크하고
+// 관리자가 사후 해제하는 순서였다.
+export async function approvePenaltyThreshold(studentId: string) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('approve_penalty_threshold', {
+    p_student_id: studentId,
+  });
+  if (error) {
+    console.error('approve_penalty_threshold error:', error);
+    return { error: '승인 처리에 실패했습니다.' };
+  }
+
+  const { notifyPenaltyThreshold } = await import('./notification');
+  const result = data as Parameters<typeof notifyPenaltyThreshold>[0]['threshold'];
+
+  if (result?.status === 'not_a_candidate' || result?.status === 'not_a_student') {
+    return { error: '승인 대기 상태가 아닙니다.' };
+  }
+  if (result?.status === 'no_longer_required') {
+    revalidatePath('/admin/points');
+    return {
+      success: true,
+      status: 'no_longer_required' as const,
+      message: `벌점이 ${result.penalty_after_net}점으로 내려가 처리가 불필요합니다. 대기 목록에서 제거했습니다.`,
+    };
+  }
+
+  await logPointsAction(ctx.userId, 'points_grant', studentId, {
+    scope: 'withdrawal_threshold_approve',
+    result_status: result?.status,
+  });
+
+  // 승인했으므로 이 시점에 학생에게 통보한다
+  await notifyPenaltyThreshold({ studentId, warnings: [], threshold: result ?? null });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+
+  if (result?.status === 'offset') {
+    return {
+      success: true,
+      status: 'offset' as const,
+      message: `상점 ${result.offset_amount}점을 벌점과 상계했습니다. 잔존 벌점 ${result.penalty_after_net}점.`,
+    };
+  }
+  return {
+    success: true,
+    status: 'withdrawal_required' as const,
+    message: '강제 퇴원 대상으로 확정하고 학생에게 통보했습니다.',
+  };
+}
+
+// 후보를 실행하지 않고 종료 (면제·이미 이탈한 학생·오부여 등).
+// 벌점·상점은 건드리지 않는다.
+export async function dismissPenaltyThreshold(studentId: string, reason?: string) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('dismiss_penalty_threshold', {
+    p_student_id: studentId,
+    p_reason: reason ?? null,
+  });
+  if (error) {
+    console.error('dismiss_penalty_threshold error:', error);
+    return { error: '해제 처리에 실패했습니다.' };
+  }
+
+  const result = data as { status: string };
+  if (result?.status !== 'dismissed') {
+    return { error: '승인 대기 상태가 아닙니다.' };
+  }
+
+  await logPointsAction(ctx.userId, 'points_cancel', studentId, {
+    scope: 'withdrawal_threshold_dismiss',
+    reason: reason ?? null,
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return {
+    success: true,
+    message: '승인 대기 목록에서 제외했습니다. 이번 분기에는 다시 올라오지 않습니다.',
+  };
+}
+
+// 제외 되돌리기 — 제외가 분기 동안 유지되므로 번복 경로가 없으면 막다른 길이 된다.
+// 되돌리는 즉시 조건(net>=30)을 재평가해 후보를 복원한다.
+export async function undismissPenaltyThreshold(studentId: string) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('undismiss_penalty_threshold', {
+    p_student_id: studentId,
+  });
+  if (error) {
+    console.error('undismiss_penalty_threshold error:', error);
+    return { error: '되돌리기에 실패했습니다.' };
+  }
+
+  const result = data as { status: string; threshold: { status?: string } | null };
+  if (result?.status !== 'undismissed') {
+    return { error: '제외된 상태가 아닙니다.' };
+  }
+
+  await logPointsAction(ctx.userId, 'points_grant', studentId, {
+    scope: 'withdrawal_threshold_undismiss',
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  return {
+    success: true,
+    message: result.threshold
+      ? '제외를 취소하고 승인 대기 목록에 복원했습니다.'
+      : '제외를 취소했습니다. 분기 벌점이 30점 미만이라 승인 대기 대상은 아닙니다.',
   };
 }
 
@@ -1911,10 +2297,11 @@ export async function rejectRedemption(params: { redemptionId: string; reason: s
 export async function cancelPoint(pointId: string, reason?: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
+  // cancel_point 는 SECURITY DEFINER 라 RLS 를 우회한다.
+  // 로그인 여부만 확인하면 학생이 본인 벌점을 스스로 취소할 수 있으므로 관리자 확인이 필요하다.
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+  const user = { id: ctx.userId };
 
   const { data, error } = await supabase.rpc('cancel_point', {
     p_point_id: pointId,
@@ -1932,6 +2319,12 @@ export async function cancelPoint(pointId: string, reason?: string) {
   if (result.status === 'protected') {
     return { error: `시스템이 자동 생성한 내역(${result.event_kind})은 취소할 수 없습니다.` };
   }
+
+  await logPointsAction(user.id, 'points_cancel', null, {
+    point_id: pointId,
+    reason: reason ?? null,
+    result,
+  });
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
@@ -1973,16 +2366,10 @@ export async function deletePoint(pointId: string) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
   }
 
-  const protectedKinds = new Set([
-    'reset_on_threshold',
-    'reset_on_threshold_revert',
-    'redeem',
-    'manual_cancel',
-    'auto_daily_focus',
-    // 부여 시 학생·학부모에게 알림이 나가므로 하드 삭제하면 알림만 남고 점수가 사라진다.
-    // 되돌리려면 cancelPoint(음수 행) 사용 — 취소는 계속 허용된다.
-    'auto_vocab',
-  ]);
+  // 목록은 DB 트리거 protect_points_event_kind_delete 와 동일하게 유지한다 (@/lib/points SSOT).
+  // auto_vocab 은 삭제만 막고 cancelPoint 취소는 허용 — 되돌릴 경로는 남겨둔다.
+  const { PROTECTED_DELETE_EVENT_KINDS } = await import('@/lib/points');
+  const protectedKinds = new Set<string>(PROTECTED_DELETE_EVENT_KINDS);
   if (protectedKinds.has(pointData.event_kind as string)) {
     return {
       error: '시스템이 자동 생성한 내역은 삭제할 수 없습니다. 관리자에게 문의해주세요.',
@@ -2005,6 +2392,15 @@ export async function deletePoint(pointId: string) {
     console.error('Error deleting point:', error);
     return { error: '상벌점 삭제에 실패했습니다.' };
   }
+
+  await logPointsAction(user.id, 'points_delete', pointData.student_id, {
+    scope: 'single',
+    point_id: pointId,
+    type: pointData.type,
+    amount: pointData.amount,
+    reason: pointData.reason,
+    event_kind: pointData.event_kind,
+  });
 
   // penalty 삭제 시 분기 누적이 30점 미만이 되면 검토 취소 + 상점 복구
   if (pointData.type === 'penalty') {
@@ -2042,6 +2438,7 @@ export async function deletePoints(pointIds: string[]) {
   }
 
   // 삭제 전에 포인트 정보들 확인 (알림용 + event_kind 필터)
+  const { PROTECTED_DELETE_EVENT_KINDS_FILTER: PROTECTED_FILTER } = await import('@/lib/points');
   const { data: pointsData } = await supabase
     .from('points')
     .select(
@@ -2054,27 +2451,29 @@ export async function deletePoints(pointIds: string[]) {
     `,
     )
     .in('id', pointIds)
-    .not(
-      'event_kind',
-      'in',
-      '(reset_on_threshold,reset_on_threshold_revert,redeem,manual_cancel,auto_daily_focus,auto_vocab)',
-    );
+    .not('event_kind', 'in', PROTECTED_FILTER);
 
   if (!pointsData || pointsData.length === 0) {
     return { error: '해당 내역을 찾을 수 없습니다.' };
   }
 
+  // 보호 대상을 걸러낸 결과로 삭제해야 한다.
+  // 예전에는 필터링 결과를 조회에만 쓰고 DELETE 는 원본 pointIds 로 실행해서
+  // 필터가 사실상 무효였다(상계 행 등이 함께 지워질 수 있었다).
+  const deletableIds = pointsData.map((p) => p.id as string);
+  const skippedCount = pointIds.length - deletableIds.length;
+
   // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제
   const { error: clearRefError } = await supabase
     .from('weekly_point_history')
     .update({ point_id: null })
-    .in('point_id', pointIds);
+    .in('point_id', deletableIds);
 
   if (clearRefError) {
     console.error('Error clearing point references:', clearRefError);
   }
 
-  const { error } = await supabase.from('points').delete().in('id', pointIds);
+  const { error } = await supabase.from('points').delete().in('id', deletableIds);
 
   if (error) {
     console.error('Error deleting points:', error);
@@ -2104,7 +2503,24 @@ export async function deletePoints(pointIds: string[]) {
   revalidatePath('/admin');
   revalidatePath('/admin/points');
   revalidatePath('/admin/notifications');
-  return { success: true, deletedCount: pointsData.length };
+  await logPointsAction(user.id, 'points_delete', null, {
+    scope: 'bulk',
+    requested: pointIds.length,
+    deleted: deletableIds.length,
+    skipped: skippedCount,
+    point_ids: deletableIds,
+  });
+
+  return {
+    success: true,
+    deletedCount: deletableIds.length,
+    ...(skippedCount > 0
+      ? {
+          skippedCount,
+          warning: `시스템 자동 생성 내역 ${skippedCount}건은 삭제할 수 없어 건너뛰었습니다.`,
+        }
+      : {}),
+  };
 }
 
 // ============================================
@@ -2349,10 +2765,13 @@ export async function getStudentDetail(studentId: string) {
     .eq('student_id', studentId)
     .gte('recorded_at', thirtyDaysAgo.toISOString());
 
+  // "최근 30일 통계" 카드에 들어가므로 옆의 attendance/focus_scores 와 같은 창을 적용한다.
+  // (필터가 빠져 있어 평생 누적 벌점이 30일치인 것처럼 표시되고 있었다.)
   const { data: points } = await supabase
     .from('points')
     .select('type, amount')
-    .eq('student_id', studentId);
+    .eq('student_id', studentId)
+    .gte('created_at', thirtyDaysAgo.toISOString());
 
   const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
 
@@ -5763,62 +6182,6 @@ export async function deleteFocusScore(studentId: string, periodId: string, targ
   }
 
   return { success: true };
-}
-
-// 일괄 벌점 부여
-export async function givePointsBatch(
-  studentIds: string[],
-  type: 'reward' | 'penalty',
-  amount: number,
-  reason: string,
-) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: '로그인이 필요합니다.' };
-
-  const inserts = studentIds.map((studentId) => ({
-    student_id: studentId,
-    admin_id: user.id,
-    type,
-    amount,
-    reason,
-    is_auto: false,
-  }));
-
-  const { error } = await supabase.from('points').insert(inserts);
-
-  if (error) {
-    console.error('Error giving batch points:', error);
-    return { error: '일괄 상벌점 부여에 실패했습니다.' };
-  }
-
-  // 알림 발송 — 학생 이름 사전 일괄 조회로 N+1 회피, fire-and-forget.
-  const { notifyPointsGranted } = await import('./notification');
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, name')
-    .in('id', studentIds);
-  const nameById = new Map<string, string>();
-  for (const p of (profiles ?? []) as Array<{ id: string; name: string | null }>) {
-    nameById.set(p.id, p.name ?? '');
-  }
-  for (const studentId of studentIds) {
-    notifyPointsGranted({
-      studentId,
-      type,
-      amount,
-      reason,
-      studentName: nameById.get(studentId) || undefined,
-    }).catch(console.error);
-  }
-
-  revalidatePath('/admin');
-  revalidatePath('/admin/points');
-  revalidatePath('/admin/focus');
-  return { success: true, count: studentIds.length };
 }
 
 // ============================================

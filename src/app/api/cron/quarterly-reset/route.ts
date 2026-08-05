@@ -12,7 +12,9 @@ import { createClient } from '@supabase/supabase-js';
  *   (단, profiles.withdrawn_at 이 이미 세팅된 학생은 그대로 — 확정 퇴원 상태 유지)
  * - threshold_consumed_in_quarter_at 리셋 (구 정책 호환 — 같은 분기 1회 제한 해제)
  * - last_warned_at_10/20/25 리셋 (새 분기에 단계 알림 재발사 가능)
- * - penalty_offset_in_quarter_total 0 으로 리셋 (신규 정책 — 분기 누적 상계 누계 초기화)
+ * - penalty_offset_in_quarter_total 0 으로 리셋
+ *   (DEPRECATED — 상계 누계는 이제 points 원장에서 파생한다. 판정에는 쓰이지 않지만
+ *    롤백 시 낡은 값으로 이중 상계가 나지 않도록 컬럼 DROP 전까지 리셋을 유지한다.)
  *
  * 멱등: 분기 첫날이 아니면 no-op. 분기 첫날에도 이미 NULL/0 인 행은 영향 없음.
  */
@@ -48,37 +50,57 @@ export async function GET(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
+  const errors: string[] = [];
 
   // 1) 검토/강제 퇴원 마크 해제 — 확정 퇴원자 제외
-  const { data: resetReviewRows, error: resetReviewError } = await supabase
+  //
+  // 대상을 UPDATE 전에 확정한다. 예전에는 `.or(...).select('id, profiles!inner(withdrawn_at)')`
+  // 로 UPDATE 한 뒤 결과를 post-filter 했는데, `!inner` 는 UPDATE 대상이 아니라 반환 표현에만
+  // 적용되므로 확정 퇴원자의 마크까지 이미 지워진 뒤였다.
+  // 마크 보유자만 조회하므로 `.in()` 에 실리는 id 수도 활성 학생 전체가 아니라 소수다.
+  let reviewResetIds: string[] = [];
+  const { data: markedTargets, error: targetsError } = await supabase
     .from('student_profiles')
-    .update({
-      withdrawal_review_at: null,
-      withdrawal_review_reason: null,
-      withdrawal_required_at: null,
-      withdrawal_required_reason: null,
-      threshold_consumed_in_quarter_at: null,
-      penalty_offset_in_quarter_total: 0,
-      last_warned_at_10: null,
-      last_warned_at_20: null,
-      last_warned_at_25: null,
-    })
+    .select('id, profiles!inner(withdrawn_at)')
     .or('withdrawal_review_at.not.is.null,withdrawal_required_at.not.is.null')
-    .select('id, profiles!inner(withdrawn_at)');
+    .is('profiles.withdrawn_at', null);
 
-  if (resetReviewError) {
-    console.error('quarterly-reset review error:', resetReviewError);
-    return NextResponse.json({ success: false, error: resetReviewError.message }, { status: 500 });
+  if (targetsError) {
+    console.error('quarterly-reset targets error:', targetsError);
+    errors.push(`targets: ${targetsError.message}`);
+  } else {
+    reviewResetIds = (markedTargets ?? []).map((r) => r.id as string);
+
+    if (reviewResetIds.length > 0) {
+      const { error: resetReviewError } = await supabase
+        .from('student_profiles')
+        .update({
+          withdrawal_review_at: null,
+          withdrawal_review_reason: null,
+          withdrawal_required_at: null,
+          withdrawal_required_reason: null,
+          threshold_consumed_in_quarter_at: null,
+          penalty_offset_in_quarter_total: 0,
+          last_warned_at_10: null,
+          last_warned_at_20: null,
+          last_warned_at_25: null,
+        })
+        .in('id', reviewResetIds);
+
+      if (resetReviewError) {
+        console.error('quarterly-reset review error:', resetReviewError);
+        errors.push(`review: ${resetReviewError.message}`);
+        // 여기서 return 하면 아래 2)가 통째로 건너뛰어진다. 오류만 모으고 계속 진행한다.
+        reviewResetIds = [];
+      }
+    }
   }
 
-  // 확정 퇴원자는 제외 (post-filter)
-  const reviewReset =
-    resetReviewRows?.filter((r) => {
-      const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
-      return !(p as { withdrawn_at?: string | null })?.withdrawn_at;
-    }) ?? [];
-
   // 2) 검토/강제 퇴원 마크가 없지만 분기 상태가 남아있는 학생도 리셋
+  //
+  // last_warned_at_* 는 RPC 가 `< 분기시작` 비교로 이미 방어하므로 이 리셋이 실패해도
+  // 경고가 유실되지는 않는다. penalty_offset_in_quarter_total 은 판정에 쓰이지 않지만
+  // (원장 파생으로 전환) 롤백 안전성을 위해 계속 리셋한다 — 컬럼 DROP 시 함께 제거할 것.
   const { error: resetMiscError } = await supabase
     .from('student_profiles')
     .update({
@@ -94,14 +116,15 @@ export async function GET(request: Request) {
 
   if (resetMiscError) {
     console.error('quarterly-reset misc error:', resetMiscError);
+    errors.push(`misc: ${resetMiscError.message}`);
   }
 
   // 3) 학생/관리자 인앱 알림
   const { createBulkStudentNotifications } = await import('@/lib/actions/notification');
 
-  if (reviewReset.length > 0) {
+  if (reviewResetIds.length > 0) {
     await createBulkStudentNotifications(
-      reviewReset.map((r) => r.id),
+      reviewResetIds,
       {
         type: 'point',
         title: '새 분기가 시작되었습니다',
@@ -113,9 +136,16 @@ export async function GET(request: Request) {
     ).catch(console.error);
   }
 
+  // 분기 첫날 실행 여부를 Vercel 로그에서 확인할 수 있게 남긴다.
+  // (2026-06-01 미동작 당시 실행 자체가 없었는지 UPDATE 가 실패했는지 구분할 수 없었다.)
+  console.info(
+    `[quarterly-reset] 실행 완료 — 마크 해제 ${reviewResetIds.length}명, 오류 ${errors.length}건`,
+  );
+
   return NextResponse.json({
-    success: true,
-    message: `Quarterly reset completed`,
-    reviewReset: reviewReset.length,
+    success: errors.length === 0,
+    message: 'Quarterly reset completed',
+    reviewReset: reviewResetIds.length,
+    ...(errors.length > 0 ? { errors } : {}),
   });
 }

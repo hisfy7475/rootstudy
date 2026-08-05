@@ -369,8 +369,8 @@ export async function createBulkStudentNotifications(
 // 상/벌점 부과 알림 (학생 + 모든 학부모 일괄)
 // ============================================
 
-// 진입점: givePoints / givePointsBatch / giveRewardBatch / giveAutoPoints /
-//        weekly-points cron / daily-reset cron 6곳에서 호출.
+// 진입점: givePoints / givePenaltyBatch / giveRewardBatch / giveAutoPoints /
+//        weekly-points cron / daily-reset cron / attendance penalty 에서 호출.
 // 학생 본인 + 연결된 모든 학부모에게 앱 알림 + 푸시 동시 발송.
 export async function notifyPointsGranted(
   params: {
@@ -432,6 +432,125 @@ export async function notifyPointsGranted(
     );
   }
 
+  await Promise.allSettled(tasks);
+}
+
+// ============================================
+// 분기 벌점 임계 알림 (10/20/25 단계 경고 + 30점 도달 처리 결과)
+// ============================================
+
+export type PenaltyWarning = 'warn_10' | 'warn_20' | 'warn_25';
+
+export type PenaltyThresholdResult =
+  | {
+      status: 'offset';
+      offset_amount: number;
+      reward_after: number;
+      penalty_after_net: number;
+      will_require_withdrawal: false;
+      protected_queue_count: number;
+      offset_already_consumed?: boolean;
+    }
+  | {
+      status: 'withdrawal_required';
+      offset_amount: 0;
+      reward_after: number;
+      penalty_after_net: number;
+      will_require_withdrawal: true;
+      protected_queue_count: number;
+      offset_already_consumed?: boolean;
+    }
+  // 자동 경로에서 30점 도달이 감지된 상태. 상계·마크·학생 알림 어느 것도 하지 않고
+  // 관리자 승인 큐에만 올라간다. approve_penalty_threshold 승인 시 위 두 status 로 온다.
+  | {
+      status: 'candidate';
+      penalty_net: number;
+      available_reward: number;
+      protected_queue_count: number;
+      offset_already_consumed: boolean;
+      expected_offset: number;
+      reason: string;
+    }
+  | { status: 'already_pending'; candidate_at: string | null }
+  | { status: 'no_longer_required'; penalty_after_net: number }
+  | { status: 'not_a_candidate' }
+  | { status: 'not_a_student' };
+
+const WARNING_MESSAGES: Record<PenaltyWarning, { title: string; message: string }> = {
+  warn_10: {
+    title: '분기 벌점 10점에 도달했어요',
+    message: '학습 페이스를 조금만 더 신경 써주세요.',
+  },
+  warn_20: {
+    title: '주의 — 분기 벌점 20점 도달',
+    message: '30점 도달 시 보유 상점과 1:1 상계됩니다.',
+  },
+  warn_25: {
+    title: '경고 — 분기 벌점 25점 도달',
+    message: '5점만 더 쌓이면 보유 상점과 상계됩니다. 상점이 부족하면 강제 퇴원 대상이 됩니다.',
+  },
+};
+
+/**
+ * give_penalty_with_threshold_check RPC 의 반환값(warnings / threshold)을 학생 알림으로 전달한다.
+ *
+ * 이 헬퍼가 없던 시절에는 관리자 수동 부여(givePoints)에만 인라인으로 구현돼 있어,
+ * 주간 정산 크론·자동 지각·일괄 부여로 임계를 넘긴 학생은 아무 통보도 받지 못했다.
+ * 벌점 RPC 를 호출하는 모든 경로는 반환값을 이 함수로 넘겨야 한다.
+ */
+export async function notifyPenaltyThreshold(params: {
+  studentId: string;
+  warnings: PenaltyWarning[];
+  threshold: PenaltyThresholdResult | null;
+}): Promise<void> {
+  const { studentId, warnings, threshold } = params;
+  const tasks: Promise<unknown>[] = [];
+
+  for (const w of warnings ?? []) {
+    const m = WARNING_MESSAGES[w];
+    if (!m) continue;
+    tasks.push(
+      createStudentNotification({
+        studentId,
+        type: 'point',
+        title: m.title,
+        message: m.message,
+        link: '/student/points',
+      }),
+    );
+  }
+
+  if (threshold?.status === 'offset') {
+    tasks.push(
+      createStudentNotification({
+        studentId,
+        type: 'point',
+        title: '벌점 30점 도달 — 상점과 상계되었습니다',
+        message: `상점 ${threshold.offset_amount}점이 벌점과 상계되었습니다. 잔존 벌점 ${threshold.penalty_after_net}점.`,
+        link: '/student/points',
+      }),
+    );
+  } else if (threshold?.status === 'withdrawal_required') {
+    // 사유를 구분한다 — 상점이 100점 넘게 남아 있는데도 "가용 상점이 없어"라고
+    // 통보하면 학생·학부모가 시스템 오류로 받아들인다.
+    // (상품권 발급 대기 1건당 상점 100점이 보호되므로 잔액이 있어도 가용은 0일 수 있고,
+    //  이번 분기 상계를 이미 소진한 경우에는 상점이 있어도 상계하지 않는다.)
+    tasks.push(
+      createStudentNotification({
+        studentId,
+        type: 'point',
+        title: '강제 퇴원 대상으로 분류되었습니다',
+        message: threshold.offset_already_consumed
+          ? '이번 분기 상점 상계가 이미 적용되어, 벌점 30점 재도달로 강제 퇴원 대상이 되었습니다.'
+          : '상계 가능한 상점이 없어 강제 퇴원 대상으로 분류되었습니다.',
+        link: '/student/points',
+      }),
+    );
+  }
+  // status 'candidate' / 'already_pending' / 'no_longer_required' / 'not_a_candidate' 은
+  // 학생에게 알리지 않는다. 관리자가 승인해야 통보가 나간다.
+
+  if (tasks.length === 0) return;
   await Promise.allSettled(tasks);
 }
 

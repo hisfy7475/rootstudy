@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { DataTableToolbar } from '@/components/ui/data-table-toolbar';
 import {
   givePoints,
+  previewPenalty,
   giveRewardBatch,
   getAllPointsHistory,
   createRewardPreset,
@@ -70,13 +71,33 @@ function SortIcon({
   return dir === 'asc' ? <ChevronUp className={cn(size)} /> : <ChevronDown className={cn(size)} />;
 }
 
+/**
+ * 상벌점 표시 문자열.
+ *
+ * type 만 보고 부호를 붙이면 음수 금액 행에서 "+-14점" 같은 문자열이 나온다.
+ * 상계·발급 차감·취소는 type='reward' 인데 amount 가 음수라 실제로 발생했다.
+ * 부호는 금액에서 결정한다.
+ */
+function formatPointAmount(type: string, amount: number): string {
+  if (amount < 0) return `-${Math.abs(amount)}점`;
+  return `${type === 'reward' ? '+' : '-'}${amount}점`;
+}
+
 interface PointsOverview {
   id: string;
   seatNumber: number | null;
   name: string;
+  /** 평생 누적 */
   reward: number;
+  /** 평생 누적 */
   penalty: number;
   total: number;
+  /** 분기 raw 벌점 (상계 차감 전) */
+  penaltyQuarterRaw: number;
+  /** 분기 순상계액 */
+  penaltyOffsetInQuarter: number;
+  /** 분기 net 벌점 — 30점 임계 판정 기준값 */
+  penaltyQuarter: number;
 }
 
 interface Student {
@@ -89,12 +110,19 @@ interface ReviewQueueRow {
   studentId: string;
   name: string;
   seatNumber: number | null;
-  kind: 'review' | 'required';
+  kind: 'review' | 'required' | 'candidate' | 'dismissed';
   reviewAt: string | null;
   reviewReason: string | null;
   consumedAt: string | null;
   requiredAt: string | null;
   requiredReason: string | null;
+  candidateAt?: string | null;
+  candidateReason?: string | null;
+  candidateNet?: number | null;
+  candidateAvailableReward?: number | null;
+  candidateOffsetConsumed?: boolean | null;
+  dismissedAt?: string | null;
+  dismissedReason?: string | null;
   markedAt: string | null;
   markedReason: string | null;
   penaltyQuarter: number;
@@ -130,11 +158,13 @@ interface PointsClientProps {
   initialPenaltyPresets: PenaltyPreset[];
   initialReviewQueue: ReviewQueueRow[];
   initialRequiredQueue: ReviewQueueRow[];
+  initialCandidateQueue: ReviewQueueRow[];
+  initialDismissedQueue: ReviewQueueRow[];
   initialRedemptionQueue: RedemptionQueueRow[];
 }
 
 type SortDir = 'asc' | 'desc';
-type OverviewSortKey = 'seatNumber' | 'name' | 'reward' | 'penalty' | 'total';
+type OverviewSortKey = 'seatNumber' | 'name' | 'reward' | 'penalty' | 'penaltyQuarter' | 'total';
 
 export function PointsClient({
   activeTab,
@@ -147,6 +177,8 @@ export function PointsClient({
   initialPenaltyPresets,
   initialReviewQueue,
   initialRequiredQueue,
+  initialCandidateQueue,
+  initialDismissedQueue,
   initialRedemptionQueue,
 }: PointsClientProps) {
   const router = useRouter();
@@ -231,6 +263,7 @@ export function PointsClient({
     else if (overviewSortKey === 'name') cmp = a.name.localeCompare(b.name, 'ko');
     else if (overviewSortKey === 'reward') cmp = a.reward - b.reward;
     else if (overviewSortKey === 'penalty') cmp = a.penalty - b.penalty;
+    else if (overviewSortKey === 'penaltyQuarter') cmp = a.penaltyQuarter - b.penaltyQuarter;
     else if (overviewSortKey === 'total') cmp = a.total - b.total;
     return overviewSortDir === 'asc' ? cmp : -cmp;
   });
@@ -362,6 +395,52 @@ export function PointsClient({
     // additionalNote 없음 + preset 매칭됨 → presetId 전달해 KST 일자 중복 차단 활성화.
     // additionalNote 있으면 자유 텍스트 의도이므로 중복 차단 미적용.
     const presetId = hasNote ? null : findPresetId(pointType, reason);
+
+    // 벌점 부여 전 예고 — 이 부여가 상계나 강제 퇴원을 유발하는지 미리 알린다.
+    // preview_penalty RPC 는 예전부터 있었지만 호출하는 화면이 없어서, 관리자는
+    // 아무 안내 없이 학생을 강제 퇴원 대상으로 만들 수 있었다.
+    if (pointType === 'penalty' && ids.length === 1) {
+      const pv = await previewPenalty(ids[0], pointAmount);
+      if (pv.success && pv.preview) {
+        const p = pv.preview;
+        // 30점 도달은 이제 즉시 실행되지 않는다. 후보로만 등록되고, 관리자가
+        // '퇴원 검토/강제 퇴원' 탭에서 승인해야 상계·분류·학생 통보가 발생한다.
+        if (p.will_require_withdrawal) {
+          const cause = p.offset_already_consumed
+            ? '이번 분기 상계를 이미 사용해'
+            : '상계 가능한 상점이 없어';
+          const ok = window.confirm(
+            `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어 ` +
+              `승인 대기 목록에 등록됩니다.\n` +
+              `승인 시 ${cause} 강제 퇴원 대상으로 분류됩니다.\n\n` +
+              `※ 지금은 학생에게 통보되지 않습니다. '퇴원 검토/강제 퇴원' 탭에서 승인해야 실행됩니다.\n\n계속할까요?`,
+          );
+          if (!ok) return;
+        } else if (p.offset_estimate > 0) {
+          const ok = window.confirm(
+            `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어 ` +
+              `승인 대기 목록에 등록됩니다.\n` +
+              `승인 시 보유 상점 ${p.offset_estimate}점과 상계됩니다 ` +
+              `(상계 후 상점 ${p.reward_after_offset}점 / 잔존 벌점 ${p.penalty_after_offset_net}점).\n\n` +
+              `※ 지금은 상점이 차감되지 않고 학생에게도 통보되지 않습니다.\n\n계속할까요?`,
+          );
+          if (!ok) return;
+        } else if (p.pending_approval) {
+          const ok = window.confirm(
+            '이 학생은 이미 30점 도달로 승인 대기 목록에 올라가 있습니다. ' +
+              "추가 벌점은 상계나 재판정을 유발하지 않습니다.\n\n'퇴원 검토/강제 퇴원' 탭에서 처리해주세요.\n\n계속할까요?",
+          );
+          if (!ok) return;
+        } else if (p.already_marked) {
+          const ok = window.confirm(
+            '이 학생은 이미 퇴원 검토/강제 퇴원 대상으로 분류되어 있습니다. ' +
+              '추가 벌점은 상계나 재판정을 유발하지 않습니다.\n\n계속할까요?',
+          );
+          if (!ok) return;
+        }
+      }
+    }
+
     setLoading(true);
     try {
       if (ids.length === 1) {
@@ -488,12 +567,16 @@ export function PointsClient({
     setLoading(true);
     try {
       const result = await deletePoints(Array.from(selectedPointIds));
-      if (result.success) {
-        showSuccess(`${result.deletedCount}건의 상벌점 내역이 삭제되었습니다.`);
+      if ('success' in result && result.success) {
+        showSuccess(
+          `${result.deletedCount}건의 상벌점 내역이 삭제되었습니다.` +
+            (result.warning ? ` ${result.warning}` : ''),
+          result.warning ? 5000 : undefined,
+        );
         exitSelectMode();
         refreshData();
       } else {
-        alert(result.error || '삭제에 실패했습니다.');
+        alert(('error' in result && result.error) || '삭제에 실패했습니다.');
       }
     } catch (e) {
       console.error('Failed to delete points:', e);
@@ -517,7 +600,12 @@ export function PointsClient({
         q: historyQ || undefined,
       });
       if (result.success) {
-        showSuccess(`${result.deletedCount}건이 삭제되었습니다.`);
+        // 스캔 상한에 걸리면 "전체 삭제" 가 아니므로 남은 항목이 있다는 사실을 알린다.
+        const warning = 'warning' in result ? result.warning : undefined;
+        showSuccess(
+          `${result.deletedCount}건이 삭제되었습니다.` + (warning ? ` ${warning}` : ''),
+          warning ? 6000 : undefined,
+        );
         exitSelectMode();
         refreshData();
       } else {
@@ -838,8 +926,7 @@ export function PointsClient({
                         item.type === 'reward' ? 'text-green-700' : 'text-red-600',
                       )}
                     >
-                      {item.type === 'reward' ? '+' : '-'}
-                      {item.amount}점
+                      {formatPointAmount(item.type, item.amount)}
                     </span>
                     <span className='text-gray-700'>{item.reason}</span>
                     {item.is_auto && (
@@ -998,8 +1085,11 @@ export function PointsClient({
           {
             value: 'review',
             label: `퇴원 검토/강제 퇴원${
-              initialReviewQueue.length + initialRequiredQueue.length > 0
-                ? ` (${initialReviewQueue.length + initialRequiredQueue.length})`
+              initialReviewQueue.length +
+                initialRequiredQueue.length +
+                initialCandidateQueue.length >
+              0
+                ? ` (${initialReviewQueue.length + initialRequiredQueue.length + initialCandidateQueue.length})`
                 : ''
             }`,
           },
@@ -1018,6 +1108,8 @@ export function PointsClient({
         <WithdrawalReviewTab
           reviewQueue={initialReviewQueue}
           requiredQueue={initialRequiredQueue}
+          candidateQueue={initialCandidateQueue}
+          dismissedQueue={initialDismissedQueue}
           onRefresh={refreshData}
         />
       )}
@@ -1300,8 +1392,23 @@ export function PointsClient({
                       onClick={() => handleOverviewSort('penalty')}
                       className='flex w-full items-center justify-center gap-1 hover:text-red-700'
                     >
-                      벌점
+                      벌점(누적)
                       <SortIcon sortKey='penalty' current={overviewSortKey} dir={overviewSortDir} />
+                    </button>
+                  </th>
+                  {/* 30점 임계 판정의 실제 기준값. 이 컬럼이 없어서 30점 도달 학생을 화면에서 발견할 수 없었다. */}
+                  <th className='px-4 py-3 text-center text-sm font-medium text-red-500'>
+                    <button
+                      onClick={() => handleOverviewSort('penaltyQuarter')}
+                      className='flex w-full items-center justify-center gap-1 hover:text-red-700'
+                      title='분기 누적 벌점에서 상계분을 뺀 값. 30점 도달 시 상점 상계 또는 강제 퇴원 대상.'
+                    >
+                      분기 벌점(잔존)
+                      <SortIcon
+                        sortKey='penaltyQuarter'
+                        current={overviewSortKey}
+                        dir={overviewSortDir}
+                      />
                     </button>
                   </th>
                   <th className='text-text-muted px-4 py-3 text-center text-sm font-medium'>
@@ -1321,7 +1428,7 @@ export function PointsClient({
               <tbody className='divide-y divide-gray-100'>
                 {overview.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className='text-text-muted px-4 py-8 text-center'>
+                    <td colSpan={8} className='text-text-muted px-4 py-8 text-center'>
                       등록된 학생이 없습니다.
                     </td>
                   </tr>
@@ -1370,6 +1477,30 @@ export function PointsClient({
                               <span
                                 className={cn(
                                   'font-semibold',
+                                  student.penaltyQuarter >= 25
+                                    ? 'text-red-600'
+                                    : student.penaltyQuarter >= 10
+                                      ? 'text-orange-500'
+                                      : 'text-text-muted',
+                                )}
+                                title={
+                                  student.penaltyOffsetInQuarter > 0
+                                    ? `원본 ${student.penaltyQuarterRaw} − 상계 ${student.penaltyOffsetInQuarter}`
+                                    : undefined
+                                }
+                              >
+                                {student.penaltyQuarter}
+                              </span>
+                              {student.penaltyOffsetInQuarter > 0 && (
+                                <span className='text-text-muted ml-1 text-[10px]'>
+                                  ({student.penaltyQuarterRaw}−{student.penaltyOffsetInQuarter})
+                                </span>
+                              )}
+                            </td>
+                            <td className='px-4 py-3 text-center'>
+                              <span
+                                className={cn(
+                                  'font-semibold',
                                   student.total >= 0 ? 'text-green-600' : 'text-red-500',
                                 )}
                               >
@@ -1394,7 +1525,7 @@ export function PointsClient({
                           {isExpanded && (
                             <tr key={`${student.id}-expanded`}>
                               <td
-                                colSpan={7}
+                                colSpan={8}
                                 className='border-b border-gray-200 bg-gray-50 px-0 py-0'
                               >
                                 <div className='px-6 py-4'>{renderExpandedHistory()}</div>
@@ -1445,7 +1576,7 @@ export function PointsClient({
                                 </span>
                               ) : null}
                             </div>
-                            <div className='mt-0.5 flex items-center gap-2 text-xs'>
+                            <div className='mt-0.5 flex flex-wrap items-center gap-2 text-xs'>
                               <span className='text-green-600'>+{student.reward}</span>
                               <span className='text-red-500'>-{student.penalty}</span>
                               <span
@@ -1456,6 +1587,20 @@ export function PointsClient({
                               >
                                 합계 {student.total >= 0 ? '+' : ''}
                                 {student.total}
+                              </span>
+                              <span
+                                className={cn(
+                                  student.penaltyQuarter >= 25
+                                    ? 'font-semibold text-red-600'
+                                    : student.penaltyQuarter >= 10
+                                      ? 'text-orange-500'
+                                      : 'text-text-muted',
+                                )}
+                              >
+                                분기 {student.penaltyQuarter}
+                                {student.penaltyOffsetInQuarter > 0
+                                  ? ` (${student.penaltyQuarterRaw}−${student.penaltyOffsetInQuarter})`
+                                  : ''}
                               </span>
                             </div>
                           </div>
@@ -1727,8 +1872,7 @@ export function PointsClient({
                               item.type === 'reward' ? 'text-green-600' : 'text-red-500',
                             )}
                           >
-                            {item.type === 'reward' ? '+' : '-'}
-                            {item.amount}점
+                            {formatPointAmount(item.type, item.amount)}
                           </span>
                           {item.is_auto && (
                             <span className='rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-600'>

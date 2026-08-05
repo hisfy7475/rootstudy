@@ -42,6 +42,8 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     penaltyPresets,
     reviewQueue,
     requiredQueue,
+    candidateQueue,
+    dismissedQueue,
     redemptionQueue,
     branches,
   ] = await Promise.all([
@@ -64,6 +66,9 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     getPenaltyPresets(branchId),
     getWithdrawalReviewQueue(branchId, 'review'),
     getWithdrawalReviewQueue(branchId, 'required'),
+    // 30점 도달 승인 대기 — 학생에게 통보되기 전 상태
+    getWithdrawalReviewQueue(branchId, 'candidate'),
+    getWithdrawalReviewQueue(branchId, 'dismissed'),
     getRedemptionQueue(branchId),
     // 슈퍼관리자(전 지점)는 규정이 지점별로 합쳐 보이므로 지점명 뱃지용 맵을 함께 전달
     branchId ? Promise.resolve([]) : getAllBranches(true),
@@ -84,6 +89,8 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
       initialPenaltyPresets={penaltyPresets}
       initialReviewQueue={reviewQueue}
       initialRequiredQueue={requiredQueue}
+      initialCandidateQueue={candidateQueue}
+      initialDismissedQueue={dismissedQueue}
       initialRedemptionQueue={redemptionQueue}
     />
   );

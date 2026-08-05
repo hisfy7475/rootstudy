@@ -272,7 +272,7 @@ export async function evaluateAttendancePenalty(params: {
 
   // 부과 — threshold RPC 통일 (event_kind 정확 기록 + 임계/강제퇴원 마크 + 학습일 중복차단)
   const eventKind = type === 'late' ? 'auto_late' : 'auto_early';
-  const { error } = await supabase.rpc('give_penalty_with_threshold_check', {
+  const { data: rpcData, error } = await supabase.rpc('give_penalty_with_threshold_check', {
     p_student_id: studentId,
     p_admin_id: null,
     p_amount: preset.amount,
@@ -298,6 +298,18 @@ export async function evaluateAttendancePenalty(params: {
     amount: preset.amount,
     reason: preset.reason,
   }).catch((e) => console.error('[attendance-penalty] notify error:', e));
+
+  // 임계 알림 — RPC 반환값을 버리면 이 경로로 30점을 넘긴 학생이 상계·강제 퇴원을 통보받지 못한다.
+  const { notifyPenaltyThreshold } = await import('@/lib/actions/notification');
+  const rpcResult = rpcData as {
+    warnings?: Array<'warn_10' | 'warn_20' | 'warn_25'>;
+    threshold?: Parameters<typeof notifyPenaltyThreshold>[0]['threshold'];
+  } | null;
+  await notifyPenaltyThreshold({
+    studentId,
+    warnings: rpcResult?.warnings ?? [],
+    threshold: rpcResult?.threshold ?? null,
+  }).catch((e) => console.error('[attendance-penalty] threshold notify error:', e));
 
   return { charged: true };
 }

@@ -6,6 +6,7 @@ import { getStudyDate, getStudyDayBounds, normalizePhone } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
 import { softDeleteUser } from '@/lib/withdraw';
 import { isStudyExcluded } from '@/lib/study-time';
+import { sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } from '@/lib/points';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -309,9 +310,10 @@ export async function getParentDashboardData(): Promise<{
         getWeeklyProgress(student.id),
         getWeeklyGoals(student.id),
         // 분기 누적 벌점 — 학부모 RLS 로 직접 SELECT (parent_student_links 정책)
+        // 상계 행(음수 벌점)이 포함되므로 이 합이 곧 잔존(net)이고, 순상계액도 여기서 파생한다
         (await createClient())
           .from('points')
-          .select('amount')
+          .select('type, amount, event_kind, created_at')
           .eq('student_id', student.id)
           .eq('type', 'penalty')
           .gte('created_at', quarterStart.toISOString()),
@@ -322,14 +324,16 @@ export async function getParentDashboardData(): Promise<{
           .eq('type', 'reward'),
         (await createClient())
           .from('student_profiles')
-          .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
+          .select('withdrawal_review_at, withdrawal_required_at')
           .eq('id', student.id)
           .maybeSingle(),
       ]);
 
-      const penaltyQuarterRaw = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
-      const penaltyOffsetInQuarter = profile.data?.penalty_offset_in_quarter_total ?? 0;
-      const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
+      const penaltyQuarter = computePenaltyNet(
+        (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0),
+      );
+      const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterPoints.data, quarterStart);
+      const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
       const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
       return {
@@ -399,23 +403,26 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     getStudentTodayFocus(student.id),
     getWeeklyProgress(student.id),
     getWeeklyGoals(student.id),
+    // 상계 행(음수 벌점)이 포함되므로 이 합이 곧 잔존(net)이고, 순상계액도 여기서 파생한다
     supabase
       .from('points')
-      .select('amount')
+      .select('type, amount, event_kind, created_at')
       .eq('student_id', student.id)
       .eq('type', 'penalty')
       .gte('created_at', qStart.toISOString()),
     supabase.from('points').select('amount').eq('student_id', student.id).eq('type', 'reward'),
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
+      .select('withdrawal_review_at, withdrawal_required_at')
       .eq('id', student.id)
       .maybeSingle(),
   ]);
 
-  const penaltyQuarterRaw = (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
-  const penaltyOffsetInQuarter = profile.data?.penalty_offset_in_quarter_total ?? 0;
-  const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
+  const penaltyQuarter = computePenaltyNet(
+    (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0),
+  );
+  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterPoints.data, qStart);
+  const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
   const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
   const studentData: StudentDashboardData = {

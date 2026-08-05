@@ -121,7 +121,26 @@ function getEventVisual(point: PointRecord): {
   };
 }
 
-export function PointsList({ points, className }: PointsListProps) {
+// 상계는 원장에 상점·벌점 두 행(한 쌍)으로 기록된다 — "1:1 상계"인데 한쪽만
+// 차감되던 버그를 고치면서 도입한 구조다. 합계 계산에는 두 행이 모두 필요하지만
+// 내역 목록에 그대로 뿌리면 동일 사유·동일 시각의 같은 줄이 2개 보인다.
+// 표시할 때만 한 줄로 합친다.
+const PAIRED_EVENT_KINDS = new Set(['offset_against_penalty', 'offset_against_penalty_revert']);
+
+function collapsePairedRows(points: PointRecord[]): PointRecord[] {
+  const seen = new Set<string>();
+  return points.filter((p) => {
+    if (!p.eventKind || !PAIRED_EVENT_KINDS.has(p.eventKind)) return true;
+    const key = `${p.eventKind}|${p.createdAt}|${p.amount}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function PointsList({ points: rawPoints, className }: PointsListProps) {
+  const points = collapsePairedRows(rawPoints);
+
   if (points.length === 0) {
     return (
       <div className={cn('py-12 text-center', className)}>

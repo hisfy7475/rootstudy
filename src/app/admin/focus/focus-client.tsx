@@ -9,7 +9,7 @@ import {
   recordFocusScoreIndividual,
   deleteFocusScore,
   getTodayFocusScoresByPeriod,
-  givePointsBatch,
+  givePenaltyBatch,
   getAllStudents,
   getWeeklyFocusReport,
   createPenaltyPreset,
@@ -717,21 +717,33 @@ export function FocusClient({
     setSelectedStudentsForPenalty(newSet);
   };
 
-  const handleBatchPenalty = async (amount: number, reason: string) => {
+  const handleBatchPenalty = async (
+    amount: number,
+    reason: string,
+    presetId: string | null = null,
+  ) => {
     if (selectedStudentsForPenalty.size === 0) {
       alert('학생을 선택해주세요.');
       return;
     }
     setLoading(true);
     try {
-      const result = await givePointsBatch(
-        Array.from(selectedStudentsForPenalty),
-        'penalty',
+      const result = await givePenaltyBatch({
+        studentIds: Array.from(selectedStudentsForPenalty),
         amount,
         reason,
-      );
+        presetId,
+      });
       if (result.success) {
-        showSuccess(`${result.count}명에게 벌점 ${amount}점 부여 완료`);
+        // 임계 판정이 학생별 RPC 로 처리되므로 일부만 실패할 수 있다 — 결과를 그대로 보고한다.
+        const parts = [`${result.successCount}명에게 벌점 ${amount}점 부여 완료`];
+        if (result.duplicateCount > 0) {
+          parts.push(
+            `중복 ${result.duplicateCount}명(${(result.duplicateNames ?? []).join(', ')})은 건너뜀`,
+          );
+        }
+        if (result.failedCount > 0) parts.push(`실패 ${result.failedCount}명`);
+        showSuccess(parts.join(' · '));
         setSelectedStudentsForPenalty(new Set());
         setCustomPenaltyReason('');
         await refreshData();
@@ -2128,7 +2140,7 @@ function PenaltySection({
   customPenaltyReason: string;
   onToggleStudent: (id: string) => void;
   onSelectAll: () => void;
-  onBatchPenalty: (amount: number, reason: string) => void;
+  onBatchPenalty: (amount: number, reason: string, presetId?: string | null) => void;
   onCustomPenalty: () => void;
   onSetAmount: (v: string) => void;
   onSetReason: (v: string) => void;
@@ -2198,7 +2210,7 @@ function PenaltySection({
                     'disabled:cursor-not-allowed disabled:opacity-50',
                     preset.color || 'bg-red-500',
                   )}
-                  onClick={() => onBatchPenalty(preset.amount, preset.reason)}
+                  onClick={() => onBatchPenalty(preset.amount, preset.reason, preset.id)}
                   disabled={loading || selectedStudents.size === 0}
                 >
                   {preset.reason} (-{preset.amount})

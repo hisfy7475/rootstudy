@@ -645,7 +645,7 @@ export async function getWeeklyFocus() {
 //   rewardBurnt     — 30점 도달 소멸 절대값 (구 정책)
 //   rewardOffset    — 30점 도달 1:1 상계 절대값 (신규 정책)
 //   penaltyQuarterRaw  — KST 현재 분기 부여된 벌점 합 (raw)
-//   penaltyQuarter     — net (raw − penalty_offset_in_quarter_total). 임계 판정용.
+//   penaltyQuarter     — net (raw − 분기 순상계액, 원장 파생). 임계 판정 기준값.
 //   penaltyOffsetInQuarter — 분기 내 상계된 벌점 누계
 //   penaltyThreshold — 30 (PENALTY_RULES.withdrawAt)
 //   quarterStart / quarterEnd — 분기 경계
@@ -705,7 +705,7 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     query,
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at, penalty_offset_in_quarter_total')
+      .select('withdrawal_review_at, withdrawal_required_at')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -725,7 +725,8 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   let rewardOffset = 0;
   let rewardBalance = 0;
   let penaltyLifetime = 0;
-  let penaltyQuarterRaw = 0;
+  // 벌점 행 합 — 상계 행(음수)이 포함되므로 이 값이 곧 잔존(net)이다
+  let penaltyQuarterNetSum = 0;
   for (const p of allPoints) {
     if (p.type === 'reward') {
       rewardBalance += p.amount;
@@ -735,12 +736,18 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
       else if (p.amount > 0) rewardLifetime += p.amount;
     } else if (p.type === 'penalty') {
       penaltyLifetime += p.amount;
-      if (new Date(p.created_at) >= quarterStart) penaltyQuarterRaw += p.amount;
+      if (new Date(p.created_at) >= quarterStart) penaltyQuarterNetSum += p.amount;
     }
   }
 
-  const penaltyOffsetInQuarter = profile?.penalty_offset_in_quarter_total ?? 0;
-  const penaltyQuarter = penaltyQuarterRaw - penaltyOffsetInQuarter;
+  // 상계가 상점·벌점 한 쌍으로 기록되므로 위에서 합산한 벌점 행 합이 곧 잔존(net)이다.
+  // 여기서 상계액을 또 빼면 이중 차감이 된다. 원본은 잔존 + 상계액으로 되돌려 계산한다.
+  // 주의: summary 는 filter 없이 호출될 때만 정확하다(전체 points 가 필요).
+  const { sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } =
+    await import('@/lib/points');
+  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(allPoints, quarterStart);
+  const penaltyQuarter = computePenaltyNet(penaltyQuarterNetSum);
+  const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
 
   return {
     points: allPoints,

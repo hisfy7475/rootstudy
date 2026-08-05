@@ -6,7 +6,7 @@ import {
   getStudyWeekBoundsFromMonday,
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
-import { notifyPointsGranted } from '@/lib/actions/notification';
+import { notifyPointsGranted, notifyPenaltyThreshold } from '@/lib/actions/notification';
 import { sumStudySeconds } from '@/lib/study-time';
 import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
 
@@ -322,25 +322,60 @@ export async function GET(request: Request) {
 
         // 상벌점이 있는 경우만 points 테이블에 저장
         if (pointType && pointAmount > 0) {
-          const { data: point, error: pointError } = await supabase
-            .from('points')
-            .insert({
-              student_id: student.id,
-              admin_id: null,
-              type: pointType,
-              amount: pointAmount,
-              reason,
-              is_auto: true,
-              event_kind: 'auto_weekly',
-            })
-            .select('id')
-            .single();
+          if (pointType === 'penalty') {
+            // 벌점은 반드시 임계 RPC 를 탄다.
+            // 예전에는 여기서 points 에 직접 INSERT 해서 10/20/25 경고와 30점 상계·강제 퇴원
+            // 판정을 통째로 우회했고, 주간 벌점만으로 30점을 넘긴 학생이 아무 통보 없이 방치됐다.
+            const { data: rpcData, error: rpcError } = await supabase.rpc(
+              'give_penalty_with_threshold_check',
+              {
+                p_student_id: student.id,
+                p_admin_id: null,
+                p_amount: pointAmount,
+                p_reason: reason,
+                p_preset_id: null,
+                p_event_kind: 'auto_weekly',
+              },
+            );
 
-          if (pointError) {
-            results.errors.push(`Student ${student.id}: ${pointError.message}`);
-            continue;
+            if (rpcError) {
+              results.errors.push(`Student ${student.id}: ${rpcError.message}`);
+              continue;
+            }
+
+            const rpcResult = rpcData as {
+              point_id?: string;
+              warnings?: Array<'warn_10' | 'warn_20' | 'warn_25'>;
+              threshold?: Parameters<typeof notifyPenaltyThreshold>[0]['threshold'];
+            } | null;
+            pointId = rpcResult?.point_id ?? null;
+
+            notifyPenaltyThreshold({
+              studentId: student.id,
+              warnings: rpcResult?.warnings ?? [],
+              threshold: rpcResult?.threshold ?? null,
+            }).catch((e) => console.error('[weekly-points] notifyPenaltyThreshold', e));
+          } else {
+            const { data: point, error: pointError } = await supabase
+              .from('points')
+              .insert({
+                student_id: student.id,
+                admin_id: null,
+                type: pointType,
+                amount: pointAmount,
+                reason,
+                is_auto: true,
+                event_kind: 'auto_weekly',
+              })
+              .select('id')
+              .single();
+
+            if (pointError) {
+              results.errors.push(`Student ${student.id}: ${pointError.message}`);
+              continue;
+            }
+            pointId = point.id;
           }
-          pointId = point.id;
 
           // 학생 + 모든 학부모 앱 알림 + 푸시 (fire-and-forget). 헬퍼가 표준 title 생성.
           notifyPointsGranted({
@@ -381,10 +416,33 @@ export async function GET(request: Request) {
       }
     }
 
+    // 고아 행 탐지 — points 는 부여됐는데 weekly_point_history 가 없는 경우.
+    // 부여(points) → 이력(weekly_point_history) 순서라, 이력 INSERT 가 실패하면
+    // 상벌점만 남고 멱등 게이트(processedSet)에는 안 잡혀 다음 실행에서 중복 부여될 수 있다.
+    // 순서를 뒤집으면 반대로 "이력만 있고 부여 안 됨" 이 조용히 발생하므로,
+    // 순서는 유지하고 대신 발생 여부를 매 실행마다 보고한다. (실측 발생 0건)
+    let orphanAutoWeekly: number | null = null;
+    try {
+      const [{ data: weeklyPointRows }, { data: historyRows }] = await Promise.all([
+        supabase.from('points').select('id').eq('event_kind', 'auto_weekly'),
+        supabase.from('weekly_point_history').select('point_id').not('point_id', 'is', null),
+      ]);
+      const referenced = new Set((historyRows ?? []).map((h) => h.point_id as string));
+      orphanAutoWeekly = (weeklyPointRows ?? []).filter((p) => !referenced.has(p.id)).length;
+      if (orphanAutoWeekly > 0) {
+        console.error(
+          `[weekly-points] 고아 auto_weekly 행 ${orphanAutoWeekly}건 — 이력 없이 부여된 상벌점이 있습니다`,
+        );
+      }
+    } catch (e) {
+      console.error('[weekly-points] orphan check failed', e);
+    }
+
     return NextResponse.json({
       success: true,
       message: `Processed ${results.processed} students`,
       weekStart: weekStartStr,
+      orphanAutoWeekly,
       results,
     });
   } catch (error) {

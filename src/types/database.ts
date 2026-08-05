@@ -113,6 +113,15 @@ export interface Database {
           withdrawal_review_reason: string | null;
           withdrawal_required_at: string | null;
           withdrawal_required_reason: string | null;
+          /** 30점 도달 감지 — 관리자 승인 대기. 학생에게는 노출하지 않는다. */
+          withdrawal_candidate_at: string | null;
+          withdrawal_candidate_reason: string | null;
+          withdrawal_candidate_net: number | null;
+          withdrawal_candidate_available_reward: number | null;
+          withdrawal_candidate_offset_consumed: boolean | null;
+          /** 관리자가 이번 분기에 "처리 안 함"으로 결정 — 후보 재생성 차단 */
+          withdrawal_dismissed_at: string | null;
+          withdrawal_dismissed_reason: string | null;
           penalty_offset_in_quarter_total: number;
           threshold_consumed_in_quarter_at: string | null;
           first_check_in_at: string | null;
@@ -134,6 +143,13 @@ export interface Database {
           withdrawal_review_reason?: string | null;
           withdrawal_required_at?: string | null;
           withdrawal_required_reason?: string | null;
+          withdrawal_candidate_at?: string | null;
+          withdrawal_candidate_reason?: string | null;
+          withdrawal_candidate_net?: number | null;
+          withdrawal_candidate_available_reward?: number | null;
+          withdrawal_candidate_offset_consumed?: boolean | null;
+          withdrawal_dismissed_at?: string | null;
+          withdrawal_dismissed_reason?: string | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -155,6 +171,13 @@ export interface Database {
           withdrawal_review_reason?: string | null;
           withdrawal_required_at?: string | null;
           withdrawal_required_reason?: string | null;
+          withdrawal_candidate_at?: string | null;
+          withdrawal_candidate_reason?: string | null;
+          withdrawal_candidate_net?: number | null;
+          withdrawal_candidate_available_reward?: number | null;
+          withdrawal_candidate_offset_consumed?: boolean | null;
+          withdrawal_dismissed_at?: string | null;
+          withdrawal_dismissed_reason?: string | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -2138,7 +2161,11 @@ export interface Database {
           reward_redeemed: number;
           reward_burnt: number;
           reward_offset: number;
+          /** @deprecated penalty_quarter_raw 와 동일. 하위 호환용. */
           penalty_quarter: number;
+          penalty_quarter_raw: number;
+          penalty_offset_quarter: number;
+          penalty_quarter_net: number;
         }[];
       };
       get_current_quarter_start_kst: {
@@ -2149,20 +2176,65 @@ export interface Database {
         Args: { p_at: string };
         Returns: string;
       };
+      /**
+       * 30점 도달 감지 — 후보로만 기록한다.
+       * 상계·강제 퇴원 마크·학생 알림은 하지 않는다 (approve_penalty_threshold 로 이관).
+       * give_penalty_with_threshold_check 내부에서만 호출된다 (service_role 전용).
+       */
       handle_penalty_threshold: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      /** 관리자 승인 — 이 시점에 상계 또는 강제 퇴원 마크가 실행된다 */
+      approve_penalty_threshold: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      /** 관리자 해제 — 후보만 지우고 벌점·상점은 건드리지 않는다. 이번 분기 재등장 차단. */
+      dismiss_penalty_threshold: {
+        Args: { p_student_id: string; p_reason?: string | null };
+        Returns: unknown;
+      };
+      /** 제외 되돌리기 — net>=30 이면 후보를 즉시 복원 */
+      undismiss_penalty_threshold: {
         Args: { p_student_id: string };
         Returns: unknown;
       };
       give_penalty_with_threshold_check: {
         Args: {
           p_student_id: string;
-          p_admin_id: string;
+          p_admin_id: string | null;
           p_amount: number;
           p_reason: string;
           p_preset_id?: string | null;
           p_event_kind?: string;
+          p_study_date?: string | null;
         };
         Returns: unknown;
+      };
+      /** 분기 벌점 상태 — 상계를 points 원장에서 파생 (net = 벌점 행 합) */
+      penalty_quarter_state: {
+        Args: { p_student_id: string };
+        Returns: {
+          quarter_start: string;
+          /** 원본 (상계 전) = net + offset */
+          raw: number;
+          offset: number;
+          /** 잔존 — 30점 임계 판정 기준값 */
+          net: number;
+          offset_consumed: boolean;
+          limit_scope: 'quarter' | 'lifetime';
+        };
+      };
+      /** 상계 되돌리기 — 상점·벌점 양쪽 복구 + 1회 제한 해제 */
+      maybe_revert_penalty_offset: {
+        Args: { p_student_id: string };
+        Returns: unknown;
+      };
+      /** 상계 1회 제한 범위 상수 */
+      points_offset_limit_scope: {
+        Args: Record<string, never>;
+        Returns: string;
       };
       cancel_withdrawal_review: {
         Args: { p_student_id: string; p_restore_reward?: boolean };
