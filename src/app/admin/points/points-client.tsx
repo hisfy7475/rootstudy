@@ -110,19 +110,16 @@ interface ReviewQueueRow {
   studentId: string;
   name: string;
   seatNumber: number | null;
-  kind: 'review' | 'required' | 'candidate' | 'dismissed';
+  kind: 'review' | 'required' | 'notice_pending' | 'dismissed';
   reviewAt: string | null;
   reviewReason: string | null;
   consumedAt: string | null;
   requiredAt: string | null;
   requiredReason: string | null;
-  candidateAt?: string | null;
-  candidateReason?: string | null;
-  candidateNet?: number | null;
-  candidateAvailableReward?: number | null;
-  candidateOffsetConsumed?: boolean | null;
+  notifiedAt?: string | null;
   dismissedAt?: string | null;
   dismissedReason?: string | null;
+  dismissedNet?: number | null;
   markedAt: string | null;
   markedReason: string | null;
   penaltyQuarter: number;
@@ -158,7 +155,7 @@ interface PointsClientProps {
   initialPenaltyPresets: PenaltyPreset[];
   initialReviewQueue: ReviewQueueRow[];
   initialRequiredQueue: ReviewQueueRow[];
-  initialCandidateQueue: ReviewQueueRow[];
+  initialNoticePendingQueue: ReviewQueueRow[];
   initialDismissedQueue: ReviewQueueRow[];
   initialRedemptionQueue: RedemptionQueueRow[];
 }
@@ -177,7 +174,7 @@ export function PointsClient({
   initialPenaltyPresets,
   initialReviewQueue,
   initialRequiredQueue,
-  initialCandidateQueue,
+  initialNoticePendingQueue,
   initialDismissedQueue,
   initialRedemptionQueue,
 }: PointsClientProps) {
@@ -403,38 +400,30 @@ export function PointsClient({
       const pv = await previewPenalty(ids[0], pointAmount);
       if (pv.success && pv.preview) {
         const p = pv.preview;
-        // 30점 도달은 이제 즉시 실행되지 않는다. 후보로만 등록되고, 관리자가
-        // '퇴원 검토/강제 퇴원' 탭에서 승인해야 상계·분류·학생 통보가 발생한다.
+        // 30점 도달 시 시스템이 즉시 상계 또는 강제 퇴원 분류를 실행한다.
+        // 다만 강제 퇴원 분류는 관리자가 '학생에게 통보' 를 눌러야 학생에게 전달된다.
         if (p.will_require_withdrawal) {
           const cause = p.offset_already_consumed
-            ? '이번 분기 상계를 이미 사용해'
-            : '상계 가능한 상점이 없어';
+            ? '상계를 이미 사용해'
+            : '상계 가능한 상점이 부족해';
           const ok = window.confirm(
-            `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어 ` +
-              `승인 대기 목록에 등록됩니다.\n` +
-              `승인 시 ${cause} 강제 퇴원 대상으로 분류됩니다.\n\n` +
-              `※ 지금은 학생에게 통보되지 않습니다. '퇴원 검토/강제 퇴원' 탭에서 승인해야 실행됩니다.\n\n계속할까요?`,
+            `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어, ` +
+              `${cause} 강제 퇴원 대상으로 분류됩니다.\n\n` +
+              `※ 분류는 즉시 실행되지만 학생에게는 통보되지 않습니다. ` +
+              `'퇴원 검토/강제 퇴원' 탭에서 확인 후 통보해주세요.\n\n계속할까요?`,
           );
           if (!ok) return;
         } else if (p.offset_estimate > 0) {
           const ok = window.confirm(
             `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어 ` +
-              `승인 대기 목록에 등록됩니다.\n` +
-              `승인 시 보유 상점 ${p.offset_estimate}점과 상계됩니다 ` +
-              `(상계 후 상점 ${p.reward_after_offset}점 / 잔존 벌점 ${p.penalty_after_offset_net}점).\n\n` +
-              `※ 지금은 상점이 차감되지 않고 학생에게도 통보되지 않습니다.\n\n계속할까요?`,
-          );
-          if (!ok) return;
-        } else if (p.pending_approval) {
-          const ok = window.confirm(
-            '이 학생은 이미 30점 도달로 승인 대기 목록에 올라가 있습니다. ' +
-              "추가 벌점은 상계나 재판정을 유발하지 않습니다.\n\n'퇴원 검토/강제 퇴원' 탭에서 처리해주세요.\n\n계속할까요?",
+              `보유 상점 ${p.offset_estimate}점과 즉시 상계됩니다.\n` +
+              `상계 후 상점 ${p.reward_after_offset}점 / 잔존 벌점 ${p.penalty_after_offset_net}점.\n\n계속할까요?`,
           );
           if (!ok) return;
         } else if (p.already_marked) {
           const ok = window.confirm(
             '이 학생은 이미 퇴원 검토/강제 퇴원 대상으로 분류되어 있습니다. ' +
-              '추가 벌점은 상계나 재판정을 유발하지 않습니다.\n\n계속할까요?',
+              '추가 벌점은 상계나 재분류를 유발하지 않습니다.\n\n계속할까요?',
           );
           if (!ok) return;
         }
@@ -1087,9 +1076,9 @@ export function PointsClient({
             label: `퇴원 검토/강제 퇴원${
               initialReviewQueue.length +
                 initialRequiredQueue.length +
-                initialCandidateQueue.length >
+                initialNoticePendingQueue.length >
               0
-                ? ` (${initialReviewQueue.length + initialRequiredQueue.length + initialCandidateQueue.length})`
+                ? ` (${initialReviewQueue.length + initialRequiredQueue.length + initialNoticePendingQueue.length})`
                 : ''
             }`,
           },
@@ -1108,7 +1097,7 @@ export function PointsClient({
         <WithdrawalReviewTab
           reviewQueue={initialReviewQueue}
           requiredQueue={initialRequiredQueue}
-          candidateQueue={initialCandidateQueue}
+          noticePendingQueue={initialNoticePendingQueue}
           dismissedQueue={initialDismissedQueue}
           onRefresh={refreshData}
         />

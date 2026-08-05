@@ -324,7 +324,7 @@ export async function getParentDashboardData(): Promise<{
           .eq('type', 'reward'),
         (await createClient())
           .from('student_profiles')
-          .select('withdrawal_review_at, withdrawal_required_at')
+          .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
           .eq('id', student.id)
           .maybeSingle(),
       ]);
@@ -353,7 +353,10 @@ export async function getParentDashboardData(): Promise<{
         penaltyThreshold: PENALTY_RULES.withdrawAt,
         quarterEnd: quarterEnd.toISOString(),
         withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
-        withdrawalRequiredAt: profile.data?.withdrawal_required_at ?? null,
+        // 통보 게이트 — src/lib/actions/student.ts 의 같은 주석 참조
+      withdrawalRequiredAt: profile.data?.withdrawal_notified_at
+        ? (profile.data?.withdrawal_required_at ?? null)
+        : null,
         rewardBalance,
       };
     }),
@@ -413,7 +416,7 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     supabase.from('points').select('amount').eq('student_id', student.id).eq('type', 'reward'),
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at')
+      .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
       .eq('id', student.id)
       .maybeSingle(),
   ]);
@@ -442,7 +445,10 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     penaltyThreshold: PR.withdrawAt,
     quarterEnd: qEnd.toISOString(),
     withdrawalReviewAt: profile.data?.withdrawal_review_at ?? null,
-    withdrawalRequiredAt: profile.data?.withdrawal_required_at ?? null,
+    // 통보 게이트 — src/lib/actions/student.ts 의 같은 주석 참조
+      withdrawalRequiredAt: profile.data?.withdrawal_notified_at
+        ? (profile.data?.withdrawal_required_at ?? null)
+        : null,
     rewardBalance,
   };
 

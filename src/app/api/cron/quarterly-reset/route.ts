@@ -79,6 +79,12 @@ export async function GET(request: Request) {
           withdrawal_review_reason: null,
           withdrawal_required_at: null,
           withdrawal_required_reason: null,
+          // 마크를 지우면 통보 기록도 함께 지운다 — 남으면 다음 분류 때
+          // 관리자 조작 없이 학생 배너가 부활한다.
+          withdrawal_notified_at: null,
+          withdrawal_dismissed_at: null,
+          withdrawal_dismissed_reason: null,
+          withdrawal_dismissed_net: null,
           threshold_consumed_in_quarter_at: null,
           penalty_offset_in_quarter_total: 0,
           last_warned_at_10: null,

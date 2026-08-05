@@ -119,9 +119,12 @@ export interface Database {
           withdrawal_candidate_net: number | null;
           withdrawal_candidate_available_reward: number | null;
           withdrawal_candidate_offset_consumed: boolean | null;
-          /** 관리자가 이번 분기에 "처리 안 함"으로 결정 — 후보 재생성 차단 */
+          /** 강제 퇴원 분류를 학생에게 통보한 시각. NULL 이면 판정만 된 상태(학생 미노출) */
+          withdrawal_notified_at: string | null;
+          /** 관리자가 분류를 취소한 시각 — 아래 net 을 넘어설 때까지 재분류하지 않는다 */
           withdrawal_dismissed_at: string | null;
           withdrawal_dismissed_reason: string | null;
+          withdrawal_dismissed_net: number | null;
           penalty_offset_in_quarter_total: number;
           threshold_consumed_in_quarter_at: string | null;
           first_check_in_at: string | null;
@@ -148,8 +151,10 @@ export interface Database {
           withdrawal_candidate_net?: number | null;
           withdrawal_candidate_available_reward?: number | null;
           withdrawal_candidate_offset_consumed?: boolean | null;
+          withdrawal_notified_at?: string | null;
           withdrawal_dismissed_at?: string | null;
           withdrawal_dismissed_reason?: string | null;
+          withdrawal_dismissed_net?: number | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -176,8 +181,10 @@ export interface Database {
           withdrawal_candidate_net?: number | null;
           withdrawal_candidate_available_reward?: number | null;
           withdrawal_candidate_offset_consumed?: boolean | null;
+          withdrawal_notified_at?: string | null;
           withdrawal_dismissed_at?: string | null;
           withdrawal_dismissed_reason?: string | null;
+          withdrawal_dismissed_net?: number | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -2177,25 +2184,26 @@ export interface Database {
         Returns: string;
       };
       /**
-       * 30점 도달 감지 — 후보로만 기록한다.
-       * 상계·강제 퇴원 마크·학생 알림은 하지 않는다 (approve_penalty_threshold 로 이관).
+       * 30점 도달 처리 — 상계 또는 강제 퇴원 분류를 **즉시 실행**한다.
+       * 단 학생 통보는 하지 않는다(withdrawal_notified_at 은 NULL 로 남는다).
+       * 상계는 가용 상점이 부족분 전액을 덮을 때만 실행한다(부분 상계 없음).
        * give_penalty_with_threshold_check 내부에서만 호출된다 (service_role 전용).
        */
       handle_penalty_threshold: {
         Args: { p_student_id: string };
         Returns: unknown;
       };
-      /** 관리자 승인 — 이 시점에 상계 또는 강제 퇴원 마크가 실행된다 */
-      approve_penalty_threshold: {
+      /** 관리자 통보 — withdrawal_notified_at 을 설정하고 학생 알림용 정보를 반환 */
+      notify_withdrawal_classification: {
         Args: { p_student_id: string };
         Returns: unknown;
       };
-      /** 관리자 해제 — 후보만 지우고 벌점·상점은 건드리지 않는다. 이번 분기 재등장 차단. */
-      dismiss_penalty_threshold: {
+      /** 분류 취소 — 마크·통보 기록 삭제 + 재분류 기준(취소 시점 net) 기록 + 상품권 슬롯 복구 */
+      dismiss_withdrawal_classification: {
         Args: { p_student_id: string; p_reason?: string | null };
         Returns: unknown;
       };
-      /** 제외 되돌리기 — net>=30 이면 후보를 즉시 복원 */
+      /** 분류 취소 되돌리기 — net>=30 이면 즉시 재분류(통보는 별도) */
       undismiss_penalty_threshold: {
         Args: { p_student_id: string };
         Returns: unknown;

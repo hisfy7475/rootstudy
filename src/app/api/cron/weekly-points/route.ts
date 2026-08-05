@@ -350,7 +350,10 @@ export async function GET(request: Request) {
             } | null;
             pointId = rpcResult?.point_id ?? null;
 
-            notifyPenaltyThreshold({
+            // ⚠️ await 필수 — fire-and-forget 이면 서버리스 핸들러가 응답 직후 동결돼
+            // 알림이 유실된다. 특히 30점 자동 분류 시 관리자 알림이 이 경로로 나가는데,
+            // 학생에게는 통보 게이트 때문에 아무것도 안 가므로 이게 유일한 통지 수단이다.
+            await notifyPenaltyThreshold({
               studentId: student.id,
               warnings: rpcResult?.warnings ?? [],
               threshold: rpcResult?.threshold ?? null,

@@ -1428,7 +1428,10 @@ export async function givePenaltyBatch(params: {
       reason,
       studentName: profile?.name || undefined,
     }).catch((e) => console.error('givePenaltyBatch notifyPointsGranted error:', e));
-    notifyPenaltyThreshold({
+    // await 한다 — fire-and-forget 이면 서버리스 핸들러 동결로 유실될 수 있고,
+    // 30점 자동 분류 시 관리자 알림이 이 경로로 나가기 때문이다.
+    // 알림 대상이 없는 학생은 즉시 반환되므로(tasks.length === 0) 비용은 거의 없다.
+    await notifyPenaltyThreshold({
       studentId,
       warnings: result?.warnings ?? [],
       threshold: result?.threshold ?? null,
@@ -1749,19 +1752,25 @@ export async function previewPenalty(studentId: string, amount: number) {
 // - kind='candidate': 30점 도달이 감지된 승인 대기 학생 (학생에게는 미노출)
 // - kind='review'   : 구 정책 withdrawal_review_at 마크 학생 (점진 폐기)
 // - kind='required' : 신규 정책 withdrawal_required_at 마크 학생
-// - kind='dismissed' : 관리자가 이번 분기에 처리하지 않기로 한 학생 (되돌릴 수 있어야 하므로 노출)
-export type WithdrawalQueueKind = 'review' | 'required' | 'candidate' | 'dismissed';
+// - kind='notice_pending': 분류됐으나 학생에게 아직 통보되지 않음 (관리자 조치 필요)
+// - kind='dismissed'     : 관리자가 분류를 취소한 학생 (되돌릴 수 있어야 하므로 노출)
+//
+// ⚠️ 'notice_pending' 과 'required' 는 둘 다 withdrawal_required_at 에 마크되고
+//    withdrawal_notified_at 의 null 여부로만 갈린다. 컬럼 맵만으로는 분리되지 않으므로
+//    아래에서 kind 별 추가 필터를 건다. 맵에 없는 kind 를 넘기면 markColumn 이 undefined 가
+//    되고 PostgREST 가 에러를 내 큐가 조용히 빈 배열이 된다.
+export type WithdrawalQueueKind = 'review' | 'required' | 'notice_pending' | 'dismissed';
 
 const QUEUE_MARK_COLUMN: Record<WithdrawalQueueKind, string> = {
   review: 'withdrawal_review_at',
   required: 'withdrawal_required_at',
-  candidate: 'withdrawal_candidate_at',
+  notice_pending: 'withdrawal_required_at',
   dismissed: 'withdrawal_dismissed_at',
 };
 const QUEUE_REASON_COLUMN: Record<WithdrawalQueueKind, string> = {
   review: 'withdrawal_review_reason',
   required: 'withdrawal_required_reason',
-  candidate: 'withdrawal_candidate_reason',
+  notice_pending: 'withdrawal_required_reason',
   dismissed: 'withdrawal_dismissed_reason',
 };
 
@@ -1786,13 +1795,10 @@ export async function getWithdrawalReviewQueue(
       withdrawal_review_reason,
       withdrawal_required_at,
       withdrawal_required_reason,
-      withdrawal_candidate_at,
-      withdrawal_candidate_reason,
-      withdrawal_candidate_net,
-      withdrawal_candidate_available_reward,
-      withdrawal_candidate_offset_consumed,
+      withdrawal_notified_at,
       withdrawal_dismissed_at,
       withdrawal_dismissed_reason,
+      withdrawal_dismissed_net,
       threshold_consumed_in_quarter_at,
       profiles!inner (
         name,
@@ -1804,6 +1810,13 @@ export async function getWithdrawalReviewQueue(
     .not(markColumn, 'is', null)
     .is('profiles.withdrawn_at', null)
     .order(markColumn, { ascending: false });
+
+  // 통보 여부로 갈리는 두 kind 를 분리한다
+  if (kind === 'notice_pending') {
+    query = query.is('withdrawal_notified_at', null);
+  } else if (kind === 'required') {
+    query = query.not('withdrawal_notified_at', 'is', null);
+  }
 
   if (branchId) {
     query = query.eq('profiles.branch_id', branchId);
@@ -1885,28 +1898,21 @@ export async function getWithdrawalReviewQueue(
       requiredAt: s.withdrawal_required_at,
       requiredReason: s.withdrawal_required_reason,
       // 승인 대기 후보 (학생에게는 노출되지 않는 상태)
-      candidateAt: s.withdrawal_candidate_at,
-      candidateReason: s.withdrawal_candidate_reason,
-      candidateNet: s.withdrawal_candidate_net,
-      candidateAvailableReward: s.withdrawal_candidate_available_reward,
-      candidateOffsetConsumed: s.withdrawal_candidate_offset_consumed,
+      notifiedAt: s.withdrawal_notified_at,
       dismissedAt: s.withdrawal_dismissed_at,
       dismissedReason: s.withdrawal_dismissed_reason,
+      dismissedNet: s.withdrawal_dismissed_net,
       // 표시용
       markedAt: (kind === 'review'
         ? s.withdrawal_review_at
-        : kind === 'candidate'
-          ? s.withdrawal_candidate_at
-          : kind === 'dismissed'
-            ? s.withdrawal_dismissed_at
-            : s.withdrawal_required_at) as string | null,
+        : kind === 'dismissed'
+          ? s.withdrawal_dismissed_at
+          : s.withdrawal_required_at) as string | null,
       markedReason: (kind === 'review'
         ? s.withdrawal_review_reason
-        : kind === 'candidate'
-          ? s.withdrawal_candidate_reason
-          : kind === 'dismissed'
-            ? s.withdrawal_dismissed_reason
-            : s.withdrawal_required_reason) as string | null,
+        : kind === 'dismissed'
+          ? s.withdrawal_dismissed_reason
+          : s.withdrawal_required_reason) as string | null,
       _reasonColumn: reasonColumn, // debug 용
       penaltyQuarterRaw: raw,
       penaltyQuarter: net,
@@ -2032,103 +2038,93 @@ export async function cancelWithdrawalReviewAction(
 }
 
 // ============================================
-// 강제 퇴원 승인 큐 — 시스템은 후보만 올리고, 실행은 관리자가 결정한다
+// 강제 퇴원 통보 큐 — 판정은 시스템이 자동, 통보는 관리자가 결정한다
 // ============================================
-// 자동 경로(주간 크론·자동 지각)에서 30점 도달이 감지되면 후보로만 기록되고
-// 학생에게는 아무것도 통보되지 않는다. 여기서 승인해야 상계 또는 강제 퇴원 마크가
-// 실행되고 그때 학생 알림이 나간다.
-//
-// 되돌릴 수 없는 처분이라 승인제로 뒀다. 기존 구조는 시스템이 먼저 마크하고
-// 관리자가 사후 해제하는 순서였다.
-export async function approvePenaltyThreshold(studentId: string) {
+// 30점 도달 시 시스템이 즉시 강제 퇴원 대상으로 분류하지만(withdrawal_required_at),
+// 학생 앱 배너와 푸시는 관리자가 여기서 '통보' 를 눌러야 나간다.
+// 오판이 학생·학부모에게 먼저 도달하면 관리자가 지워도 이미 본 뒤이기 때문이다.
+export async function notifyWithdrawalClassification(studentId: string) {
   const ctx = await requireAdminBranch();
   if (!ctx) return { error: '관리자 권한이 필요합니다.' };
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('approve_penalty_threshold', {
+  const { data, error } = await supabase.rpc('notify_withdrawal_classification', {
     p_student_id: studentId,
   });
   if (error) {
-    console.error('approve_penalty_threshold error:', error);
-    return { error: '승인 처리에 실패했습니다.' };
+    console.error('notify_withdrawal_classification error:', error);
+    return { error: '통보 처리에 실패했습니다.' };
   }
 
-  const { notifyPenaltyThreshold } = await import('./notification');
-  const result = data as Parameters<typeof notifyPenaltyThreshold>[0]['threshold'];
+  const result = data as {
+    status: 'notified' | 'already_notified' | 'not_classified' | 'not_a_student';
+    offset_already_consumed?: boolean;
+  };
 
-  if (result?.status === 'not_a_candidate' || result?.status === 'not_a_student') {
-    return { error: '승인 대기 상태가 아닙니다.' };
+  if (result?.status === 'already_notified') {
+    return { error: '이미 통보된 학생입니다.' };
   }
-  if (result?.status === 'no_longer_required') {
-    revalidatePath('/admin/points');
-    return {
-      success: true,
-      status: 'no_longer_required' as const,
-      message: `벌점이 ${result.penalty_after_net}점으로 내려가 처리가 불필요합니다. 대기 목록에서 제거했습니다.`,
-    };
+  if (result?.status !== 'notified') {
+    return { error: '강제 퇴원 대상으로 분류된 상태가 아닙니다.' };
   }
 
   await logPointsAction(ctx.userId, 'points_grant', studentId, {
-    scope: 'withdrawal_threshold_approve',
-    result_status: result?.status,
+    scope: 'withdrawal_classification_notify',
   });
 
-  // 승인했으므로 이 시점에 학생에게 통보한다
-  await notifyPenaltyThreshold({ studentId, warnings: [], threshold: result ?? null });
+  const { notifyWithdrawalClassifiedStudent } = await import('./notification');
+  await notifyWithdrawalClassifiedStudent({
+    studentId,
+    offsetAlreadyConsumed: result.offset_already_consumed === true,
+  });
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
-
-  if (result?.status === 'offset') {
-    return {
-      success: true,
-      status: 'offset' as const,
-      message: `상점 ${result.offset_amount}점을 벌점과 상계했습니다. 잔존 벌점 ${result.penalty_after_net}점.`,
-    };
-  }
   return {
     success: true,
-    status: 'withdrawal_required' as const,
-    message: '강제 퇴원 대상으로 확정하고 학생에게 통보했습니다.',
+    message: '학생에게 통보했습니다. 학생 앱에 안내가 표시됩니다.',
   };
 }
 
-// 후보를 실행하지 않고 종료 (면제·이미 이탈한 학생·오부여 등).
-// 벌점·상점은 건드리지 않는다.
-export async function dismissPenaltyThreshold(studentId: string, reason?: string) {
+// 분류 취소 — 마크·통보 기록을 지우고 재판정 기준(취소 시점 net)을 남긴다.
+// 벌점·상점은 건드리지 않으며, 분류 때문에 멈춰 있던 상품권 자동 발급이 복구된다.
+export async function dismissWithdrawalClassification(studentId: string, reason?: string) {
   const ctx = await requireAdminBranch();
   if (!ctx) return { error: '관리자 권한이 필요합니다.' };
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('dismiss_penalty_threshold', {
+  const { data, error } = await supabase.rpc('dismiss_withdrawal_classification', {
     p_student_id: studentId,
     p_reason: reason ?? null,
   });
   if (error) {
-    console.error('dismiss_penalty_threshold error:', error);
-    return { error: '해제 처리에 실패했습니다.' };
+    console.error('dismiss_withdrawal_classification error:', error);
+    return { error: '분류 취소에 실패했습니다.' };
   }
 
-  const result = data as { status: string };
+  const result = data as { status: string; was_notified?: boolean; dismissed_net?: number };
   if (result?.status !== 'dismissed') {
-    return { error: '승인 대기 상태가 아닙니다.' };
+    return { error: '강제 퇴원 대상으로 분류된 상태가 아닙니다.' };
   }
 
   await logPointsAction(ctx.userId, 'points_cancel', studentId, {
-    scope: 'withdrawal_threshold_dismiss',
+    scope: 'withdrawal_classification_dismiss',
     reason: reason ?? null,
+    was_notified: result.was_notified ?? null,
   });
 
   revalidatePath('/admin');
   revalidatePath('/admin/points');
   return {
     success: true,
-    message: '승인 대기 목록에서 제외했습니다. 이번 분기에는 다시 올라오지 않습니다.',
+    message: result.was_notified
+      ? '분류를 취소했습니다. 학생에게는 이미 통보된 상태였습니다.'
+      : `분류를 취소했습니다. 학생에게는 통보되지 않았습니다. (분기 벌점 ${result.dismissed_net ?? 0}점을 넘어서면 다시 분류됩니다)`,
   };
 }
 
-// 제외 되돌리기 — 제외가 분기 동안 유지되므로 번복 경로가 없으면 막다른 길이 된다.
-// 되돌리는 즉시 조건(net>=30)을 재평가해 후보를 복원한다.
+// 분류 취소 되돌리기 — 취소 기록을 지우고 조건(net>=30)을 즉시 재평가한다.
+// 재분류되더라도 통보되지 않으므로 학생에게는 아무것도 가지 않는다.
 export async function undismissPenaltyThreshold(studentId: string) {
   const ctx = await requireAdminBranch();
   if (!ctx) return { error: '관리자 권한이 필요합니다.' };

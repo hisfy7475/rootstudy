@@ -42,7 +42,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     penaltyPresets,
     reviewQueue,
     requiredQueue,
-    candidateQueue,
+    noticePendingQueue,
     dismissedQueue,
     redemptionQueue,
     branches,
@@ -66,8 +66,8 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
     getPenaltyPresets(branchId),
     getWithdrawalReviewQueue(branchId, 'review'),
     getWithdrawalReviewQueue(branchId, 'required'),
-    // 30점 도달 승인 대기 — 학생에게 통보되기 전 상태
-    getWithdrawalReviewQueue(branchId, 'candidate'),
+    // 분류됐으나 학생에게 아직 통보되지 않은 학생
+    getWithdrawalReviewQueue(branchId, 'notice_pending'),
     getWithdrawalReviewQueue(branchId, 'dismissed'),
     getRedemptionQueue(branchId),
     // 슈퍼관리자(전 지점)는 규정이 지점별로 합쳐 보이므로 지점명 뱃지용 맵을 함께 전달
@@ -89,7 +89,7 @@ export default async function PointsManagementPage({ searchParams }: PageProps) 
       initialPenaltyPresets={penaltyPresets}
       initialReviewQueue={reviewQueue}
       initialRequiredQueue={requiredQueue}
-      initialCandidateQueue={candidateQueue}
+      initialNoticePendingQueue={noticePendingQueue}
       initialDismissedQueue={dismissedQueue}
       initialRedemptionQueue={redemptionQueue}
     />

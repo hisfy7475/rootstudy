@@ -8,8 +8,8 @@ import {
   confirmWithdrawal,
   cancelWithdrawalReviewAction,
   cancelRequiredWithdrawal,
-  approvePenaltyThreshold,
-  dismissPenaltyThreshold,
+  notifyWithdrawalClassification,
+  dismissWithdrawalClassification,
   undismissPenaltyThreshold,
 } from '@/lib/actions/admin';
 
@@ -17,19 +17,16 @@ interface QueueRow {
   studentId: string;
   name: string;
   seatNumber: number | null;
-  kind: 'review' | 'required' | 'candidate' | 'dismissed';
+  kind: 'review' | 'required' | 'notice_pending' | 'dismissed';
   reviewAt: string | null;
   reviewReason: string | null;
   consumedAt: string | null;
   requiredAt: string | null;
   requiredReason: string | null;
-  candidateAt?: string | null;
-  candidateReason?: string | null;
-  candidateNet?: number | null;
-  candidateAvailableReward?: number | null;
-  candidateOffsetConsumed?: boolean | null;
+  notifiedAt?: string | null;
   dismissedAt?: string | null;
   dismissedReason?: string | null;
+  dismissedNet?: number | null;
   markedAt: string | null;
   markedReason: string | null;
   penaltyQuarter: number;
@@ -42,8 +39,8 @@ interface QueueRow {
 interface Props {
   reviewQueue: QueueRow[];
   requiredQueue: QueueRow[];
-  /** 30점 도달 감지 — 아직 학생에게 통보되지 않은 승인 대기 학생 */
-  candidateQueue?: QueueRow[];
+  /** 강제 퇴원 대상으로 분류됐으나 학생에게 아직 통보되지 않은 학생 */
+  noticePendingQueue?: QueueRow[];
   /** 이번 분기에 처리하지 않기로 한 학생 — 되돌릴 수 있어야 하므로 노출 */
   dismissedQueue?: QueueRow[];
   onRefresh: () => void;
@@ -55,14 +52,14 @@ type Confirm =
   | { type: 'cancel_with_restore'; row: QueueRow }
   | { type: 'cancel_no_restore'; row: QueueRow }
   | { type: 'cancel_required'; row: QueueRow }
-  | { type: 'approve_candidate'; row: QueueRow }
-  | { type: 'dismiss_candidate'; row: QueueRow }
+  | { type: 'notify_student'; row: QueueRow }
+  | { type: 'dismiss_classification'; row: QueueRow }
   | { type: 'undismiss_candidate'; row: QueueRow };
 
 export function WithdrawalReviewTab({
   reviewQueue,
   requiredQueue,
-  candidateQueue = [],
+  noticePendingQueue = [],
   dismissedQueue = [],
   onRefresh,
 }: Props) {
@@ -86,10 +83,10 @@ export function WithdrawalReviewTab({
         res = await cancelWithdrawalReviewAction(action.row.studentId, true);
       } else if (action.type === 'cancel_no_restore') {
         res = await cancelWithdrawalReviewAction(action.row.studentId, false);
-      } else if (action.type === 'approve_candidate') {
-        res = await approvePenaltyThreshold(action.row.studentId);
-      } else if (action.type === 'dismiss_candidate') {
-        res = await dismissPenaltyThreshold(action.row.studentId);
+      } else if (action.type === 'notify_student') {
+        res = await notifyWithdrawalClassification(action.row.studentId);
+      } else if (action.type === 'dismiss_classification') {
+        res = await dismissWithdrawalClassification(action.row.studentId);
       } else if (action.type === 'undismiss_candidate') {
         res = await undismissPenaltyThreshold(action.row.studentId);
       } else {
@@ -114,7 +111,7 @@ export function WithdrawalReviewTab({
   if (
     reviewQueue.length === 0 &&
     requiredQueue.length === 0 &&
-    candidateQueue.length === 0 &&
+    noticePendingQueue.length === 0 &&
     dismissedQueue.length === 0
   ) {
     return (
@@ -137,10 +134,10 @@ export function WithdrawalReviewTab({
           <p className='text-text-muted text-xs'>
             {row.kind === 'review'
               ? '검토 진입'
-              : row.kind === 'candidate'
-                ? '30점 도달 감지'
-                : row.kind === 'dismissed'
-                  ? '처리 제외'
+              : row.kind === 'dismissed'
+                ? '분류 취소'
+                : row.kind === 'notice_pending'
+                  ? '자동 분류 (미통보)'
                   : '강제 퇴원 대상 분류'}{' '}
             {row.markedAt
               ? new Date(row.markedAt).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
@@ -171,35 +168,17 @@ export function WithdrawalReviewTab({
             </p>
           )}
           {row.markedReason && <p className='text-text-muted text-xs'>사유: {row.markedReason}</p>}
-          {row.kind === 'candidate' && (
+          {row.kind === 'notice_pending' && (
             <p className='rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800'>
-              승인하면{' '}
-              {row.candidateOffsetConsumed ? (
-                <>
-                  <strong>이번 분기 상계를 이미 사용</strong>했으므로 상계 없이{' '}
-                  <strong>강제 퇴원 대상으로 분류</strong>되고 학생에게 통보됩니다.
-                </>
-              ) : (row.candidateAvailableReward ?? 0) > 0 ? (
-                <>
-                  가용 상점{' '}
-                  <strong>
-                    {Math.min(row.candidateAvailableReward ?? 0, row.penaltyQuarter)}점
-                  </strong>
-                  이 벌점과 상계되고, 이번 분기 상계 기회가 소진됩니다.
-                </>
-              ) : (
-                <>
-                  상계 가능한 상점이 없어 <strong>강제 퇴원 대상으로 분류</strong>되고 학생에게
-                  통보됩니다.
-                </>
-              )}
-              {(row.protectedRedemptionCount ?? 0) > 0 && (
-                <>
-                  {' '}
-                  (상품권 발급 대기 {row.protectedRedemptionCount}건 = 상점{' '}
-                  {row.protectedRedemptionCount * 100}점이 보호되어 가용에서 제외됨)
-                </>
-              )}
+              시스템이 자동으로 분류했고 <strong>학생에게는 아직 통보되지 않았습니다.</strong>{' '}
+              통보하면 학생 앱에 안내 배너가 뜨고 푸시 알림이 발송됩니다. 오분류라면 통보 전에{' '}
+              <strong>분류 취소</strong>를 눌러주세요.
+            </p>
+          )}
+          {row.kind === 'dismissed' && (row.dismissedNet ?? 0) > 0 && (
+            <p className='rounded-lg bg-gray-50 px-2 py-1.5 text-xs text-gray-700'>
+              취소 시점 분기 벌점 <strong>{row.dismissedNet}점</strong>. 이 값을 넘어서면 다시
+              분류됩니다(통보는 별도 조작).
             </p>
           )}
         </div>
@@ -212,27 +191,27 @@ export function WithdrawalReviewTab({
               onClick={() => setConfirm({ type: 'undismiss_candidate', row })}
             >
               <RotateCcw className='mr-1 h-3.5 w-3.5' />
-              제외 취소
+              분류 복원
             </Button>
-          ) : row.kind === 'candidate' ? (
+          ) : row.kind === 'notice_pending' ? (
             <>
               <Button
                 size='sm'
                 variant='outline'
                 disabled={busy}
-                onClick={() => setConfirm({ type: 'dismiss_candidate', row })}
+                onClick={() => setConfirm({ type: 'dismiss_classification', row })}
               >
                 <X className='mr-1 h-3.5 w-3.5' />
-                제외
+                분류 취소
               </Button>
               <Button
                 size='sm'
                 variant='danger'
                 disabled={busy}
-                onClick={() => setConfirm({ type: 'approve_candidate', row })}
+                onClick={() => setConfirm({ type: 'notify_student', row })}
               >
                 <Check className='mr-1 h-3.5 w-3.5' />
-                승인
+                학생에게 통보
               </Button>
             </>
           ) : row.kind === 'review' ? (
@@ -289,20 +268,20 @@ export function WithdrawalReviewTab({
         <Card className='border-blue-200 bg-blue-50 p-3 text-sm text-blue-700'>{feedback}</Card>
       )}
 
-      {candidateQueue.length > 0 && (
+      {noticePendingQueue.length > 0 && (
         <Card className='overflow-hidden'>
           <div className='border-b bg-amber-100 px-4 py-3'>
             <h2 className='flex items-center gap-2 text-sm font-bold text-amber-900'>
               <Scale className='h-4 w-4' />
-              승인 대기 — 벌점 30점 도달 ({candidateQueue.length}명)
+              통보 대기 — 강제 퇴원 자동 분류 ({noticePendingQueue.length}명)
             </h2>
             <p className='text-text-muted mt-1 text-xs'>
-              시스템이 30점 도달을 감지했지만 <strong>아직 아무것도 실행하지 않은</strong>
-              상태입니다. 학생에게는 통보되지 않았고 상점도 차감되지 않았습니다. 승인해야 상계 또는
-              강제 퇴원 분류가 실행되고 그때 학생에게 통보됩니다.
+              벌점 30점 도달로 <strong>시스템이 이미 강제 퇴원 대상으로 분류</strong>했지만,
+              학생에게는 아직 통보되지 않은 상태입니다. 통보하면 학생 앱에 안내 배너가 뜨고 푸시
+              알림이 발송됩니다. 오분류라면 통보 전에 분류 취소를 눌러주세요.
             </p>
           </div>
-          <div className='divide-y'>{candidateQueue.map(renderRow)}</div>
+          <div className='divide-y'>{noticePendingQueue.map(renderRow)}</div>
         </Card>
       )}
 
@@ -311,11 +290,11 @@ export function WithdrawalReviewTab({
           <div className='border-b bg-gray-100 px-4 py-3'>
             <h2 className='flex items-center gap-2 text-sm font-bold text-gray-700'>
               <X className='h-4 w-4' />
-              처리 제외 — 이번 분기 ({dismissedQueue.length}명)
+              분류 취소됨 — 이번 분기 ({dismissedQueue.length}명)
             </h2>
             <p className='text-text-muted mt-1 text-xs'>
-              관리자가 처리하지 않기로 결정한 학생입니다. 이번 분기에는 벌점이 더 쌓여도 승인 대기에
-              다시 올라오지 않습니다(다음 분기에 자동 해제). 판단을 번복하려면 제외 취소를
+              관리자가 강제 퇴원 분류를 취소한 학생입니다. 취소 시점의 분기 벌점을 넘어설 때까지는
+              다시 분류되지 않습니다(다음 분기에 자동 해제). 판단을 번복하려면 분류 복원을
               누르세요.
             </p>
           </div>
@@ -365,9 +344,9 @@ export function WithdrawalReviewTab({
               {confirm.type === 'cancel_with_restore' && '검토 취소 (상점 복구)'}
               {confirm.type === 'cancel_no_restore' && '검토 취소 (복구 없음)'}
               {confirm.type === 'cancel_required' && '강제 퇴원 대상 분류 취소'}
-              {confirm.type === 'approve_candidate' && '30점 도달 처리 승인'}
-              {confirm.type === 'dismiss_candidate' && '승인 대기에서 제외'}
-              {confirm.type === 'undismiss_candidate' && '처리 제외 취소'}
+              {confirm.type === 'notify_student' && '학생에게 통보'}
+              {confirm.type === 'dismiss_classification' && '강제 퇴원 분류 취소'}
+              {confirm.type === 'undismiss_candidate' && '분류 복원'}
             </h3>
             <p className='text-text-muted mb-4 text-sm'>
               {confirm.type === 'withdraw' && (
@@ -395,29 +374,29 @@ export function WithdrawalReviewTab({
                   분류를 해제하여 재원 상태로 돌립니다. 이미 발생한 상계는 보존됩니다.
                 </>
               )}
-              {confirm.type === 'approve_candidate' && (
+              {confirm.type === 'notify_student' && (
                 <>
-                  <strong className='text-text'>{confirm.row.name}</strong> 학생의 벌점 30점 도달을
-                  승인합니다.{' '}
-                  {confirm.row.candidateOffsetConsumed ||
-                  (confirm.row.candidateAvailableReward ?? 0) === 0 ? (
-                    <>
-                      <strong className='text-red-600'>강제 퇴원 대상으로 분류</strong>되며 학생
-                      앱에 배너와 푸시 알림이 즉시 발송됩니다.
-                    </>
-                  ) : (
-                    <>
-                      보유 상점이 벌점과 상계되어 <strong>차감</strong>되고, 학생에게 상계 결과가
-                      통보됩니다. 이번 분기 상계 기회는 소진됩니다.
-                    </>
-                  )}
+                  <strong className='text-text'>{confirm.row.name}</strong> 학생에게 강제 퇴원 대상
+                  분류를 통보합니다. 학생 앱에 안내 배너가 뜨고{' '}
+                  <strong className='text-red-600'>푸시 알림이 즉시 발송</strong>됩니다. 학부모
+                  대시보드에도 표시됩니다.
                 </>
               )}
-              {confirm.type === 'dismiss_candidate' && (
+              {confirm.type === 'dismiss_classification' && (
                 <>
-                  <strong className='text-text'>{confirm.row.name}</strong> 학생을 승인 대기
-                  목록에서 제외합니다. 상계·강제 퇴원 어느 것도 실행되지 않고 학생에게도 통보되지
-                  않습니다. 벌점과 상점은 그대로 유지됩니다.
+                  <strong className='text-text'>{confirm.row.name}</strong> 학생의 강제 퇴원 대상
+                  분류를 취소합니다. 벌점과 상점은 그대로 유지되고, 분류 때문에 멈춰 있던 상품권
+                  자동 발급이 복구됩니다.
+                  {confirm.row.notifiedAt
+                    ? ' 이 학생에게는 이미 통보된 상태입니다.'
+                    : ' 학생에게는 통보되지 않았으므로 아무것도 모릅니다.'}
+                </>
+              )}
+              {confirm.type === 'undismiss_candidate' && (
+                <>
+                  <strong className='text-text'>{confirm.row.name}</strong> 학생의 분류 취소를
+                  되돌립니다. 분기 벌점이 여전히 30점 이상이면 즉시 다시 분류됩니다. 이것만으로는
+                  학생에게 통보되지 않습니다.
                 </>
               )}
             </p>

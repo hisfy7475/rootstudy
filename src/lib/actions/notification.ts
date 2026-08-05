@@ -460,20 +460,9 @@ export type PenaltyThresholdResult =
       protected_queue_count: number;
       offset_already_consumed?: boolean;
     }
-  // 자동 경로에서 30점 도달이 감지된 상태. 상계·마크·학생 알림 어느 것도 하지 않고
-  // 관리자 승인 큐에만 올라간다. approve_penalty_threshold 승인 시 위 두 status 로 온다.
-  | {
-      status: 'candidate';
-      penalty_net: number;
-      available_reward: number;
-      protected_queue_count: number;
-      offset_already_consumed: boolean;
-      expected_offset: number;
-      reason: string;
-    }
-  | { status: 'already_pending'; candidate_at: string | null }
-  | { status: 'no_longer_required'; penalty_after_net: number }
-  | { status: 'not_a_candidate' }
+  | { status: 'already_classified' }
+  | { status: 'dismissed_this_quarter'; dismissed_at: string; dismissed_net: number | null }
+  | { status: 'not_classified' }
   | { status: 'not_a_student' };
 
 const WARNING_MESSAGES: Record<PenaltyWarning, { title: string; message: string }> = {
@@ -531,27 +520,91 @@ export async function notifyPenaltyThreshold(params: {
       }),
     );
   } else if (threshold?.status === 'withdrawal_required') {
-    // 사유를 구분한다 — 상점이 100점 넘게 남아 있는데도 "가용 상점이 없어"라고
-    // 통보하면 학생·학부모가 시스템 오류로 받아들인다.
-    // (상품권 발급 대기 1건당 상점 100점이 보호되므로 잔액이 있어도 가용은 0일 수 있고,
-    //  이번 분기 상계를 이미 소진한 경우에는 상점이 있어도 상계하지 않는다.)
-    tasks.push(
-      createStudentNotification({
-        studentId,
-        type: 'point',
-        title: '강제 퇴원 대상으로 분류되었습니다',
-        message: threshold.offset_already_consumed
-          ? '이번 분기 상점 상계가 이미 적용되어, 벌점 30점 재도달로 강제 퇴원 대상이 되었습니다.'
-          : '상계 가능한 상점이 없어 강제 퇴원 대상으로 분류되었습니다.',
-        link: '/student/points',
-      }),
-    );
+    // ⚠️ 학생에게는 알리지 않는다. 강제 퇴원 분류는 시스템이 자동으로 하되,
+    //    통보는 관리자가 '학생에게 통보' 를 누를 때만 나간다.
+    //    오판이 학생·학부모에게 먼저 도달하면 관리자가 지워도 이미 본 뒤다.
+    //
+    //    대신 관리자에게 알린다 — 통보 게이트 때문에 학생 쪽은 조용하므로,
+    //    이 알림이 없으면 관리자가 큐를 열어보기 전까지 분류 사실을 모른다.
+    tasks.push(notifyAdminsOfWithdrawalClassification({ studentId }));
   }
-  // status 'candidate' / 'already_pending' / 'no_longer_required' / 'not_a_candidate' 은
-  // 학생에게 알리지 않는다. 관리자가 승인해야 통보가 나간다.
+  // 나머지 status(already_classified / dismissed_this_quarter / …)는 통보 대상이 아니다.
 
   if (tasks.length === 0) return;
   await Promise.allSettled(tasks);
+}
+
+// 강제 퇴원 분류를 학생에게 통보한다. 관리자가 명시적으로 실행할 때만 호출된다.
+//
+// 사유를 구분한다 — 상점이 남아 있는데 "상계 가능한 상점이 없어"라고 통보하면
+// 학생·학부모가 시스템 오류로 받아들인다. 발급 대기 1건당 100점이 보호되므로
+// 잔액이 있어도 가용은 0일 수 있고, 상계를 이미 소진한 경우도 있다.
+export async function notifyWithdrawalClassifiedStudent(params: {
+  studentId: string;
+  offsetAlreadyConsumed: boolean;
+}): Promise<void> {
+  const { studentId, offsetAlreadyConsumed } = params;
+  await createStudentNotification({
+    studentId,
+    type: 'point',
+    title: '강제 퇴원 대상으로 분류되었습니다',
+    message: offsetAlreadyConsumed
+      ? '상점 상계가 이미 적용되어, 벌점 30점 재도달로 강제 퇴원 대상이 되었습니다.'
+      : '상계 가능한 상점이 부족하여 강제 퇴원 대상으로 분류되었습니다.',
+    link: '/student/points',
+  });
+}
+
+// 자동 분류가 발생했음을 해당 지점 관리자에게 알린다.
+//
+// 통보 게이트 때문에 학생에게는 아무것도 나가지 않으므로, 관리자가 큐를 직접 열어보지
+// 않으면 분류 사실을 영영 모른다. 그러면 게이트가 문제를 감추는 장치가 되어버린다.
+export async function notifyAdminsOfWithdrawalClassification(params: {
+  studentId: string;
+  studentName?: string;
+  reason?: string | null;
+}): Promise<void> {
+  const { studentId, studentName, reason } = params;
+  const supabase = createAdminClient();
+
+  const { data: student } = await supabase
+    .from('profiles')
+    .select('name, branch_id')
+    .eq('id', studentId)
+    .maybeSingle();
+
+  const branchId = (student?.branch_id as string | null) ?? null;
+  const name = studentName || (student?.name as string | undefined) || '학생';
+
+  // 동일 지점 관리자 + 최고 관리자
+  let q = supabase
+    .from('profiles')
+    .select('id, branch_id, is_super_admin')
+    .eq('user_type', 'admin');
+  if (branchId) {
+    q = q.or(`branch_id.eq.${branchId},is_super_admin.eq.true`);
+  }
+  const { data: admins } = await q;
+  if (!admins || admins.length === 0) return;
+
+  await Promise.allSettled(
+    (admins as Array<{ id: string }>).map((a) =>
+      createUserNotification(
+        {
+          userId: a.id,
+          type: 'system',
+          title: '강제 퇴원 대상 자동 분류 — 통보 대기',
+          message: `${name} 학생이 벌점 30점 도달로 분류되었습니다. 학생에게는 아직 통보되지 않았습니다.${
+            reason ? ` (${reason})` : ''
+          }`,
+          link: '/admin/points?tab=review',
+        },
+        // 주간 크론(서버리스)에서 호출되므로 푸시까지 await 한다.
+        // 학생 통보가 게이트로 막혀 있어 이 알림이 유일한 통지 수단이다.
+        { awaitPush: true },
+      ),
+    ),
+  );
 }
 
 // ============================================

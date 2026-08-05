@@ -705,7 +705,7 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     query,
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at')
+      .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -767,7 +767,12 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
       quarterStart: quarterStart.toISOString(),
       quarterEnd: quarterEnd.toISOString(),
       withdrawalReviewAt: profile?.withdrawal_review_at ?? null,
-      withdrawalRequiredAt: profile?.withdrawal_required_at ?? null,
+      // 통보 게이트 — 강제 퇴원 분류는 시스템이 자동으로 하지만, 관리자가 '통보' 를
+      // 누르기 전까지 학생에게 노출하지 않는다(오판이 학생·학부모에게 먼저 도달하면
+      // 관리자가 지워도 이미 본 뒤다). withdrawal_notified_at 이 그 스위치다.
+      withdrawalRequiredAt: profile?.withdrawal_notified_at
+        ? (profile?.withdrawal_required_at ?? null)
+        : null,
       activeRedemptions: redemptions ?? [],
     },
   };
