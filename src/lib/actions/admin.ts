@@ -1962,42 +1962,11 @@ export async function confirmWithdrawal(studentId: string, reason?: string) {
   return { success: true, warning: 'warning' in result ? result.warning : undefined };
 }
 
-// 신규 정책: 강제 퇴원 대상 분류 취소 (재원 유지). 상계 자체는 보존.
-export async function cancelRequiredWithdrawal(studentId: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc('cancel_withdrawal_review', {
-    p_student_id: studentId,
-    p_restore_reward: true,
-  });
-  if (error) {
-    console.error('cancel_required_withdrawal error:', error);
-    return { error: '강제 퇴원 대상 취소 실패' };
-  }
-  const result = data as
-    | {
-        status: 'cancelled';
-        cleared_review: boolean;
-        cleared_required: boolean;
-        restored_reward: number;
-        cancelled_pending: number;
-      }
-    | { status: 'not_in_review' }
-    | { status: 'not_a_student' };
-
-  if (result.status === 'not_in_review' || result.status === 'not_a_student') {
-    return { error: '이미 대상이 아닙니다.' };
-  }
-
-  revalidatePath('/admin');
-  revalidatePath('/admin/points');
-  return {
-    success: true,
-    clearedReview: result.cleared_review,
-    clearedRequired: result.cleared_required,
-    restoredReward: result.restored_reward,
-    cancelledPending: result.cancelled_pending,
-  };
-}
+// 강제 퇴원 대상(통보 완료 포함)의 분류 취소는 dismissWithdrawalClassification 로 일원화했다.
+// 예전의 cancelRequiredWithdrawal 은 cancel_withdrawal_review 를 직접 불러 마크만 지웠기 때문에
+// 재분류 방지 스냅샷(withdrawal_dismissed_net)이 남지 않아, 다음 벌점 1점에 곧바로 다시
+// 분류되는 문제가 있었다. 구 정책 '퇴원 검토'(withdrawal_review_at) 취소만
+// cancelWithdrawalReviewAction 로 남긴다.
 
 // 단계 8: 퇴원 검토 취소 + 옵션 상점 복구
 export async function cancelWithdrawalReviewAction(
@@ -2118,7 +2087,7 @@ export async function dismissWithdrawalClassification(studentId: string, reason?
   return {
     success: true,
     message: result.was_notified
-      ? '분류를 취소했습니다. 학생에게는 이미 통보된 상태였습니다.'
+      ? `분류를 취소했습니다. 이미 통보된 상태였으므로 학생 앱의 안내 배너가 사라집니다. (분기 벌점 ${result.dismissed_net ?? 0}점을 넘어서면 다시 분류됩니다)`
       : `분류를 취소했습니다. 학생에게는 통보되지 않았습니다. (분기 벌점 ${result.dismissed_net ?? 0}점을 넘어서면 다시 분류됩니다)`,
   };
 }
@@ -2152,8 +2121,8 @@ export async function undismissPenaltyThreshold(studentId: string) {
   return {
     success: true,
     message: result.threshold
-      ? '제외를 취소하고 승인 대기 목록에 복원했습니다.'
-      : '제외를 취소했습니다. 분기 벌점이 30점 미만이라 승인 대기 대상은 아닙니다.',
+      ? '분류 취소를 되돌려 통보 대기 목록에 복원했습니다. 학생에게는 통보되지 않았습니다.'
+      : '분류 취소를 되돌렸습니다. 분기 벌점이 30점 미만이라 분류 대상은 아닙니다.',
   };
 }
 

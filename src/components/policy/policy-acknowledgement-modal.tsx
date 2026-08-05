@@ -71,8 +71,12 @@ export function PolicyAcknowledgementModal({
                 분기 벌점 {PENALTY_RULES.withdrawAt}점 도달 시
               </p>
               <p className='text-text-muted text-xs'>
-                보유 상점과 1:1 상계됩니다. 가용 상점이 없으면 강제 퇴원 대상으로 분류되며, 관리자
-                면담 후 처리됩니다. (발급 대기 상점은 상계 대상에서 보호)
+                보유 상점과 1:1 상계됩니다. 단, <strong>벌점 전액을 덮을 수 있을 때만</strong>{' '}
+                상계되며, 상점이 부족하면 상계 없이 강제 퇴원 대상으로 분류됩니다. 분류되면 관리자
+                면담 후 처리됩니다.
+              </p>
+              <p className='mt-1.5 rounded bg-red-100/70 px-1.5 py-1 text-xs font-semibold text-red-800'>
+                ※ 상계는 재원 기간 중 단 한 번만 적용됩니다.
               </p>
             </div>
           </div>
@@ -85,6 +89,10 @@ export function PolicyAcknowledgementModal({
             </li>
             <li>· 신규생은 첫 등원 주 최소시간 미달 벌점이 면제됩니다.</li>
             <li>· 상품권은 상점 100점 달성 시 자동으로 발급 대기에 등록됩니다.</li>
+            <li>
+              · 발급 대기 중인 상점도 상계 대상에 포함되며, 상계로 잔액이 {REWARD_RULES.redeemAt}점
+              아래로 내려가면 해당 발급 대기 건은 자동 취소됩니다.
+            </li>
           </ul>
 
           <Link

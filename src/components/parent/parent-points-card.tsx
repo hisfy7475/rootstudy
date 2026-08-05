@@ -47,7 +47,8 @@ export function ParentPointsCard({ data }: { data: ParentPointsCardData }) {
             <div className='space-y-0.5'>
               <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-700'>
-                자녀가 벌점 30점 도달 시점에 가용 상점이 없어 강제 퇴원 대상이 되었습니다.
+                자녀가 벌점 30점 도달 시점에 상계에 필요한 상점 30점을 채우지 못해 강제 퇴원 대상이
+                되었습니다. (상계는 벌점 전액을 덮을 수 있을 때만 적용됩니다)
               </p>
             </div>
           </div>
