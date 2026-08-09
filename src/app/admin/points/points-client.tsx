@@ -405,7 +405,7 @@ export function PointsClient({
         if (p.will_require_withdrawal) {
           const cause = p.offset_already_consumed
             ? '상계를 이미 사용해'
-            : '상계 가능한 상점이 부족해';
+            : '보유 상점으로 30점 미만으로 낮출 수 없어';
           const ok = window.confirm(
             `이 벌점을 부여하면 분기 벌점이 ${p.quarter_total_after}점이 되어, ` +
               `${cause} 강제 퇴원 대상으로 분류됩니다.\n\n` +

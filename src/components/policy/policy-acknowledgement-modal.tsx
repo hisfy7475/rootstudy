@@ -71,9 +71,9 @@ export function PolicyAcknowledgementModal({
                 분기 벌점 {PENALTY_RULES.withdrawAt}점 도달 시
               </p>
               <p className='text-text-muted text-xs'>
-                보유 상점과 1:1 상계됩니다. 단, <strong>벌점 전액을 덮을 수 있을 때만</strong>{' '}
-                상계되며, 상점이 부족하면 상계 없이 강제 퇴원 대상으로 분류됩니다. 분류되면 관리자
-                면담 후 처리됩니다.
+                보유 상점과 1:1 상계됩니다. <strong>상점이 벌점보다 적으면 있는 만큼만</strong>{' '}
+                상계되고 나머지 벌점은 남습니다. 상계할 상점이 없으면 강제 퇴원 대상으로 분류되며,
+                분류되면 관리자 면담 후 처리됩니다.
               </p>
               <p className='mt-1.5 rounded bg-red-100/70 px-1.5 py-1 text-xs font-semibold text-red-800'>
                 ※ 상계는 재원 기간 중 단 한 번만 적용됩니다.

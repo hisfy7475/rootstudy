@@ -123,8 +123,8 @@ export function PointsPageClient({
             <div className='space-y-1'>
               <p className='text-sm font-bold text-red-800'>강제 퇴원 대상으로 분류되었습니다</p>
               <p className='text-xs text-red-700'>
-                벌점 30점 도달 시점에 상계에 필요한 상점 30점을 채우지 못해 강제 퇴원 대상이
-                되었습니다. (상계는 벌점 전액을 덮을 수 있을 때만 적용됩니다)
+                벌점 30점 도달 시점에 상계로 벌점을 30점 미만으로 낮출 수 없어 강제 퇴원 대상이
+                되었습니다. 상계는 재원 중 1회만 적용됩니다.
               </p>
             </div>
           </div>
@@ -235,10 +235,10 @@ export function PointsPageClient({
           {/* 20점 이상 사전 경고 */}
           {summary.penaltyQuarter >= 20 && !blocked && (
             <p className='mt-2 text-[10px] font-medium text-red-600'>
-              {/* 상계는 벌점 전액을 덮을 만큼 상점이 있을 때만 실행된다 */}
-              {balance >= 30
-                ? `⚠ 30점 도달 시 보유 상점 30점과 1:1 상계됩니다 (재원 중 1회 한정)`
-                : `⚠ 30점 도달 시 상점이 30점 미만이면 상계 없이 강제 퇴원 대상이 됩니다 (현재 ${balance}점)`}
+              {/* 상계는 보유 상점만큼 부분 적용된다 — 상점이 있으면 그만큼 상계되고 나머지 벌점은 남는다 */}
+              {balance > 0
+                ? `⚠ 30점 도달 시 보유 상점 ${Math.min(balance, 30)}점과 1:1 상계되고 벌점 ${30 - Math.min(balance, 30)}점이 남습니다 (재원 중 1회 한정)`
+                : '⚠ 30점 도달 시 상계할 상점이 없어 강제 퇴원 대상이 됩니다'}
             </p>
           )}
         </Card>

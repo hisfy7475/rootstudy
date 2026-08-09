@@ -30,7 +30,8 @@ export default function PointsPolicyPage() {
           <li>· {PENALTY_RULES.warn20}점 도달 — 주의 (인앱)</li>
           <li>· {PENALTY_RULES.warn25}점 도달 — 경고 (인앱)</li>
           <li className='font-medium text-red-600'>
-            · {PENALTY_RULES.withdrawAt}점 도달 — 보유 상점과 1:1 상계 (상점 부족 시 강제 퇴원 대상)
+            · {PENALTY_RULES.withdrawAt}점 도달 — 보유 상점과 1:1 상계 (상점이 없으면 강제 퇴원
+            대상)
           </li>
         </ul>
       </Card>
@@ -39,14 +40,13 @@ export default function PointsPolicyPage() {
         <h2 className='text-base font-bold text-red-700'>③ 30점 도달 시 1:1 상계</h2>
         <p className='text-text text-sm'>
           분기 누적 벌점이 30점에 도달하면 보유 상점과 1:1로 상계됩니다.{' '}
-          <strong>벌점 전액을 덮을 수 있을 만큼 상점이 있을 때만 상계</strong>되며, 상점이 부족하면
-          상계 없이 강제 퇴원 대상으로 분류됩니다.
+          <strong>상점이 벌점보다 적으면 있는 만큼만 상계</strong>되고 나머지 벌점은 그대로
+          남습니다.
         </p>
         <p className='text-text-muted text-xs'>
           예시 ① 상점 50 + 벌점 30 → 양쪽 30씩 차감 → 상점 20 / 벌점 0
           <br />
-          예시 ② 상점 14 + 벌점 30 → 상점이 부족해 상계하지 않음 → 상점 14 유지 / 강제 퇴원 대상
-          분류
+          예시 ② 상점 14 + 벌점 30 → 양쪽 14씩 차감 → 상점 0 / 벌점 16
           <br />
           예시 ③ 상점 0 + 벌점 30 → 상계 불가 → 강제 퇴원 대상 분류
         </p>
@@ -104,9 +104,9 @@ export default function PointsPolicyPage() {
           <div>
             <p className='text-text font-semibold'>Q. 30점에 도달하면 바로 퇴원되나요?</p>
             <p className='text-text-muted'>
-              자동 퇴원이 아닙니다. 상점이 벌점 전액을 덮을 만큼 있으면 상계되고, 부족하면 강제
-              퇴원 대상으로 분류됩니다. 분류되어도 관리자가 확인 후 안내드리며, 실제 퇴원은
-              면담을 거쳐 관리자가 직접 실행합니다.
+              자동 퇴원이 아닙니다. 보유 상점이 있으면 있는 만큼 상계되고, 상점이 없으면 강제 퇴원
+              대상으로 분류됩니다. 분류되어도 관리자가 확인 후 안내드리며, 실제 퇴원은 면담을 거쳐
+              관리자가 직접 실행합니다.
             </p>
           </div>
           <div>
@@ -114,9 +114,9 @@ export default function PointsPolicyPage() {
               Q. 100점이 넘어도 상품권을 신청하지 않으면 어떻게 되나요?
             </p>
             <p className='text-text-muted'>
-              상점 100점 단위는 자동으로 발급 대기에 등록되므로 별도 신청이 필요 없습니다. 다만
-              발급 대기 중인 상점도 벌점 상계 대상에 포함되며, 상계로 잔액이 100점 아래로
-              내려가면 해당 발급 대기 건은 자동 취소됩니다.
+              상점 100점 단위는 자동으로 발급 대기에 등록되므로 별도 신청이 필요 없습니다. 다만 발급
+              대기 중인 상점도 벌점 상계 대상에 포함되며, 상계로 잔액이 100점 아래로 내려가면 해당
+              발급 대기 건은 자동 취소됩니다.
             </p>
           </div>
         </div>

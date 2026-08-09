@@ -305,8 +305,8 @@ export function WithdrawalReviewTab({
               강제 퇴원 대상 ({requiredQueue.length}명)
             </h2>
             <p className='text-text-muted mt-1 text-xs'>
-              벌점 30점 도달 시점에 상계에 필요한 상점(30점)이 부족해 자동 분류된 학생입니다. 강제
-              퇴원은 되돌릴 수 없으니 신중히 처리하세요.
+              벌점 30점 도달 시점에 상계로 벌점을 30점 미만으로 낮출 수 없어 자동 분류된
+              학생입니다(상계는 재원 중 1회). 강제 퇴원은 되돌릴 수 없으니 신중히 처리하세요.
             </p>
           </div>
           <div className='divide-y'>{requiredQueue.map(renderRow)}</div>

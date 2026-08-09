@@ -475,11 +475,12 @@ const WARNING_MESSAGES: Record<PenaltyWarning, { title: string; message: string 
   },
   warn_20: {
     title: '주의 — 분기 벌점 20점 도달',
-    message: '30점 도달 시 상점이 30점 이상이면 1:1 상계됩니다(재원 중 1회 한정).',
+    message:
+      '30점 도달 시 보유 상점과 1:1 상계됩니다(재원 중 1회 한정). 상점이 부족하면 있는 만큼만 상계됩니다.',
   },
   warn_25: {
     title: '경고 — 분기 벌점 25점 도달',
-    message: '5점만 더 쌓이면 상계됩니다. 상점이 30점에 못 미치면 상계 없이 강제 퇴원 대상이 됩니다.',
+    message: '5점만 더 쌓이면 상계됩니다. 상점이 없으면 상계 없이 강제 퇴원 대상이 됩니다.',
   },
 };
 
@@ -545,9 +546,9 @@ export async function notifyPenaltyThreshold(params: {
 
 // 강제 퇴원 분류를 학생에게 통보한다. 관리자가 명시적으로 실행할 때만 호출된다.
 //
-// 사유를 구분한다 — 상점이 남아 있는데 "상계 가능한 상점이 없어"라고 통보하면
-// 학생·학부모가 시스템 오류로 받아들인다. 발급 대기 1건당 100점이 보호되므로
-// 잔액이 있어도 가용은 0일 수 있고, 상계를 이미 소진한 경우도 있다.
+// 사유를 구분한다 — 상계를 이미 소진한 학생에게 "상계할 상점이 없어"라고 통보하면
+// 학생·학부모가 시스템 오류로 받아들인다. 상계는 재원 중 1회뿐이므로, 상점이 남아
+// 있어도 이미 소진했으면 상계되지 않는다.
 export async function notifyWithdrawalClassifiedStudent(params: {
   studentId: string;
   offsetAlreadyConsumed: boolean;
@@ -559,7 +560,7 @@ export async function notifyWithdrawalClassifiedStudent(params: {
     title: '강제 퇴원 대상으로 분류되었습니다',
     message: offsetAlreadyConsumed
       ? '상점 상계가 이미 적용되어, 벌점 30점 재도달로 강제 퇴원 대상이 되었습니다.'
-      : '상계 가능한 상점이 부족하여 강제 퇴원 대상으로 분류되었습니다.',
+      : '보유 상점으로 벌점을 30점 미만으로 낮출 수 없어 강제 퇴원 대상으로 분류되었습니다.',
     link: '/student/points',
   });
 }

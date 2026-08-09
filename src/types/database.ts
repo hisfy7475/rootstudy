@@ -2186,7 +2186,8 @@ export interface Database {
       /**
        * 30점 도달 처리 — 상계 또는 강제 퇴원 분류를 **즉시 실행**한다.
        * 단 학생 통보는 하지 않는다(withdrawal_notified_at 은 NULL 로 남는다).
-       * 상계는 가용 상점이 부족분 전액을 덮을 때만 실행한다(부분 상계 없음).
+       * 상계는 보유 상점만큼 부분 상계한다. 상계해도 net 이 30 미만이 되지 않으면
+       * 상계하지 않고 분류한다(상계 자격은 태우지 않는다).
        * give_penalty_with_threshold_check 내부에서만 호출된다 (service_role 전용).
        */
       handle_penalty_threshold: {
