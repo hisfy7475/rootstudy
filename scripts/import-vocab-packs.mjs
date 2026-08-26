@@ -16,7 +16,8 @@
  *
  * 사용법
  *   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
- *   node scripts/import-vocab-packs.mjs [--status=preparing|public] [--hide-legacy] [--dry-run]
+ *   node scripts/import-vocab-packs.mjs [--status=preparing|public] [--hide-legacy]
+ *                                        [--deactivate-orphans] [--dry-run]
  *
  *   .env.local 이 있으면 거기서 자동으로 읽는다.
  */
@@ -72,6 +73,7 @@ if (!URL_ || !KEY) {
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry-run');
 const HIDE_LEGACY = args.includes('--hide-legacy');
+const DEACT_ORPHANS = args.includes('--deactivate-orphans');
 const STATUS = (args.find((a) => a.startsWith('--status=')) ?? '--status=preparing').split('=')[1];
 if (!['preparing', 'public', 'hidden', 'disabled'].includes(STATUS)) {
   console.error(`알 수 없는 status: ${STATUS}`);
@@ -253,7 +255,42 @@ if (HIDE_LEGACY) {
   }
 }
 
-// 4) 검증
+// 4) 보이는 꾸러미에서 도달 불가능해진 단어 비활성화
+//    (새 파일에서 빠져 숨긴 꾸러미에만 남은 단어. 클라이언트 요청 = "빠진 단어는 날려주세요")
+//    ⚠️ 행 삭제가 아니라 is_active=false 다. 출제·예습에서 완전히 빠지는 효과는 같으면서
+//    되돌릴 수 있고, 과거 응시기록의 단어 연결도 끊기지 않는다. 실행 전 백업 CSV를 남긴다.
+if (DEACT_ORPHANS) {
+  log('');
+  const allPacks = await req('GET', 'vocab_packs?select=id,status');
+  const visible = new Set(
+    allPacks.filter((p) => p.status === 'public' || p.status === 'preparing').map((p) => p.id),
+  );
+  const allLinks = await selectAll('vocab_pack_words', 'pack_id,word_id', 'pack_id.asc');
+  const reachable = new Set();
+  for (const l of allLinks) if (visible.has(l.pack_id)) reachable.add(l.word_id);
+  const allWords = await selectAll('vocab_words', 'id,english,korean_primary,is_active', 'id.asc');
+  const orphans = allWords.filter((w) => w.is_active && !reachable.has(w.id));
+
+  if (orphans.length === 0) log('  비활성화 대상 없음');
+  else {
+    const backup = path.join(CLIENT_DIR, '비활성화된_단어_백업.csv');
+    const csv = ['영어단어,뜻']
+      .concat(orphans.map((w) => `"${w.english.replace(/"/g, '""')}","${w.korean_primary.replace(/"/g, '""')}"`))
+      .join('\n');
+    if (!DRY) fs.writeFileSync(backup, '\ufeff' + csv, 'utf8');
+    log(`  백업: ${backup} (${orphans.length}행)`);
+    for (const batch of chunk(orphans, 200)) {
+      if (!DRY) {
+        await req('PATCH', `vocab_words?id=in.(${batch.map((w) => w.id).join(',')})`, {
+          is_active: false,
+        });
+      }
+    }
+    log(`  비활성화: ${orphans.length}개 (is_active=false — 삭제 아님, 되돌리기 가능)`);
+  }
+}
+
+// 5) 검증
 if (!DRY) {
   const packs = await req('GET', 'vocab_packs?select=id,code,name,status&order=display_order');
   const linksAll = await selectAll('vocab_pack_words', 'pack_id,word_id', 'pack_id.asc');
