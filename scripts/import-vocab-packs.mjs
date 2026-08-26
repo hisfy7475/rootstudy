@@ -146,16 +146,15 @@ for (const p of PACKS) {
     continue;
   }
   log(`  꾸러미 생성: ${p.code} — ${p.name}`);
-  if (!DRY) {
+  if (DRY) {
+    // dry-run 에서도 이후 단계의 실제 건수를 보여주려고 가짜 id 를 물려둔다.
+    byCode.set(p.code, { id: `dry-${p.code}`, code: p.code, name: p.name, status: STATUS });
+  } else {
     const [created] = await req('POST', 'vocab_packs', [
       { code: p.code, name: p.name, status: STATUS, display_order: p.order },
     ], { Prefer: 'return=representation' });
     byCode.set(p.code, created);
   }
-}
-if (DRY && PACKS.some((p) => !byCode.has(p.code))) {
-  log('\nDRY RUN: 꾸러미가 아직 없어 단어 단계는 건너뜁니다.');
-  process.exit(0);
 }
 
 // 2) 기존 단어 전량 선조회
@@ -268,6 +267,8 @@ if (DEACT_ORPHANS) {
   const allLinks = await selectAll('vocab_pack_words', 'pack_id,word_id', 'pack_id.asc');
   const reachable = new Set();
   for (const l of allLinks) if (visible.has(l.pack_id)) reachable.add(l.word_id);
+  // DRY: 새 꾸러미는 아직 DB에 없으므로, 이번에 연결될 단어를 도달 가능으로 쳐준다.
+  if (DRY) for (const l of links) { const w = existing.get(l.key); if (w) reachable.add(w.id); }
   const allWords = await selectAll('vocab_words', 'id,english,korean_primary,is_active', 'id.asc');
   const orphans = allWords.filter((w) => w.is_active && !reachable.has(w.id));
 
