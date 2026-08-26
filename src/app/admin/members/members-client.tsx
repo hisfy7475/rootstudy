@@ -54,6 +54,8 @@ import {
   Plus,
   UserX,
   Key,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -88,6 +90,8 @@ interface ParentMember {
     seatNumber: number | null;
     branchName: string | null;
   }[];
+  pushEnabled: boolean;
+  lastAppOpenAt: string | null;
 }
 
 interface Admin {
@@ -129,6 +133,8 @@ interface StudentDetail {
     name: string;
     email: string;
     phone: string;
+    pushEnabled: boolean;
+    lastAppOpenAt: string | null;
   }[];
   parent: {
     id: string;
@@ -850,6 +856,40 @@ export function MembersClient({
     </div>
   );
 
+  const formatShortDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+
+  // ── 앱 알림 수신 가능 여부 ──
+  // 활성 푸시 토큰(= 앱 로그인 + 알림 허용 상태)이 있는지를 보여준다.
+  // "입퇴실 알림이 안 온다" 문의의 1차 확인용 — 수신 불가면 서버가 아니라
+  // 앱 설치·로그인·알림 권한부터 점검해야 한다.
+  const renderPushCell = (pushEnabled: boolean, lastAppOpenAt: string | null) => (
+    <div className='flex flex-col items-start gap-0.5'>
+      {pushEnabled ? (
+        <span
+          className='inline-flex items-center gap-0.5 rounded bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700'
+          title='앱에 로그인되어 있고 알림을 받을 수 있는 상태입니다.'
+        >
+          <Bell className='h-2.5 w-2.5 flex-shrink-0' />
+          수신 가능
+        </span>
+      ) : (
+        <span
+          className='inline-flex items-center gap-0.5 rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-700'
+          title='앱 미설치·로그아웃·알림 권한 꺼짐 중 하나입니다. 알림이 발송돼도 휴대폰에 뜨지 않습니다.'
+        >
+          <BellOff className='h-2.5 w-2.5 flex-shrink-0' />
+          수신 불가
+        </span>
+      )}
+      {lastAppOpenAt && (
+        <span className='text-[10px] whitespace-nowrap text-gray-400'>
+          앱 사용 {formatShortDate(lastAppOpenAt)}
+        </span>
+      )}
+    </div>
+  );
+
   // ── 학부모 셀 렌더 헬퍼 ──
   const renderParentActionCell = (parent: ParentMember) => (
     <div className='flex items-center justify-center gap-1'>
@@ -1385,6 +1425,12 @@ export function MembersClient({
                         전화번호
                       </th>
                       <th
+                        className='px-2 py-2 text-left text-xs font-medium text-gray-600'
+                        title='앱 알림을 받을 수 있는 상태인지 (앱 로그인 + 알림 권한 허용)'
+                      >
+                        앱 알림
+                      </th>
+                      <th
                         className='cursor-pointer px-2 py-2 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100'
                         onClick={() => handleSort('created_at')}
                       >
@@ -1401,7 +1447,7 @@ export function MembersClient({
                   <tbody className='divide-y divide-gray-100'>
                     {parents.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className='px-2 py-6 text-center text-xs text-gray-500'>
+                        <td colSpan={9} className='px-2 py-6 text-center text-xs text-gray-500'>
                           학부모가 없습니다.
                         </td>
                       </tr>
@@ -1476,6 +1522,9 @@ export function MembersClient({
                             </td>
                             <td className='px-2 py-1.5 text-gray-600'>{parent.email}</td>
                             <td className='px-2 py-1.5'>{parent.phone || '-'}</td>
+                            <td className='px-2 py-1.5'>
+                              {renderPushCell(parent.pushEnabled, parent.lastAppOpenAt)}
+                            </td>
                             <td className='px-2 py-1.5 text-gray-500'>
                               {formatDate(parent.created_at)}
                             </td>
@@ -1567,6 +1616,11 @@ export function MembersClient({
                           )}
                         </DataCardRow>
                         <DataCardRow label='전화번호'>{parent.phone || '-'}</DataCardRow>
+                        <DataCardRow label='앱 알림'>
+                          <div className='flex justify-end'>
+                            {renderPushCell(parent.pushEnabled, parent.lastAppOpenAt)}
+                          </div>
+                        </DataCardRow>
                         <DataCardRow label='가입일'>{formatDate(parent.created_at)}</DataCardRow>
                       </DataCard>
                     );
@@ -1810,6 +1864,7 @@ export function MembersClient({
                             <UserCheck className='text-secondary h-3.5 w-3.5' />
                           </div>
                           <p className='text-sm font-medium'>{p.name}</p>
+                          {renderPushCell(p.pushEnabled, p.lastAppOpenAt)}
                         </div>
                         <div className='space-y-0.5 pl-8'>
                           <p className='text-text-muted flex items-center gap-1 text-xs'>

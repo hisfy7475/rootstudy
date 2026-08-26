@@ -99,6 +99,37 @@ export interface Database {
           updated_at?: string;
         };
       };
+      push_delivery_log: {
+        Row: {
+          id: number;
+          user_id: string | null;
+          expo_push_token: string;
+          title: string | null;
+          ticket_id: string | null;
+          status: 'accepted' | 'ticket_error' | 'delivered' | 'failed' | 'unknown';
+          error_code: string | null;
+          error_message: string | null;
+          created_at: string;
+          receipt_checked_at: string | null;
+        };
+        Insert: {
+          user_id?: string | null;
+          expo_push_token: string;
+          title?: string | null;
+          ticket_id?: string | null;
+          status: 'accepted' | 'ticket_error' | 'delivered' | 'failed' | 'unknown';
+          error_code?: string | null;
+          error_message?: string | null;
+          created_at?: string;
+          receipt_checked_at?: string | null;
+        };
+        Update: {
+          status?: 'accepted' | 'ticket_error' | 'delivered' | 'failed' | 'unknown';
+          error_code?: string | null;
+          error_message?: string | null;
+          receipt_checked_at?: string | null;
+        };
+      };
       student_profiles: {
         Row: {
           id: string;

@@ -2781,9 +2781,34 @@ export async function getStudentDetail(studentId: string) {
         name: parentProfile.name ?? '',
         email: parentProfile.email ?? '',
         phone: parentProfile.phone ?? '',
+        pushEnabled: false,
+        lastAppOpenAt: null as string | null,
       };
     })
-    .filter((p): p is { id: string; name: string; email: string; phone: string } => p !== null);
+    .filter(
+      (
+        p,
+      ): p is {
+        id: string;
+        name: string;
+        email: string;
+        phone: string;
+        pushEnabled: boolean;
+        lastAppOpenAt: string | null;
+      } => p !== null,
+    );
+
+  // 연결된 학부모의 앱 알림 수신 가능 여부. push_tokens RLS 가 관리자 조회를 허용하므로
+  // 서비스 롤이 아닌 사용자 클라이언트로 읽는다(권한 확대 없음).
+  const parentPushStatus = await fetchPushStatusMap(
+    supabase,
+    parents.map((p) => p.id),
+  );
+  for (const parent of parents) {
+    const status = parentPushStatus.get(parent.id);
+    parent.pushEnabled = Boolean(status?.enabled);
+    parent.lastAppOpenAt = status?.lastAppOpenAt ?? null;
+  }
 
   return {
     id: student.id,
@@ -3972,6 +3997,52 @@ export interface ParentListRow {
     seatNumber: number | null;
     branchName: string | null;
   }[];
+  /** 활성 푸시 토큰 보유 여부 = 앱 알림을 받을 수 있는 상태인지. */
+  pushEnabled: boolean;
+  /** 마지막 앱 실행(토큰 재등록) 시각. 토큰이 없으면 null. */
+  lastAppOpenAt: string | null;
+}
+
+type AdminSupabaseClient = ReturnType<typeof createAdminClient>;
+
+/**
+ * 활성 푸시 토큰 보유 여부 + 마지막 앱 실행 시각.
+ *
+ * 앱은 학생/학부모 화면에 진입할 때마다 토큰을 재등록(upsert)하므로
+ * push_tokens.updated_at 이 사실상 "마지막 앱 사용 시각"이다. 기기가 여러 대면 가장 최근 값.
+ *
+ * 배경: "입퇴실 알림이 안 온다" 문의의 대부분은 서버가 아니라 수신 측 문제(앱 미설치·로그아웃·
+ *       알림 권한 꺼짐)인데, 지금까지 관리자 화면에서 이걸 확인할 방법이 없어 매번 DB 를
+ *       직접 봐야 했다. (2026-08-26 반포 129번 학생 학부모 문의)
+ */
+async function fetchPushStatusMap(
+  client: AdminSupabaseClient,
+  userIds: string[],
+): Promise<Map<string, { enabled: boolean; lastAppOpenAt: string | null }>> {
+  const map = new Map<string, { enabled: boolean; lastAppOpenAt: string | null }>();
+  if (userIds.length === 0) return map;
+
+  const { data, error } = await client
+    .from('push_tokens')
+    .select('user_id, updated_at')
+    .in('user_id', [...new Set(userIds)])
+    .eq('is_active', true);
+
+  if (error) {
+    console.error('Error fetching push token status:', error);
+    return map;
+  }
+
+  for (const row of (data ?? []) as { user_id: string; updated_at: string | null }[]) {
+    const at = row.updated_at ?? null;
+    const prev = map.get(row.user_id);
+    if (!prev) {
+      map.set(row.user_id, { enabled: true, lastAppOpenAt: at });
+    } else if (at && (!prev.lastAppOpenAt || at > prev.lastAppOpenAt)) {
+      prev.lastAppOpenAt = at;
+    }
+  }
+  return map;
 }
 
 /**
@@ -4158,6 +4229,8 @@ export async function getParentsList(params: {
       user_type: parent.user_type as string,
       created_at: parent.created_at as string,
       students,
+      pushEnabled: false,
+      lastAppOpenAt: null,
     };
   });
 
@@ -4186,6 +4259,17 @@ export async function getParentsList(params: {
       return ascending ? cmp : -cmp;
     });
     rows = rows.slice(offset, offset + pageSize);
+  }
+
+  // 알림 수신 가능 여부는 현재 페이지에 실린 학부모만 조회한다(정렬·슬라이스 이후).
+  const pushStatus = await fetchPushStatusMap(
+    adminClient,
+    rows.map((r) => r.id),
+  );
+  for (const row of rows) {
+    const status = pushStatus.get(row.id);
+    row.pushEnabled = Boolean(status?.enabled);
+    row.lastAppOpenAt = status?.lastAppOpenAt ?? null;
   }
 
   return { rows, total: count ?? 0, page, pageSize };
