@@ -1,6 +1,0 @@
-include ':app'
-
-def coreVersion = "1.0.0"
-include ':GoogleBilling'
-include ':SnsLogin'
-include ':GoogleAdMob'

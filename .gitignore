@@ -48,6 +48,10 @@ next-env.d.ts
 .00_manager/key/
 # .00_manager 폴더 백업본 (실수 방지)
 /.00_manager*.zip
+
+# 내부 관리 문서 (구 .00_manager — 유지보수 기록·키·클라이언트 자료, 레포에 올리지 않음)
+/.00_buildersgate/
+/.00_buildersgate*.zip
 supabase/.temp/
 
 # Claude Code
