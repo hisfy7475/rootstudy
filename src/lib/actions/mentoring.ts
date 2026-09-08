@@ -1362,6 +1362,216 @@ export async function createMentoringSlotsBulk(
   return { created: (inserted ?? []).length, skipped };
 }
 
+/**
+ * 반복(벌크) 삭제 — 등록과 동일한 조건(멘토·기준 주·반복 주 수·요일 [+시각/유형])으로
+ * 대상 슬롯을 찾아 일괄 정리한다.
+ *
+ * mentoring_slots 에는 "벌크 등록 묶음" 식별자가 없으므로(등록은 개별 row INSERT),
+ * 사후에 묶음을 특정할 수단이 없다. 그래서 삭제도 등록과 같은 조건을 다시 입력받아
+ * 매칭하는 방식으로 구현한다.
+ *
+ * 처리 규칙은 단건 deleteMentoringSlot 과 동일하게 유지한다:
+ *   - 대기/확정 신청이 있으면        → blocked (건드리지 않음)
+ *   - 취소·거절 이력만 있으면        → hide    (is_active=false, 이력 보존)
+ *   - 신청 이력이 전혀 없으면        → delete  (하드 삭제)
+ */
+export type MentoringSlotsBulkDeleteInput = {
+  mentor_id: string;
+  /** 해당 주의 월요일 YYYY-MM-DD */
+  weekStartMonday: string;
+  /** 반복 주 수 (1 이상) */
+  repeatWeeks: number;
+  /** 1=월 … 7=일 */
+  weekdays: number[];
+  /** 시작 시각. 비우면(null) 그 날짜의 모든 시각이 대상. */
+  start_time?: string | null;
+  /** 'all' 이면 유형 무관 */
+  type?: MentoringType | 'all';
+};
+
+export type MentoringSlotsBulkDeleteAction = 'delete' | 'hide' | 'blocked';
+
+export type MentoringSlotsBulkDeleteTarget = {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  type: MentoringType;
+  subject: string | null;
+  is_active: boolean;
+  /** 대기/확정 신청 수 — 0 보다 크면 blocked */
+  activeApplications: number;
+  action: MentoringSlotsBulkDeleteAction;
+};
+
+/** PostgREST `in.()` 는 쿼리스트링으로 나가므로 id 목록을 나눠 보낸다. */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * 조건 → 대상 슬롯 + 처리구분(delete/hide/blocked) 을 계산한다.
+ * 미리보기와 실제 삭제가 같은 함수를 쓰므로, 클라이언트가 보낸 id 를 신뢰하지 않고
+ * 삭제 시점에 서버가 다시 판정한다.
+ */
+async function resolveBulkDeleteTargets(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ctx: AdminBranchContext,
+  input: MentoringSlotsBulkDeleteInput,
+): Promise<{ targets?: MentoringSlotsBulkDeleteTarget[]; error?: string }> {
+  const mentor = await assertMentorInBranch(supabase, input.mentor_id, ctx);
+  if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
+
+  const weeks = Math.min(Math.max(1, input.repeatWeeks), 52);
+  const weekdays = [...new Set(input.weekdays.filter((d) => d >= 1 && d <= 7))];
+  if (weekdays.length === 0) return { error: '요일을 선택해 주세요.' };
+
+  const monday = new Date(`${input.weekStartMonday.split('T')[0]}T12:00:00+09:00`);
+  const dateSet = new Set<string>();
+  for (let w = 0; w < weeks; w++) {
+    for (const wd of weekdays) {
+      dateSet.add(formatDateKST(new Date(monday.getTime() + (wd - 1 + w * 7) * 86400000)));
+    }
+  }
+  const dates = [...dateSet].sort();
+  // 날짜 수가 최대 364개까지 늘어날 수 있어 in() 대신 범위 조회 후 JS 에서 요일 필터.
+  const fromYmd = dates[0];
+  const toYmd = dates[dates.length - 1];
+
+  let q = supabase
+    .from('mentoring_slots')
+    .select('id, date, start_time, end_time, type, subject, is_active')
+    .eq('mentor_id', input.mentor_id)
+    .gte('date', fromYmd)
+    .lte('date', toYmd);
+  if (!ctx.isSuperAdmin) {
+    if (!ctx.branchId) return { error: '권한이 없습니다.' };
+    q = q.eq('branch_id', ctx.branchId);
+  }
+  if (input.start_time) q = q.eq('start_time', normalizeTimeForDb(input.start_time));
+  if (input.type && input.type !== 'all') q = q.eq('type', input.type);
+
+  const { data, error } = await q.order('date').order('start_time');
+  if (error) {
+    logPostgrestQueryError('[resolveBulkDeleteTargets]', error);
+    return { error: '대상 슬롯을 조회하지 못했습니다.' };
+  }
+
+  const rows = (data ?? []).filter((r) => dateSet.has(r.date as string));
+  if (rows.length === 0) return { targets: [] };
+
+  // 슬롯별 신청 이력 집계 (활성 / 전체)
+  const activeBySlot = new Map<string, number>();
+  const totalBySlot = new Map<string, number>();
+  for (const ids of chunk(
+    rows.map((r) => r.id as string),
+    100,
+  )) {
+    const { data: apps, error: appErr } = await supabase
+      .from('mentoring_applications')
+      .select('slot_id, status')
+      .in('slot_id', ids);
+    if (appErr) {
+      logPostgrestQueryError('[resolveBulkDeleteTargets:apps]', appErr);
+      return { error: '신청 내역을 확인할 수 없습니다.' };
+    }
+    for (const a of apps ?? []) {
+      const sid = a.slot_id as string;
+      totalBySlot.set(sid, (totalBySlot.get(sid) ?? 0) + 1);
+      if (isMentoringActiveStatus(a.status as string)) {
+        activeBySlot.set(sid, (activeBySlot.get(sid) ?? 0) + 1);
+      }
+    }
+  }
+
+  const targets: MentoringSlotsBulkDeleteTarget[] = rows.map((r) => {
+    const id = r.id as string;
+    const active = activeBySlot.get(id) ?? 0;
+    const total = totalBySlot.get(id) ?? 0;
+    const action: MentoringSlotsBulkDeleteAction =
+      active > 0 ? 'blocked' : total > 0 ? 'hide' : 'delete';
+    return {
+      id,
+      date: r.date as string,
+      start_time: r.start_time as string,
+      end_time: r.end_time as string,
+      type: r.type as MentoringType,
+      subject: (r.subject as string | null) ?? null,
+      is_active: !!r.is_active,
+      activeApplications: active,
+      action,
+    };
+  });
+
+  return { targets };
+}
+
+/** 반복 삭제 미리보기 — 실제 변경 없이 대상과 처리구분만 돌려준다. */
+export async function previewMentoringSlotsBulkDelete(
+  input: MentoringSlotsBulkDeleteInput,
+): Promise<{ targets?: MentoringSlotsBulkDeleteTarget[]; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+  return resolveBulkDeleteTargets(supabase, ctx, input);
+}
+
+/** 반복 삭제 실행. 대상 판정은 서버에서 다시 수행한다(미리보기 이후 신청이 들어올 수 있음). */
+export async function deleteMentoringSlotsBulk(
+  input: MentoringSlotsBulkDeleteInput,
+): Promise<{ deleted: number; hidden: number; blocked: number; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { deleted: 0, hidden: 0, blocked: 0, error: '권한이 없습니다.' };
+
+  const { targets, error } = await resolveBulkDeleteTargets(supabase, ctx, input);
+  if (error) return { deleted: 0, hidden: 0, blocked: 0, error };
+
+  const list = targets ?? [];
+  const blocked = list.filter((t) => t.action === 'blocked').length;
+  const hardIds = list.filter((t) => t.action === 'delete').map((t) => t.id);
+  // 이미 숨김 상태인 슬롯은 다시 업데이트할 필요가 없다.
+  const hideIds = list.filter((t) => t.action === 'hide' && t.is_active).map((t) => t.id);
+
+  if (hardIds.length === 0 && hideIds.length === 0) {
+    return { deleted: 0, hidden: 0, blocked };
+  }
+
+  let hidden = 0;
+  for (const ids of chunk(hideIds, 100)) {
+    let updQ = supabase
+      .from('mentoring_slots')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .in('id', ids);
+    if (!ctx.isSuperAdmin && ctx.branchId) updQ = updQ.eq('branch_id', ctx.branchId);
+    const { error: updErr } = await updQ;
+    if (updErr) {
+      logPostgrestQueryError('[deleteMentoringSlotsBulk:hide]', updErr);
+      revalidateMentoringAdmin();
+      return { deleted: 0, hidden, blocked, error: '일부 슬롯 숨김 처리에 실패했습니다.' };
+    }
+    hidden += ids.length;
+  }
+
+  let deleted = 0;
+  for (const ids of chunk(hardIds, 100)) {
+    let delQ = supabase.from('mentoring_slots').delete().in('id', ids);
+    if (!ctx.isSuperAdmin && ctx.branchId) delQ = delQ.eq('branch_id', ctx.branchId);
+    const { error: delErr } = await delQ;
+    if (delErr) {
+      logPostgrestQueryError('[deleteMentoringSlotsBulk:delete]', delErr);
+      revalidateMentoringAdmin();
+      return { deleted, hidden, blocked, error: '일부 슬롯 삭제에 실패했습니다.' };
+    }
+    deleted += ids.length;
+  }
+
+  revalidateMentoringAdmin();
+  return { deleted, hidden, blocked };
+}
+
 export async function updateMentoringSlot(
   slotId: string,
   data: Partial<MentoringSlotAdminInput>,
