@@ -9,6 +9,14 @@ import {
 } from '@/lib/caps/client';
 import type { CapsGate } from '@/lib/caps/types';
 import { classifyGate } from '@/lib/caps/gate';
+import {
+  getFailureStreak,
+  notifySyncFailure,
+  notifySyncRecovered,
+  shouldAlertOnFailure,
+  SYNC_ALERT_THRESHOLD,
+  type SyncFailureStreak,
+} from '@/lib/caps/sync-alert';
 import { sendPushToUsers } from '@/lib/push';
 import { getStudyDate } from '@/lib/utils';
 import {
@@ -18,6 +26,15 @@ import {
   type PenaltyClient,
 } from '@/lib/attendance/penalty';
 
+// 1분 주기 크론이 다음 실행과 겹치지 않도록 상한을 둔다.
+// 예산: CAPS 연결 10초 + 요청 30초(client.ts) + 빠른 실패 시 1회 재시도 + Supabase 적재.
+export const maxDuration = 60;
+
+// CAPS 조회 재시도 예산. 연결 실패처럼 빨리 끝난 실패만 1회 더 시도한다.
+// 30초 요청 타임아웃까지 기다린 뒤라면 남은 시간이 없으므로 다음 크론(1분 뒤)에 맡긴다.
+const RETRY_IF_FAILED_WITHIN_MS = 12_000;
+const RETRY_BACKOFF_MS = 1_500;
+
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -25,7 +42,31 @@ function getSupabaseAdmin() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+async function fetchCaps(afterDatetime: string | null) {
+  const gates = await getGates();
+  const enterRecords = await getEnterRecordsAfter(afterDatetime);
+  return { gates, enterRecords };
+}
+
+async function fetchCapsWithRetry(startedAt: number, afterDatetime: string | null) {
+  try {
+    return await fetchCaps(afterDatetime);
+  } catch (firstError) {
+    if (Date.now() - startedAt > RETRY_IF_FAILED_WITHIN_MS) throw firstError;
+
+    console.warn(
+      '[caps-sync] CAPS 조회 실패, 1회 재시도:',
+      firstError instanceof Error ? firstError.message : firstError,
+    );
+    await closeConnection();
+    await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+    return fetchCaps(afterDatetime);
+  }
+}
+
 export async function GET(request: Request) {
+  const startedAt = Date.now();
+
   // 1. Cron secret 검증
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
@@ -38,6 +79,8 @@ export async function GET(request: Request) {
   let recordsSynced = 0;
   let lastCapsDatetime: string | null = null;
   let errorMessage: string | null = null;
+  // 이번 실행 직전까지의 연속 실패. 성공 시 복구 알림, 실패 시 경보 판정에 쓴다.
+  let priorStreak: SyncFailureStreak | null = null;
 
   try {
     // 2. 마지막 동기화 시점 조회
@@ -51,8 +94,11 @@ export async function GET(request: Request) {
 
     const afterDatetime = lastSync?.last_caps_datetime || null;
 
-    // 3. 출입문 목록 조회 (캐싱용)
-    const gates = await getGates();
+    priorStreak = await getFailureStreak(supabase);
+
+    // 3. 출입문 목록 + 4. 새 출입 기록 조회 (빠른 실패는 1회 재시도)
+    const { gates, enterRecords } = await fetchCapsWithRetry(startedAt, afterDatetime);
+
     const gateMap = new Map<number, CapsGate>();
     gates.forEach((gate) => gateMap.set(gate.id, gate));
 
@@ -70,9 +116,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // 4. CAPS DB에서 새 출입 기록 조회
-    const enterRecords = await getEnterRecordsAfter(afterDatetime);
-
     if (enterRecords.length === 0) {
       // 새 기록 없음
       await supabase.from('caps_sync_log').insert({
@@ -83,6 +126,7 @@ export async function GET(request: Request) {
       });
 
       await closeConnection();
+      await notifyRecoveryIfNeeded(supabase, priorStreak, 0);
       return NextResponse.json({
         success: true,
         message: 'No new records',
@@ -413,6 +457,7 @@ export async function GET(request: Request) {
     });
 
     await closeConnection();
+    await notifyRecoveryIfNeeded(supabase, priorStreak, recordsSynced);
 
     return NextResponse.json({
       success: true,
@@ -425,9 +470,15 @@ export async function GET(request: Request) {
     errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('CAPS sync error:', errorMessage);
 
+    // 연속 실패 판정은 이번 실패 행을 적재하기 전 값을 기준으로 한다.
+    if (!priorStreak) {
+      priorStreak = await getFailureStreak(supabase).catch(() => ({ count: 0, since: null }));
+    }
+    const failedAt = new Date().toISOString();
+
     // 에러 로그 기록
     await supabase.from('caps_sync_log').insert({
-      synced_at: new Date().toISOString(),
+      synced_at: failedAt,
       records_synced: 0,
       last_caps_datetime: null,
       status: 'error',
@@ -436,6 +487,33 @@ export async function GET(request: Request) {
 
     await closeConnection();
 
+    // 연속 실패 경보 (경보 실패가 동기화 오류 응답을 가리지 않도록 격리)
+    const consecutive = priorStreak.count + 1;
+    if (shouldAlertOnFailure(consecutive)) {
+      try {
+        await notifySyncFailure(supabase, {
+          count: consecutive,
+          since: priorStreak.since ?? failedAt,
+        });
+      } catch (alertError) {
+        console.error('[caps-sync] failure alert error', alertError);
+      }
+    }
+
     return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
+  }
+}
+
+// 직전까지 임계치 이상 연속 실패했다면 이번 성공으로 복구된 것 — 관리자에게 알린다.
+async function notifyRecoveryIfNeeded(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  priorStreak: SyncFailureStreak | null,
+  recordsSynced: number,
+): Promise<void> {
+  if (!priorStreak || priorStreak.count < SYNC_ALERT_THRESHOLD) return;
+  try {
+    await notifySyncRecovered(supabase, priorStreak, recordsSynced);
+  } catch (alertError) {
+    console.error('[caps-sync] recovery alert error', alertError);
   }
 }
