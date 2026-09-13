@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   title: '루트스터디 - 관리형 독서실',
   description: '실시간 학습시간 관리, 몰입도 측정, 등원 목표 관리 시스템',
   manifest: '/manifest.json',
+  // 회원 시스템 전용 도메인이라 색인 대상이 아니다. 공개 홈페이지는 routestudy.co.kr 이 담당한다.
+  robots: {
+    index: false,
+    follow: false,
+  },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '32x32' },

@@ -1,5 +1,51 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "rootstudy.co.kr"
+        }
+      ],
+      "destination": "https://routestudy.co.kr/",
+      "statusCode": 301
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.rootstudy.co.kr"
+        }
+      ],
+      "destination": "https://routestudy.co.kr/",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path((?!api/payments|api/cron).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "rootstudy.co.kr"
+        }
+      ],
+      "destination": "https://app.routestudy.co.kr/:path",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path((?!api/payments|api/cron).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.rootstudy.co.kr"
+        }
+      ],
+      "destination": "https://app.routestudy.co.kr/:path",
+      "statusCode": 301
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron/caps-sync",

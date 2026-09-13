@@ -194,12 +194,14 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - sw.js / manifest.json / robots.txt (PWA·서비스워커·크롤러 — 인증 불필요)
+     * - .well-known (AASA·assetlinks — 유니버설 링크 검증용. 미들웨어를 타면
+     *   /login 으로 리다이렉트돼 OS 가 파일을 읽지 못한다.)
      * - 정적 파일 확장자(이미지/아이콘/매니페스트)
      *
      * 이 경로들은 supabase.auth.getUser() 가 필요 없는데도 미들웨어를 타면
      * 매 요청 Auth 서버 왕복을 유발한다. DB 포화 시 이 불필요한 인증 호출이
      * MIDDLEWARE_INVOCATION_TIMEOUT(전 경로 504)을 키우므로 제외한다.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|robots.txt|\\.well-known|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)',
   ],
 };
