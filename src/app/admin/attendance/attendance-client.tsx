@@ -310,7 +310,9 @@ export function AttendanceClient({
   const sortedData = useMemo(() => {
     const sorted = [...data].sort((a, b) => {
       if (dailySortKey === 'name') {
-        return dailySortAsc ? a.name.localeCompare(b.name, 'ko') : b.name.localeCompare(a.name, 'ko');
+        return dailySortAsc
+          ? a.name.localeCompare(b.name, 'ko')
+          : b.name.localeCompare(a.name, 'ko');
       }
       let aVal: number;
       let bVal: number;
@@ -829,150 +831,152 @@ export function AttendanceClient({
                       </td>
                     </tr>
                   ) : (
-                    sortedData.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE).map((student) => {
-                      const statusDisplay = getStatusDisplay(student.status);
-                      const StatusIcon = statusDisplay.icon;
-                      const isNotArrived =
-                        student.status === 'checked_out' && !student.firstCheckInTime;
+                    sortedData
+                      .slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE)
+                      .map((student) => {
+                        const statusDisplay = getStatusDisplay(student.status);
+                        const StatusIcon = statusDisplay.icon;
+                        const isNotArrived =
+                          student.status === 'checked_out' && !student.firstCheckInTime;
 
-                      return (
-                        <tr
-                          key={student.id}
-                          className={cn(
-                            'hover:bg-gray-50 print:hover:bg-transparent',
-                            isNotArrived && 'bg-red-50/50',
-                          )}
-                        >
-                          {/* 번호 */}
-                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
-                            <span className='text-primary font-medium print:text-black'>
-                              {student.seatNumber || '-'}
-                            </span>
-                          </td>
-
-                          {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
-                          <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
-                            <div className='flex items-center gap-1.5'>
-                              <User className='h-3.5 w-3.5 text-gray-400 print:hidden' />
-                              <Link
-                                href={`/admin/chat?studentId=${student.id}`}
-                                className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
-                                title='채팅방 열기'
-                              >
-                                {student.name}
-                              </Link>
-                            </div>
-                          </td>
-
-                          {/* 상태 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium',
-                                statusDisplay.bg,
-                                statusDisplay.color,
-                              )}
-                            >
-                              <StatusIcon className='h-3 w-3' />
-                              {statusDisplay.label}
-                            </span>
-                          </td>
-
-                          {/* 입실시간 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
-                            <span
-                              className={cn(
-                                student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400',
-                              )}
-                            >
-                              {formatTime(student.firstCheckInTime)}
-                            </span>
-                          </td>
-
-                          {/* 퇴실시간 — 현 상태가 '퇴실'일 때만 표시 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
-                            {student.status === 'checked_out' && student.lastCheckOutTime ? (
-                              <span className='text-gray-700'>
-                                {formatTime(student.lastCheckOutTime)}
+                        return (
+                          <tr
+                            key={student.id}
+                            className={cn(
+                              'hover:bg-gray-50 print:hover:bg-transparent',
+                              isNotArrived && 'bg-red-50/50',
+                            )}
+                          >
+                            {/* 번호 */}
+                            <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
+                              <span className='text-primary font-medium print:text-black'>
+                                {student.seatNumber || '-'}
                               </span>
-                            ) : (
-                              <span className='text-gray-400'>-</span>
-                            )}
-                          </td>
+                            </td>
 
-                          {/* 당일 순공시간 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
-                            <span
-                              className={cn(
-                                'font-medium',
-                                student.todayStudyMinutes > 0
-                                  ? 'text-blue-600 print:text-black'
-                                  : 'text-gray-400',
-                              )}
-                            >
-                              {formatStudyMinutes(student.todayStudyMinutes)}
-                            </span>
-                          </td>
-
-                          {/* 부재일정 */}
-                          <td className='px-2 py-1.5 print:max-w-[120px] print:truncate print:px-1 print:py-0.5'>
-                            {student.absenceSchedules.length > 0 ? (
-                              <div className='flex flex-col gap-0.5'>
-                                {student.absenceSchedules.map((schedule) => (
-                                  <span
-                                    key={schedule.id}
-                                    className='inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600'
-                                  >
-                                    <Calendar className='h-2.5 w-2.5' />
-                                    {schedule.title} ({schedule.startTime}~{schedule.endTime})
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className='text-gray-400'>-</span>
-                            )}
-                          </td>
-
-                          {/* 몰입도 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
-                            {student.avgFocus !== null ? (
-                              <div className='flex flex-col items-center'>
-                                <span
-                                  className={cn(
-                                    'font-semibold',
-                                    student.avgFocus >= 8
-                                      ? 'text-green-600'
-                                      : student.avgFocus >= 6
-                                        ? 'text-primary'
-                                        : student.avgFocus >= 4
-                                          ? 'text-amber-600'
-                                          : 'text-red-500',
-                                  )}
+                            {/* 이름 — 클릭 시 해당 학생 채팅방으로 이동(없으면 자동 생성) */}
+                            <td className='px-2 py-1.5 print:px-1 print:py-0.5'>
+                              <div className='flex items-center gap-1.5'>
+                                <User className='h-3.5 w-3.5 text-gray-400 print:hidden' />
+                                <Link
+                                  href={`/admin/chat?studentId=${student.id}`}
+                                  className='hover:text-primary font-medium hover:underline print:text-black print:no-underline print:hover:no-underline'
+                                  title='채팅방 열기'
                                 >
-                                  {student.avgFocus}
-                                </span>
-                                <span className='text-[10px] text-gray-400'>
-                                  ({student.focusCount}회)
-                                </span>
+                                  {student.name}
+                                </Link>
                               </div>
-                            ) : (
-                              <span className='text-gray-400'>-</span>
-                            )}
-                          </td>
+                            </td>
 
-                          {/* 벌점 */}
-                          <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
-                            {student.todayPenalty > 0 ? (
-                              <span className='font-semibold text-red-600'>
-                                -{student.todayPenalty}
+                            {/* 상태 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium',
+                                  statusDisplay.bg,
+                                  statusDisplay.color,
+                                )}
+                              >
+                                <StatusIcon className='h-3 w-3' />
+                                {statusDisplay.label}
                               </span>
-                            ) : (
-                              <span className='text-gray-400'>-</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
+                            </td>
+
+                            {/* 입실시간 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
+                              <span
+                                className={cn(
+                                  student.firstCheckInTime ? 'text-gray-700' : 'text-gray-400',
+                                )}
+                              >
+                                {formatTime(student.firstCheckInTime)}
+                              </span>
+                            </td>
+
+                            {/* 퇴실시간 — 현 상태가 '퇴실'일 때만 표시 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
+                              {student.status === 'checked_out' && student.lastCheckOutTime ? (
+                                <span className='text-gray-700'>
+                                  {formatTime(student.lastCheckOutTime)}
+                                </span>
+                              ) : (
+                                <span className='text-gray-400'>-</span>
+                              )}
+                            </td>
+
+                            {/* 당일 순공시간 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5 print:whitespace-nowrap'>
+                              <span
+                                className={cn(
+                                  'font-medium',
+                                  student.todayStudyMinutes > 0
+                                    ? 'text-blue-600 print:text-black'
+                                    : 'text-gray-400',
+                                )}
+                              >
+                                {formatStudyMinutes(student.todayStudyMinutes)}
+                              </span>
+                            </td>
+
+                            {/* 부재일정 */}
+                            <td className='px-2 py-1.5 print:max-w-[120px] print:truncate print:px-1 print:py-0.5'>
+                              {student.absenceSchedules.length > 0 ? (
+                                <div className='flex flex-col gap-0.5'>
+                                  {student.absenceSchedules.map((schedule) => (
+                                    <span
+                                      key={schedule.id}
+                                      className='inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-600'
+                                    >
+                                      <Calendar className='h-2.5 w-2.5' />
+                                      {schedule.title} ({schedule.startTime}~{schedule.endTime})
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className='text-gray-400'>-</span>
+                              )}
+                            </td>
+
+                            {/* 몰입도 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                              {student.avgFocus !== null ? (
+                                <div className='flex flex-col items-center'>
+                                  <span
+                                    className={cn(
+                                      'font-semibold',
+                                      student.avgFocus >= 8
+                                        ? 'text-green-600'
+                                        : student.avgFocus >= 6
+                                          ? 'text-primary'
+                                          : student.avgFocus >= 4
+                                            ? 'text-amber-600'
+                                            : 'text-red-500',
+                                    )}
+                                  >
+                                    {student.avgFocus}
+                                  </span>
+                                  <span className='text-[10px] text-gray-400'>
+                                    ({student.focusCount}회)
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className='text-gray-400'>-</span>
+                              )}
+                            </td>
+
+                            {/* 벌점 */}
+                            <td className='px-2 py-1.5 text-center print:px-1 print:py-0.5'>
+                              {student.todayPenalty > 0 ? (
+                                <span className='font-semibold text-red-600'>
+                                  -{student.todayPenalty}
+                                </span>
+                              ) : (
+                                <span className='text-gray-400'>-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                   )}
                 </tbody>
               </table>
@@ -1200,13 +1204,18 @@ export function AttendanceClient({
                       </span>
                     </span>
                   </th>
-                  {/* 누적 상점 헤더 (정렬 가능) */}
+                  {/* 상점(잔여) 헤더 (정렬 가능)
+                      — totalReward 는 상품권 발급·상계 차감(음수 reward 행)까지 더한 값이라
+                        실제로는 "누적"이 아니라 잔여다. 라벨이 '누적 상점'이라 상벌점 화면의
+                        같은 값과 이름만 달라 관리자가 차감 반영 여부를 판단할 수 없었다.
+                        (2026-09 윤서연 학생 문의) */}
                   <th
                     className='min-w-[56px] cursor-pointer px-2 py-2 text-center text-xs font-medium text-emerald-600 select-none print:cursor-auto print:px-1 print:py-0.5 print:text-[10px]'
                     onClick={() => handleWeeklySort('totalReward')}
+                    title='현재 쓸 수 있는 상점. 상품권 발급·상계로 빠진 점수는 이미 차감된 값입니다.'
                   >
                     <span className='inline-flex items-center justify-center gap-0.5'>
-                      누적 상점
+                      상점(잔여)
                       <span className='print:hidden'>
                         {weeklySortKey === 'totalReward' ? (
                           weeklySortAsc ? (

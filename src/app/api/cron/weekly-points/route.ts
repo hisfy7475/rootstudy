@@ -7,7 +7,7 @@ import {
   getWeekDateStringsFromMondayKST,
 } from '@/lib/utils';
 import { notifyPointsGranted, notifyPenaltyThreshold } from '@/lib/actions/notification';
-import { sumStudySeconds } from '@/lib/study-time';
+import { sumStudySecondsByStudyDay } from '@/lib/study-time';
 import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
@@ -61,10 +61,10 @@ function getTargetWeekStartKST(weekParam?: string): Date {
 }
 
 // 출석 기록에서 학습 시간(분) 계산.
-// 정본 세션 합산(extractStudySessions/sumStudySeconds)을 그대로 사용한다.
-// weekEnd(학습주 endExclusive)로 미닫힘 세션을 cap하며, 입력 attendance는
-// 학습주 창으로 이미 fetch된 것이라 별도 레코드 필터가 필요 없다.
-// (과거의 "캘린더주 경계 + 레코드 필터" 방식은 일요일밤 세션을 잘라먹는 버그였다.)
+// 학습일(06:00~다음날 03:00) 단위로 잘라 합산하는 정본(sumStudySecondsByStudyDay)을 쓴다.
+// 관리자 출석부·몰입도 리포트와 동일한 계산이라 상벌점 근거 숫자가 화면과 어긋나지 않는다.
+// (주 전체를 한 번에 넘기면 퇴실 미기록 세션이 학습주 끝까지 이어져 상점이 잘못 나간다 —
+//  2026-09-14 남하윤 "주간 목표 달성(32시간/30시간)" 오부여 사고.)
 function calculateStudyMinutes(
   attendance: Array<{
     type: string;
@@ -72,9 +72,9 @@ function calculateStudyMinutes(
     source?: string | null;
     gate_name?: string | null;
   }>,
-  weekEnd: Date,
+  weekDates: string[],
 ): number {
-  return Math.floor(sumStudySeconds(attendance, weekEnd) / 60);
+  return Math.floor(sumStudySecondsByStudyDay(attendance, weekDates) / 60);
 }
 
 export async function GET(request: Request) {
@@ -279,7 +279,7 @@ export async function GET(request: Request) {
 
         // 실제 학습시간 계산
         const attendance = attendanceByStudent.get(student.id) || [];
-        const totalStudyMinutes = calculateStudyMinutes(attendance, lastWeekEnd);
+        const totalStudyMinutes = calculateStudyMinutes(attendance, weekDates);
 
         // 투트랙 판단
         const goalHours = Math.floor(goalMinutes / 60);

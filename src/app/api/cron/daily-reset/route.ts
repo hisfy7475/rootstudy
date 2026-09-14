@@ -5,6 +5,7 @@ import { formatDate, getStudyDate, getStudyDayBounds, isDailyFocusActive } from 
 import { notifyPointsGranted } from '@/lib/actions/notification';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
 import { TIME_LIMIT_SEC, examTimeLimitSec } from '@/lib/vocab-exam-time';
+import { fetchAllPaged } from '@/lib/supabase/paginate';
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회)
 function getSupabaseAdmin() {
@@ -333,21 +334,37 @@ export async function GET(request: Request) {
     studyDayStart.setUTCDate(studyDayStart.getUTCDate() - 1);
     studyDayStart.setUTCHours(24 + (DAY_CONFIG.startHour - 9), DAY_CONFIG.startMinute, 0, 0); // 06:00 KST = 21:00 UTC 전날
 
-    // 해당 학습일 내 모든 출석 기록 조회
-    const { data: attendanceRecords, error: attendanceFetchError } = await supabase
-      .from('attendance')
-      .select('student_id, type, timestamp')
-      .gte('timestamp', studyDayStart.toISOString())
-      .lte('timestamp', resetAt)
-      .order('timestamp', { ascending: true });
-
-    if (attendanceFetchError) {
-      throw new Error(`Failed to fetch attendance: ${attendanceFetchError.message}`);
+    // 해당 학습일 내 모든 출석 기록 조회.
+    //
+    // ⚠️ 반드시 전량(페이징) 조회해야 한다. PostgREST 기본 한도 1000행에서 조용히 잘리면
+    // "이른 기록 1000건"만 보고 마지막 상태를 판정하게 되고, 하루 기록이 1600건대인 현재는
+    // 잘림 지점이 저녁 7시 전후라 **늦게까지 남은 학생일수록 강제 퇴실에서 누락**된다.
+    // 그렇게 열린 채 남은 세션이 주간 순공을 폭주시킨 사고가 있었다(2026-09-13 남하윤).
+    // 동률 timestamp 가 흔하므로(CAPS e_time 은 초 단위) 페이지 경계 안정성을 위해 id 를 2차 정렬키로 둔다.
+    let attendanceRecords: Array<{ student_id: string; type: string; timestamp: string }>;
+    try {
+      attendanceRecords = await fetchAllPaged<{
+        student_id: string;
+        type: string;
+        timestamp: string;
+      }>((from, to) =>
+        supabase
+          .from('attendance')
+          .select('student_id, type, timestamp')
+          .gte('timestamp', studyDayStart.toISOString())
+          .lte('timestamp', resetAt)
+          .order('timestamp', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Failed to fetch attendance: ${msg}`);
     }
 
     // 학생별 마지막 기록을 추려서 입실/외출 중인 학생 목록 추출
     const lastRecordByStudent = new Map<string, string>();
-    for (const record of attendanceRecords ?? []) {
+    for (const record of attendanceRecords) {
       lastRecordByStudent.set(record.student_id, record.type);
     }
 

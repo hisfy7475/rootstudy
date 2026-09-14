@@ -18,7 +18,7 @@ import {
   normalizePhone,
 } from '@/lib/utils';
 import { DAY_CONFIG } from '@/lib/constants';
-import { extractStudySessions, isStudyExcluded, sumStudySeconds } from '@/lib/study-time';
+import { extractStudySessions, isStudyExcluded, sumStudySecondsByStudyDay } from '@/lib/study-time';
 
 function groupById<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
   return items.reduce(
@@ -1475,10 +1475,19 @@ export async function getPointsOverview(params: { branchId: string | null }) {
 
   // RPC 는 분기 값도 반환한다. 예전에는 여기서 버려서, 정책 기준(분기 net)이 30점에
   // 도달했는지를 관리자가 볼 수 있는 화면이 퇴원검토 탭(이미 마크된 학생만 나옴)뿐이었다.
+  //
+  // 상점 원장 분해(reward_lifetime/redeemed/burnt/offset)도 RPC 가 이미 돌려주는데 예전에는
+  // 여기서 버렸다. 그래서 화면에는 reward_total(=잔여) 하나만 "상점"으로 떠 있었고,
+  // 상품권으로 100점을 쓴 학생의 차감이 반영됐는지 관리자가 확인할 방법이 없었다.
+  // (2026-09 윤서연 학생 문의. reward_total 84 = 누적 184 − 상품권 100 이었지만 화면상 구분 불가)
   type SummaryEntry = {
     reward: number;
     penalty: number;
     total: number;
+    rewardLifetime: number;
+    rewardRedeemed: number;
+    rewardBurnt: number;
+    rewardOffset: number;
     penaltyQuarterRaw: number;
     penaltyOffsetInQuarter: number;
     penaltyQuarter: number;
@@ -1487,6 +1496,10 @@ export async function getPointsOverview(params: { branchId: string | null }) {
     reward: 0,
     penalty: 0,
     total: 0,
+    rewardLifetime: 0,
+    rewardRedeemed: 0,
+    rewardBurnt: 0,
+    rewardOffset: 0,
     penaltyQuarterRaw: 0,
     penaltyOffsetInQuarter: 0,
     penaltyQuarter: 0,
@@ -1497,6 +1510,11 @@ export async function getPointsOverview(params: { branchId: string | null }) {
       reward: row.reward_total,
       penalty: row.penalty_total,
       total: row.net_total,
+      // RPC 는 차감분을 양수 크기로 돌려준다(SUM(-amount)). 화면에서 "184−100" 처럼 쓰기 좋게 그대로 둔다.
+      rewardLifetime: row.reward_lifetime ?? 0,
+      rewardRedeemed: row.reward_redeemed ?? 0,
+      rewardBurnt: row.reward_burnt ?? 0,
+      rewardOffset: row.reward_offset ?? 0,
       penaltyQuarterRaw: row.penalty_quarter_raw ?? 0,
       penaltyOffsetInQuarter: row.penalty_offset_quarter ?? 0,
       penaltyQuarter: row.penalty_quarter_net ?? 0,
@@ -1510,9 +1528,18 @@ export async function getPointsOverview(params: { branchId: string | null }) {
       id: student.id,
       seatNumber: student.seat_number,
       name: profile?.name || '이름 없음',
+      /** 잔여 상점 — 누적에서 상품권 발급·상계·소멸을 이미 뺀 값 */
       reward: s.reward,
       penalty: s.penalty,
       total: s.total,
+      /** 누적 획득 상점 (차감 이벤트 제외) */
+      rewardLifetime: s.rewardLifetime,
+      /** 상품권 발급으로 쓴 상점 (양수) */
+      rewardRedeemed: s.rewardRedeemed,
+      /** 벌점 30점 도달로 소멸된 상점 (양수) */
+      rewardBurnt: s.rewardBurnt,
+      /** 벌점과 1:1 상계된 상점 (양수) */
+      rewardOffset: s.rewardOffset,
       /** 분기 raw 벌점 (상계 차감 전) */
       penaltyQuarterRaw: s.penaltyQuarterRaw,
       /** 분기 순상계액 */
@@ -6003,9 +6030,10 @@ export async function getWeeklyAttendance(
       (a) => a.student_id === student.id && !isStudyExcluded(a),
     );
 
-    // 해당 주 학습시간(분): 정본 세션 합산 사용. 미닫힘 세션은 학습주 종료(또는 현재 시각)로 cap.
+    // 해당 주 학습시간(분): 학습일 단위로 잘라 합산(sumStudySecondsByStudyDay).
+    // 주 전체를 한 번에 넘기면 퇴실 미기록 세션 처리가 몰입도 리포트와 갈린다.
     const weeklyStudyMinutes = Math.floor(
-      sumStudySeconds(studentWeekAttendance, weekEndExclusive) / 60,
+      sumStudySecondsByStudyDay(studentWeekAttendance, dates) / 60,
     );
 
     const todayStr = getTodayKST();

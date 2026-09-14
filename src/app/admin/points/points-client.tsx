@@ -83,15 +83,37 @@ function formatPointAmount(type: string, amount: number): string {
   return `${type === 'reward' ? '+' : '-'}${amount}점`;
 }
 
+/**
+ * 화면에서 "차감"으로 보여야 하는 행인지.
+ *
+ * 상계·상품권 발급 차감·취소는 type='reward' 인데 amount 가 음수다. 색과 아이콘을 type 으로만
+ * 판정하면 -100점 차감이 초록 배경 + 아이콘으로 그려져 상점을 받은 것처럼 보인다.
+ * (2026-09 윤서연 학생 문의 — "상품권으로 100점이 빠졌는데 반영이 안 된 것 같다")
+ */
+function isPointDeduction(type: string, amount: number): boolean {
+  return amount < 0 || type === 'penalty';
+}
+
 interface PointsOverview {
   id: string;
   seatNumber: number | null;
   name: string;
-  /** 평생 누적 */
+  /**
+   * 잔여 상점 — 누적 획득에서 상품권 발급·상계·소멸을 이미 뺀 값.
+   * (이름과 달리 "누적"이 아니다. 누적은 rewardLifetime.)
+   */
   reward: number;
-  /** 평생 누적 */
+  /** 평생 누적 벌점 */
   penalty: number;
   total: number;
+  /** 누적 획득 상점 (차감 이벤트 제외) */
+  rewardLifetime: number;
+  /** 상품권 발급으로 쓴 상점 (양수) */
+  rewardRedeemed: number;
+  /** 벌점 30점 도달로 소멸된 상점 (양수) */
+  rewardBurnt: number;
+  /** 벌점과 1:1 상계된 상점 (양수) */
+  rewardOffset: number;
   /** 분기 raw 벌점 (상계 차감 전) */
   penaltyQuarterRaw: number;
   /** 분기 순상계액 */
@@ -889,22 +911,22 @@ export function PointsClient({
               key={item.id}
               className={cn(
                 'flex items-center justify-between rounded-lg border-l-4 px-4 py-2.5 text-sm',
-                item.type === 'reward'
-                  ? 'border-green-400 bg-green-50'
-                  : 'border-red-400 bg-red-50',
+                isPointDeduction(item.type, item.amount)
+                  ? 'border-red-400 bg-red-50'
+                  : 'border-green-400 bg-green-50',
               )}
             >
               <div className='flex min-w-0 items-center gap-3'>
                 <div
                   className={cn(
                     'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full',
-                    item.type === 'reward' ? 'bg-green-100' : 'bg-red-100',
+                    isPointDeduction(item.type, item.amount) ? 'bg-red-100' : 'bg-green-100',
                   )}
                 >
-                  {item.type === 'reward' ? (
-                    <Plus className='h-3 w-3 text-green-600' />
-                  ) : (
+                  {isPointDeduction(item.type, item.amount) ? (
                     <Minus className='h-3 w-3 text-red-500' />
+                  ) : (
+                    <Plus className='h-3 w-3 text-green-600' />
                   )}
                 </div>
                 <div className='min-w-0'>
@@ -912,7 +934,9 @@ export function PointsClient({
                     <span
                       className={cn(
                         'font-semibold',
-                        item.type === 'reward' ? 'text-green-700' : 'text-red-600',
+                        isPointDeduction(item.type, item.amount)
+                          ? 'text-red-600'
+                          : 'text-green-700',
                       )}
                     >
                       {formatPointAmount(item.type, item.amount)}
@@ -1367,12 +1391,15 @@ export function PointsClient({
                       <SortIcon sortKey='name' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
+                  {/* 이 컬럼은 예전부터 "잔여"였는데 이름이 그냥 '상점'이라, 상품권으로 점수를 쓴
+                      학생의 차감이 반영된 건지 화면에서 구분할 수 없었다. 라벨과 분해 표시를 추가. */}
                   <th className='px-4 py-3 text-center text-sm font-medium text-green-600'>
                     <button
                       onClick={() => handleOverviewSort('reward')}
                       className='flex w-full items-center justify-center gap-1 hover:text-green-800'
+                      title='현재 쓸 수 있는 상점. 누적 획득에서 상품권 발급·상계·소멸을 뺀 값입니다.'
                     >
-                      상점
+                      상점(잔여)
                       <SortIcon sortKey='reward' current={overviewSortKey} dir={overviewSortDir} />
                     </button>
                   </th>
@@ -1457,7 +1484,36 @@ export function PointsClient({
                               </div>
                             </td>
                             <td className='px-4 py-3 text-center'>
-                              <span className='font-medium text-green-600'>+{student.reward}</span>
+                              {(() => {
+                                const used =
+                                  student.rewardRedeemed +
+                                  student.rewardBurnt +
+                                  student.rewardOffset;
+                                const parts = [
+                                  student.rewardRedeemed > 0 && `상품권 ${student.rewardRedeemed}`,
+                                  student.rewardOffset > 0 && `상계 ${student.rewardOffset}`,
+                                  student.rewardBurnt > 0 && `소멸 ${student.rewardBurnt}`,
+                                ].filter(Boolean);
+                                return (
+                                  <>
+                                    <span
+                                      className='font-medium text-green-600'
+                                      title={
+                                        used > 0
+                                          ? `누적 ${student.rewardLifetime} − ${parts.join(' − ')} = 잔여 ${student.reward}`
+                                          : undefined
+                                      }
+                                    >
+                                      +{student.reward}
+                                    </span>
+                                    {used > 0 && (
+                                      <span className='text-text-muted ml-1 text-[10px]'>
+                                        ({student.rewardLifetime}−{used})
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </td>
                             <td className='px-4 py-3 text-center'>
                               <span className='font-medium text-red-500'>-{student.penalty}</span>
@@ -1811,9 +1867,9 @@ export function PointsClient({
                   key={item.id}
                   className={cn(
                     'rounded-xl border-l-4 p-4',
-                    item.type === 'reward'
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-red-500 bg-red-50',
+                    isPointDeduction(item.type, item.amount)
+                      ? 'border-red-500 bg-red-50'
+                      : 'border-green-500 bg-green-50',
                     isSelectMode &&
                       selectedPointIds.has(item.id) &&
                       'ring-primary ring-2 ring-offset-1',
@@ -1841,13 +1897,13 @@ export function PointsClient({
                       <div
                         className={cn(
                           'flex h-8 w-8 items-center justify-center rounded-full',
-                          item.type === 'reward' ? 'bg-green-100' : 'bg-red-100',
+                          isPointDeduction(item.type, item.amount) ? 'bg-red-100' : 'bg-green-100',
                         )}
                       >
-                        {item.type === 'reward' ? (
-                          <Plus className='h-4 w-4 text-green-600' />
-                        ) : (
+                        {isPointDeduction(item.type, item.amount) ? (
                           <Minus className='h-4 w-4 text-red-500' />
+                        ) : (
+                          <Plus className='h-4 w-4 text-green-600' />
                         )}
                       </div>
                       <div className='min-w-0'>
@@ -1858,7 +1914,9 @@ export function PointsClient({
                           <span
                             className={cn(
                               'text-sm font-semibold',
-                              item.type === 'reward' ? 'text-green-600' : 'text-red-500',
+                              isPointDeduction(item.type, item.amount)
+                                ? 'text-red-500'
+                                : 'text-green-600',
                             )}
                           >
                             {formatPointAmount(item.type, item.amount)}

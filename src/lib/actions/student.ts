@@ -13,7 +13,7 @@ import {
 import { REWARD_RULES } from '@/lib/constants';
 import { fetchWeeklyGoal } from '@/lib/study/weekly-goal';
 import { calculateUnclassifiedMetrics } from '@/lib/study/unclassified';
-import { extractStudySessions, isStudyExcluded, sumStudySeconds } from '@/lib/study-time';
+import { extractStudySessions, isStudyExcluded, sumStudySecondsByStudyDay } from '@/lib/study-time';
 import { evaluateAttendancePenalty } from '@/lib/attendance/penalty';
 import {
   getRewardPresets,
@@ -1029,9 +1029,14 @@ export async function getWeeklyStudyTime(studentId?: string): Promise<number> {
     return 0;
   }
 
-  // 정본 세션 합산 사용 (크론 정산·관리자 주간현황과 동일한 계산). 미닫힘 세션은
-  // weekEnd(다음 월 06:00, 미래)로 cap → 사실상 현재 시각까지 집계된다.
-  return Math.floor(sumStudySeconds(attendance, weekEnd) / 60);
+  // 정본 세션 합산 사용 (크론 정산·관리자 주간현황·몰입도 리포트와 동일한 계산).
+  // 학습일 단위로 잘라 합산하므로 퇴실 미기록 세션도 그 학습일 종료(03:00)까지만 집계된다.
+  return Math.floor(
+    sumStudySecondsByStudyDay(
+      attendance,
+      getWeekDateStringsFromMondayKST(formatDateKST(weekStart)),
+    ) / 60,
+  );
 }
 
 // 주간 목표 달성도 조회 (날짜 타입별 가중 평균 적용)
