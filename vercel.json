@@ -7,6 +7,38 @@
         {
           "type": "host",
           "value": "rootstudy.co.kr"
+        },
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*RootStudyApp.*"
+        }
+      ],
+      "destination": "https://app.routestudy.co.kr/",
+      "statusCode": 302
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.rootstudy.co.kr"
+        },
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*RootStudyApp.*"
+        }
+      ],
+      "destination": "https://app.routestudy.co.kr/",
+      "statusCode": 302
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "rootstudy.co.kr"
         }
       ],
       "destination": "https://routestudy.co.kr/",
