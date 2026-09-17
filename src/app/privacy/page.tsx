@@ -301,75 +301,174 @@ export default function PrivacyPage() {
         <div>
           <h2 className='mb-2 text-lg font-semibold'>제5조 (개인정보의 처리 위탁)</h2>
           <p>
-            센터는 원활한 서비스 제공을 위해 다음과 같이 개인정보 처리를 위탁할 수 있습니다. 위탁 시
-            관련 법령에 따라 개인정보가 안전하게 관리되도록 필요한 조치를 취합니다.
+            센터는 서비스 제공에 필요한 업무를 외부 업체에 위탁하는 경우, 수탁자와 위탁 업무를
+            공개합니다.
           </p>
-          <ul className='mt-2 list-disc space-y-1 pl-5'>
-            <li>
-              <strong>위탁 대상:</strong> 결제 대행사, 문자/이메일 발송 대행사 등
-            </li>
-            <li>
-              <strong>위탁 업무:</strong> 결제 처리, 서비스 안내 등
-            </li>
-          </ul>
+
+          <div className='mt-3 overflow-x-auto'>
+            <table className={`w-full border-collapse text-xs ${S_TABLE}`}>
+              <thead className={S_HEAD}>
+                <tr>
+                  <th className={TH}>수탁자</th>
+                  <th className={TH}>위탁 업무</th>
+                </tr>
+              </thead>
+              <tbody className={S_BODY}>
+                <tr className={S_ROW}>
+                  <td className={S_TD} data-label='수탁자'>
+                    전자결제 대행사
+                  </td>
+                  <td className={S_TD} data-label='위탁 업무'>
+                    전자결제 처리 및 결제 취소·환불 지원
+                  </td>
+                </tr>
+                <tr className={S_ROW}>
+                  <td className={S_TD} data-label='수탁자'>
+                    문자·이메일 발송 대행사
+                  </td>
+                  <td className={S_TD} data-label='위탁 업무'>
+                    서비스 이용 안내, 공지사항 및 동의한 광고성 정보 발송
+                  </td>
+                </tr>
+                <tr className={S_ROW}>
+                  <td className={S_TD} data-label='수탁자'>
+                    회원관리 시스템 운영·유지보수 업체
+                  </td>
+                  <td className={S_TD} data-label='위탁 업무'>
+                    회원관리 시스템 운영·유지보수 및 데이터 보관
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p className='mt-3'>
+            센터는 위탁계약에 업무 목적 외 개인정보 처리 금지, 안전성 확보 조치, 재위탁 제한,
+            관리·감독 및 책임에 관한 사항을 명시하고, 수탁자의 개인정보 처리 현황을 감독합니다.
+          </p>
+          <p className='mt-3'>
+            수탁자 또는 위탁 업무가 변경되는 경우에는 변경 내용을 본 개인정보처리방침에 공개하며,
+            법령상 별도 통지가 필요한 경우에는 해당 절차를 이행합니다.
+          </p>
         </div>
 
         <div>
-          <h2 className='mb-2 text-lg font-semibold'>제6조 (회원의 권리 및 행사 방법)</h2>
+          <h2 className='mb-2 text-lg font-semibold'>
+            제6조 (회원 및 법정대리인의 권리와 행사 방법)
+          </h2>
           <p>
-            회원은 언제든지 본인의 개인정보에 대한 열람, 수정, 삭제, 처리 정지를 요구할 수 있습니다.
-            회원의 요청은 센터의 고객센터를 통해 접수되며, 센터는 관련 법령에 따라 조치합니다.
+            회원은 센터에 본인의 개인정보에 대한 열람, 정정, 삭제, 처리 정지 및 동의 철회를 요구할
+            수 있습니다.
+          </p>
+          <p className='mt-3'>
+            권리 행사는 제9조의 개인정보 보호책임자에게 전화, 이메일 또는 서면으로 요청할 수 있으며,
+            센터는 요청자의 본인 여부 또는 적법한 대리 권한을 확인한 후 관련 법령에 따라 처리합니다.
+          </p>
+          <p className='mt-3'>
+            센터는 개인정보의 정정 또는 삭제를 요구받은 경우, 해당 조치가 완료될 때까지 그
+            개인정보를 이용하거나 제공하지 않습니다. 다만, 다른 법령에 따라 보존해야 하는 정보 등은
+            삭제 또는 처리 정지가 제한될 수 있으며, 이 경우 그 사유를 안내합니다.
+          </p>
+          <p className='mt-3'>
+            만 14세 미만 아동의 개인정보 처리에 동의가 필요한 경우에는 법정대리인의 동의를 받고 이를
+            확인합니다. 법정대리인은 아동의 개인정보에 대한 열람, 정정, 삭제, 처리 정지 및 동의
+            철회를 요구할 수 있습니다.
           </p>
         </div>
 
         <div>
           <h2 className='mb-2 text-lg font-semibold'>제7조 (개인정보의 파기 절차 및 방법)</h2>
           <p>
-            센터는 개인정보 보유 기간이 경과하거나 처리 목적이 달성된 경우 해당 정보를 지체 없이
-            파기합니다.
+            센터는 보유기간 경과, 처리 목적 달성 또는 동의 철회 등으로 개인정보가 불필요하게 된 경우
+            지체 없이 파기합니다.
           </p>
-          <ul className='mt-2 list-disc space-y-1 pl-5'>
-            <li>전자적 파일 형태: 복구 불가능한 방법으로 영구 삭제</li>
-            <li>종이 문서: 분쇄하거나 소각</li>
+          <p className='mt-3'>
+            다만, 다른 법령에 따라 보존해야 하는 경우에는 해당 정보를 분리하여 보관한 후 법정
+            보존기간이 종료되면 파기합니다.
+          </p>
+          <ul className='mt-3 list-disc space-y-1 pl-5'>
+            <li>
+              <strong>파기 절차:</strong> 파기 대상과 법정 보존 필요 여부를 확인한 후, 개인정보
+              보호책임자의 관리 아래 파기
+            </li>
+            <li>
+              <strong>전자적 파일:</strong> 복구 또는 재생할 수 없는 방법으로 삭제
+            </li>
+            <li>
+              <strong>종이 문서:</strong> 분쇄 또는 소각
+            </li>
           </ul>
         </div>
 
         <div>
-          <h2 className='mb-2 text-lg font-semibold'>
-            제8조 (개인정보 보호를 위한 기술적/관리적 대책)
-          </h2>
-          <p>센터는 회원의 개인정보를 보호하기 위해 다음과 같은 조치를 취합니다.</p>
-          <ul className='mt-2 list-disc space-y-1 pl-5'>
-            <li>기술적 대책: 개인정보 암호화, 방화벽 설치, 보안 프로그램 운영</li>
-            <li>관리적 대책: 개인정보 접근 권한 관리, 직원 교육 실시</li>
-          </ul>
-        </div>
-
-        <div>
-          <h2 className='mb-2 text-lg font-semibold'>제9조 (개인정보 보호책임자)</h2>
-          <p>회원의 개인정보와 관련된 문의는 아래의 개인정보 보호책임자에게 연락하시기 바랍니다.</p>
-          <ul className='mt-2 list-none space-y-1'>
-            <li>이름: 오현경</li>
-            <li>직책: 센터장</li>
-            <li>연락처: 010-2679-8681, rootstudy2025@gmail.com</li>
-          </ul>
-        </div>
-
-        <div>
-          <h2 className='mb-2 text-lg font-semibold'>제10조 (정책 변경에 대한 공지)</h2>
+          <h2 className='mb-2 text-lg font-semibold'>제8조 (개인정보의 안전성 확보 조치)</h2>
           <p>
-            본 방침은 관련 법령의 개정 또는 내부 방침에 따라 변경될 수 있으며, 변경 시 센터의
-            홈페이지 또는 공지사항을 통해 회원에게 알립니다.
+            센터는 개인정보의 분실, 도난, 유출, 위조, 변조 또는 훼손을 방지하기 위해 다음의 조치를
+            취합니다.
           </p>
+          <ul className='mt-2 list-disc space-y-1 pl-5'>
+            <li>
+              <strong>관리적 조치:</strong> 개인정보 취급자 최소화, 접근 권한 관리, 직원 교육 및
+              수탁자 관리·감독
+            </li>
+            <li>
+              <strong>기술적 조치:</strong> 법령에서 요구하는 개인정보 암호화, 접근 통제, 접속기록
+              보관·점검, 보안 프로그램 운영 및 갱신
+            </li>
+            <li>
+              <strong>물리적 조치:</strong> 개인정보 보관 장소의 출입 통제 및 종이 문서의 잠금장치
+              보관
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h2 className='mb-2 text-lg font-semibold'>제9조 (개인정보 보호책임자 및 문의처)</h2>
+          <p>
+            센터는 개인정보 처리 업무를 총괄하고 회원의 문의 및 고충을 처리하기 위하여 다음과 같이
+            개인정보 보호책임자를 지정합니다.
+          </p>
+          <ul className='mt-2 list-none space-y-1'>
+            <li>이름: 서규형</li>
+            <li>직책: 사업본부장</li>
+            <li>전화번호: 010-2922-8112</li>
+            <li>이메일: rootstudy2025@gmail.com</li>
+          </ul>
+          <p className='mt-3'>
+            회원은 개인정보 보호 관련 문의, 열람 등 권리 행사, 불만 처리 및 피해 구제에 관한 사항을
+            위 연락처로 요청할 수 있습니다.
+          </p>
+        </div>
+
+        <div>
+          <h2 className='mb-2 text-lg font-semibold'>제10조 (개인정보처리방침의 변경)</h2>
+          <p>
+            센터는 관련 법령, 제공 서비스 또는 개인정보 처리 업무의 변경에 따라 본 방침을 개정할 수
+            있습니다.
+          </p>
+          <p className='mt-3'>
+            개정 시에는 변경 내용과 시행일을 홈페이지 또는 공지사항을 통해 안내합니다. 수집·이용
+            목적이나 제3자 제공 사항의 변경으로 별도 동의가 필요한 경우에는 해당 처리를 시작하기
+            전에 동의를 받습니다.
+          </p>
+          <p className='mt-3'>이전 개인정보처리방침은 회원이 확인할 수 있도록 함께 공개합니다.</p>
         </div>
 
         <div className='border-t border-gray-200 pt-6'>
           <h2 className='mb-2 text-lg font-semibold'>부칙</h2>
-          <ul className='list-disc space-y-1 pl-5'>
-            <li>본 개인정보처리방침은 2026년 9월 16일부터 시행됩니다.</li>
-            <li>종전 방침(2024년 12월 26일 시행)은 본 방침의 시행과 동시에 대체됩니다.</li>
-            <li>본 방침에 명시되지 않은 사항은 관련 법령 및 관례에 따릅니다.</li>
-          </ul>
+          <ol className='list-decimal space-y-1 pl-5'>
+            <li>
+              본 개인정보처리방침은 <strong>2026년 9월 16일</strong>부터 시행합니다.
+            </li>
+            <li>
+              종전 개인정보처리방침의 시행일은 <strong>2024년 12월 26일</strong>입니다.
+            </li>
+            <li>
+              기존 회원에 대해서도 새롭게 동의가 필요한 개인정보 수집·이용 및 제3자 제공은 해당
+              동의를 받은 후 시행합니다.
+            </li>
+            <li>본 방침에 명시되지 않은 사항은 「개인정보 보호법」 등 관련 법령에 따릅니다.</li>
+          </ol>
         </div>
       </section>
     </main>
