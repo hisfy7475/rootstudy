@@ -27,6 +27,7 @@ import { AddAdminModal } from './_components/add-admin-modal';
 import { ApprovalModal } from './_components/approval-modal';
 import { ResetAdminPasswordModal } from './_components/reset-admin-password-modal';
 import { ParentAccountModal } from './_components/parent-account-modal';
+import { ResetStudentPasswordModal } from './_components/reset-student-password-modal';
 import { setAdminSuperFlag } from '@/lib/actions/admin';
 import {
   User,
@@ -289,6 +290,7 @@ export function MembersClient({
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<Admin | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<Admin | null>(null);
   const [parentAccountTarget, setParentAccountTarget] = useState<ParentMember | null>(null);
+  const [studentPasswordTarget, setStudentPasswordTarget] = useState<Member | null>(null);
 
   // 카운트는 서버 aggregates 기반 (검색·필터와 무관한 branch 전체 기준)
   const pendingCount = aggregates.approval.pending;
@@ -591,10 +593,7 @@ export function MembersClient({
         >
           <Check className='h-3.5 w-3.5' />
         </button>
-        <button
-          onClick={() => setEditingNameId(null)}
-          className='text-red-500 hover:text-red-600'
-        >
+        <button onClick={() => setEditingNameId(null)} className='text-red-500 hover:text-red-600'>
           <X className='h-3.5 w-3.5' />
         </button>
       </div>
@@ -712,10 +711,7 @@ export function MembersClient({
     <select
       value={member.is_approved ? 'approved' : member.is_rejected ? 'rejected' : 'pending'}
       onChange={(e) =>
-        handleUpdateApprovalStatus(
-          member.id,
-          e.target.value as 'approved' | 'pending' | 'rejected',
-        )
+        handleUpdateApprovalStatus(member.id, e.target.value as 'approved' | 'pending' | 'rejected')
       }
       disabled={loading}
       className={cn(
@@ -736,50 +732,47 @@ export function MembersClient({
   const renderStudentActionCell = (member: Member) => (
     <div className='flex items-center justify-center gap-0.5'>
       {!member.is_approved && !member.is_rejected ? (
-        <>
-          <Button
-            size='sm'
-            onClick={() => handleOpenApproval(member)}
-            disabled={loading}
-            className='h-6 bg-green-600 px-2 text-xs text-white hover:bg-green-700'
-          >
-            <UserPlus className='mr-0.5 h-3 w-3' />
-            승인
-          </Button>
-          <Button
-            size='sm'
-            variant='outline'
-            onClick={() => handleOpenDeleteModal(member, 'student')}
-            disabled={loading}
-            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
-          >
-            <UserMinus className='h-3 w-3' />
-          </Button>
-        </>
+        <Button
+          size='sm'
+          onClick={() => handleOpenApproval(member)}
+          disabled={loading}
+          className='h-6 bg-green-600 px-2 text-xs text-white hover:bg-green-700'
+        >
+          <UserPlus className='mr-0.5 h-3 w-3' />
+          승인
+        </Button>
       ) : (
-        <>
-          {member.is_approved && (
-            <Button
-              size='sm'
-              variant='outline'
-              onClick={() => handleViewDetail(member.id)}
-              disabled={loading}
-              className='h-6 px-1.5'
-            >
-              <Eye className='h-3 w-3' />
-            </Button>
-          )}
+        member.is_approved && (
           <Button
             size='sm'
             variant='outline'
-            onClick={() => handleOpenDeleteModal(member, 'student')}
+            onClick={() => handleViewDetail(member.id)}
             disabled={loading}
-            className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+            className='h-6 px-1.5'
           >
-            <UserMinus className='h-3 w-3' />
+            <Eye className='h-3 w-3' />
           </Button>
-        </>
+        )
       )}
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={() => setStudentPasswordTarget(member)}
+        disabled={loading}
+        className='h-6 px-1.5 text-amber-600 hover:bg-amber-50 hover:text-amber-700'
+        title='비밀번호 재설정'
+      >
+        <Key className='h-3 w-3' />
+      </Button>
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={() => handleOpenDeleteModal(member, 'student')}
+        disabled={loading}
+        className='h-6 border-red-200 px-1.5 text-red-500 hover:bg-red-50 hover:text-red-600'
+      >
+        <UserMinus className='h-3 w-3' />
+      </Button>
     </div>
   );
 
@@ -1134,7 +1127,9 @@ export function MembersClient({
                           <td className='px-2 py-1.5 text-gray-500'>
                             {formatDate(admin.created_at)}
                           </td>
-                          <td className='px-2 py-1.5 text-center'>{renderAdminActionCell(admin)}</td>
+                          <td className='px-2 py-1.5 text-center'>
+                            {renderAdminActionCell(admin)}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -2029,6 +2024,23 @@ export function MembersClient({
           onClose={() => setParentAccountTarget(null)}
           onSuccess={() => {
             router.refresh();
+          }}
+        />
+      )}
+
+      {studentPasswordTarget && (
+        <ResetStudentPasswordModal
+          student={{
+            id: studentPasswordTarget.id,
+            name: studentPasswordTarget.name,
+            email: studentPasswordTarget.email,
+            school: studentPasswordTarget.school,
+            branchName: studentPasswordTarget.branch_name,
+          }}
+          onClose={() => setStudentPasswordTarget(null)}
+          onSuccess={() => {
+            setStudentPasswordTarget(null);
+            alert('비밀번호가 재설정되었습니다. 해당 학생에게 안전하게 전달해 주세요.');
           }}
         />
       )}

@@ -5118,6 +5118,77 @@ export async function resetParentPassword(parentId: string, newPassword: string)
   return { success: true };
 }
 
+// ============================================
+// 학생 계정 관리 (지점 스코프)
+// ============================================
+
+/**
+ * 현재 관리자가 대상 학생을 관리할 수 있는지 판정.
+ * - super_admin: 모두 허용
+ * - 지점 관리자: 그 학생이 본인 지점 소속일 때만 허용
+ *   (학부모와 달리 학생은 profiles.branch_id 가 채워져 있어 직접 비교한다.)
+ */
+async function assertCanManageStudent(
+  studentId: string,
+): Promise<
+  | { ok: true; ctx: NonNullable<Awaited<ReturnType<typeof requireAdminBranch>>> }
+  | { ok: false; error: string }
+> {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { ok: false, error: '관리자 권한이 필요합니다.' };
+
+  const adminClient = createAdminClient();
+  const { data: target } = await adminClient
+    .from('profiles')
+    .select('user_type, branch_id')
+    .eq('id', studentId)
+    .maybeSingle();
+  if (!target || (target as { user_type: string }).user_type !== 'student') {
+    return { ok: false, error: '대상이 학생 계정이 아닙니다.' };
+  }
+
+  if (ctx.isSuperAdmin) return { ok: true, ctx };
+
+  if ((target as { branch_id: string | null }).branch_id !== ctx.branchId) {
+    return { ok: false, error: '다른 지점 학생은 관리할 수 없습니다.' };
+  }
+  return { ok: true, ctx };
+}
+
+/**
+ * 학생 비밀번호 강제 재설정. (감사 로그에는 비밀번호 값 미기록, 발생 사실만)
+ * 학생도 학부모와 같은 Auth 이메일+비밀번호 계정이라 처리 방식이 동일하다.
+ * 기존 앱 로그인 세션은 일부러 끊지 않는다 — 관리자가 새 비밀번호를 본인에게 직접 전달하는 운영.
+ */
+export async function resetStudentPassword(studentId: string, newPassword: string) {
+  const gate = await assertCanManageStudent(studentId);
+  if (!gate.ok) return { error: gate.error };
+  if (newPassword.length < 6) return { error: '비밀번호는 6자 이상이어야 합니다.' };
+
+  const adminClient = createAdminClient();
+  const { error } = await adminClient.auth.admin.updateUserById(studentId, {
+    password: newPassword,
+  });
+  if (error) {
+    if (error.status === 404 || error.code === 'user_not_found') {
+      return { error: '인증 시스템에 등록되지 않은 계정이라 비밀번호를 재설정할 수 없습니다.' };
+    }
+    console.error('Error resetting student password:', error);
+    return { error: '비밀번호 재설정에 실패했습니다.' };
+  }
+
+  await adminClient.from('admin_action_log').insert({
+    actor_id: gate.ctx.userId,
+    target_id: studentId,
+    action: 'student_password_reset',
+    detail: null,
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/members');
+  return { success: true };
+}
+
 export type DuplicateParentAccount = {
   id: string;
   email: string | null;
