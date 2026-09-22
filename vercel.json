@@ -56,7 +56,7 @@
       "statusCode": 301
     },
     {
-      "source": "/:path((?!api/payments|api/cron).*)",
+      "source": "/:path((?!api/payments|api/cron|robots\\.txt).*)",
       "has": [
         {
           "type": "host",
@@ -67,7 +67,7 @@
       "statusCode": 301
     },
     {
-      "source": "/:path((?!api/payments|api/cron).*)",
+      "source": "/:path((?!api/payments|api/cron|robots\\.txt).*)",
       "has": [
         {
           "type": "host",
