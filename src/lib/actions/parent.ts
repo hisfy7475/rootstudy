@@ -6,7 +6,12 @@ import { getStudyDate, getStudyDayBounds, normalizePhone } from '@/lib/utils';
 import { getWeeklyProgress, getWeeklyGoals } from '@/lib/actions/student';
 import { softDeleteUser } from '@/lib/withdraw';
 import { isStudyExcluded } from '@/lib/study-time';
-import { sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } from '@/lib/points';
+import {
+  sumPenaltyOffsetInQuarter,
+  computePenaltyNet,
+  computePenaltyRaw,
+  rowsSinceReset,
+} from '@/lib/points';
 
 // 학생 정보 타입
 export interface LinkedStudent {
@@ -324,15 +329,17 @@ export async function getParentDashboardData(): Promise<{
           .eq('type', 'reward'),
         (await createClient())
           .from('student_profiles')
-          .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
+          .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at, points_reset_at')
           .eq('id', student.id)
           .maybeSingle(),
       ]);
 
+      // 재입반 초기화 이전 벌점은 분기 벌점에서 제외 (DB penalty_quarter_state 와 같은 기준)
+      const quarterRows = rowsSinceReset(quarterPoints.data, profile.data?.points_reset_at);
       const penaltyQuarter = computePenaltyNet(
-        (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0),
+        quarterRows.reduce((s, p) => s + (p.amount ?? 0), 0),
       );
-      const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterPoints.data, quarterStart);
+      const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterRows, quarterStart);
       const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
       const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 
@@ -416,15 +423,15 @@ export async function getParentDashboardDataForStudent(studentId: string): Promi
     supabase.from('points').select('amount').eq('student_id', student.id).eq('type', 'reward'),
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
+      .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at, points_reset_at')
       .eq('id', student.id)
       .maybeSingle(),
   ]);
 
-  const penaltyQuarter = computePenaltyNet(
-    (quarterPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0),
-  );
-  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterPoints.data, qStart);
+  // 재입반 초기화 이전 벌점은 분기 벌점에서 제외 (DB penalty_quarter_state 와 같은 기준)
+  const quarterRows = rowsSinceReset(quarterPoints.data, profile.data?.points_reset_at);
+  const penaltyQuarter = computePenaltyNet(quarterRows.reduce((s, p) => s + (p.amount ?? 0), 0));
+  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(quarterRows, qStart);
   const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
   const rewardBalance = (rewardPoints.data ?? []).reduce((s, p) => s + (p.amount ?? 0), 0);
 

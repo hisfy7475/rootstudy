@@ -231,6 +231,13 @@ export function WithdrawnMembersClient({ rows, total, page, pageSize }: Props) {
               <br />
               복구 시 다시 로그인 가능 상태가 되며, 학생 목록·출결 등 모든 활성 화면에 다시
               노출됩니다.
+              {restoreTarget.user_type === 'student' && (
+                <>
+                  <br />
+                  재입반으로 처리되어 <strong>퇴원 전 상점·벌점은 0점으로 초기화</strong>됩니다.
+                  (과거 내역은 상벌점 기록에 남습니다)
+                </>
+              )}
             </p>
             <div className='space-y-1'>
               <label className='text-sm font-medium'>확인을 위해 회원 이름을 입력해 주세요.</label>

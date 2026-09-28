@@ -705,7 +705,9 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
     query,
     supabase
       .from('student_profiles')
-      .select('withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at')
+      .select(
+        'withdrawal_review_at, withdrawal_required_at, withdrawal_notified_at, points_reset_at',
+      )
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -718,6 +720,10 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   ]);
 
   const allPoints = data || [];
+  const { rowsSinceReset } = await import('@/lib/points');
+  // 요약은 현재 재원 기간(재입반 초기화 이후) 기준. 목록(points)은 초기화 이전 내역도 그대로 보여준다.
+  // 초기화 행이 평생 합계를 0 으로 맞추므로 잔여 상점·누적 벌점은 어느 쪽으로 세도 같다.
+  const currentPoints = rowsSinceReset(allPoints, profile?.points_reset_at);
 
   let rewardLifetime = 0;
   let rewardRedeemed = 0;
@@ -727,7 +733,7 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   let penaltyLifetime = 0;
   // 벌점 행 합 — 상계 행(음수)이 포함되므로 이 값이 곧 잔존(net)이다
   let penaltyQuarterNetSum = 0;
-  for (const p of allPoints) {
+  for (const p of currentPoints) {
     if (p.type === 'reward') {
       rewardBalance += p.amount;
       if (p.event_kind === 'redeem') rewardRedeemed += -p.amount;
@@ -745,7 +751,7 @@ export async function getPoints(filter?: 'reward' | 'penalty' | 'all') {
   // 주의: summary 는 filter 없이 호출될 때만 정확하다(전체 points 가 필요).
   const { sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } =
     await import('@/lib/points');
-  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(allPoints, quarterStart);
+  const penaltyOffsetInQuarter = sumPenaltyOffsetInQuarter(currentPoints, quarterStart);
   const penaltyQuarter = computePenaltyNet(penaltyQuarterNetSum);
   const penaltyQuarterRaw = computePenaltyRaw(penaltyQuarter, penaltyOffsetInQuarter);
 

@@ -156,6 +156,8 @@ export interface Database {
           withdrawal_dismissed_at: string | null;
           withdrawal_dismissed_reason: string | null;
           withdrawal_dismissed_net: number | null;
+          /** 재입반 상벌점 초기화 시각 — 분기 벌점·상계 1회 제한은 이 시각 이후만 센다 */
+          points_reset_at: string | null;
           penalty_offset_in_quarter_total: number;
           threshold_consumed_in_quarter_at: string | null;
           first_check_in_at: string | null;
@@ -186,6 +188,7 @@ export interface Database {
           withdrawal_dismissed_at?: string | null;
           withdrawal_dismissed_reason?: string | null;
           withdrawal_dismissed_net?: number | null;
+          points_reset_at?: string | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -216,6 +219,7 @@ export interface Database {
           withdrawal_dismissed_at?: string | null;
           withdrawal_dismissed_reason?: string | null;
           withdrawal_dismissed_net?: number | null;
+          points_reset_at?: string | null;
           penalty_offset_in_quarter_total?: number;
           threshold_consumed_in_quarter_at?: string | null;
           first_check_in_at?: string | null;
@@ -665,7 +669,8 @@ export interface Database {
             | 'reset_on_threshold_revert'
             | 'redeem'
             | 'offset_against_penalty'
-            | 'offset_against_penalty_revert';
+            | 'offset_against_penalty_revert'
+            | 'reset_on_reenroll';
           study_date: string | null;
         };
         Insert: {
@@ -692,7 +697,8 @@ export interface Database {
             | 'reset_on_threshold_revert'
             | 'redeem'
             | 'offset_against_penalty'
-            | 'offset_against_penalty_revert';
+            | 'offset_against_penalty_revert'
+            | 'reset_on_reenroll';
           study_date?: string | null;
         };
         Update: {
@@ -719,7 +725,8 @@ export interface Database {
             | 'reset_on_threshold_revert'
             | 'redeem'
             | 'offset_against_penalty'
-            | 'offset_against_penalty_revert';
+            | 'offset_against_penalty_revert'
+            | 'reset_on_reenroll';
           study_date?: string | null;
         };
       };

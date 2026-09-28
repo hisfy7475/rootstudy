@@ -28,6 +28,7 @@ import { ApprovalModal } from './_components/approval-modal';
 import { ResetAdminPasswordModal } from './_components/reset-admin-password-modal';
 import { ParentAccountModal } from './_components/parent-account-modal';
 import { ResetStudentPasswordModal } from './_components/reset-student-password-modal';
+import { ResetStudentPointsModal } from './_components/reset-student-points-modal';
 import { setAdminSuperFlag } from '@/lib/actions/admin';
 import {
   User,
@@ -57,6 +58,7 @@ import {
   Key,
   Bell,
   BellOff,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -291,6 +293,7 @@ export function MembersClient({
   const [resetPasswordTarget, setResetPasswordTarget] = useState<Admin | null>(null);
   const [parentAccountTarget, setParentAccountTarget] = useState<ParentMember | null>(null);
   const [studentPasswordTarget, setStudentPasswordTarget] = useState<Member | null>(null);
+  const [studentPointsResetTarget, setStudentPointsResetTarget] = useState<Member | null>(null);
 
   // 카운트는 서버 aggregates 기반 (검색·필터와 무관한 branch 전체 기준)
   const pendingCount = aggregates.approval.pending;
@@ -764,6 +767,18 @@ export function MembersClient({
       >
         <Key className='h-3 w-3' />
       </Button>
+      {member.is_approved && (
+        <Button
+          size='sm'
+          variant='outline'
+          onClick={() => setStudentPointsResetTarget(member)}
+          disabled={loading}
+          className='h-6 px-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700'
+          title='상벌점 초기화 (재입반)'
+        >
+          <RotateCcw className='h-3 w-3' />
+        </Button>
+      )}
       <Button
         size='sm'
         variant='outline'
@@ -2041,6 +2056,26 @@ export function MembersClient({
           onSuccess={() => {
             setStudentPasswordTarget(null);
             alert('비밀번호가 재설정되었습니다. 해당 학생에게 안전하게 전달해 주세요.');
+          }}
+        />
+      )}
+
+      {studentPointsResetTarget && (
+        <ResetStudentPointsModal
+          student={{
+            id: studentPointsResetTarget.id,
+            name: studentPointsResetTarget.name,
+            email: studentPointsResetTarget.email,
+            school: studentPointsResetTarget.school,
+            branchName: studentPointsResetTarget.branch_name,
+          }}
+          onClose={() => setStudentPointsResetTarget(null)}
+          onSuccess={({ rewardCleared, penaltyCleared }) => {
+            setStudentPointsResetTarget(null);
+            alert(
+              `상벌점을 초기화했습니다. (상점 ${rewardCleared}점 · 벌점 ${penaltyCleared}점 → 0점)`,
+            );
+            router.refresh();
           }}
         />
       )}

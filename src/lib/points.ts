@@ -53,10 +53,34 @@ export const PROTECTED_DELETE_EVENT_KINDS = [
   'auto_vocab',
   'offset_against_penalty',
   'offset_against_penalty_revert',
+  'reset_on_reenroll',
 ] as const;
 
 /** PostgREST `.not('event_kind', 'in', ...)` 용 필터 문자열 */
 export const PROTECTED_DELETE_EVENT_KINDS_FILTER = `(${PROTECTED_DELETE_EVENT_KINDS.join(',')})`;
+
+/**
+ * 재입반 초기화 행 — 퇴원 후 재입반 시 평생 합계를 0 으로 맞추는 상점·벌점 한 쌍.
+ * 평생 합계(잔여 상점·누적 벌점)에는 그대로 더해지지만, 분기 벌점·기간 집계에서는 제외한다.
+ * 초기화 시각은 student_profiles.points_reset_at (DB reset_points_on_reenroll 이 기록).
+ */
+export const REENROLL_RESET_EVENT_KIND = 'reset_on_reenroll';
+
+/**
+ * 재입반 초기화 이후 행만 남긴다 (초기화 행 자체도 제외).
+ * 분기 벌점·내역 요약 같은 "현재 재원 기간" 표시용 — DB penalty_quarter_state 와 같은 기준이다.
+ * 초기화 이력이 없으면(resetAt NULL) 초기화 행만 빠지고 나머지는 그대로다.
+ */
+export function rowsSinceReset<
+  T extends { event_kind?: string | null; created_at?: string | null },
+>(rows: T[] | null | undefined, resetAt: string | null | undefined): T[] {
+  const from = resetAt ? new Date(resetAt).getTime() : null;
+  return (rows ?? []).filter((r) => {
+    if (r.event_kind === REENROLL_RESET_EVENT_KIND) return false;
+    if (from !== null && (!r.created_at || new Date(r.created_at).getTime() < from)) return false;
+    return true;
+  });
+}
 
 type PointRowForOffset = {
   type?: string | null;

@@ -31,6 +31,30 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
   );
 }
 
+// 재입반 초기화 이전 행을 걸러낸다 — 지우면 평생 합계가 초기화 행과 어긋나 잔여 상점이 틀어진다.
+// DB 트리거 protect_points_event_kind_delete 가 최종 차단하지만, 일괄 삭제가 통째로 실패하지 않도록
+// 앱에서 먼저 건너뛴다.
+async function excludeRowsBeforeReset<T extends { student_id: string; created_at: string }>(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rows: T[],
+): Promise<T[]> {
+  const studentIds = Array.from(new Set(rows.map((r) => r.student_id)));
+  if (studentIds.length === 0) return rows;
+  const { data } = await supabase
+    .from('student_profiles')
+    .select('id, points_reset_at')
+    .in('id', studentIds)
+    .not('points_reset_at', 'is', null);
+  if (!data || data.length === 0) return rows;
+  const resetAt = new Map(
+    data.map((d) => [d.id as string, new Date(d.points_reset_at!).getTime()]),
+  );
+  return rows.filter((r) => {
+    const from = resetAt.get(r.student_id);
+    return from === undefined || new Date(r.created_at).getTime() >= from;
+  });
+}
+
 // 상벌점 감사 로그 — 부여/취소/삭제를 admin_action_log 에 남긴다.
 //
 // 상계 행이 하드 삭제되어 학생 상태가 깨진 사고가 있었는데, 누가 언제 지웠는지
@@ -38,7 +62,7 @@ function groupById<T extends { student_id: string }>(items: T[]): Record<string,
 // 기록 실패가 본 작업을 되돌리면 안 되므로 항상 catch 로 삼킨다.
 async function logPointsAction(
   actorId: string,
-  action: 'points_grant' | 'points_cancel' | 'points_delete',
+  action: 'points_grant' | 'points_cancel' | 'points_delete' | 'points_reset',
   targetId: string | null,
   detail: Record<string, unknown>,
 ): Promise<void> {
@@ -348,6 +372,7 @@ export async function getAllStudents(
       .from('points')
       .select('student_id, type, amount')
       .in('student_id', studentIds)
+      .neq('event_kind', 'reset_on_reenroll')
       .gte('created_at', todayStart.toISOString())
       .lte('created_at', todayEnd.toISOString()),
   ]);
@@ -635,6 +660,7 @@ export async function getDashboardStudents(params: {
       .from('points')
       .select('student_id, type, amount')
       .in('student_id', studentIds)
+      .neq('event_kind', 'reset_on_reenroll')
       .gte('created_at', todayStart.toISOString())
       .lte('created_at', todayEnd.toISOString()),
   ]);
@@ -1662,7 +1688,7 @@ export async function deletePointsByFilter(params: {
   // 먼저 가져와 student_id IN (...) 조건으로 결합.
   let idsQuery = supabase
     .from('points')
-    .select('id, student_id, type, event_kind', { count: 'exact', head: false });
+    .select('id, student_id, type, event_kind, created_at', { count: 'exact', head: false });
   if (params.type) idsQuery = idsQuery.eq('type', params.type);
   if (params.studentId) idsQuery = idsQuery.eq('student_id', params.studentId);
   if (params.q && params.q.trim()) {
@@ -1689,7 +1715,13 @@ export async function deletePointsByFilter(params: {
   if (idsError) {
     return { success: false, error: '대상 조회 실패', deletedCount: 0 };
   }
-  const rows = (idsData ?? []) as Array<{ id: string; student_id: string; type: string }>;
+  const scannedRows = (idsData ?? []) as Array<{
+    id: string;
+    student_id: string;
+    type: string;
+    created_at: string;
+  }>;
+  const rows = await excludeRowsBeforeReset(supabase, scannedRows);
   if (rows.length === 0) {
     return { success: true, deletedCount: 0 };
   }
@@ -1717,7 +1749,7 @@ export async function deletePointsByFilter(params: {
   revalidatePath('/admin/points');
   revalidatePath('/admin/notifications');
   // 스캔 상한에 걸렸으면 "필터 결과 전체 삭제" 가 아니다. 조용히 남기지 않고 알린다.
-  const truncated = rows.length === DELETE_SCAN_LIMIT;
+  const truncated = scannedRows.length === DELETE_SCAN_LIMIT;
   await logPointsAction(ctx.userId, 'points_delete', null, {
     scope: 'filter',
     filter: params,
@@ -1827,6 +1859,7 @@ export async function getWithdrawalReviewQueue(
       withdrawal_dismissed_reason,
       withdrawal_dismissed_net,
       threshold_consumed_in_quarter_at,
+      points_reset_at,
       profiles!inner (
         name,
         branch_id,
@@ -1853,13 +1886,18 @@ export async function getWithdrawalReviewQueue(
   if (!students || students.length === 0) return [];
 
   const studentIds = students.map((s) => s.id);
-  const { OFFSET_EVENT_KINDS, sumPenaltyOffsetInQuarter, computePenaltyNet, computePenaltyRaw } =
-    await import('@/lib/points');
+  const {
+    OFFSET_EVENT_KINDS,
+    sumPenaltyOffsetInQuarter,
+    computePenaltyNet,
+    computePenaltyRaw,
+    rowsSinceReset,
+  } = await import('@/lib/points');
   const [{ data: penalties }, { data: offsetRows }, { data: lastPoints }, { data: pendings }] =
     await Promise.all([
       supabase
         .from('points')
-        .select('student_id, amount')
+        .select('student_id, amount, event_kind, created_at')
         .in('student_id', studentIds)
         .eq('type', 'penalty')
         .gte('created_at', qStart.toISOString()),
@@ -1886,9 +1924,12 @@ export async function getWithdrawalReviewQueue(
         .in('status', ['requested', 'auto_pending']),
     ]);
 
+  // 재입반 초기화 이전 벌점은 분기 합계에서 제외 (DB penalty_quarter_state 와 같은 기준)
+  const resetAtByStudent = new Map(students.map((s) => [s.id, s.points_reset_at]));
   const penaltyRawByStudent = new Map<string, number>();
-  for (const p of penalties ?? []) {
-    penaltyRawByStudent.set(p.student_id, (penaltyRawByStudent.get(p.student_id) ?? 0) + p.amount);
+  for (const [sid, rows] of Object.entries(groupById(penalties ?? []))) {
+    const sum = rowsSinceReset(rows, resetAtByStudent.get(sid)).reduce((t, p) => t + p.amount, 0);
+    penaltyRawByStudent.set(sid, sum);
   }
   const lastByStudent = new Map<string, { reason: string; amount: number; createdAt: string }>();
   for (const p of lastPoints ?? []) {
@@ -1910,7 +1951,10 @@ export async function getWithdrawalReviewQueue(
     const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
     // 벌점 행 합에 상계(음수)가 이미 포함되어 있으므로 이 값이 잔존(net)이다.
     const net = computePenaltyNet(penaltyRawByStudent.get(s.id) ?? 0);
-    const offset = sumPenaltyOffsetInQuarter(offsetRowsByStudent[s.id] ?? [], qStart);
+    const offset = sumPenaltyOffsetInQuarter(
+      rowsSinceReset(offsetRowsByStudent[s.id], s.points_reset_at),
+      qStart,
+    );
     const raw = computePenaltyRaw(net, offset);
     return {
       studentId: s.id,
@@ -2311,6 +2355,9 @@ export async function cancelPoint(pointId: string, reason?: string) {
   if (result.status === 'protected') {
     return { error: `시스템이 자동 생성한 내역(${result.event_kind})은 취소할 수 없습니다.` };
   }
+  if (result.status === 'before_reset') {
+    return { error: '재입반 초기화 이전 내역은 취소할 수 없습니다.' };
+  }
 
   await logPointsAction(user.id, 'points_cancel', null, {
     point_id: pointId,
@@ -2366,6 +2413,9 @@ export async function deletePoint(pointId: string) {
     return {
       error: '시스템이 자동 생성한 내역은 삭제할 수 없습니다. 관리자에게 문의해주세요.',
     };
+  }
+  if ((await excludeRowsBeforeReset(supabase, [pointData])).length === 0) {
+    return { error: '재입반 초기화 이전 내역은 삭제할 수 없습니다.' };
   }
 
   // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제 (deletePoints와 동일)
@@ -2452,7 +2502,13 @@ export async function deletePoints(pointIds: string[]) {
   // 보호 대상을 걸러낸 결과로 삭제해야 한다.
   // 예전에는 필터링 결과를 조회에만 쓰고 DELETE 는 원본 pointIds 로 실행해서
   // 필터가 사실상 무효였다(상계 행 등이 함께 지워질 수 있었다).
-  const deletableIds = pointsData.map((p) => p.id as string);
+  const deletableRows = await excludeRowsBeforeReset(supabase, pointsData);
+  if (deletableRows.length === 0) {
+    return {
+      error: '삭제할 수 있는 내역이 없습니다. (자동 생성·재입반 초기화 이전 내역은 삭제 불가)',
+    };
+  }
+  const deletableIds = deletableRows.map((p) => p.id as string);
   const skippedCount = pointIds.length - deletableIds.length;
 
   // weekly_point_history에서 참조 중인 point_id를 null로 업데이트하여 참조 해제
@@ -2474,7 +2530,7 @@ export async function deletePoints(pointIds: string[]) {
 
   // 학생들 알림 발송 (인앱+푸시)
   const { createStudentNotification } = await import('./notification');
-  for (const pointData of pointsData) {
+  for (const pointData of deletableRows) {
     await createStudentNotification({
       studentId: pointData.student_id,
       type: 'point',
@@ -2486,7 +2542,7 @@ export async function deletePoints(pointIds: string[]) {
 
   // penalty 삭제 시 학생별 분기 재계산 → 30점 미만이면 자동 검토 취소
   const penaltyStudentIds = Array.from(
-    new Set(pointsData.filter((p) => p.type === 'penalty').map((p) => p.student_id)),
+    new Set(deletableRows.filter((p) => p.type === 'penalty').map((p) => p.student_id)),
   );
   for (const sid of penaltyStudentIds) {
     await maybeRevertWithdrawalReview(supabase, sid).catch(console.error);
@@ -2509,7 +2565,7 @@ export async function deletePoints(pointIds: string[]) {
     ...(skippedCount > 0
       ? {
           skippedCount,
-          warning: `시스템 자동 생성 내역 ${skippedCount}건은 삭제할 수 없어 건너뛰었습니다.`,
+          warning: `시스템 자동 생성·재입반 초기화 이전 내역 ${skippedCount}건은 삭제할 수 없어 건너뛰었습니다.`,
         }
       : {}),
   };
@@ -2763,6 +2819,7 @@ export async function getStudentDetail(studentId: string) {
     .from('points')
     .select('type, amount')
     .eq('student_id', studentId)
+    .neq('event_kind', 'reset_on_reenroll')
     .gte('created_at', thirtyDaysAgo.toISOString());
 
   const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
@@ -5873,6 +5930,7 @@ export async function getAttendanceBoard(
           .select('student_id, amount')
           .in('student_id', pageStudentIds)
           .eq('type', 'penalty')
+          .neq('event_kind', 'reset_on_reenroll')
           .gte('created_at', todayStart.toISOString())
           .lte('created_at', todayEnd.toISOString())
           .order('created_at', { ascending: true })
@@ -6428,6 +6486,50 @@ export async function deleteMember(
 }
 
 // 퇴원 처리된 회원을 복구한다. withdrawn_at 을 NULL 로 되돌리고 Auth ban 을 해제한다.
+// 퇴원 후 재입반 — 상벌점 초기화.
+//
+// 퇴원 전 상점·벌점이 재입반 후에도 그대로 따라오던 문제(2026-09 신준혁 학생 문의).
+// 과거 내역은 지우지 않고 초기화 행(상점·벌점 한 쌍)을 넣어 잔여 상점·누적 벌점을 0 으로 맞추고,
+// 분기 벌점·상계 1회 제한은 초기화 시각 이후만 센다. 퇴원 검토·강제 퇴원 분류도 함께 해제된다.
+// 회원 복구(restoreMember) 시 자동 실행되고, 앱에서 퇴원 처리 없이 다시 다니게 된 학생은
+// 회원관리에서 직접 실행한다.
+export async function resetStudentPointsForReenroll(studentId: string) {
+  const ctx = await requireAdminBranch();
+  if (!ctx) return { error: '관리자 권한이 필요합니다.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('reset_points_on_reenroll', {
+    p_student_id: studentId,
+    p_admin_id: ctx.userId,
+    p_reason: null,
+  });
+
+  if (error) {
+    console.error('reset_points_on_reenroll error:', error);
+    return { error: '상벌점 초기화에 실패했습니다.' };
+  }
+
+  const result = data as {
+    status: string;
+    reward_cleared?: number;
+    penalty_cleared?: number;
+    cancelled_redemptions?: number;
+  };
+  if (result.status !== 'reset') return { error: '학생 정보를 찾을 수 없습니다.' };
+
+  await logPointsAction(ctx.userId, 'points_reset', studentId, { result });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/points');
+  revalidatePath('/admin/members');
+  revalidatePath('/admin/attendance');
+  return {
+    success: true,
+    rewardCleared: result.reward_cleared ?? 0,
+    penaltyCleared: result.penalty_cleared ?? 0,
+  };
+}
+
 export async function restoreMember(userId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
@@ -6462,6 +6564,21 @@ export async function restoreMember(userId: string) {
       return { error: '회원 복구에 실패했습니다.' };
     }
 
+    // 학생 복구 = 재입반 → 퇴원 전 상벌점을 초기화한다 (학생이 아니면 not_a_student 로 no-op)
+    let pointsResetWarning: string | null = null;
+    const { data: resetData, error: resetError } = await supabase.rpc('reset_points_on_reenroll', {
+      p_student_id: userId,
+      p_admin_id: user.id,
+      p_reason: null,
+    });
+    if (resetError) {
+      console.error('Error resetting points on restore:', resetError);
+      pointsResetWarning =
+        '상벌점 초기화에 실패했습니다. 회원관리에서 "상벌점 초기화"를 다시 실행해주세요.';
+    } else if ((resetData as { status?: string } | null)?.status === 'reset') {
+      await logPointsAction(user.id, 'points_reset', userId, { result: resetData, via: 'restore' });
+    }
+
     const { error: authError } = await adminClient.auth.admin.updateUserById(userId, {
       ban_duration: 'none',
     });
@@ -6470,13 +6587,19 @@ export async function restoreMember(userId: string) {
       console.error('Error unbanning auth user:', authError);
       return {
         success: true,
-        warning: '계정 차단 해제(Auth unban)에 실패했습니다. 수동 확인이 필요합니다.',
+        warning: [
+          '계정 차단 해제(Auth unban)에 실패했습니다. 수동 확인이 필요합니다.',
+          pointsResetWarning,
+        ]
+          .filter(Boolean)
+          .join(' '),
       };
     }
 
     revalidatePath('/admin');
     revalidatePath('/admin/members');
-    return { success: true };
+    revalidatePath('/admin/points');
+    return pointsResetWarning ? { success: true, warning: pointsResetWarning } : { success: true };
   } catch (error) {
     console.error('Error in restoreMember:', error);
     return { error: '회원 복구 처리 중 오류가 발생했습니다.' };

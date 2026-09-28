@@ -87,6 +87,17 @@ function getEventVisual(point: PointRecord): {
       amountPrefix: '+',
     };
   }
+  if (kind === 'reset_on_reenroll') {
+    return {
+      icon: <RotateCcw className='h-5 w-5 text-blue-600' />,
+      bgRow: 'bg-blue-50',
+      bgIcon: 'bg-blue-100',
+      labelText: point.type === 'reward' ? '상점 초기화' : '벌점 초기화',
+      labelColor: 'text-blue-700',
+      amountColor: 'text-blue-600',
+      amountPrefix: point.amount >= 0 ? '+' : '',
+    };
+  }
   if (kind === 'manual_cancel') {
     return {
       icon: <Ban className='h-5 w-5 text-gray-500' />,

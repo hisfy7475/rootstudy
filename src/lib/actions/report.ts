@@ -374,6 +374,7 @@ export async function getImmersionReportData(
       id,
       student_type_id,
       seat_number,
+      points_reset_at,
       profiles!inner (
         name,
         branch_id,
@@ -454,7 +455,11 @@ export async function getImmersionReportData(
       .lt('started_at', periodEnd.toISOString()),
     // 기간 필터 없음이 의도다 — 이 카드는 "개인 상벌점 현황 / 누적 상점·누적 벌점" 으로
     // 주간 리포트 안의 평생 누적 스냅샷을 보여준다(다른 카드와 달리 주차 값이 아니다).
-    supabase.from('points').select('type, amount, reason').eq('student_id', studentId),
+    // 재입반 초기화 이후만 — 아래 groupPointsByReason 전에 rowsSinceReset 으로 거른다.
+    supabase
+      .from('points')
+      .select('type, amount, reason, event_kind, created_at')
+      .eq('student_id', studentId),
     supabase
       .from('counseling_reports')
       .select('*')
@@ -572,12 +577,18 @@ export async function getImmersionReportData(
     };
   });
 
+  const { rowsSinceReset } = await import('@/lib/points');
   const points = groupPointsByReason(
-    (pointRows ?? []) as Array<{
-      type: string;
-      amount: number;
-      reason: string | null;
-    }>,
+    rowsSinceReset(
+      (pointRows ?? []) as Array<{
+        type: string;
+        amount: number;
+        reason: string | null;
+        event_kind: string | null;
+        created_at: string;
+      }>,
+      studentRow.points_reset_at,
+    ),
   );
 
   const studyHoursWeekly = dailyData.reduce((sum, d) => sum + d.studySeconds, 0) / 3600;
