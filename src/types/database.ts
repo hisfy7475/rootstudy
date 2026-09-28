@@ -1996,6 +1996,7 @@ export interface Database {
           bio: string | null;
           profile_image_url: string | null;
           is_active: boolean;
+          deleted_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -2009,6 +2010,7 @@ export interface Database {
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -2022,6 +2024,7 @@ export interface Database {
           bio?: string | null;
           profile_image_url?: string | null;
           is_active?: boolean;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

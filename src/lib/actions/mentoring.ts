@@ -817,7 +817,7 @@ async function assertMentorInBranch(
   mentorId: string,
   ctx: AdminBranchContext,
 ): Promise<Mentor | null> {
-  let q = supabase.from('mentors').select('*').eq('id', mentorId);
+  let q = supabase.from('mentors').select('*').eq('id', mentorId).is('deleted_at', null);
   if (!ctx.isSuperAdmin) {
     if (!ctx.branchId) return null;
     q = q.eq('branch_id', ctx.branchId);
@@ -854,7 +854,7 @@ export async function getMentorsForAdmin(): Promise<Mentor[]> {
   const ctx = await requireAdminBranch(supabase);
   if (!ctx) return [];
 
-  let q = supabase.from('mentors').select('*');
+  let q = supabase.from('mentors').select('*').is('deleted_at', null);
   if (!ctx.isSuperAdmin && ctx.branchId) q = q.eq('branch_id', ctx.branchId);
   const { data, error } = await q.order('name', { ascending: true });
 
@@ -960,6 +960,81 @@ export async function updateMentor(
   revalidatePath('/admin/mentoring');
   revalidatePath('/admin/mentoring/mentors');
   return { data: updated as Mentor };
+}
+
+/**
+ * 관리자: 멘토 삭제.
+ * - 예정(오늘 이후) 활성 일정이 있으면 차단 — 신청자가 있을 수 있어 일정부터 정리하게 한다.
+ * - 일정 이력이 전혀 없으면 행 삭제(+프로필 이미지 정리).
+ * - 이력이 있으면 deleted_at 으로 숨김. 지난 신청·결과 기록에는 이름이 그대로 남는다.
+ */
+export async function deleteMentor(
+  mentorId: string,
+): Promise<{ mode?: 'deleted' | 'hidden'; error?: string }> {
+  const supabase = await createClient();
+  const ctx = await requireAdminBranch(supabase);
+  if (!ctx) return { error: '권한이 없습니다.' };
+
+  const mentor = await assertMentorInBranch(supabase, mentorId, ctx);
+  if (!mentor) return { error: '멘토를 찾을 수 없습니다.' };
+
+  const { count: upcoming, error: upErr } = await supabase
+    .from('mentoring_slots')
+    .select('id', { count: 'exact', head: true })
+    .eq('mentor_id', mentorId)
+    .eq('is_active', true)
+    .gte('date', formatDateKST());
+  if (upErr) {
+    logPostgrestQueryError('[deleteMentor] upcoming', upErr);
+    return { error: '멘토 삭제에 실패했습니다.' };
+  }
+  if ((upcoming ?? 0) > 0) {
+    return {
+      error: `예정된 일정 ${upcoming}건이 있어 삭제할 수 없습니다. 주간 일정에서 먼저 삭제하거나 비활성화해 주세요.`,
+    };
+  }
+
+  const { count: total, error: totalErr } = await supabase
+    .from('mentoring_slots')
+    .select('id', { count: 'exact', head: true })
+    .eq('mentor_id', mentorId);
+  if (totalErr) {
+    logPostgrestQueryError('[deleteMentor] total', totalErr);
+    return { error: '멘토 삭제에 실패했습니다.' };
+  }
+
+  let mode: 'deleted' | 'hidden';
+  if ((total ?? 0) === 0) {
+    let delQ = supabase.from('mentors').delete().eq('id', mentorId);
+    if (!ctx.isSuperAdmin && ctx.branchId) delQ = delQ.eq('branch_id', ctx.branchId);
+    const { data: removed, error } = await delQ.select('id');
+    if (error || !removed?.length) {
+      logPostgrestQueryError('[deleteMentor] delete', error);
+      return { error: '멘토 삭제에 실패했습니다.' };
+    }
+    if (mentor.profile_image_url) {
+      const path = mentorImagePathFromPublicUrl(mentor.profile_image_url);
+      if (path) await supabase.storage.from(MENTOR_IMAGES_BUCKET).remove([path]);
+    }
+    mode = 'deleted';
+  } else {
+    const now = new Date().toISOString();
+    let hideQ = supabase
+      .from('mentors')
+      .update({ deleted_at: now, is_active: false, updated_at: now })
+      .eq('id', mentorId);
+    if (!ctx.isSuperAdmin && ctx.branchId) hideQ = hideQ.eq('branch_id', ctx.branchId);
+    const { data: hidden, error } = await hideQ.select('id');
+    if (error || !hidden?.length) {
+      logPostgrestQueryError('[deleteMentor] hide', error);
+      return { error: '멘토 삭제에 실패했습니다.' };
+    }
+    mode = 'hidden';
+  }
+
+  revalidatePath('/admin/mentoring');
+  revalidatePath('/admin/mentoring/mentors');
+  return { mode };
 }
 
 /** 관리자: 기간 내 슬롯 (비활성 포함) */
@@ -1583,7 +1658,8 @@ export async function updateMentoringSlot(
   const existing = await assertSlotInBranch(supabase, slotId, ctx);
   if (!existing) return { error: '슬롯을 찾을 수 없습니다.' };
 
-  if (data.mentor_id) {
+  // 삭제된 멘토의 지난 슬롯도 메모 등은 수정할 수 있도록, 멘토를 바꿀 때만 검사.
+  if (data.mentor_id && data.mentor_id !== existing.mentor_id) {
     const m = await assertMentorInBranch(supabase, data.mentor_id, ctx);
     if (!m) return { error: '멘토를 찾을 수 없습니다.' };
   }

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react';
 import Image from 'next/image';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataCard, DataCardHeader, DataCardList, DataCardRow } from '@/components/ui/data-card';
 import { cn } from '@/lib/utils';
 import { ImagePlus, Loader2 } from 'lucide-react';
@@ -10,6 +11,7 @@ import type { Mentor } from '@/types/database';
 import {
   createMentor,
   updateMentor,
+  deleteMentor,
   uploadMentorProfileImage,
   deleteMentorProfileImage,
   type MentorAdminInput,
@@ -54,6 +56,7 @@ export function AdminMentorsClient({ initialMentors }: Props) {
   });
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -99,6 +102,23 @@ export function AdminMentorsClient({ initialMentors }: Props) {
     setEditingId(null);
     resetImageState();
     setError(null);
+  }
+
+  function removeMentor() {
+    if (!editingId || editingId === 'new') return;
+    const mentorId = editingId;
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteMentor(mentorId);
+      setConfirmDelete(false);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setMentors((prev) => prev.filter((m) => m.id !== mentorId));
+      setEditingId(null);
+      resetImageState();
+    });
   }
 
   function handleImageSelect(e: ChangeEvent<HTMLInputElement>) {
@@ -348,9 +368,32 @@ export function AdminMentorsClient({ initialMentors }: Props) {
             >
               취소
             </button>
+            {editingId !== 'new' && (
+              <button
+                type='button'
+                onClick={() => setConfirmDelete(true)}
+                disabled={pending}
+                className='text-destructive ml-auto rounded-xl px-4 py-2 text-sm font-medium hover:underline disabled:opacity-50'
+              >
+                멘토 삭제
+              </button>
+            )}
           </div>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`${form.name || '멘토'} 선생님을 삭제할까요?`}
+        description={
+          '멘토 목록과 일정 등록 선택지에서 사라집니다.\n지난 멘토링 신청·결과 기록은 그대로 남습니다.\n예정된 일정이 있으면 먼저 정리해야 합니다.'
+        }
+        confirmText='삭제'
+        danger
+        loading={pending}
+        onConfirm={removeMentor}
+        onCancel={() => setConfirmDelete(false)}
+      />
 
       {/* 데스크톱: 표 */}
       <Card className='hidden overflow-x-auto md:block'>
