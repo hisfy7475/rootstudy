@@ -393,7 +393,7 @@ function VariantOption({
       <div className='flex items-center justify-between'>
         <span className='text-sm font-semibold'>
           {variantKindLabel(variant.kind)}
-          {variant.kind === 'recurring' ? ' (월~금 묶음)' : ''}
+          {variant.kind === 'recurring' ? ' (묶음)' : ''}
         </span>
         <span className='text-primary text-sm font-semibold'>
           {variant.price.toLocaleString('ko-KR')}원

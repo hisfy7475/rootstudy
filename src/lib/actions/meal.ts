@@ -7,6 +7,7 @@ import {
   generateExamOrderId,
   generateMealOrderId,
 } from '@/lib/nicepay';
+import { recurringPeriodError } from '@/lib/meal-order-rules';
 import { executeAdminMealOrderCancel, executePaidMealOrderCancel } from '@/lib/meal-payment-cancel';
 import { getUserScope } from '@/lib/auth/scope';
 import { getTodayKST } from '@/lib/utils';
@@ -108,14 +109,6 @@ export type VariantInput = {
   status?: 'active' | 'inactive' | 'sold_out';
 };
 
-/** ISO 요일: 1=월요일 ... 7=일요일 */
-function isoDayOfWeek(ymd: string): number {
-  const d = new Date(`${ymd}T12:00:00+09:00`);
-  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-  // d 는 KST 정오 기준이므로 UTC 요일과 KST 요일은 동일.
-  return dow;
-}
-
 function validateVariantInput(input: VariantInput): string | null {
   if (input.price < 0) return '가격은 0 이상이어야 합니다.';
   if (input.sale_start_date > input.sale_end_date) {
@@ -128,12 +121,7 @@ function validateVariantInput(input: VariantInput): string | null {
     return '최대 인원은 1 이상이어야 합니다.';
   }
   if (input.kind === 'recurring') {
-    if (isoDayOfWeek(input.product_start_date) !== 1) {
-      return '정기 상품은 월요일에 시작해야 합니다.';
-    }
-    if (isoDayOfWeek(input.product_end_date) !== 5) {
-      return '정기 상품은 금요일에 종료해야 합니다.';
-    }
+    return recurringPeriodError(input.product_start_date, input.product_end_date);
   }
   return null;
 }

@@ -19,6 +19,7 @@ import {
   type VariantKind,
   type MealProductWithVariants,
 } from '@/lib/actions/meal';
+import { recurringPeriodError } from '@/lib/meal-order-rules';
 import { uploadMealProductImage } from '@/lib/uploads/meal-client';
 import type { MealProduct, MealProductVariant } from '@/types/database';
 import { CalendarDays, ListOrdered, Loader2, Plus, Trash2 } from 'lucide-react';
@@ -32,13 +33,6 @@ const STATUS_LABEL: Record<MealProduct['status'], string> = {
   inactive: '비활성',
   sold_out: '마감',
 };
-
-function isoDayOfWeek(ymd: string): number | null {
-  if (!ymd) return null;
-  const d = new Date(`${ymd}T12:00:00+09:00`);
-  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-  return dow;
-}
 
 function emptyVariantForm(): VariantInput & { _editingId?: string } {
   return {
@@ -158,12 +152,11 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
       return setVariantError('날짜를 모두 입력하세요.');
     }
     if (variantForm.kind === 'recurring') {
-      if (isoDayOfWeek(variantForm.product_start_date) !== 1) {
-        return setVariantError('정기 옵션은 월요일에 시작해야 합니다.');
-      }
-      if (isoDayOfWeek(variantForm.product_end_date) !== 5) {
-        return setVariantError('정기 옵션은 금요일에 종료해야 합니다.');
-      }
+      const periodErr = recurringPeriodError(
+        variantForm.product_start_date,
+        variantForm.product_end_date,
+      );
+      if (periodErr) return setVariantError(periodErr);
     }
 
     setVariantLoading(true);
@@ -490,11 +483,11 @@ export function AdminMealsDetailClient({ product: initial }: AdminMealsDetailCli
                 }
               >
                 <option value='one_time'>일일</option>
-                <option value='recurring'>정기 (월~금 묶음)</option>
+                <option value='recurring'>정기 (여러 날 묶음)</option>
               </select>
               {variantForm.kind === 'recurring' && (
                 <p className='mt-1 text-xs text-amber-600'>
-                  정기 옵션은 식사 시작=월요일, 종료=금요일이어야 합니다.
+                  정기 옵션의 식사 기간은 같은 주 월~금 안에서 정합니다. (예: 월~목, 수~금)
                 </p>
               )}
             </div>

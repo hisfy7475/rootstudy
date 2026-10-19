@@ -18,12 +18,43 @@ export type CancelDecision = { ok: true } | { ok: false; reason: CancelReason };
  */
 export const INACTIVE_REFUND_BLOCK_EFFECTIVE_AT = new Date('2026-07-27T00:00:00+09:00').getTime();
 
+/** ISO 요일: 1=월요일 ... 7=일요일. 형식이 잘못된 날짜면 null. */
+function isoDayOfWeek(ymd: string): number | null {
+  const d = new Date(`${ymd}T12:00:00+09:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  // d 는 KST 정오 기준이므로 UTC 요일과 KST 요일은 동일.
+  return d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+}
+
+/**
+ * 정기(recurring) 옵션의 식사 기간 검증 — 같은 주 월~금 안의 연속 기간이어야 한다.
+ * (공휴일·내신기간 등으로 3일분·4일분을 운영하므로 월요일 시작/금요일 종료를 강제하지 않는다.)
+ * DB CHECK meal_variant_recurring_weekday_chk 와 같은 규칙.
+ */
+export function recurringPeriodError(startYmd: string, endYmd: string): string | null {
+  const startDow = isoDayOfWeek(startYmd);
+  const endDow = isoDayOfWeek(endYmd);
+  if (startDow == null || endDow == null) return '식사 기간 날짜를 확인해 주세요.';
+  if (startDow > 5 || endDow > 5) {
+    return '정기 옵션의 식사 시작·종료일은 월~금 중에서 선택해야 합니다.';
+  }
+  const days = Math.round(
+    (new Date(`${endYmd}T12:00:00+09:00`).getTime() -
+      new Date(`${startYmd}T12:00:00+09:00`).getTime()) /
+      86_400_000,
+  );
+  if (days !== endDow - startDow) {
+    return '정기 옵션의 식사 기간은 같은 주 안에서 끝나야 합니다.';
+  }
+  return null;
+}
+
 /**
  * 주문 취소 가능 여부 판정.
  *
  * - 모의고사(category='exam'): 결제 후 즉시 취소 불가
- * - 정기 메뉴(kind='recurring'): 식사 시작 월요일의 직전 주 금요일까지 취소 가능
- *   (start_date - 3일 = 직전 금요일. 일자 단위 비교로 자정 경계 자연 처리)
+ * - 정기 메뉴(kind='recurring'): 식사 시작일이 속한 주의 직전 주 금요일까지 취소 가능
+ *   (시작 요일과 무관. 월요일 시작이면 start_date - 3일. 일자 단위 비교로 자정 경계 자연 처리)
  * - 일일 메뉴(kind='one_time'): 식사일 2일 전까지 취소 가능
  * - 상품이 비활성(status='inactive'): 셀프 환불 불가 (관리자 강제 취소는 별도 경로로 계속 가능).
  *   단 INACTIVE_REFUND_BLOCK_EFFECTIVE_AT 이후 결제분에만 적용한다(소급 없음).
@@ -52,7 +83,7 @@ export function canCancelOrder(input: {
 
   if (input.variantKind === 'recurring') {
     const start = new Date(`${input.productStart}T12:00:00+09:00`);
-    const friday = subDays(start, 3);
+    const friday = subDays(start, (isoDayOfWeek(input.productStart) ?? 1) + 2);
     const fridayStr = friday.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
     if (today > fridayStr) return { ok: false, reason: 'recurring_deadline' };
   } else {

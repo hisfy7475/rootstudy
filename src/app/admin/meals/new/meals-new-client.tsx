@@ -12,15 +12,9 @@ import {
   type MealProductCreateInput,
   type VariantKind,
 } from '@/lib/actions/meal';
+import { recurringPeriodError } from '@/lib/meal-order-rules';
 import { uploadMealProductImage } from '@/lib/uploads/meal-client';
 import { ArrowLeft, ImagePlus, Loader2, X } from 'lucide-react';
-
-function isoDayOfWeek(ymd: string): number | null {
-  if (!ymd) return null;
-  const d = new Date(`${ymd}T12:00:00+09:00`);
-  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-  return dow;
-}
 
 export function AdminMealsNewClient({
   isSuperAdmin,
@@ -79,12 +73,8 @@ export function AdminMealsNewClient({
     }
 
     if (form.variantKind === 'recurring') {
-      if (isoDayOfWeek(form.product_start_date) !== 1) {
-        return setError('정기 옵션은 월요일에 시작해야 합니다.');
-      }
-      if (isoDayOfWeek(form.product_end_date) !== 5) {
-        return setError('정기 옵션은 금요일에 종료해야 합니다.');
-      }
+      const periodErr = recurringPeriodError(form.product_start_date, form.product_end_date);
+      if (periodErr) return setError(periodErr);
     }
 
     const maxRaw = form.max_capacity.trim();
@@ -279,11 +269,11 @@ export function AdminMealsNewClient({
                 }
               >
                 <option value='one_time'>일일 (단일 결제)</option>
-                <option value='recurring'>정기 (월~금 묶음)</option>
+                <option value='recurring'>정기 (여러 날 묶음)</option>
               </select>
               {form.variantKind === 'recurring' && (
                 <p className='mt-1 text-xs text-amber-600'>
-                  정기 옵션은 식사 시작=월요일, 종료=금요일이어야 합니다.
+                  정기 옵션의 식사 기간은 같은 주 월~금 안에서 정합니다. (예: 월~목, 수~금)
                 </p>
               )}
             </div>
