@@ -385,8 +385,11 @@ export async function GET(request: Request) {
             if (unErr) console.error('[caps-sync] user_notifications insert', unErr);
           }
 
+          // 학부모가 즉시 받아야 하는 알림 — 안드로이드 절전 중 지연을 막으려 high 로 보낸다.
           await Promise.allSettled(
-            [...pushGroups.values()].map((g) => sendPushToUsers(g.userIds, g.title, g.body)),
+            [...pushGroups.values()].map((g) =>
+              sendPushToUsers(g.userIds, g.title, g.body, undefined, { priority: 'high' }),
+            ),
           );
         } catch (notifError) {
           console.error('[caps-sync] attendance notification error', notifError);

@@ -56,6 +56,17 @@ type ExpoReceiptResponse = {
 /** 토큰 + 소유자. 발송 로그에 user_id 를 남기려고 함께 들고 다닌다. */
 type PushTarget = { token: string; userId: string | null };
 
+/**
+ * 발송 옵션. priority 미지정 시 Expo 기본값(안드로이드 normal, iOS high)을 따른다.
+ * 안드로이드 normal 은 절전(Doze) 중인 단말을 깨우지 않아 화면을 켤 때까지 수십 분
+ * 늦게 표시될 수 있으므로, 즉시성이 중요한 알림(입실·퇴실)은 'high' 로 보낸다.
+ */
+export type PushOptions = {
+  sound?: 'default';
+  badge?: number;
+  priority?: 'default' | 'normal' | 'high';
+};
+
 type DeliveryLogRow = {
   user_id: string | null;
   expo_push_token: string;
@@ -82,6 +93,7 @@ async function postExpoBatch(
     sound?: 'default';
     data?: PushDataPayload;
     badge?: number;
+    priority?: PushOptions['priority'];
   }>,
 ): Promise<ExpoPushTicket[]> {
   const res = await fetch(EXPO_PUSH_URL, {
@@ -153,7 +165,7 @@ async function sendPushToTargets(
   title: string,
   body: string,
   data?: PushDataPayload,
-  options?: { sound?: 'default'; badge?: number },
+  options?: PushOptions,
 ): Promise<void> {
   // 같은 토큰이 두 계정에 물려 있으면 한 번만 보낸다(기기 기준 중복 알림 방지).
   const seen = new Set<string>();
@@ -172,6 +184,7 @@ async function sendPushToTargets(
       sound: options?.sound ?? ('default' as const),
       data: data ?? undefined,
       ...(options?.badge !== undefined ? { badge: options.badge } : {}),
+      ...(options?.priority ? { priority: options.priority } : {}),
     }));
 
     const tickets = await postExpoBatch(messages);
@@ -232,7 +245,7 @@ export async function sendPush(
   title: string,
   body: string,
   data?: PushDataPayload,
-  options?: { sound?: 'default'; badge?: number },
+  options?: PushOptions,
 ): Promise<void> {
   const targets = tokens.filter(Boolean).map((token) => ({ token, userId: null }));
   await sendPushToTargets(targets, title, body, data, options);
@@ -279,9 +292,10 @@ export async function sendPushToUsers(
   title: string,
   body: string,
   data?: PushDataPayload,
+  options?: PushOptions,
 ): Promise<void> {
   const targets = await getActiveTargetsForUsers(userIds);
-  await sendPushToTargets(targets, title, body, data);
+  await sendPushToTargets(targets, title, body, data, options);
 }
 
 /**
