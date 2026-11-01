@@ -245,6 +245,11 @@ export default function ExternalApiClient({ initialKeys, branches }: Props) {
       <p className='text-xs text-gray-500'>
         호출 주소: <code>/api/external/v1/students</code>, <code>/points</code>,{' '}
         <code>/study-time</code> · 키당 분당 60회까지 · 응답은 발급 지점의 재원생으로 한정됩니다.
+        업체에는 인증키와 함께{' '}
+        <a href='/developers' target='_blank' className='text-primary underline'>
+          연동 안내 페이지(/developers)
+        </a>{' '}
+        주소를 전달해 주세요. 키를 넣고 바로 호출해 볼 수 있습니다.
       </p>
 
       <ConfirmDialog
