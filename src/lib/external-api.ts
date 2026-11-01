@@ -34,12 +34,15 @@ export function generateApiKey(): { key: string; hash: string; prefix: string } 
 /**
  * 외부 업체에 넘길 이름. masked 는 가운데 글자를 가린다.
  * 홍길동 → 홍*동, 김민 → 김*, 남궁민수 → 남**수
+ *
+ * 운영 이름에는 `홍길동(N)`·`홍길동74`·`홍길동 실장님` 처럼 센터가 붙인 꼬리가 있다(2026-11 기준 약 20%).
+ * 그대로 가리면 `홍****)` 가 되므로, masked 는 앞쪽 한글 이름만 남겨 가린다(꼬리는 학년과 중복이거나 식별 단서).
  */
 export function displayName(name: string, mode: NameDisplay): string {
   const n = name.trim();
   if (mode === 'full') return n;
-  const chars = [...n];
-  if (chars.length <= 1) return n;
+  const chars = [...(n.match(/^[가-힣]+/)?.[0] ?? n)];
+  if (chars.length <= 1) return chars.join('');
   if (chars.length === 2) return `${chars[0]}*`;
   return chars[0] + '*'.repeat(chars.length - 2) + chars[chars.length - 1];
 }
