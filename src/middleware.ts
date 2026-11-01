@@ -13,6 +13,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // 외부 연동 API — 로그인 세션이 아니라 인증키로 검증한다(라우트의 withExternalApi).
+  if (pathname.startsWith('/api/external/')) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
