@@ -33,7 +33,7 @@ export function generateApiKey(): { key: string; hash: string; prefix: string } 
 
 /**
  * 외부 업체에 넘길 이름. masked 는 가운데 글자를 가린다.
- * 홍길동 → 홍*동, 김민 → 김*, 남궁민수 → 남**수
+ * 홍길동 → 홍○동, 김민 → 김○, 남궁민수 → 남○○수 (○: 사이니지 자간 때문에 클라이언트 요청, 2026-11-03)
  *
  * 운영 이름에는 `홍길동(N)`·`홍길동74`·`홍길동 실장님` 처럼 센터가 붙인 꼬리가 있다(2026-11 기준 약 20%).
  * 그대로 가리면 `홍****)` 가 되므로, masked 는 앞쪽 한글 이름만 남겨 가린다(꼬리는 학년과 중복이거나 식별 단서).
@@ -43,8 +43,23 @@ export function displayName(name: string, mode: NameDisplay): string {
   if (mode === 'full') return n;
   const chars = [...(n.match(/^[가-힣]+/)?.[0] ?? n)];
   if (chars.length <= 1) return chars.join('');
-  if (chars.length === 2) return `${chars[0]}*`;
-  return chars[0] + '*'.repeat(chars.length - 2) + chars[chars.length - 1];
+  if (chars.length === 2) return `${chars[0]}${MASK}`;
+  return chars[0] + MASK.repeat(chars.length - 2) + chars[chars.length - 1];
+}
+
+const MASK = '○';
+
+/**
+ * 학생으로 등록된 직원·테스트 계정. 사이니지 명단·순위에서 뺀다(클라이언트 요청, 2026-11-03).
+ * 운영에서는 `홍길동 실장님`·`김경임센터장` 처럼 이름 뒤에 직함을 붙여 등록한다.
+ * 이름(2~4자) 뒤에 직함이 붙은 경우만 보므로 `이원장` 같은 실제 이름은 걸리지 않는다.
+ */
+export function isStaffLikeName(name: string): boolean {
+  const n = name.trim();
+  return (
+    /^[가-힣]{2,4}\s*(실장|팀장|센터장|본부장|부원장|원장|매니저|선생|직원|관리자)(님)?$/.test(n) ||
+    n.includes('테스트')
+  );
 }
 
 function errorJson(status: number, code: string, message: string, headers?: HeadersInit) {
@@ -145,7 +160,7 @@ export type ExternalStudent = {
   seat_number: number | null;
 };
 
-/** 지점 재원생(승인·미퇴원). 모든 엔드포인트가 이 명단을 기준으로 응답한다. */
+/** 지점 재원생(승인·미퇴원, 직원·테스트 계정 제외). 모든 엔드포인트가 이 명단을 기준으로 응답한다. */
 export async function fetchBranchStudents(ctx: ExternalApiContext): Promise<ExternalStudent[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -165,6 +180,10 @@ export async function fetchBranchStudents(ctx: ExternalApiContext): Promise<Exte
   if (error) throw new Error(`fetchBranchStudents: ${error.message}`);
 
   return (data ?? [])
+    .filter((s) => {
+      const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+      return !isStaffLikeName((p?.name as string) ?? '');
+    })
     .map((s) => {
       const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
       const t = Array.isArray(s.student_types) ? s.student_types[0] : s.student_types;

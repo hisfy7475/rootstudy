@@ -134,7 +134,7 @@ X-API-Key: rsk_xxxxxxxxxxxxxxxx`}</pre>
           <h3 className='font-semibold'>3-1. 학생 명단 — GET /students</h3>
           <pre className={PRE}>{`{
   "data": [
-    { "id": "04ac14f9-...", "name": "박*준", "grade": "고3", "seat_number": 1 }
+    { "id": "04ac14f9-...", "name": "박○준", "grade": "고3", "seat_number": 1 }
   ],
   "meta": { "generated_at": "2026-11-01T04:34:23.972Z", "count": 152 }
 }`}</pre>
@@ -142,7 +142,7 @@ X-API-Key: rsk_xxxxxxxxxxxxxxxx`}</pre>
           <h3 className='pt-4 font-semibold'>3-2. 누적 획득 상점 — GET /points</h3>
           <pre className={PRE}>{`{
   "data": [
-    { "id": "3c7b9747-...", "name": "류*서", "grade": "고3", "seat_number": 58,
+    { "id": "3c7b9747-...", "name": "류○서", "grade": "고3", "seat_number": 58,
       "earned_total": 101, "balance": 101 }
   ],
   "meta": { "generated_at": "2026-11-01T04:35:36.209Z", "count": 122 }
@@ -164,7 +164,7 @@ GET ${BASE}/study-time?from=2026-10-26&to=2026-11-01
 
 {
   "data": [
-    { "id": "67ccae80-...", "name": "김*민", "grade": "N수생", "seat_number": 12,
+    { "id": "67ccae80-...", "name": "김○민", "grade": "N수생", "seat_number": 12,
       "study_seconds": 280560, "study_minutes": 4676 }
   ],
   "meta": { "generated_at": "...", "count": 26, "from": "2026-10-26", "to": "2026-11-01" }
@@ -214,7 +214,7 @@ GET ${BASE}/study-time?from=2026-10-26&to=2026-11-01
               ],
               [
                 'name',
-                '학생 이름. 지점 설정에 따라 실명 또는 가운데를 가린 형태(예: 홍*동)로 제공됩니다.',
+                '학생 이름. 지점 설정에 따라 실명 또는 가운데를 가린 형태(예: 홍○동)로 제공됩니다.',
               ],
               ['grade', '학년(학생 유형). 미지정이면 null.'],
               ['seat_number', '좌석 번호. 미지정이면 null.'],

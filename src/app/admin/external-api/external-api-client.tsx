@@ -20,7 +20,7 @@ import {
 type NameDisplay = ExternalApiKey['name_display'];
 
 const NAME_DISPLAY_OPTIONS = [
-  { value: 'masked', label: '가운데 가림 (홍*동)' },
+  { value: 'masked', label: '가운데 가림 (홍○동)' },
   { value: 'full', label: '실명 (홍길동)' },
 ];
 
