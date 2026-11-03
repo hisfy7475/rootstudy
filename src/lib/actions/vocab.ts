@@ -320,13 +320,27 @@ async function loadActiveWords(
 }
 
 /**
+ * 뜻 문자열 → 비교용 뜻 조각 집합. "휴양지, 의지; 의지하다" 처럼 `,` `;` 로 나열된 뜻을 쪼개고,
+ * "~에 의지하다" 의 앞머리 "~에 " 와 공백을 지워 "의지하다" 와 같은 조각으로 본다.
+ */
+function meaningSenses(meaning: string): Set<string> {
+  return new Set(
+    meaning
+      .split(/[,;]/)
+      .map((s) => s.replace(/^~\S*\s+/, '').replace(/\s+/g, ''))
+      .filter(Boolean),
+  );
+}
+
+/**
  * 문항 + 4지선다 보기 생성. 단어/뜻 부족 시 { ok:false }.
  * - 평일: 그 주(월~목) 아직 출제되지 않은 단어 우선 40개 → 4일에 걸쳐 160개 중복 없이 커버.
  *   미출제분이 40개 미만이면(꾸러미 활성 단어 < 160 또는 주 후반) 이미 출제분으로 40개를 채운다.
  * - 금요일 + 그 주 오답 있음: 오답 단어 **전체** 출제(40 상한·랜덤 보충 없음, 문항 수=오답 수).
  * - 금요일 + 오답 0: 평일과 동일 분기(servedWordIds 가 비어 사실상 랜덤 40 fallback).
  * 보기(distractor): 정답 단어와 problem_group 이 하나라도 겹치는(교집합) 단어의 뜻을 1순위로,
- *   부족분(< OPTIONS_COUNT-1)은 활성 단어 전체 뜻에서 보충한다. 단일 Set 누적으로
+ *   부족분(< OPTIONS_COUNT-1)은 활성 단어 전체 뜻에서 보충한다. 정답과 뜻 조각이 겹치는 뜻은
+ *   제외한다(정답이 둘이 되는 것 방지 — 겹치지 않는 뜻이 모자랄 때만 허용). 단일 Set 누적으로
  *   정답 제외·뜻 중복 제거·정확히 OPTIONS_COUNT-1개 확보를 한 불변식으로 보장한다
  *   (그룹 NULL/소규모·금요일 가변 문항 모두 전체 보충으로 안전).
  */
@@ -373,13 +387,17 @@ function buildQuestionSet(
   const NEED = OPTIONS_COUNT - 1; // 오답 보기 개수(=3)
   const questions: BuiltQuestion[] = chosen.map((word, idx) => {
     const answer = word.korean_primary;
+    const answerSenses = meaningSenses(answer);
+    // 정답과 뜻 조각이 하나라도 같으면(예: 정답 "의지하다, 믿다" ↔ 보기 "의지하다") 정답이 둘이 되므로 오답 보기에서 뺀다.
+    const overlaps = (m: string): boolean => [...meaningSenses(m)].some((s) => answerSenses.has(s));
     // 단일 Set 누적: 정답 제외 + 뜻 중복 제거 + 정확히 NEED 개 확보를 한 불변식으로 보장.
     const picked = new Set<string>();
-    const tryAdd = (candidates: string[]): void => {
+    const tryAdd = (candidates: string[], allowOverlap = false): void => {
       for (const m of shuffle(candidates)) {
-        if (m === answer || picked.has(m)) continue;
-        picked.add(m);
         if (picked.size === NEED) return;
+        if (m === answer || picked.has(m)) continue;
+        if (!allowOverlap && overlaps(m)) continue;
+        picked.add(m);
       }
     };
     // 1순위: 정답 단어와 그룹이 겹치는(교집합) 단어 뜻.
@@ -391,6 +409,8 @@ function buildQuestionSet(
     tryAdd(groupPool);
     // 2순위(부족분): 활성 단어 전체 뜻에서 보충.
     if (picked.size < NEED) tryAdd(allMeanings);
+    // 최후 수단: 겹치지 않는 뜻이 모자라면(소규모 꾸러미) 시험 생성 실패 대신 겹침을 허용한다.
+    if (picked.size < NEED) tryAdd(allMeanings, true);
 
     const options = shuffle([answer, ...picked]);
     return {
